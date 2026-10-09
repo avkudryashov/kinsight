@@ -1,0 +1,129 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "4ab30b45bbf5a66b2ff5082fd3c61197",
+    "entities": [
+      {
+        "tableName": "entries",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`author` TEXT NOT NULL, `seq` INTEGER NOT NULL, `bytes` BLOB NOT NULL, `supersede_key` TEXT, `membership` INTEGER NOT NULL, `usage_date` TEXT, PRIMARY KEY(`author`, `seq`))",
+        "fields": [
+          {
+            "fieldPath": "author",
+            "columnName": "author",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "seq",
+            "columnName": "seq",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bytes",
+            "columnName": "bytes",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "supersedeKey",
+            "columnName": "supersede_key",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "membership",
+            "columnName": "membership",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "usageDate",
+            "columnName": "usage_date",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "author",
+            "seq"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_entries_supersede_key",
+            "unique": true,
+            "columnNames": [
+              "supersede_key"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_entries_supersede_key` ON `${TABLE_NAME}` (`supersede_key`)"
+          },
+          {
+            "name": "index_entries_membership",
+            "unique": false,
+            "columnNames": [
+              "membership"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_entries_membership` ON `${TABLE_NAME}` (`membership`)"
+          }
+        ]
+      },
+      {
+        "tableName": "vector_contig",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`author` TEXT NOT NULL, `contig` INTEGER NOT NULL, PRIMARY KEY(`author`))",
+        "fields": [
+          {
+            "fieldPath": "author",
+            "columnName": "author",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contig",
+            "columnName": "contig",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "author"
+          ]
+        }
+      },
+      {
+        "tableName": "vector_above",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`author` TEXT NOT NULL, `seq` INTEGER NOT NULL, PRIMARY KEY(`author`, `seq`))",
+        "fields": [
+          {
+            "fieldPath": "author",
+            "columnName": "author",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "seq",
+            "columnName": "seq",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "author",
+            "seq"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '4ab30b45bbf5a66b2ff5082fd3c61197')"
+    ]
+  }
+}

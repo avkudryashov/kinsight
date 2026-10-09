@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 rootProject.name = "kinsight"
 include(":core:crypto", ":core:model", ":core:sync", ":core:testing")
 include(":core:keystore")
+include(":core:database")
