@@ -185,8 +185,9 @@ object Membership {
                         false
                     } else {
                         removedForever += id
-                        memberCut[id] = minOf(memberCut[id] ?: op.remove!!.last_seq, op.remove!!.last_seq)
-                        val lastSeq = op.remove!!.last_seq
+                        // The genesis entry (seq 1) is always effective, so its author's cutoff is never below 1.
+                        val lastSeq = if (id == genesis.author) maxOf(1L, op.remove!!.last_seq) else op.remove!!.last_seq
+                        memberCut[id] = minOf(memberCut[id] ?: lastSeq, lastSeq)
                         val gone = active.remove(id)
                         if (gone != null) {
                             departed[id] = Departed(gone, lastSeq)

@@ -354,4 +354,61 @@ class MembershipTest {
         assertEquals(2L, state.departed.getValue(bobKeys.deviceId).lastSeq)
         assertFalse(state.acceptsEntryFrom(bobKeys.deviceId, 3))
     }
+
+    @Test
+    fun creatorRemovedWithLastSeqZeroKeepsGenesis() {
+        val g = TestGroup()
+        val bobKeys = DeviceKeys.generate()
+        val entries = mutableListOf(g.genesis.entry)
+        entries += g.creator.addMember(bobKeys) // P seq 2
+        entries += g.creator.setAdmin(bobKeys.deviceId, true) // P seq 3
+        entries += g.newAuthor(bobKeys).removeMember(g.creatorKeys.deviceId, lastSeq = 0)
+        val state = Membership.compute(g.groupId, entries)!!
+        assertConsistent(state)
+        assertTrue(g.genesis.entry in state.effectiveEntries)
+        assertEquals(1L, state.departed.getValue(g.creatorKeys.deviceId).lastSeq)
+        assertTrue(state.acceptsEntryFrom(g.creatorKeys.deviceId, 1))
+        assertFalse(state.acceptsEntryFrom(g.creatorKeys.deviceId, 2))
+        val rnd = Random(11)
+        repeat(5) { assertEquals(state, Membership.compute(g.groupId, entries.shuffled(rnd))) }
+    }
+
+    @Test
+    fun randomGroupsAreConsistentAndOrderIndependent() {
+        val baseSeed = 20261009L
+        repeat(1500) { i ->
+            val seed = baseSeed + i
+            val rnd = Random(seed)
+            val g = TestGroup()
+            val others = List(rnd.nextInt(2, 6)) { DeviceKeys.generate() } // 3..6 devices with the creator
+            val all = listOf(g.creatorKeys) + others
+            val authors = mutableMapOf(g.creatorKeys.deviceId to g.creator)
+            fun author(k: DeviceKeys) = authors.getOrPut(k.deviceId) { g.newAuthor(k) }
+            val entries = mutableListOf(g.genesis.entry)
+            for (k in others) entries += g.creator.addMember(k)
+            for (k in others) if (rnd.nextInt(3) > 0) entries += g.creator.setAdmin(k.deviceId, true)
+            repeat(rnd.nextInt(3, 11)) {
+                // Mostly forward, sometimes backdated timestamps.
+                g.clock.now += if (rnd.nextInt(4) == 0) -rnd.nextLong(1, 20) else rnd.nextLong(0, 3)
+                val a = author(all.random(rnd))
+                val target = all.random(rnd).deviceId
+                entries += when (rnd.nextInt(5)) {
+                    0, 1 -> a.removeMember(target, lastSeq = rnd.nextLong(0, 12))
+                    2 -> a.setAdmin(target, rnd.nextBoolean(), lastSeq = rnd.nextLong(0, 12))
+                    3 -> a.addMember(DeviceKeys.generate(), "n")
+                    else -> a.leave()
+                }
+            }
+            val state = assertNotNull(Membership.compute(g.groupId, entries), "seed=$seed")
+            try {
+                assertConsistent(state)
+                for (e in state.effectiveEntries) {
+                    assertTrue(state.acceptsEntryFrom(e.author, e.seq), "effective $e not accepted")
+                }
+                repeat(3) { assertEquals(state, Membership.compute(g.groupId, entries.shuffled(rnd))) }
+            } catch (t: AssertionError) {
+                throw AssertionError("seed=$seed: ${t.message}", t)
+            }
+        }
+    }
 }
