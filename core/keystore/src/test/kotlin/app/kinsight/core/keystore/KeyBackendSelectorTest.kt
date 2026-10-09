@@ -6,25 +6,31 @@ import app.kinsight.core.crypto.Signer
 import app.kinsight.core.crypto.X25519
 import app.kinsight.core.model.DeviceKeys
 import java.io.File
+import java.nio.channels.FileChannel
+import java.nio.channels.OverlappingFileLockException
 import java.nio.file.Files
+import java.nio.file.StandardOpenOption
+import java.util.concurrent.CancellationException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 private class FakeBackend(
     override val kind: KeyBackendKind,
-    var createError: Exception? = null,
+    var createError: Throwable? = null,
     var keysFactory: () -> DeviceKeys = { DeviceKeys.generate() },
 ) : KeyBackend {
     var stored: DeviceKeys? = null
+    var loadError: Exception? = null
     @Volatile var createCalls = 0
     var deleteCalls = 0
 
@@ -34,7 +40,7 @@ private class FakeBackend(
         return keysFactory().also { stored = it }
     }
 
-    override fun load(): DeviceKeys = stored ?: throw KeyStorageException("no ${kind.name} keys")
+    override fun load(): DeviceKeys = loadError?.let { throw it } ?: stored ?: throw KeyStorageException("no ${kind.name} keys")
 
     override fun delete() {
         deleteCalls++
@@ -43,10 +49,22 @@ private class FakeBackend(
 }
 
 private class MemoryChoiceStore(var value: BackendChoice? = null) : BackendChoiceStore {
-    override fun read() = value
+    var pending = false
+
+    override fun read(): ChoiceState = value?.let { ChoiceState.Chosen(it) }
+        ?: if (pending) ChoiceState.Pending else ChoiceState.Absent
+
+    override fun writePending() {
+        value = null
+        pending = true
+    }
+
     override fun write(choice: BackendChoice) {
         value = choice
+        pending = false
     }
+
+    override fun <T> exclusive(block: () -> T): T = block()
 }
 
 private fun keysWithBrokenSigner(): DeviceKeys {
@@ -115,6 +133,7 @@ class KeyBackendSelectorTest {
         software.keysFactory = ::keysWithBrokenDh
         assertFailsWith<KeyStorageException> { selector.select() }
         assertNull(choice.value)
+        assertTrue(choice.pending)
     }
 
     @Test
@@ -158,12 +177,75 @@ class KeyBackendSelectorTest {
 
     @Test
     fun interruptedFirstRunStartsOver() {
-        keystore.create() // keys were made, then the process died before the choice was written
+        // The previous first run marked the choice pending, made keys, then died before the choice was written.
+        choice.writePending()
+        keystore.create()
         val s = selector.select()
         assertTrue(s.firstRun)
         assertEquals(2, keystore.createCalls)
         assertEquals(keystore.stored!!.sign.publicKey.toList(), s.keys.sign.publicKey.toList())
-        assertNotNull(choice.value)
+        assertEquals(BackendChoice(KeyBackendKind.KEYSTORE, null), choice.value)
+        assertFalse(choice.pending)
+    }
+
+    @Test
+    fun firstRunMarksPendingBeforeCreatingKeys() {
+        var stateAtCreate: ChoiceState? = null
+        keystore.keysFactory = { stateAtCreate = choice.read(); DeviceKeys.generate() }
+        selector.select()
+        assertEquals(ChoiceState.Pending, stateAtCreate)
+    }
+
+    @Test
+    fun lostChoiceWithExistingKeystoreKeysFailsLoudly() {
+        keystore.stored = DeviceKeys.generate()
+        val e = assertFailsWith<KeyStorageException> { selector.select() }
+        assertTrue("without a backend choice" in e.message!!, e.message)
+        assertEquals(0, keystore.createCalls)
+        assertEquals(0, software.createCalls)
+        assertEquals(0, keystore.deleteCalls)
+        assertEquals(ChoiceState.Absent, choice.read())
+    }
+
+    @Test
+    fun lostChoiceWithExistingSoftwareKeysFailsLoudly() {
+        software.stored = DeviceKeys.generate()
+        assertFailsWith<KeyStorageException> { selector.select() }
+        assertEquals(0, keystore.createCalls)
+        assertEquals(0, software.createCalls)
+        assertEquals(0, software.deleteCalls)
+        assertEquals(ChoiceState.Absent, choice.read())
+    }
+
+    @Test
+    fun persistedChoiceWithUnexpectedLoadFailureIsKeyStorageException() {
+        choice.value = BackendChoice(KeyBackendKind.KEYSTORE, null)
+        keystore.loadError = IllegalStateException("TEE gone")
+        val e = assertFailsWith<KeyStorageException> { selector.select() }
+        assertTrue(e.cause is IllegalStateException)
+        assertEquals(0, keystore.createCalls)
+        assertEquals(0, software.createCalls)
+    }
+
+    @Test
+    fun firstRunDoesNotFallBackOnErrorOrCancellation() {
+        for (t in listOf<Throwable>(OutOfMemoryError("test"), CancellationException("cancelled"))) {
+            keystore.createError = t
+            val thrown = assertFails { selector.select() }
+            assertSame(t, thrown)
+            assertEquals(0, software.createCalls)
+            assertNull(choice.value)
+        }
+    }
+
+    @Test
+    fun keystoreFirstRunDeletesStaleSoftwareKeys() {
+        choice.writePending()
+        software.stored = DeviceKeys.generate()
+        val s = selector.select()
+        assertEquals(KeyBackendKind.KEYSTORE, s.kind)
+        assertNull(software.stored)
+        assertEquals(1, software.deleteCalls)
     }
 
     @Test
@@ -190,20 +272,52 @@ class KeyBackendSelectorTest {
     @Test
     fun choiceFileRoundTripsAndFlattensReason() {
         val store = FileChoiceStore(File(dir, "choice"))
-        assertNull(store.read())
+        assertEquals(ChoiceState.Absent, store.read())
         store.write(BackendChoice(KeyBackendKind.SOFTWARE, "line one\nline two"))
-        assertEquals(BackendChoice(KeyBackendKind.SOFTWARE, "line one line two"), store.read())
+        assertEquals(ChoiceState.Chosen(BackendChoice(KeyBackendKind.SOFTWARE, "line one line two")), store.read())
         store.write(BackendChoice(KeyBackendKind.KEYSTORE, null))
-        assertEquals(BackendChoice(KeyBackendKind.KEYSTORE, null), FileChoiceStore(File(dir, "choice")).read())
+        assertEquals(ChoiceState.Chosen(BackendChoice(KeyBackendKind.KEYSTORE, null)), FileChoiceStore(File(dir, "choice")).read())
+    }
+
+    @Test
+    fun choiceFileRoundTripsPending() {
+        val store = FileChoiceStore(File(dir, "choice"))
+        store.writePending()
+        assertEquals(ChoiceState.Pending, FileChoiceStore(File(dir, "choice")).read())
+        store.write(BackendChoice(KeyBackendKind.SOFTWARE, "why"))
+        assertEquals(ChoiceState.Chosen(BackendChoice(KeyBackendKind.SOFTWARE, "why")), store.read())
+    }
+
+    @Test
+    fun choiceFileNamesShorterThanThreeCharsAreRejected() {
+        assertFailsWith<IllegalArgumentException> { FileChoiceStore(File(dir, "ch")) }
+    }
+
+    @Test
+    fun exclusiveHoldsAnOsLockOnASiblingFile() {
+        val store = FileChoiceStore(File(dir, "choice"))
+        val lockFile = File(dir, "choice.lock")
+        store.exclusive {
+            assertTrue(lockFile.exists())
+            FileChannel.open(lockFile.toPath(), StandardOpenOption.WRITE).use { ch ->
+                assertFailsWith<OverlappingFileLockException> { ch.tryLock() }
+            }
+        }
+        FileChannel.open(lockFile.toPath(), StandardOpenOption.WRITE).use { ch -> ch.tryLock()!!.release() }
     }
 
     @Test
     fun corruptChoiceFailsLoudly() {
         val file = File(dir, "choice")
         val store = FileChoiceStore(file)
-        for (garbage in listOf("", "v1\n", "v2\nKEYSTORE\n", "v1\nTPM\n", "\u0000\u0001")) {
+        val corrupt = listOf(
+            "", "v1\n", "v2\nKEYSTORE\n", "v1\nTPM\n", "\u0000\u0001",
+            "v1\nKEYSTORE\nsome reason", "v1\nPENDING\nsome reason",
+        )
+        for (garbage in corrupt) {
             file.writeText(garbage)
             assertFailsWith<KeyStorageException>("content: $garbage") { store.read() }
+            assertFailsWith<KeyStorageException>("content: $garbage") { KeyBackendSelector(store, keystore, software).select() }
         }
         val selector = KeyBackendSelector(store, keystore, software)
         assertFailsWith<KeyStorageException> { selector.select() }
