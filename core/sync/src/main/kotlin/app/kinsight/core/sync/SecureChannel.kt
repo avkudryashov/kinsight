@@ -6,7 +6,11 @@ import app.kinsight.core.crypto.X25519KeyPair
 import app.kinsight.core.model.GroupId
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
+import java.io.IOException
 import java.nio.ByteBuffer
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 class SecureChannel private constructor(
     private val stream: ByteStream,
@@ -39,30 +43,51 @@ class SecureChannel private constructor(
         fun prologue(groupId: GroupId): ByteArray =
             "kinsight".encodeToByteArray() + groupId.bytes() + ByteBuffer.allocate(4).putInt(PROTOCOL_FAMILY).array()
 
-        suspend fun initiate(stream: ByteStream, staticKey: X25519KeyPair, prologue: ByteArray): SecureChannel {
+        val HANDSHAKE_TIMEOUT: Duration = 30.seconds
+
+        /** Runs the initiator side; a peer that stalls longer than [handshakeTimeout] gives an IOException. */
+        suspend fun initiate(
+            stream: ByteStream,
+            staticKey: X25519KeyPair,
+            prologue: ByteArray,
+            handshakeTimeout: Duration = HANDSHAKE_TIMEOUT,
+        ): SecureChannel {
             val hs = NoiseHandshake.initiator(staticKey, prologue)
-            try {
+            handshake(stream, handshakeTimeout) {
                 Frames.write(stream, hs.writeMessage())
                 hs.readMessage(Frames.read(stream))
                 Frames.write(stream, hs.writeMessage())
-            } catch (e: Exception) {
-                stream.close()
-                throw e
             }
             return SecureChannel(stream, hs.split(), hs.remoteStaticPublicKey!!)
         }
 
-        suspend fun accept(stream: ByteStream, staticKey: X25519KeyPair, prologue: ByteArray): SecureChannel {
+        /** Runs the responder side; a peer that stalls longer than [handshakeTimeout] gives an IOException. */
+        suspend fun accept(
+            stream: ByteStream,
+            staticKey: X25519KeyPair,
+            prologue: ByteArray,
+            handshakeTimeout: Duration = HANDSHAKE_TIMEOUT,
+        ): SecureChannel {
             val hs = NoiseHandshake.responder(staticKey, prologue)
-            try {
+            handshake(stream, handshakeTimeout) {
                 hs.readMessage(Frames.read(stream))
                 Frames.write(stream, hs.writeMessage())
                 hs.readMessage(Frames.read(stream))
+            }
+            return SecureChannel(stream, hs.split(), hs.remoteStaticPublicKey!!)
+        }
+
+        private suspend fun handshake(stream: ByteStream, timeout: Duration, steps: suspend () -> Unit) {
+            val finished = try {
+                withTimeoutOrNull(timeout) { steps() } != null // null only when our own timeout fired
             } catch (e: Exception) {
                 stream.close()
                 throw e
             }
-            return SecureChannel(stream, hs.split(), hs.remoteStaticPublicKey!!)
+            if (!finished) {
+                stream.close()
+                throw IOException("handshake timed out after $timeout")
+            }
         }
     }
 }

@@ -7,11 +7,15 @@ import app.kinsight.core.model.GroupGenesis
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 class SecureChannelTest {
     private val groupId = GroupGenesis.create(DeviceKeys.generate(), "g").groupId
@@ -76,6 +80,20 @@ class SecureChannelTest {
             assertEquals(true, ca.await().exceptionOrNull() is IOException)
             assertEquals(true, cb.await().exceptionOrNull() is IOException)
         }
+    }
+
+    @Test
+    fun silentPeerTimesOutHandshakeOnBothRoles(): Unit = runBlocking {
+        val (sa, _) = MemoryPipe.pair()
+        val (_, sb) = MemoryPipe.pair()
+        val initiator = assertFailsWith<IOException> {
+            withTimeout(5.seconds) { SecureChannel.initiate(sa, X25519.generate(), prologue, handshakeTimeout = 200.milliseconds) }
+        }
+        assertTrue("timed out" in initiator.message.orEmpty(), "got $initiator")
+        val responder = assertFailsWith<IOException> {
+            withTimeout(5.seconds) { SecureChannel.accept(sb, X25519.generate(), prologue, handshakeTimeout = 200.milliseconds) }
+        }
+        assertTrue("timed out" in responder.message.orEmpty(), "got $responder")
     }
 
     @Test
