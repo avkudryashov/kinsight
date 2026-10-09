@@ -1,8 +1,8 @@
 package app.kinsight.core.sync
 
+import app.kinsight.core.crypto.DhKey
 import app.kinsight.core.crypto.NoiseHandshake
 import app.kinsight.core.crypto.NoiseTransport
-import app.kinsight.core.crypto.DhKey
 import app.kinsight.core.model.GroupId
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
