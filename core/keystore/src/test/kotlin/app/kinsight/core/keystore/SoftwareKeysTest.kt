@@ -9,6 +9,7 @@ import javax.crypto.SecretKey
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
+import kotlin.test.assertFails
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -93,5 +94,77 @@ class SoftwareKeysTest {
     fun noTempFileIsLeftBehind() {
         keys.create()
         assertEquals(listOf("keys.bin"), dir.list()!!.toList())
+    }
+
+    @Test
+    fun wrapRejectsDifferentAad() {
+        val wrap = AesGcmWrap { aesKey }
+        val sealed = wrap.seal(ByteArray(8) { 1 }, "a".encodeToByteArray())
+        assertFails { wrap.open(sealed, "b".encodeToByteArray()) }
+    }
+
+    @Test
+    fun twoSealsUseDifferentIvs() {
+        val wrap = AesGcmWrap { aesKey }
+        val aad = "a".encodeToByteArray()
+        val one = wrap.seal(ByteArray(8), aad)
+        val two = wrap.seal(ByteArray(8), aad)
+        assertNotEquals(one.copyOf(12).toHex(), two.copyOf(12).toHex())
+    }
+
+    @Test
+    fun flippedMagicByteFailsLoudly() {
+        keys.create()
+        val bytes = file.readBytes()
+        bytes[0] = (bytes[0].toInt() xor 1).toByte()
+        file.writeBytes(bytes)
+        assertFailsWith<KeyStorageException> { keys.load() }
+    }
+
+    @Test
+    fun flippedIvByteFailsLoudly() {
+        keys.create()
+        val bytes = file.readBytes()
+        bytes[4] = (bytes[4].toInt() xor 1).toByte()
+        file.writeBytes(bytes)
+        assertFailsWith<KeyStorageException> { keys.load() }
+    }
+
+    @Test
+    fun writeUnderRegularFileSurfacesAsStorageException() {
+        val blocker = File(dir, "blocker").apply { writeText("x") }
+        assertFailsWith<KeyStorageException> { SoftwareKeys(File(blocker, "keys.bin"), AesGcmWrap { aesKey }).create() }
+    }
+
+    @Test
+    fun writeIntoReadOnlyDirectorySurfacesAsStorageException() {
+        val ro = File(dir, "ro").apply { mkdirs() }
+        ro.setWritable(false)
+        try {
+            assertFailsWith<KeyStorageException> { SoftwareKeys(File(ro, "keys.bin"), AesGcmWrap { aesKey }).create() }
+        } finally {
+            ro.setWritable(true)
+        }
+    }
+
+    @Test
+    fun targetWithoutParentDirectoryIsStorageException() {
+        assertFailsWith<KeyStorageException> { writeAtomically(File("/"), ByteArray(1)) }
+    }
+
+    @Test
+    fun deleteFailureIsReported() {
+        file.mkdirs()
+        File(file, "child").writeText("x")
+        assertFailsWith<KeyStorageException> { keys.delete() }
+    }
+
+    @Test
+    fun deleteAlsoRemovesStaleTempFiles() {
+        keys.create()
+        val stale = File(dir, "keys.bin12345.tmp").apply { writeText("half") }
+        keys.delete()
+        assertFalse(stale.exists())
+        assertEquals(emptyList(), dir.list()!!.toList())
     }
 }

@@ -50,7 +50,8 @@ class SoftwareKeys(
     }
 
     override fun delete() {
-        file.delete()
+        if (file.exists() && !file.delete()) throw KeyStorageException("cannot delete ${file.name}")
+        staleTempFiles(file).forEach { it.delete() }
     }
 
     private fun keysOf(seed: ByteArray, dhPrivate: ByteArray) =
