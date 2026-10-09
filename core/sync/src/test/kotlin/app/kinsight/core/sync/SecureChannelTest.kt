@@ -15,7 +15,7 @@ import kotlin.test.assertFailsWith
 
 class SecureChannelTest {
     private val groupId = GroupGenesis.create(DeviceKeys.generate(), "g").groupId
-    private val prologue = SecureChannel.prologue(groupId, 1)
+    private val prologue = SecureChannel.prologue(groupId)
 
     @Test
     fun handshakeAndExchange() = runBlocking {
@@ -48,7 +48,7 @@ class SecureChannelTest {
 
     @Test
     fun differentGroupsFailHandshake() = runBlocking {
-        val other = SecureChannel.prologue(GroupGenesis.create(DeviceKeys.generate(), "x").groupId, 1)
+        val other = SecureChannel.prologue(GroupGenesis.create(DeviceKeys.generate(), "x").groupId)
         val (sa, sb) = MemoryPipe.pair()
         coroutineScope {
             val ca = async { runCatching { SecureChannel.initiate(sa, X25519.generate(), prologue) } }
@@ -58,6 +58,13 @@ class SecureChannelTest {
             val failure = ra.exceptionOrNull() ?: rb.exceptionOrNull()
             assertEquals(true, failure is CryptoException || failure is IOException, "got $failure")
         }
+    }
+
+    @Test
+    fun prologueBindsGroupAndProtocolFamilyOnly() {
+        val expected = "kinsight".encodeToByteArray() + groupId.bytes() + byteArrayOf(0, 0, 0, 1)
+        assertContentEquals(expected, SecureChannel.prologue(groupId))
+        assertEquals(1, SecureChannel.PROTOCOL_FAMILY)
     }
 
     @Test

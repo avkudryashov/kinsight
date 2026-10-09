@@ -29,8 +29,15 @@ class SecureChannel private constructor(
     companion object {
         const val MAX_PLAINTEXT = 65_000
 
-        fun prologue(groupId: GroupId, protocolVersion: Int): ByteArray =
-            "kinsight".encodeToByteArray() + groupId.bytes() + ByteBuffer.allocate(4).putInt(protocolVersion).array()
+        /**
+         * Wire-format family bound into the handshake. It changes only on a break so deep that peers cannot
+         * even exchange Hello; the exact [PROTOCOL_VERSION] travels inside the encrypted Hello instead, so a
+         * version mismatch reaches Reject(PROTOCOL_VERSION) rather than failing the handshake.
+         */
+        const val PROTOCOL_FAMILY = 1
+
+        fun prologue(groupId: GroupId): ByteArray =
+            "kinsight".encodeToByteArray() + groupId.bytes() + ByteBuffer.allocate(4).putInt(PROTOCOL_FAMILY).array()
 
         suspend fun initiate(stream: ByteStream, staticKey: X25519KeyPair, prologue: ByteArray): SecureChannel {
             val hs = NoiseHandshake.initiator(staticKey, prologue)

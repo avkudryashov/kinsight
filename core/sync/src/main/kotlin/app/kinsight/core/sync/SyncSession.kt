@@ -41,6 +41,7 @@ sealed interface SessionResult {
 class SyncSession(
     private val store: EntryStore,
     private val policy: SyncPolicy,
+    private val protocolVersion: Int = PROTOCOL_VERSION,
     private val idleTimeout: Duration = 30.seconds,
     private val sessionTimeout: Duration = 5.minutes,
     private val log: (String) -> Unit = {},
@@ -95,7 +96,7 @@ class SyncSession(
             ch,
             SyncMessage(
                 hello = Hello(
-                    protocol_version = PROTOCOL_VERSION,
+                    protocol_version = protocolVersion,
                     group_id = groupBytes,
                     membership_hash = ourHash,
                     vector = store.versionVector().toProto(),
@@ -106,10 +107,12 @@ class SyncSession(
         val first = receive(ch)
         first.reject?.let { return@coroutineScope SessionResult.Rejected(it.reason, byPeer = true) }
         val hello = first.hello ?: throw ProtocolException("expected hello")
-        if (hello.protocol_version != PROTOCOL_VERSION) {
+        if (hello.protocol_version != protocolVersion) {
             reject(ch, Reject.Reason.PROTOCOL_VERSION)
             return@coroutineScope SessionResult.Rejected(Reject.Reason.PROTOCOL_VERSION, byPeer = false)
         }
+        // Defensive only: groupId is bound into the Noise prologue, so peers of another group already
+        // fail the handshake. Kept in case a transport ever authenticates the channel differently.
         if (hello.group_id != groupBytes) {
             reject(ch, Reject.Reason.WRONG_GROUP)
             return@coroutineScope SessionResult.Rejected(Reject.Reason.WRONG_GROUP, byPeer = false)

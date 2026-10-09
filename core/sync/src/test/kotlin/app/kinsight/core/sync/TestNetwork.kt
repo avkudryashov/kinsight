@@ -51,15 +51,17 @@ suspend fun syncPair(
     b: Node,
     faults: LinkFaults = LinkFaults(),
     capacity: Int = Channel.UNLIMITED,
+    versionA: Int = PROTOCOL_VERSION,
+    versionB: Int = PROTOCOL_VERSION,
 ): Pair<SessionResult, SessionResult> = coroutineScope {
     val (sa, sb) = MemoryPipe.pair(faults, capacity)
-    val prologue = SecureChannel.prologue(a.store.groupId, PROTOCOL_VERSION)
+    val prologue = SecureChannel.prologue(a.store.groupId)
     val ra = async {
-        runCatching { SyncSession(a.store, a.policy).run(SecureChannel.initiate(sa, a.keys.dh, prologue)) }
+        runCatching { SyncSession(a.store, a.policy, protocolVersion = versionA).run(SecureChannel.initiate(sa, a.keys.dh, prologue)) }
             .getOrElse { SessionResult.Failed(it) }
     }
     val rb = async {
-        runCatching { SyncSession(b.store, b.policy).run(SecureChannel.accept(sb, b.keys.dh, prologue)) }
+        runCatching { SyncSession(b.store, b.policy, protocolVersion = versionB).run(SecureChannel.accept(sb, b.keys.dh, prologue)) }
             .getOrElse { SessionResult.Failed(it) }
     }
     ra.await() to rb.await()

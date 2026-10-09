@@ -147,6 +147,14 @@ class SyncSessionTest {
     }
 
     @Test
+    fun protocolVersionMismatchIsRejectedOnBothSides() = runBlocking {
+        val (a, b) = buildGroup(2)
+        val (ra, rb) = syncPair(a, b, versionA = 1, versionB = 2)
+        assertEquals(SessionResult.Rejected(Reject.Reason.PROTOCOL_VERSION, byPeer = false), ra)
+        assertEquals(SessionResult.Rejected(Reject.Reason.PROTOCOL_VERSION, byPeer = false), rb)
+    }
+
+    @Test
     fun nonMemberIsRejected() = runBlocking {
         val (a, _) = buildGroup(2)
         val strangerKeys = DeviceKeys.generate()
