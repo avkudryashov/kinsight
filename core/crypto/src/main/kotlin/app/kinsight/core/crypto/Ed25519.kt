@@ -5,7 +5,9 @@ import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import org.bouncycastle.crypto.signers.Ed25519Signer
 import java.security.SecureRandom
 
-class Ed25519KeyPair(val privateKey: ByteArray, val publicKey: ByteArray)
+class Ed25519KeyPair(val privateKey: ByteArray, override val publicKey: ByteArray) : Signer {
+    override fun sign(message: ByteArray): ByteArray = Ed25519.sign(privateKey, message)
+}
 
 object Ed25519 {
     fun generate(random: SecureRandom = SecureRandom()): Ed25519KeyPair =

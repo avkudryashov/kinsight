@@ -5,7 +5,9 @@ import org.bouncycastle.crypto.params.X25519PrivateKeyParameters
 import org.bouncycastle.crypto.params.X25519PublicKeyParameters
 import java.security.SecureRandom
 
-class X25519KeyPair(val privateKey: ByteArray, val publicKey: ByteArray)
+class X25519KeyPair(val privateKey: ByteArray, override val publicKey: ByteArray) : DhKey {
+    override fun agree(peerPublicKey: ByteArray): ByteArray = X25519.agree(privateKey, peerPublicKey)
+}
 
 object X25519 {
     fun generate(random: SecureRandom = SecureRandom()): X25519KeyPair =

@@ -77,7 +77,7 @@ internal class SymmetricState(prologue: ByteArray) {
 
 class NoiseHandshake private constructor(
     private val initiator: Boolean,
-    private val s: X25519KeyPair,
+    private val s: DhKey,
     prologue: ByteArray,
     private val newEphemeral: () -> X25519KeyPair,
 ) {
@@ -108,13 +108,13 @@ class NoiseHandshake private constructor(
                 val eph = newEphemeral().also { e = it }
                 out.write(eph.publicKey)
                 ss.mixHash(eph.publicKey)
-                ss.mixKey(X25519.agree(eph.privateKey, re!!)) // ee
+                ss.mixKey(eph.agree(re!!)) // ee
                 out.write(ss.encryptAndHash(s.publicKey)) // s
-                ss.mixKey(X25519.agree(s.privateKey, re!!)) // es
+                ss.mixKey(s.agree(re!!)) // es
             }
             2 -> {
                 out.write(ss.encryptAndHash(s.publicKey)) // s
-                ss.mixKey(X25519.agree(s.privateKey, re!!)) // se
+                ss.mixKey(s.agree(re!!)) // se
             }
         }
         out.write(ss.encryptAndHash(payload))
@@ -136,15 +136,15 @@ class NoiseHandshake private constructor(
             }
             1 -> {
                 re = take(DH_LEN).also { ss.mixHash(it) }
-                ss.mixKey(X25519.agree(e!!.privateKey, re!!)) // ee
+                ss.mixKey(e!!.agree(re!!)) // ee
                 val rs = ss.decryptAndHash(take(DH_LEN + TAG_LEN)) // s
                 remoteStaticPublicKey = rs
-                ss.mixKey(X25519.agree(e!!.privateKey, rs)) // es
+                ss.mixKey(e!!.agree(rs)) // es
             }
             2 -> {
                 val rs = ss.decryptAndHash(take(DH_LEN + TAG_LEN)) // s
                 remoteStaticPublicKey = rs
-                ss.mixKey(X25519.agree(e!!.privateKey, rs)) // se
+                ss.mixKey(e!!.agree(rs)) // se
             }
         }
         val payload = ss.decryptAndHash(message.copyOfRange(off, message.size))
@@ -160,13 +160,13 @@ class NoiseHandshake private constructor(
 
     companion object {
         fun initiator(
-            s: X25519KeyPair,
+            s: DhKey,
             prologue: ByteArray,
             newEphemeral: () -> X25519KeyPair = { X25519.generate() },
         ) = NoiseHandshake(true, s, prologue, newEphemeral)
 
         fun responder(
-            s: X25519KeyPair,
+            s: DhKey,
             prologue: ByteArray,
             newEphemeral: () -> X25519KeyPair = { X25519.generate() },
         ) = NoiseHandshake(false, s, prologue, newEphemeral)

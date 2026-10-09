@@ -40,9 +40,12 @@ class EntryAuthor(
             "fill must not change the entry header"
         }
         val bodyBytes = EntryBody.ADAPTER.encode(body)
+        val signature = keys.sign.sign(bodyBytes)
+        // A faulty hardware key must not burn a seq on an entry no peer would accept.
+        check(Ed25519.verify(keys.sign.publicKey, bodyBytes, signature)) { "signer produced an invalid signature" }
         val signed = SignedEntry(
             body = bodyBytes.toByteString(),
-            signature = Ed25519.sign(keys.sign.privateKey, bodyBytes).toByteString(),
+            signature = signature.toByteString(),
         )
         lastSeq = base.seq
         lastLamport = maxOf(base.lamport, body.lamport)

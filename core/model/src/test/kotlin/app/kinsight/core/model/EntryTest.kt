@@ -1,5 +1,8 @@
 package app.kinsight.core.model
 
+import app.kinsight.core.crypto.Ed25519
+import app.kinsight.core.crypto.Signer
+import app.kinsight.core.crypto.X25519
 import app.kinsight.core.model.proto.Heartbeat
 import app.kinsight.core.model.proto.MembershipOp
 import app.kinsight.core.model.proto.StateEvent
@@ -9,6 +12,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -16,6 +20,34 @@ class EntryTest {
     private val keys = DeviceKeys.generate()
     private val genesis = GroupGenesis.create(keys, "Mom", clock = { 1_000L })
     private val author = EntryAuthor(genesis.groupId, keys, lastSeq = 1, clock = { 2_000L })
+
+    @Test
+    fun entriesSignedThroughOpaqueSignerVerify() {
+        val inner = Ed25519.generate()
+        val opaque = object : Signer {
+            override val publicKey: ByteArray = inner.publicKey.copyOf()
+            override fun sign(message: ByteArray): ByteArray = inner.sign(message)
+        }
+        val k = DeviceKeys(opaque, X25519.generate())
+        val g = GroupGenesis.create(k, "Opaque")
+        assertTrue(g.entry.verifySignature(k.sign.publicKey))
+        assertEquals(k.deviceId, g.entry.author)
+        assertNotNull(Membership.compute(g.groupId, listOf(g.entry)))
+    }
+
+    @Test
+    fun brokenSignerFailsWithoutConsumingSeq() {
+        val inner = Ed25519.generate()
+        val broken = object : Signer {
+            override val publicKey: ByteArray = inner.publicKey.copyOf()
+            override fun sign(message: ByteArray): ByteArray = ByteArray(64)
+        }
+        val a = EntryAuthor(genesis.groupId, DeviceKeys(broken, X25519.generate()), lastSeq = 4)
+        assertFailsWith<IllegalStateException> {
+            a.create { it.copy(heartbeat = Heartbeat(app_version = "1", protocol_version = 1)) }
+        }
+        assertEquals(4L, a.lastSeq)
+    }
 
     @Test
     fun genesisIsSelfConsistent() {

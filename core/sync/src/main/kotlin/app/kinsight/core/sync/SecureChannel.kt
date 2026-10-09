@@ -2,7 +2,7 @@ package app.kinsight.core.sync
 
 import app.kinsight.core.crypto.NoiseHandshake
 import app.kinsight.core.crypto.NoiseTransport
-import app.kinsight.core.crypto.X25519KeyPair
+import app.kinsight.core.crypto.DhKey
 import app.kinsight.core.model.GroupId
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -48,7 +48,7 @@ class SecureChannel private constructor(
         /** Runs the initiator side; a peer that stalls longer than [handshakeTimeout] gives an IOException. */
         suspend fun initiate(
             stream: ByteStream,
-            staticKey: X25519KeyPair,
+            staticKey: DhKey,
             prologue: ByteArray,
             handshakeTimeout: Duration = HANDSHAKE_TIMEOUT,
         ): SecureChannel {
@@ -64,7 +64,7 @@ class SecureChannel private constructor(
         /** Runs the responder side; a peer that stalls longer than [handshakeTimeout] gives an IOException. */
         suspend fun accept(
             stream: ByteStream,
-            staticKey: X25519KeyPair,
+            staticKey: DhKey,
             prologue: ByteArray,
             handshakeTimeout: Duration = HANDSHAKE_TIMEOUT,
         ): SecureChannel {
