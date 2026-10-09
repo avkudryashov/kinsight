@@ -1,0 +1,125 @@
+syntax = "proto3";
+
+package kinsight.v1;
+
+option java_package = "app.kinsight.core.model.proto";
+
+message SignedEntry {
+  bytes body = 1;       // encoded EntryBody
+  bytes signature = 2;  // Ed25519 over body bytes
+}
+
+message EntryBody {
+  bytes group_id = 1;
+  bytes author_id = 2;
+  uint64 seq = 3;
+  int64 created_at_ms = 4;
+  oneof payload {
+    UsageSummary usage_summary = 10;
+    UsageDetail usage_detail = 11;
+    AppCatalog app_catalog = 12;
+    StateEvent state_event = 13;
+    Heartbeat heartbeat = 14;
+    MembershipOp membership_op = 15;
+  }
+}
+
+message AppTotal {
+  string package_name = 1;
+  int64 foreground_ms = 2;
+}
+
+message UsageSummary {
+  string local_date = 1;  // ISO yyyy-MM-dd in zone_id
+  string zone_id = 2;
+  int64 total_ms = 3;
+  repeated AppTotal apps = 4;
+  uint32 unlocks = 5;
+}
+
+message HourBucket {
+  uint32 hour = 1;
+  repeated AppTotal apps = 2;
+  uint32 unlocks = 3;
+}
+
+message UsageDetail {
+  string local_date = 1;
+  string zone_id = 2;
+  repeated HourBucket hours = 3;
+}
+
+message AppCatalog {
+  string package_name = 1;
+  string label = 2;
+  bytes icon_webp = 3;
+  int32 category = 4;
+}
+
+message StateEvent {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    SHARING_PAUSED = 1;
+    SHARING_RESUMED = 2;
+    USAGE_ACCESS_REVOKED = 3;
+    USAGE_ACCESS_RESTORED = 4;
+    CLOCK_CHANGED = 5;
+    BLUETOOTH_OFF = 6;
+    DATA_GAP = 7;
+    LEFT_GROUP = 8;
+  }
+  Kind kind = 1;
+  int64 from_ms = 2;
+  int64 to_ms = 3;
+  int64 clock_shift_ms = 4;
+}
+
+message Heartbeat {
+  string app_version = 1;
+  uint32 protocol_version = 2;
+}
+
+message CreateGroup {
+  bytes salt = 1;
+  bytes sign_public_key = 2;
+  bytes dh_public_key = 3;
+  string display_name = 4;
+}
+
+message AddMember {
+  bytes sign_public_key = 1;
+  bytes dh_public_key = 2;
+  string display_name = 3;
+}
+
+message RemoveMember {
+  bytes device_id = 1;
+  uint64 last_seq = 2;
+}
+
+message SetAdmin {
+  bytes device_id = 1;
+  bool admin = 2;
+  uint64 last_seq = 3;  // when admin = false: admin ops of target after this seq are void
+}
+
+message SealedKey {
+  bytes device_id = 1;
+  bytes enc = 2;
+  bytes ciphertext = 3;
+}
+
+message RotateDiscoveryKey {
+  uint32 epoch = 1;
+  repeated SealedKey keys = 2;
+}
+
+message MembershipOp {
+  oneof op {
+    CreateGroup create = 1;
+    AddMember add = 2;
+    RemoveMember remove = 3;
+    SetAdmin set_admin = 4;
+    RotateDiscoveryKey rotate = 5;
+  }
+}

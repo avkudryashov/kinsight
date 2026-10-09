@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package kinsight.v1;
+
+option java_package = "app.kinsight.core.model.proto";
+
+message VectorItem {
+  bytes author_id = 1;
+  uint64 seq = 2;
+}
+
+message Hello {
+  uint32 protocol_version = 1;
+  bytes group_id = 2;
+  bytes membership_hash = 3;
+  repeated VectorItem vector = 4;
+  bool wants_foreign_entries = 5;
+}
+
+message MembershipOffer {
+  repeated bytes entries = 1;  // SignedEntry bytes
+}
+
+message EntryBatch {
+  repeated bytes entries = 1;  // SignedEntry bytes
+}
+
+message BatchAck {
+  repeated VectorItem vector = 1;
+}
+
+message Done {}
+
+message Reject {
+  enum Reason {
+    REASON_UNSPECIFIED = 0;
+    PROTOCOL_VERSION = 1;
+    WRONG_GROUP = 2;
+    NOT_A_MEMBER = 3;
+    TOO_MANY_INVALID = 4;
+  }
+  Reason reason = 1;
+}
+
+message SyncMessage {
+  oneof msg {
+    Hello hello = 1;
+    MembershipOffer membership = 2;
+    EntryBatch batch = 3;
+    BatchAck ack = 4;
+    Done done = 5;
+    Reject reject = 6;
+  }
+}
