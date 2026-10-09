@@ -18,10 +18,10 @@ class EntryStoreTest {
     @Test
     fun applyBumpsVectorAndIsIdempotent() = runTest {
         val e = author.summary("2026-10-09", 10)
-        store.applyBatch(listOf(e))
+        store.applyBatch(listOf(genesis.entry, e))
         store.applyBatch(listOf(e))
         assertEquals(2L, store.versionVector()[keys.deviceId])
-        assertEquals(listOf(e), store.liveEntries())
+        assertEquals(listOf(genesis.entry, e), store.liveEntries())
     }
 
     @Test
@@ -31,6 +31,38 @@ class EntryStoreTest {
         store.applyBatch(listOf(new))
         store.applyBatch(listOf(old))
         assertEquals(listOf(new), store.liveEntries())
+        // The superseded copy still counts as received for the vector.
+        assertTrue(store.isAccounted(keys.deviceId, old.seq))
+    }
+
+    @Test
+    fun vectorIsContiguousAcrossGaps() = runTest {
+        val e2 = author.summary("2026-10-08", 1) // seq 2
+        val e3 = author.summary("2026-10-09", 1) // seq 3
+        store.applyBatch(listOf(e3))
+        assertEquals(0L, store.versionVector()[keys.deviceId])
+        assertTrue(store.isAccounted(keys.deviceId, 3))
+        assertFalse(store.isAccounted(keys.deviceId, 2))
+        store.applyBatch(listOf(genesis.entry))
+        assertEquals(1L, store.versionVector()[keys.deviceId])
+        store.applyBatch(listOf(e2))
+        assertEquals(3L, store.versionVector()[keys.deviceId])
+    }
+
+    @Test
+    fun authorCompletionCrossesGap() = runTest {
+        author.summary("2026-10-08", 1) // seq 2, never delivered (e.g. superseded at the author)
+        val e3 = author.summary("2026-10-09", 1) // seq 3
+        author.summary("2026-10-07", 1) // seq 4, never delivered
+        val e5 = author.summary("2026-10-06", 1) // seq 5
+        store.applyBatch(listOf(genesis.entry, e3, e5))
+        assertEquals(1L, store.versionVector()[keys.deviceId])
+        store.completeAuthor(keys.deviceId, 2)
+        assertEquals(3L, store.versionVector()[keys.deviceId]) // 2 completed, 3 already accounted
+        store.completeAuthor(keys.deviceId, 1) // never moves back
+        assertEquals(3L, store.versionVector()[keys.deviceId])
+        store.completeAuthor(keys.deviceId, 4)
+        assertEquals(5L, store.versionVector()[keys.deviceId])
     }
 
     @Test
@@ -61,9 +93,11 @@ class EntryStoreTest {
 
     @Test
     fun seenOnlyBumpsVectorWithoutStoring() = runTest {
-        store.applyBatch(emptyList(), mapOf(keys.deviceId to 7L))
+        store.applyBatch(emptyList(), mapOf(keys.deviceId to (1L..7L).toSet()))
         assertEquals(7L, store.versionVector()[keys.deviceId])
         assertTrue(store.liveEntries().isEmpty())
+        store.applyBatch(emptyList(), mapOf(keys.deviceId to setOf(9L)))
+        assertEquals(7L, store.versionVector()[keys.deviceId]) // seq 8 not accounted
     }
 
     @Test
@@ -78,9 +112,9 @@ class EntryStoreTest {
         val oldDetail = author.detail("2026-07-10")
         val oldSummary = author.summary("2026-07-10", 1)
         val fresh = author.detail("2026-10-09")
-        store.applyBatch(listOf(oldDetail, oldSummary, fresh))
+        store.applyBatch(listOf(genesis.entry, oldDetail, oldSummary, fresh))
         store.prune(SyncPolicy(self = keys.deviceId, today = { TODAY }))
-        assertEquals(setOf(oldSummary, fresh), store.liveEntries().toSet())
+        assertEquals(setOf(genesis.entry, oldSummary, fresh), store.liveEntries().toSet())
         assertEquals(fresh.seq, store.versionVector()[keys.deviceId])
     }
 

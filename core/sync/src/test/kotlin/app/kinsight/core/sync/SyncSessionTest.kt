@@ -7,6 +7,7 @@ import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.proto.AddMember
 import app.kinsight.core.model.proto.MembershipOp
 import app.kinsight.core.model.proto.Reject
+import app.kinsight.core.model.proto.StateEvent
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import okio.ByteString.Companion.toByteString
@@ -121,6 +122,55 @@ class SyncSessionTest {
     }
 
     @Test
+    fun shortRetentionRelayDoesNotMakeReceiverSkipOldEntries() = runBlocking {
+        val (c, a, b) = buildGroup(3)
+        b.policy = b.policy.copy(detailRetentionDays = 5)
+        val old = a.author.detail(TODAY.minusDays(30).toString()) // a#1, expired for b only
+        val fresh = a.author.summary(TODAY.toString(), 1) // a#2
+        a.publish(old, fresh)
+        syncPair(a, b)
+        assertTrue(old !in b.store.liveEntries() && fresh in b.store.liveEntries())
+        syncPair(b, c)
+        assertTrue(fresh in c.store.liveEntries())
+        assertEquals(0L, c.store.versionVector()[a.keys.deviceId], "contig must stay below the gap at a#1")
+        assertTrue(old !in c.store.liveEntries())
+        syncPair(a, c)
+        assertTrue(old in c.store.liveEntries())
+        assertEquals(2L, c.store.versionVector()[a.keys.deviceId])
+    }
+
+    @Test
+    fun omittingRelayCannotHideAnAuthorsEntry() = runBlocking {
+        val (c, a, b) = buildGroup(3)
+        val pause = a.author.create { it.copy(state_event = StateEvent(kind = StateEvent.Kind.SHARING_PAUSED)) } // a#1
+        val later = a.author.summary(TODAY.toString(), 1) // a#2
+        a.publish(pause, later)
+        syncPair(a, b)
+        assertTrue(pause in b.store.liveEntries())
+        b.store = HidingStore(b.store, pause)
+        syncPair(b, c)
+        assertTrue(later in c.store.liveEntries())
+        assertEquals(0L, c.store.versionVector()[a.keys.deviceId], "contig must stay below the hidden a#1")
+        assertTrue(pause !in c.store.liveEntries())
+        syncPair(a, c)
+        assertTrue(pause in c.store.liveEntries())
+        assertEquals(2L, c.store.versionVector()[a.keys.deviceId])
+    }
+
+    @Test
+    fun authorCompletionClosesSupersededGap() = runBlocking {
+        val (c, a) = buildGroup(2)
+        a.publish(a.author.summary(TODAY.toString(), 1)) // a#1, superseded below
+        val newer = a.author.summary(TODAY.toString(), 2) // a#2
+        a.publish(newer)
+        assertEquals(listOf(newer), a.store.liveEntries().filter { it.author == a.keys.deviceId })
+        syncPair(a, c)
+        assertEquals(2L, c.store.versionVector()[a.keys.deviceId])
+        val (ra, _) = syncPair(a, c)
+        assertEquals(0, (ra as SessionResult.Completed).sentBatches)
+    }
+
+    @Test
     fun largeTwoWaySyncOverBoundedPipeCompletes() = runBlocking {
         val (a, b) = buildGroup(2)
         a.policy = a.policy.copy(summaryRetentionDays = 10_000)
@@ -189,6 +239,12 @@ private suspend fun assertNoVectorGap(holder: Node, author: Node) {
     val held = holder.store.liveEntries().toSet()
     val missing = author.store.liveEntries().filter { it.author == id && it.seq <= upTo && it !in held }
     assertTrue(missing.isEmpty(), "vector says ${id.hex.take(6)}=$upTo but missing seqs ${missing.map { it.seq }}")
+}
+
+/** A relay that silently omits [hidden] when serving entries. */
+private class HidingStore(private val inner: EntryStore, private val hidden: DecodedEntry) : EntryStore by inner {
+    override suspend fun entriesAfter(author: DeviceId, afterSeq: Long, limit: Int): List<DecodedEntry> =
+        inner.entriesAfter(author, afterSeq, limit).filter { it != hidden }
 }
 
 /** Serves entries of [tamperAuthor] with a flipped last byte (inside the signature). */

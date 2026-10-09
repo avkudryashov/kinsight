@@ -30,33 +30,33 @@ class EntryValidatorTest {
 
     @Test
     fun acceptsMemberEntry() {
-        assertEquals(Verdict.Accept, validator().check(bob.summary("2026-10-09", 1), 0))
+        assertEquals(Verdict.Accept, validator().check(bob.summary("2026-10-09", 1), alreadyAccounted = false))
     }
 
     @Test
-    fun duplicateWhenSeqKnown() {
+    fun duplicateWhenSeqAccounted() {
         val e = bob.summary("2026-10-09", 1)
-        assertEquals(Verdict.Duplicate, validator().check(e, e.seq))
+        assertEquals(Verdict.Duplicate, validator().check(e, alreadyAccounted = true))
     }
 
     @Test
     fun unknownAuthorIsInvalid() {
         val stranger = EntryAuthor(genesis.groupId, DeviceKeys.generate(), 0)
-        assertIs<Verdict.Invalid>(validator().check(stranger.summary("2026-10-09", 1), 0))
+        assertIs<Verdict.Invalid>(validator().check(stranger.summary("2026-10-09", 1), alreadyAccounted = false))
     }
 
     @Test
     fun badSignatureIsInvalid() {
         val e = bob.summary("2026-10-09", 1)
         val bad = DecodedEntry.decode(e.bytes.copyOf().also { it[it.size - 1] = (it[it.size - 1].toInt() xor 1).toByte() })
-        assertIs<Verdict.Invalid>(validator().check(bad, 0))
+        assertIs<Verdict.Invalid>(validator().check(bad, alreadyAccounted = false))
     }
 
     @Test
     fun foreignGroupIsInvalid() {
         val other = GroupGenesis.create(bobKeys, "x")
         val e = EntryAuthor(other.groupId, bobKeys, 1).summary("2026-10-09", 1)
-        assertIs<Verdict.Invalid>(validator().check(e, 0))
+        assertIs<Verdict.Invalid>(validator().check(e, alreadyAccounted = false))
     }
 
     @Test
@@ -67,17 +67,17 @@ class EntryValidatorTest {
             it.copy(membership_op = MembershipOp(remove = RemoveMember(bobKeys.deviceId.bytes().toByteString(), last_seq = 1)))
         }
         val v = validator(listOf(remove))
-        assertEquals(Verdict.Accept, v.check(e1, 0))
-        assertIs<Verdict.Invalid>(v.check(e2, 1))
+        assertEquals(Verdict.Accept, v.check(e1, alreadyAccounted = false))
+        assertIs<Verdict.Invalid>(v.check(e2, alreadyAccounted = false))
     }
 
     @Test
     fun expiredDetail() {
-        assertEquals(Verdict.Expired, validator().check(bob.detail("2026-01-01"), 0))
+        assertEquals(Verdict.Expired, validator().check(bob.detail("2026-01-01"), alreadyAccounted = false))
     }
 
     @Test
     fun foreignEntryUnwantedWhenShowOthersOff() {
-        assertEquals(Verdict.Unwanted, validator(showOthers = false).check(bob.summary("2026-10-09", 1), 0))
+        assertEquals(Verdict.Unwanted, validator(showOthers = false).check(bob.summary("2026-10-09", 1), alreadyAccounted = false))
     }
 }

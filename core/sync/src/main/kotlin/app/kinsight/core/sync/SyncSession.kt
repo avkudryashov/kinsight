@@ -169,20 +169,25 @@ class SyncSession(
                 } ?: continue
                 when {
                     msg.batch != null -> {
-                        val running = store.versionVector().entries.toMutableMap()
+                        val inBatch = HashSet<Pair<DeviceId, Long>>()
                         val accepted = mutableListOf<DecodedEntry>()
-                        val seen = mutableMapOf<DeviceId, Long>()
+                        val seen = mutableMapOf<DeviceId, MutableSet<Long>>()
                         for (raw in msg.batch!!.entries) {
                             val e = decodeOrNull(raw)
-                            val verdict = if (e == null) Verdict.Invalid("undecodable") else validator.check(e, running[e.author] ?: 0L)
+                            val verdict = if (e == null) {
+                                Verdict.Invalid("undecodable")
+                            } else {
+                                val key = e.author to e.seq
+                                validator.check(e, alreadyAccounted = key in inBatch || store.isAccounted(e.author, e.seq))
+                            }
                             when (verdict) {
                                 Verdict.Accept -> {
                                     accepted += e!!
-                                    running[e.author] = e.seq
+                                    inBatch += e.author to e.seq
                                 }
                                 Verdict.Expired -> {
-                                    seen.merge(e!!.author, e.seq, ::maxOf)
-                                    running[e.author] = e.seq
+                                    seen.getOrPut(e!!.author) { mutableSetOf() } += e.seq
+                                    inBatch += e.author to e.seq
                                 }
                                 Verdict.Duplicate, Verdict.Unwanted -> Unit
                                 is Verdict.Invalid -> {
@@ -201,7 +206,13 @@ class SyncSession(
                         send(ch, SyncMessage(ack = BatchAck(vector = store.versionVector().toProto())))
                     }
                     msg.ack != null -> acks++
-                    msg.done != null -> peerDone = true
+                    msg.done != null -> {
+                        peerDone = true
+                        // Author completion: the peer has now sent every entry of its own log above our announced
+                        // contig (all its batches precede Done), so its own announced seq closes any gap we have.
+                        // Only when we asked for foreign entries; otherwise it was not obliged to send any.
+                        if (policy.showOthers) store.completeAuthor(peer.id, peerVector[peer.id])
+                    }
                     msg.reject != null -> {
                         sender.cancel()
                         return@coroutineScope SessionResult.Rejected(msg.reject!!.reason, byPeer = true)
@@ -236,15 +247,13 @@ class SyncSession(
             size = 0
         }
 
-        // Relay only up to our own vector: entries above it (e.g. membership learned from an offer)
-        // would raise the peer's vector past seqs neither side holds, and those would never be requested.
-        val ours = store.versionVector()
-        for (author in ours.entries.keys.sorted()) {
+        // Everything we hold above the peer's contiguous vector. Relaying above our own contig is safe: the peer
+        // accounts for exactly the seqs it receives, so a gap stays a gap until someone (or the author) fills it.
+        for (author in (membership.active.keys + membership.departed.keys).sorted()) {
             if (author == peerId) continue
-            val upTo = ours[author]
             var after = peerVector[author]
-            while (after < upTo) {
-                val page = store.entriesAfter(author, after, PAGE).takeWhile { it.seq <= upTo }
+            while (true) {
+                val page = store.entriesAfter(author, after, PAGE)
                 if (page.isEmpty()) break
                 for (e in page) {
                     after = e.seq
