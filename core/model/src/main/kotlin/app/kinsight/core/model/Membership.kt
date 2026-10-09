@@ -41,7 +41,6 @@ data class MembershipState(
  * Cutoffs found in one pass void later-seq ops of removed or demoted authors in the next pass.
  */
 object Membership {
-    private const val MAX_PASSES = 1_000
 
     private data class Cutoffs(
         val member: Map<DeviceId, Long> = emptyMap(),
@@ -77,16 +76,33 @@ object Membership {
         val genesis = ops.filter { isValidGenesis(groupId, it) }.minByOrNull { it.bytes.toHex() } ?: return null
         val ordered = ops.filter { it != genesis }
             .sortedWith(compareBy<DecodedEntry>({ it.body.created_at_ms }, { it.author.hex }, { it.seq }))
-        // Cutoffs only ever decrease (min per id), so the iteration reaches a fixed point.
+        // Each pass derives cutoffs only from ops effective under the previous cutoffs.
+        // A fixed point is the answer; a cycle is resolved by the min-union of the cycle's cutoffs.
+        val seen = mutableListOf<Cutoffs>()
         var cutoffs = Cutoffs()
-        var pass = replay(groupId, genesis, ordered, cutoffs)
-        repeat(MAX_PASSES) {
-            val merged = merge(cutoffs, pass.cutoffs)
-            if (merged == cutoffs) return pass.state
-            cutoffs = merged
-            pass = replay(groupId, genesis, ordered, cutoffs)
+        while (true) {
+            val at = seen.indexOf(cutoffs)
+            if (at >= 0) {
+                val cycle = seen.subList(at, seen.size)
+                if (cycle.size == 1) return replay(groupId, genesis, ordered, cutoffs).state
+                val star = cycle.reduce(::merge)
+                return settle(replay(groupId, genesis, ordered, star), star)
+            }
+            seen += cutoffs
+            cutoffs = replay(groupId, genesis, ordered, cutoffs).cutoffs
         }
-        return pass.state
+    }
+
+    /** Makes a state replayed under merged cycle cutoffs consistent with those cutoffs. */
+    private fun settle(pass: Pass, star: Cutoffs): MembershipState {
+        val s = pass.state
+        val active = s.active.toMutableMap()
+        val departed = s.departed.toMutableMap()
+        for ((id, cut) in star.member) {
+            active.remove(id)?.let { departed[id] = Departed(it, cut) }
+        }
+        for (id in star.admin.keys) active[id]?.let { active[id] = it.copy(isAdmin = false) }
+        return s.copy(active = active, departed = departed)
     }
 
     private fun mergeMin(a: Map<DeviceId, Long>, b: Map<DeviceId, Long>): Map<DeviceId, Long> {
@@ -177,7 +193,7 @@ object Membership {
                         false
                     } else {
                         active[id] = m.copy(isAdmin = sa.admin)
-                        if (!sa.admin) {
+                        if (!sa.admin && m.isAdmin) {
                             demoted += id
                             adminCut[id] = minOf(adminCut[id] ?: sa.last_seq, sa.last_seq)
                         }

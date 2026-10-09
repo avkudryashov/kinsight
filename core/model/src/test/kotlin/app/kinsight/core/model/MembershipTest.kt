@@ -215,9 +215,15 @@ class MembershipTest {
         val expected = Membership.compute(g.groupId, entries)!!
         val rnd = Random(7)
         repeat(20) { assertEquals(expected, Membership.compute(g.groupId, entries.shuffled(rnd))) }
-        for (e in expected.effectiveEntries) {
-            val d = expected.departed[e.author] ?: continue
-            assertTrue(e.seq <= d.lastSeq, "$e beyond cutoff ${d.lastSeq}")
+        assertConsistent(expected)
+    }
+
+    private fun assertConsistent(state: MembershipState) {
+        assertTrue(state.active.keys.none { it in state.departed })
+        for (e in state.effectiveEntries) {
+            val d = state.departed[e.author]
+            if (d != null) assertTrue(e.seq <= d.lastSeq, "$e beyond cutoff ${d.lastSeq}")
+            else assertTrue(e.author in state.active, "$e author unknown")
         }
     }
 
@@ -249,5 +255,58 @@ class MembershipTest {
             listOf(g.genesis.entry, g.creator.addMember(bobKeys), g.creator.addMember(clone)),
         )!!
         assertEquals(setOf(g.creatorKeys.deviceId, bobKeys.deviceId), state.active.keys)
+    }
+
+    @Test
+    fun voidedRemovalDoesNotLeavePhantomCutoff() {
+        val g = TestGroup()
+        val qKeys = DeviceKeys.generate()
+        val aliceKeys = DeviceKeys.generate()
+        val add1 = g.creator.addMember(qKeys)
+        val add2 = g.creator.addMember(aliceKeys)
+        val promote = g.creator.setAdmin(qKeys.deviceId, true)
+        val rogue = g.newAuthor(qKeys).removeMember(aliceKeys.deviceId, lastSeq = 0)
+        val demote = g.creator.setAdmin(qKeys.deviceId, false, lastSeq = 0)
+        val leave = g.newAuthor(aliceKeys).leave()
+        val state = Membership.compute(g.groupId, listOf(g.genesis.entry, add1, add2, promote, rogue, demote, leave))!!
+        assertFalse(rogue in state.effectiveEntries)
+        assertFalse(aliceKeys.deviceId in state.active)
+        assertEquals(1L, state.departed.getValue(aliceKeys.deviceId).lastSeq)
+        assertTrue(leave in state.effectiveEntries)
+        assertConsistent(state)
+    }
+
+    @Test
+    fun voidedDemotionDoesNotLeavePhantomAdminCutoff() {
+        val g = TestGroup()
+        val qKeys = DeviceKeys.generate()
+        val wKeys = DeviceKeys.generate()
+        val entries = mutableListOf(g.genesis.entry)
+        entries += g.creator.addMember(qKeys)
+        entries += g.creator.addMember(wKeys)
+        entries += g.creator.setAdmin(qKeys.deviceId, true)
+        entries += g.creator.setAdmin(wKeys.deviceId, true)
+        entries += g.newAuthor(qKeys).setAdmin(wKeys.deviceId, false, lastSeq = 0)
+        entries += g.creator.setAdmin(qKeys.deviceId, false, lastSeq = 0)
+        val wAdd = g.newAuthor(wKeys).addMember(DeviceKeys.generate(), "later")
+        entries += wAdd
+        val state = Membership.compute(g.groupId, entries)!!
+        assertTrue(state.active.getValue(wKeys.deviceId).isAdmin)
+        assertTrue(wAdd in state.effectiveEntries)
+        assertConsistent(state)
+    }
+
+    @Test
+    fun demotingNonAdminDoesNotBlockFirstPromotion() {
+        val g = TestGroup()
+        val bobKeys = DeviceKeys.generate()
+        val add = g.creator.addMember(bobKeys)
+        val noop = g.creator.setAdmin(bobKeys.deviceId, false, lastSeq = 0)
+        val promote = g.creator.setAdmin(bobKeys.deviceId, true)
+        val bobAdd = g.newAuthor(bobKeys).addMember(DeviceKeys.generate(), "x")
+        val state = Membership.compute(g.groupId, listOf(g.genesis.entry, add, noop, promote, bobAdd))!!
+        assertTrue(state.active.getValue(bobKeys.deviceId).isAdmin)
+        assertTrue(promote in state.effectiveEntries)
+        assertTrue(bobAdd in state.effectiveEntries)
     }
 }
