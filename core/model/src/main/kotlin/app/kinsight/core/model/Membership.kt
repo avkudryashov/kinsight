@@ -1,0 +1,177 @@
+package app.kinsight.core.model
+
+import app.kinsight.core.crypto.Primitives
+import app.kinsight.core.crypto.toHex
+import app.kinsight.core.model.proto.RotateDiscoveryKey
+import okio.ByteString
+import okio.ByteString.Companion.toByteString
+
+data class Member(
+    val id: DeviceId,
+    val signPublicKey: ByteString,
+    val dhPublicKey: ByteString,
+    val displayName: String,
+    val isAdmin: Boolean,
+)
+
+data class Departed(val member: Member, val lastSeq: Long)
+
+data class MembershipState(
+    val groupId: GroupId,
+    val active: Map<DeviceId, Member>,
+    val departed: Map<DeviceId, Departed>,
+    val discoveryRotation: RotateDiscoveryKey?,
+    val effectiveEntries: Set<DecodedEntry>,
+) {
+    fun signKeyOf(id: DeviceId): ByteArray? =
+        (active[id] ?: departed[id]?.member)?.signPublicKey?.toByteArray()
+
+    fun acceptsEntryFrom(id: DeviceId, seq: Long): Boolean =
+        id in active || departed[id]?.let { seq <= it.lastSeq } == true
+
+    fun activeMemberByDhKey(dhPublicKey: ByteArray): Member? {
+        val key = dhPublicKey.toByteString()
+        return active.values.firstOrNull { it.dhPublicKey == key }
+    }
+}
+
+/**
+ * Deterministic membership from an unordered set of signed entries.
+ * Replay order: (created_at_ms, author, seq). Removal wins over addition and is permanent.
+ * Cutoffs found in one pass void later-seq ops of removed or demoted authors in the next pass.
+ */
+object Membership {
+    private const val MAX_PASSES = 8
+
+    private data class Cutoffs(
+        val member: Map<DeviceId, Long> = emptyMap(),
+        val admin: Map<DeviceId, Long> = emptyMap(),
+    )
+
+    private class Pass(val state: MembershipState, val cutoffs: Cutoffs)
+
+    fun relevant(groupId: GroupId, entries: Collection<DecodedEntry>): List<DecodedEntry> =
+        entries.asSequence()
+            .filter { it.groupId == groupId && it.isMembershipRelevant }
+            .groupBy { it.author to it.seq }
+            .map { (_, same) -> same.minBy { it.bytes.toHex() } }
+
+    fun hash(groupId: GroupId, entries: Collection<DecodedEntry>): ByteArray =
+        Primitives.sha256(*relevant(groupId, entries).map { it.bytes }.sortedBy { it.toHex() }.toTypedArray())
+
+    fun compute(groupId: GroupId, entries: Collection<DecodedEntry>): MembershipState? {
+        val ops = relevant(groupId, entries)
+        val genesis = ops.filter { isValidGenesis(groupId, it) }.minByOrNull { it.bytes.toHex() } ?: return null
+        val ordered = ops.filter { it != genesis }
+            .sortedWith(compareBy<DecodedEntry>({ it.body.created_at_ms }, { it.author.hex }, { it.seq }))
+        var cutoffs = Cutoffs()
+        var pass = replay(groupId, genesis, ordered, cutoffs)
+        repeat(MAX_PASSES) {
+            if (pass.cutoffs == cutoffs) return pass.state
+            cutoffs = pass.cutoffs
+            pass = replay(groupId, genesis, ordered, cutoffs)
+        }
+        return pass.state
+    }
+
+    private fun isValidGenesis(groupId: GroupId, e: DecodedEntry): Boolean {
+        val create = e.body.membership_op?.create ?: return false
+        val pk = create.sign_public_key.toByteArray()
+        if (pk.size != 32 || create.dh_public_key.size != 32) return false
+        return e.seq == 1L &&
+            e.author == DeviceId.fromSignPublicKey(pk) &&
+            GroupId.derive(pk, create.salt.toByteArray()) == groupId &&
+            e.verifySignature(pk)
+    }
+
+    private fun idOrNull(bytes: ByteString): DeviceId? =
+        if (bytes.size == 16) DeviceId.fromBytes(bytes.toByteArray()) else null
+
+    private fun replay(groupId: GroupId, genesis: DecodedEntry, ordered: List<DecodedEntry>, cutoffs: Cutoffs): Pass {
+        val create = genesis.body.membership_op!!.create!!
+        val active = linkedMapOf(
+            genesis.author to Member(genesis.author, create.sign_public_key, create.dh_public_key, create.display_name, isAdmin = true),
+        )
+        val departed = mutableMapOf<DeviceId, Departed>()
+        val removedForever = mutableSetOf<DeviceId>()
+        val memberCut = mutableMapOf<DeviceId, Long>()
+        val adminCut = mutableMapOf<DeviceId, Long>()
+        var rotation: RotateDiscoveryKey? = null
+        val effective = mutableSetOf(genesis)
+
+        for (e in ordered) {
+            val cut = cutoffs.member[e.author]
+            if (cut != null && e.seq > cut) continue
+            val author = active[e.author] ?: continue
+            if (!e.verifySignature(author.signPublicKey.toByteArray())) continue
+
+            if (e.body.state_event != null) { // LEFT_GROUP
+                active.remove(e.author)
+                departed[e.author] = Departed(author, e.seq)
+                removedForever += e.author
+                memberCut[e.author] = e.seq
+                effective += e
+                continue
+            }
+
+            val op = e.body.membership_op ?: continue
+            if (!author.isAdmin) continue
+            val adminCutoff = cutoffs.admin[e.author]
+            if (adminCutoff != null && e.seq > adminCutoff) continue
+
+            val applied = when {
+                op.add != null -> {
+                    val add = op.add!!
+                    val pk = add.sign_public_key.toByteArray()
+                    if (pk.size != 32 || add.dh_public_key.size != 32) {
+                        false
+                    } else {
+                        val id = DeviceId.fromSignPublicKey(pk)
+                        if (id in active || id in removedForever) {
+                            false
+                        } else {
+                            active[id] = Member(id, add.sign_public_key, add.dh_public_key, add.display_name, isAdmin = false)
+                            true
+                        }
+                    }
+                }
+                op.remove != null -> {
+                    val id = idOrNull(op.remove!!.device_id)
+                    if (id == null) {
+                        false
+                    } else {
+                        removedForever += id
+                        memberCut[id] = op.remove!!.last_seq
+                        active.remove(id)?.let { departed[id] = Departed(it, op.remove!!.last_seq) }
+                        true
+                    }
+                }
+                op.set_admin != null -> {
+                    val sa = op.set_admin!!
+                    val id = idOrNull(sa.device_id)
+                    val m = id?.let { active[it] }
+                    if (m == null) {
+                        false
+                    } else {
+                        active[id] = m.copy(isAdmin = sa.admin)
+                        if (!sa.admin) adminCut[id] = sa.last_seq
+                        true
+                    }
+                }
+                op.rotate != null -> {
+                    val r = op.rotate!!
+                    if (rotation == null || r.epoch > rotation!!.epoch) {
+                        rotation = r
+                        true
+                    } else {
+                        false
+                    }
+                }
+                else -> false
+            }
+            if (applied) effective += e
+        }
+        val state = MembershipState(groupId, active.toMap(), departed.toMap(), rotation, effective.toSet())
+        return Pass(state, Cutoffs(memberCut.toMap(), adminCut.toMap()))
+    }
+}
