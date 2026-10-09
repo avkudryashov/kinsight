@@ -3,6 +3,10 @@ package app.kinsight.core.sync
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
+import app.kinsight.core.model.proto.AddMember
+import app.kinsight.core.model.proto.MembershipOp
+import app.kinsight.core.crypto.toHex
+import okio.ByteString.Companion.toByteString
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -116,6 +120,24 @@ class EntryStoreTest {
         store.prune(SyncPolicy(self = keys.deviceId, today = { TODAY }))
         assertEquals(setOf(genesis.entry, oldSummary, fresh), store.liveEntries().toSet())
         assertEquals(fresh.seq, store.versionVector()[keys.deviceId])
+    }
+
+    @Test
+    fun equivocatingMembershipEntryKeepsMinHexCopy() = runTest {
+        fun add() = EntryAuthor(genesis.groupId, keys, lastSeq = 1).create {
+            val k = DeviceKeys.generate()
+            it.copy(membership_op = MembershipOp(add = AddMember(k.sign.publicKey.toByteString(), k.dh.publicKey.toByteString(), "x")))
+        }
+        val (x, y) = add() to add() // same author and seq 2, different bytes
+        val min = listOf(x, y).minBy { it.bytes.toHex() }
+        for (order in listOf(listOf(x, y), listOf(y, x))) {
+            val viaBatch = InMemoryEntryStore(genesis.groupId)
+            order.forEach { viaBatch.applyBatch(listOf(it)) }
+            assertEquals(listOf(min), viaBatch.membershipEntries())
+            val viaOffer = InMemoryEntryStore(genesis.groupId)
+            order.forEach { viaOffer.storeMembership(listOf(it)) }
+            assertEquals(listOf(min), viaOffer.membershipEntries())
+        }
     }
 
     @Test

@@ -1,5 +1,6 @@
 package app.kinsight.core.sync
 
+import app.kinsight.core.crypto.toHex
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.GroupId
@@ -77,7 +78,15 @@ class InMemoryEntryStore(override val groupId: GroupId) : EntryStore {
 
     private fun insert(e: DecodedEntry) {
         maxLamport = maxOf(maxLamport, e.lamport)
-        if (byKey.containsKey(e.author to e.seq)) return
+        val existing = byKey[e.author to e.seq]
+        if (existing != null) {
+            // Equivocation (same author and seq, different bytes) on a membership op: keep the min-hex copy,
+            // the one Membership.relevant picks, so every replica converges on the same bytes.
+            if (e.isMembershipRelevant && existing.isMembershipRelevant && e.bytes.toHex() < existing.bytes.toHex()) {
+                byKey[e.author to e.seq] = e
+            }
+            return
+        }
         val key = e.supersedeKey
         if (key != null) {
             val old = bySupersede[key]
