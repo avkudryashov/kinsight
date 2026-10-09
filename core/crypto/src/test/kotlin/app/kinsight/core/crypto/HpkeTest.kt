@@ -5,6 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 class HpkeTest {
     private val info = "kinsight-discovery-key".encodeToByteArray()
@@ -56,7 +57,7 @@ class HpkeTest {
 
     @Test
     fun rfc9180SealMatches() {
-        val sealed = Hpke.seal(pkRm, rfcInfo, rfcAad, rfcPt, ephemeral = X25519.fromPrivate(skEm))
+        val sealed = Hpke.seal(pkRm, rfcInfo, rfcAad, rfcPt, X25519.fromPrivate(skEm))
         assertEquals(pkEm.toHex(), sealed.enc.toHex())
         assertEquals(rfcCt.toHex(), sealed.ciphertext.toHex())
     }
@@ -94,5 +95,14 @@ class HpkeTest {
         val sealed = Hpke.seal(r.publicKey, info, ByteArray(0), byteArrayOf(1))
         assertFailsWith<CryptoException> { Hpke.open(r, info, ByteArray(0), HpkeSealed(sealed.enc.copyOf(31), sealed.ciphertext)) }
         assertFailsWith<CryptoException> { Hpke.open(r, info, ByteArray(0), HpkeSealed(ByteArray(32), sealed.ciphertext)) }
+    }
+
+    @Test
+    fun publicSealOffersNoEphemeralParameter() {
+        val publicSeals = Hpke::class.java.declaredMethods.filter {
+            it.name == "seal" && java.lang.reflect.Modifier.isPublic(it.modifiers)
+        }
+        assertTrue(publicSeals.isNotEmpty())
+        assertTrue(publicSeals.none { m -> m.parameterTypes.any { it == X25519KeyPair::class.java } })
     }
 }

@@ -19,12 +19,17 @@ object Hpke {
     private val HPKE_SUITE = "HPKE".encodeToByteArray() + i2osp(KEM_ID, 2) + i2osp(KDF_ID, 2) + i2osp(AEAD_ID, 2)
     private val EMPTY = ByteArray(0)
 
-    fun seal(
+    /** Always uses a fresh ephemeral key: reusing one across messages would repeat the (key, nonce) pair. */
+    fun seal(recipientPublicKey: ByteArray, info: ByteArray, aad: ByteArray, plaintext: ByteArray): HpkeSealed =
+        seal(recipientPublicKey, info, aad, plaintext, X25519.generate())
+
+    /** Test seam for the RFC 9180 vectors; production code must use the overload that generates the ephemeral. */
+    internal fun seal(
         recipientPublicKey: ByteArray,
         info: ByteArray,
         aad: ByteArray,
         plaintext: ByteArray,
-        ephemeral: X25519KeyPair = X25519.generate(),
+        ephemeral: X25519KeyPair,
     ): HpkeSealed {
         val enc = ephemeral.publicKey.copyOf()
         val dh = ephemeral.agree(recipientPublicKey)
