@@ -47,8 +47,12 @@ interface VectorDao {
     suspend fun contig(author: String): Long?
 
     /**
-     * REPLACE rather than @Upsert: Room's upsert detects the conflict from the SQLiteException message, which the
-     * mockable android.jar drops in JVM tests; vector_contig has one primary key and no foreign keys or triggers.
+     * REPLACE rather than @Upsert: Room's upsert catches the conflict as android.database.SQLException and checks
+     * its message, but the mockable android.jar drops the message in JVM tests, so the upsert rethrows the
+     * exception instead of falling back to UPDATE. vector_contig has one primary key and no foreign keys or triggers.
+     *
+     * REPLACE deletes the conflicting row and inserts a new one, so any column added to [ContigRow] later is reset
+     * to its default on every call unless the caller includes it in the row passed here.
      */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun setContig(row: ContigRow)
