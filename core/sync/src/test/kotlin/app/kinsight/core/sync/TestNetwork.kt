@@ -6,6 +6,7 @@ import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.proto.AddMember
 import app.kinsight.core.model.proto.MembershipOp
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import okio.ByteString.Companion.toByteString
 
@@ -45,8 +46,13 @@ suspend fun buildGroup(size: Int, showOthers: (Int) -> Boolean = { true }): List
 
 suspend fun Node.publish(vararg entries: app.kinsight.core.model.DecodedEntry) = store.applyBatch(entries.toList())
 
-suspend fun syncPair(a: Node, b: Node, faults: LinkFaults = LinkFaults()): Pair<SessionResult, SessionResult> = coroutineScope {
-    val (sa, sb) = MemoryPipe.pair(faults)
+suspend fun syncPair(
+    a: Node,
+    b: Node,
+    faults: LinkFaults = LinkFaults(),
+    capacity: Int = Channel.UNLIMITED,
+): Pair<SessionResult, SessionResult> = coroutineScope {
+    val (sa, sb) = MemoryPipe.pair(faults, capacity)
     val prologue = SecureChannel.prologue(a.store.groupId, PROTOCOL_VERSION)
     val ra = async {
         runCatching { SyncSession(a.store, a.policy).run(SecureChannel.initiate(sa, a.keys.dh, prologue)) }

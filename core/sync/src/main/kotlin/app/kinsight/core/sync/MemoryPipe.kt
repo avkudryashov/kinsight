@@ -20,9 +20,10 @@ class LinkFaults(byteBudget: Long = Long.MAX_VALUE) {
 }
 
 object MemoryPipe {
-    fun pair(faults: LinkFaults = LinkFaults()): Pair<ByteStream, ByteStream> {
-        val ab = Channel<ByteArray>(Channel.UNLIMITED)
-        val ba = Channel<ByteArray>(Channel.UNLIMITED)
+    /** [capacity] bounds the number of in-flight writes per direction (a full pipe suspends the writer). */
+    fun pair(faults: LinkFaults = LinkFaults(), capacity: Int = Channel.UNLIMITED): Pair<ByteStream, ByteStream> {
+        val ab = Channel<ByteArray>(capacity)
+        val ba = Channel<ByteArray>(capacity)
         faults.onDrop = {
             ab.close(IOException("link dropped"))
             ba.close(IOException("link dropped"))

@@ -12,10 +12,13 @@ import app.kinsight.core.model.proto.Hello
 import app.kinsight.core.model.proto.MembershipOffer
 import app.kinsight.core.model.proto.Reject
 import app.kinsight.core.model.proto.SyncMessage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeout
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
@@ -49,6 +52,11 @@ class SyncSession(
     } catch (e: IOException) {
         SessionResult.Failed(e)
     } catch (e: CryptoException) {
+        SessionResult.Failed(e)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log("session failed: $e")
         SessionResult.Failed(e)
     } finally {
         channel.close()
@@ -133,57 +141,76 @@ class SyncSession(
             sentTotal.complete(n)
         }
 
-        var invalid = 0
-        var received = 0
-        var acks = 0
-        var peerDone = false
-        while (true) {
-            if (peerDone && acks >= sentTotal.await()) break
-            val msg = receive(ch)
-            when {
-                msg.batch != null -> {
-                    val running = store.versionVector().entries.toMutableMap()
-                    val accepted = mutableListOf<DecodedEntry>()
-                    val seen = mutableMapOf<DeviceId, Long>()
-                    for (raw in msg.batch!!.entries) {
-                        val e = decodeOrNull(raw)
-                        val verdict = if (e == null) Verdict.Invalid("undecodable") else validator.check(e, running[e.author] ?: 0L)
-                        when (verdict) {
-                            Verdict.Accept -> {
-                                accepted += e!!
-                                running[e.author] = e.seq
-                            }
-                            Verdict.Expired -> {
-                                seen.merge(e!!.author, e.seq, ::maxOf)
-                                running[e.author] = e.seq
-                            }
-                            Verdict.Duplicate, Verdict.Unwanted -> Unit
-                            is Verdict.Invalid -> {
-                                invalid++
-                                log("invalid entry from ${peer.id.hex}: ${verdict.reason}")
-                            }
-                        }
-                    }
-                    if (invalid > MAX_INVALID) {
-                        sender.cancel()
-                        reject(ch, Reject.Reason.TOO_MANY_INVALID)
-                        return@coroutineScope SessionResult.TooManyInvalid(peer.id)
-                    }
-                    store.applyBatch(accepted, seen)
-                    received += accepted.size
-                    send(ch, SyncMessage(ack = BatchAck(vector = store.versionVector().toProto())))
-                }
-                msg.ack != null -> acks++
-                msg.done != null -> peerDone = true
-                msg.reject != null -> {
-                    sender.cancel()
-                    return@coroutineScope SessionResult.Rejected(msg.reject!!.reason, byPeer = true)
-                }
-                else -> throw ProtocolException("unexpected message")
+        // Dedicated reader: keeps draining the link while our sender is still pushing, so the peer's
+        // acks and batches never back up behind us on a bounded transport.
+        val inbox = Channel<SyncMessage>(Channel.UNLIMITED)
+        val reader = launch {
+            try {
+                while (true) inbox.send(receive(ch))
+            } catch (e: Throwable) {
+                inbox.close(e)
+                if (e is CancellationException && e !is TimeoutCancellationException) throw e
             }
         }
-        sender.join()
-        SessionResult.Completed(peer.id, received, sentTotal.await())
+
+        try {
+            var invalid = 0
+            var received = 0
+            var acks = 0
+            var peerDone = false
+            var sentBatches = -1 // -1 until our sender has finished
+            while (!(peerDone && sentBatches >= 0 && acks >= sentBatches)) {
+                val msg = select<SyncMessage?> {
+                    if (sentBatches < 0) sentTotal.onAwait { sentBatches = it; null }
+                    inbox.onReceive { it }
+                } ?: continue
+                when {
+                    msg.batch != null -> {
+                        val running = store.versionVector().entries.toMutableMap()
+                        val accepted = mutableListOf<DecodedEntry>()
+                        val seen = mutableMapOf<DeviceId, Long>()
+                        for (raw in msg.batch!!.entries) {
+                            val e = decodeOrNull(raw)
+                            val verdict = if (e == null) Verdict.Invalid("undecodable") else validator.check(e, running[e.author] ?: 0L)
+                            when (verdict) {
+                                Verdict.Accept -> {
+                                    accepted += e!!
+                                    running[e.author] = e.seq
+                                }
+                                Verdict.Expired -> {
+                                    seen.merge(e!!.author, e.seq, ::maxOf)
+                                    running[e.author] = e.seq
+                                }
+                                Verdict.Duplicate, Verdict.Unwanted -> Unit
+                                is Verdict.Invalid -> {
+                                    invalid++
+                                    log("invalid entry from ${peer.id.hex}: ${verdict.reason}")
+                                }
+                            }
+                        }
+                        if (invalid > MAX_INVALID) {
+                            sender.cancel()
+                            reject(ch, Reject.Reason.TOO_MANY_INVALID)
+                            return@coroutineScope SessionResult.TooManyInvalid(peer.id)
+                        }
+                        store.applyBatch(accepted, seen)
+                        received += accepted.size
+                        send(ch, SyncMessage(ack = BatchAck(vector = store.versionVector().toProto())))
+                    }
+                    msg.ack != null -> acks++
+                    msg.done != null -> peerDone = true
+                    msg.reject != null -> {
+                        sender.cancel()
+                        return@coroutineScope SessionResult.Rejected(msg.reject!!.reason, byPeer = true)
+                    }
+                    else -> throw ProtocolException("unexpected message")
+                }
+            }
+            SessionResult.Completed(peer.id, received, sentBatches)
+        } finally {
+            reader.cancel()
+            sender.cancel()
+        }
     }
 
     private suspend fun sendData(
@@ -206,11 +233,15 @@ class SyncSession(
             size = 0
         }
 
-        for (author in store.versionVector().entries.keys.sorted()) {
+        // Relay only up to our own vector: entries above it (e.g. membership learned from an offer)
+        // would raise the peer's vector past seqs neither side holds, and those would never be requested.
+        val ours = store.versionVector()
+        for (author in ours.entries.keys.sorted()) {
             if (author == peerId) continue
+            val upTo = ours[author]
             var after = peerVector[author]
-            while (true) {
-                val page = store.entriesAfter(author, after, PAGE)
+            while (after < upTo) {
+                val page = store.entriesAfter(author, after, PAGE).takeWhile { it.seq <= upTo }
                 if (page.isEmpty()) break
                 for (e in page) {
                     after = e.seq
