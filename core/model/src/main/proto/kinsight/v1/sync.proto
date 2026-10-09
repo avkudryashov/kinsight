@@ -9,12 +9,18 @@ message VectorItem {
   uint64 seq = 2;
 }
 
+// Sent before the peer is known to be a member, so it carries nothing about the group's contents.
 message Hello {
   uint32 protocol_version = 1;
   bytes group_id = 2;
   bytes membership_hash = 3;
-  repeated VectorItem vector = 4;
+  reserved 4;  // was the vector; now in VectorAnnounce
   bool wants_foreign_entries = 5;
+}
+
+// Sent by each side only after the peer has been authenticated as an active member.
+message VectorAnnounce {
+  repeated VectorItem vector = 1;  // contiguous vector, see EntryStore
 }
 
 message MembershipOffer {
@@ -50,5 +56,6 @@ message SyncMessage {
     BatchAck ack = 4;
     Done done = 5;
     Reject reject = 6;
+    VectorAnnounce vector_announce = 7;
   }
 }

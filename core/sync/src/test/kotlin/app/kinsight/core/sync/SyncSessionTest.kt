@@ -6,14 +6,22 @@ import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.proto.AddMember
 import app.kinsight.core.model.proto.MembershipOp
+import app.kinsight.core.model.Membership
+import app.kinsight.core.model.proto.Hello
+import app.kinsight.core.model.proto.MembershipOffer
 import app.kinsight.core.model.proto.Reject
+import app.kinsight.core.model.proto.SyncMessage
 import app.kinsight.core.model.proto.StateEvent
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import okio.ByteString.Companion.toByteString
+import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
@@ -215,6 +223,63 @@ class SyncSessionTest {
         )
         val (ra, _) = syncPair(a, stranger)
         assertEquals(SessionResult.Rejected(Reject.Reason.NOT_A_MEMBER, byPeer = false), ra)
+    }
+
+    @Test
+    fun strangerWithGenesisLearnsNoMembershipAndNoVector() = runBlocking {
+        val (a, _) = buildGroup(2)
+        val genesis = a.store.membershipEntries().single { it.seq == 1L && it.author == a.keys.deviceId }
+        val strangerKeys = DeviceKeys.generate()
+        val stranger = Node(
+            "stranger", strangerKeys, EntryAuthor(a.store.groupId, strangerKeys, 0),
+            InMemoryEntryStore(a.store.groupId).also { it.storeMembership(listOf(genesis)) },
+            SyncPolicy(strangerKeys.deviceId, today = { TODAY }),
+        )
+        val (ra, _) = syncPair(a, stranger)
+        assertEquals(SessionResult.Rejected(Reject.Reason.NOT_A_MEMBER, byPeer = false), ra)
+        assertEquals(listOf(genesis), stranger.store.membershipEntries())
+        assertEquals(VersionVector.EMPTY, stranger.store.versionVector())
+    }
+
+    @Test
+    fun rawStrangerReceivesOnlyHelloEmptyOfferAndReject() = runBlocking {
+        val (a, _) = buildGroup(2)
+        val groupId = a.store.groupId
+        val genesis = a.store.membershipEntries().single { it.seq == 1L && it.author == a.keys.deviceId }
+        val strangerKeys = DeviceKeys.generate()
+        val (sa, sb) = MemoryPipe.pair()
+        val prologue = SecureChannel.prologue(groupId)
+        coroutineScope {
+            val ra = async { SyncSession(a.store, a.policy).run(SecureChannel.accept(sb, a.keys.dh, prologue)) }
+            val ch = SecureChannel.initiate(sa, strangerKeys.dh, prologue)
+            fun encode(m: SyncMessage) = SyncMessage.ADAPTER.encode(m)
+            ch.send(
+                encode(
+                    SyncMessage(
+                        hello = Hello(
+                            protocol_version = PROTOCOL_VERSION,
+                            group_id = groupId.bytes().toByteString(),
+                            membership_hash = Membership.hash(groupId, listOf(genesis)).toByteString(),
+                            wants_foreign_entries = true,
+                        ),
+                    ),
+                ),
+            )
+            ch.send(encode(SyncMessage(membership = MembershipOffer(entries = listOf(genesis.bytes.toByteString())))))
+            val received = mutableListOf<SyncMessage>()
+            try {
+                while (true) received += SyncMessage.ADAPTER.decode(ch.receive())
+            } catch (e: IOException) {
+                // a hung up after rejecting
+            }
+            assertEquals(SessionResult.Rejected(Reject.Reason.NOT_A_MEMBER, byPeer = false), ra.await())
+            assertNotNull(received.first().hello)
+            val offers = received.mapNotNull { it.membership }
+            assertTrue(offers.isNotEmpty(), "got $received")
+            assertTrue(offers.all { it.entries.isEmpty() }, "a non-member got membership entries: $offers")
+            assertTrue(received.none { it.vector_announce != null || it.ack != null || it.batch != null }, "got $received")
+            assertEquals(Reject.Reason.NOT_A_MEMBER, received.last().reject?.reason)
+        }
     }
 
     @Test

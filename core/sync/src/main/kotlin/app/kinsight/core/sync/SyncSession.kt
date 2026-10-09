@@ -12,6 +12,7 @@ import app.kinsight.core.model.proto.Hello
 import app.kinsight.core.model.proto.MembershipOffer
 import app.kinsight.core.model.proto.Reject
 import app.kinsight.core.model.proto.SyncMessage
+import app.kinsight.core.model.proto.VectorAnnounce
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.TimeoutCancellationException
@@ -91,7 +92,9 @@ class SyncSession(
     private suspend fun exchange(ch: SecureChannel): SessionResult = coroutineScope {
         val groupBytes = store.groupId.bytes().toByteString()
         val ourMembership = store.membershipEntries()
+        val ourView = Membership.compute(store.groupId, ourMembership) ?: throw ProtocolException("no valid genesis")
         val ourHash = Membership.hash(store.groupId, ourMembership).toByteString()
+        // Hello goes out before the peer is authenticated as a member: it reveals no vector and no membership.
         send(
             ch,
             SyncMessage(
@@ -99,7 +102,6 @@ class SyncSession(
                     protocol_version = protocolVersion,
                     group_id = groupBytes,
                     membership_hash = ourHash,
-                    vector = store.versionVector().toProto(),
                     wants_foreign_entries = policy.showOthers,
                 ),
             ),
@@ -120,7 +122,10 @@ class SyncSession(
 
         var known = ourMembership
         if (hello.membership_hash != ourHash) {
-            send(ch, SyncMessage(membership = MembershipOffer(entries = ourMembership.map { it.bytes.toByteString() })))
+            // Exactly one offer each way, empty unless the peer is an active member in our current view, so a
+            // stranger (or a removed device) never learns the membership log and neither side waits forever.
+            val shared = if (ourView.activeMemberByDhKey(ch.remoteStaticKey) != null) ourMembership else emptyList()
+            send(ch, SyncMessage(membership = MembershipOffer(entries = shared.map { it.bytes.toByteString() })))
             val offerMsg = receive(ch)
             offerMsg.reject?.let { return@coroutineScope SessionResult.Rejected(it.reason, byPeer = true) }
             val offer = offerMsg.membership ?: throw ProtocolException("expected membership offer")
@@ -135,13 +140,25 @@ class SyncSession(
             return@coroutineScope SessionResult.Rejected(Reject.Reason.NOT_A_MEMBER, byPeer = false)
         }
 
+        // Authenticated both ways: only now exchange vectors.
+        send(ch, SyncMessage(vector_announce = VectorAnnounce(vector = store.versionVector().toProto())))
+        val announceMsg = receive(ch)
+        announceMsg.reject?.let { return@coroutineScope SessionResult.Rejected(it.reason, byPeer = true) }
+        val announce = announceMsg.vector_announce ?: throw ProtocolException("expected vector announce")
+        val peerVector = VersionVector.fromProto(announce.vector)
+
         val validator = EntryValidator(store.groupId, membership, policy)
-        val peerVector = VersionVector.fromProto(hello.vector)
         val sentTotal = CompletableDeferred<Int>()
         val sender = launch {
-            val n = sendData(ch, membership, peerVector, hello.wants_foreign_entries, peer.id)
-            send(ch, SyncMessage(done = Done()))
-            sentTotal.complete(n)
+            try {
+                val n = sendData(ch, membership, peerVector, hello.wants_foreign_entries, peer.id)
+                send(ch, SyncMessage(done = Done()))
+                sentTotal.complete(n)
+            } catch (e: IOException) {
+                // Our direction is gone. Do not cancel the session: batches the peer already delivered are still
+                // applied; the reader then hits the closed link (or the idle timeout) and the session fails.
+                log("send failed: ${e.message}")
+            }
         }
 
         // Dedicated reader: keeps draining the link while our sender is still pushing, so the peer's
