@@ -18,7 +18,7 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
     private val entryDao = db.entryDao()
     private val vector = db.vectorDao()
 
-    /** Test hook, called inside the [applyBatch] transaction after each entry with its index. */
+    /** Test hook, called inside the [applyBatch] transaction after each entry with its index, then once with -1 after the seen accounting. */
     internal var faultInjector: ((Int) -> Unit)? = null
 
     override suspend fun versionVector(): VersionVector =
@@ -41,6 +41,7 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
             faultInjector?.invoke(i)
         }
         for ((author, seqs) in seen) for (seq in seqs) account(author.hex, seq)
+        faultInjector?.invoke(SEEN_ACCOUNTED)
     }
 
     override suspend fun completeAuthor(author: DeviceId, upToSeq: Long): Unit = write {
@@ -63,6 +64,10 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
             val e = DecodedEntry.decode(bytes)
             if (policy.isExpired(e)) entryDao.delete(e.author.hex, e.seq)
         }
+    }
+
+    private companion object {
+        const val SEEN_ACCOUNTED = -1
     }
 
     private suspend fun <T> write(block: suspend () -> T): T =

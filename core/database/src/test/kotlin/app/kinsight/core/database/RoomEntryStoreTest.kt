@@ -53,6 +53,21 @@ class RoomEntryStoreTest {
     }
 
     @Test
+    fun faultAfterSeenAccountingRollsBackTheSeenSeqs() = runTest {
+        val store = open()
+        store.applyBatch(listOf(genesis.entry))
+        val e2 = author.summary("2026-10-08", 1)
+        store.faultInjector = { i -> if (i < 0) throw IllegalStateException("injected after seen") }
+        val r = runCatching { store.applyBatch(listOf(e2), seen = mapOf(keys.deviceId to setOf(9L))) }
+        store.faultInjector = null
+        assertTrue(r.isFailure)
+        assertFalse(store.isAccounted(keys.deviceId, 9))
+        assertFalse(store.isAccounted(keys.deviceId, 2))
+        assertEquals(1L, store.versionVector()[keys.deviceId])
+        assertEquals(listOf(genesis.entry), store.liveEntries())
+    }
+
+    @Test
     fun reopenKeepsEntriesVectorAndSparseAccounting() = runTest {
         val first = open()
         val e2 = author.summary("2026-10-07", 1)
