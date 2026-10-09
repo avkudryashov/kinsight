@@ -399,9 +399,18 @@ class MembershipTest {
                     else -> a.leave()
                 }
             }
-            val state = assertNotNull(Membership.compute(g.groupId, entries), "seed=$seed")
+            val detailed = assertNotNull(Membership.computeDetailed(g.groupId, entries), "seed=$seed")
+            val state = detailed.state
+            val cut = detailed.cutoffs
             try {
                 assertConsistent(state)
+                assertTrue(state.active.keys.none { it in cut.member }, "active member has a member cutoff")
+                assertTrue(state.active.values.none { it.isAdmin && it.id in cut.admin }, "admin has an admin cutoff")
+                assertTrue((cut.member[g.creatorKeys.deviceId] ?: 1L) >= 1L, "genesis author cutoff below 1")
+                for ((id, d) in state.departed) {
+                    cut.member[id]?.let { assertEquals(it, d.lastSeq, "departed lastSeq differs from cutoff") }
+                    assertFalse(state.acceptsEntryFrom(id, d.lastSeq + 1), "departed accepts lastSeq+1")
+                }
                 for (e in state.effectiveEntries) {
                     assertTrue(state.acceptsEntryFrom(e.author, e.seq), "effective $e not accepted")
                 }

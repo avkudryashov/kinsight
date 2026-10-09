@@ -42,7 +42,8 @@ data class MembershipState(
  */
 object Membership {
 
-    private data class Cutoffs(
+    /** Final member/admin cutoffs actually used for a result (fixed point or settled cycle star). */
+    internal data class Cutoffs(
         val member: Map<DeviceId, Long> = emptyMap(),
         val admin: Map<DeviceId, Long> = emptyMap(),
     )
@@ -71,7 +72,13 @@ object Membership {
     fun hash(groupId: GroupId, entries: Collection<DecodedEntry>): ByteArray =
         Primitives.sha256(*relevant(groupId, entries).map { it.bytes }.sortedBy { it.toHex() }.toTypedArray())
 
-    fun compute(groupId: GroupId, entries: Collection<DecodedEntry>): MembershipState? {
+    /** A computed state together with the cutoffs it was derived under. Test hook. */
+    internal data class Detailed(val state: MembershipState, val cutoffs: Cutoffs)
+
+    fun compute(groupId: GroupId, entries: Collection<DecodedEntry>): MembershipState? =
+        computeDetailed(groupId, entries)?.state
+
+    internal fun computeDetailed(groupId: GroupId, entries: Collection<DecodedEntry>): Detailed? {
         val ops = relevant(groupId, entries)
         val genesis = ops.filter { isValidGenesis(groupId, it) }.minByOrNull { it.bytes.toHex() } ?: return null
         val ordered = ops.filter { it != genesis }
@@ -84,14 +91,14 @@ object Membership {
             val at = seen.indexOf(cutoffs)
             if (at >= 0) {
                 val cycle = seen.subList(at, seen.size)
-                if (cycle.size == 1) return replay(groupId, genesis, ordered, cutoffs).state
+                if (cycle.size == 1) return Detailed(replay(groupId, genesis, ordered, cutoffs).state, cutoffs)
                 var star = cycle.reduce(::merge)
                 while (true) { // ops effective only under star may add or lower cutoffs; monotone, so it terminates
                     val next = merge(star, replay(groupId, genesis, ordered, star).cutoffs)
                     if (next == star) break
                     star = next
                 }
-                return settle(replay(groupId, genesis, ordered, star), star)
+                return Detailed(settle(replay(groupId, genesis, ordered, star), star), star)
             }
             seen += cutoffs
             cutoffs = replay(groupId, genesis, ordered, cutoffs).cutoffs
@@ -104,7 +111,12 @@ object Membership {
         val active = s.active.toMutableMap()
         val departed = s.departed.toMutableMap()
         for ((id, cut) in star.member) {
-            active.remove(id)?.let { departed[id] = Departed(it, cut) }
+            val gone = active.remove(id)
+            if (gone != null) {
+                departed[id] = Departed(gone, cut)
+            } else {
+                departed[id]?.let { departed[id] = it.copy(lastSeq = minOf(it.lastSeq, cut)) }
+            }
         }
         for (id in star.admin.keys) active[id]?.let { active[id] = it.copy(isAdmin = false) }
         return s.copy(active = active, departed = departed)
