@@ -54,18 +54,21 @@ class KeyBackendSelector(
         return KeySelection(saved.kind, keys, KeySelfTest.run(keys), firstRun = false, fallbackReason = saved.fallbackReason)
     }
 
-    /** No choice is persisted, yet a backend holds keys: the choice was lost, and the identity may be in use. */
+    /**
+     * No choice is persisted, yet a backend holds keys: the choice was lost and the identity may be in use.
+     * Decided by presence, never by a load, so a transiently failing backend cannot turn into a first run; an
+     * unanswerable presence check is an error too.
+     */
     private fun refuseIfKeysExist() {
         for (backend in listOf(keystore, software)) {
-            val found = try {
-                backend.load()
-                true
+            val present = try {
+                backend.hasKeys()
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: Exception) {
-                false
+            } catch (e: Exception) {
+                throw KeyStorageException("cannot tell whether ${backend.kind.name} keys exist", e)
             }
-            if (found) throw KeyStorageException("device keys exist without a backend choice (${backend.kind.name})")
+            if (present) throw KeyStorageException("device keys exist without a backend choice (${backend.kind.name})")
         }
     }
 

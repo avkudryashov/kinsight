@@ -50,6 +50,17 @@ class SoftwareKeysTest {
     }
 
     @Test
+    fun hasKeysReflectsFilePresenceWithoutUnsealing() {
+        assertFalse(keys.hasKeys())
+        keys.create()
+        assertTrue(keys.hasKeys())
+        file.writeBytes(byteArrayOf(1, 2, 3)) // unreadable keys are still present keys
+        assertTrue(keys.hasKeys())
+        keys.delete()
+        assertFalse(keys.hasKeys())
+    }
+
+    @Test
     fun loadWithoutFileFails() {
         assertFailsWith<KeyStorageException> { keys.load() }
     }

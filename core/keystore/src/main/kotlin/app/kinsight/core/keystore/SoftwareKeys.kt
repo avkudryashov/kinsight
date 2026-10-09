@@ -49,6 +49,9 @@ class SoftwareKeys(
         return keysOf(plain.copyOf(32), plain.copyOfRange(32, 64))
     }
 
+    /** True when the key file exists, readable or not. */
+    override fun hasKeys(): Boolean = file.exists()
+
     override fun delete() {
         if (file.exists() && !file.delete()) throw KeyStorageException("cannot delete ${file.name}")
         staleTempFiles(file).forEach { it.delete() }

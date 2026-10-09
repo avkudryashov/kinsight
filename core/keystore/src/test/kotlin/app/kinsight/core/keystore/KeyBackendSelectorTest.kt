@@ -31,6 +31,10 @@ private class FakeBackend(
 ) : KeyBackend {
     var stored: DeviceKeys? = null
     var loadError: Exception? = null
+    var hasKeysError: Exception? = null
+    /** Overrides presence; null = present exactly when [stored] is set. */
+    var present: Boolean? = null
+    var loadCalls = 0
     @Volatile var createCalls = 0
     var deleteCalls = 0
 
@@ -40,7 +44,15 @@ private class FakeBackend(
         return keysFactory().also { stored = it }
     }
 
-    override fun load(): DeviceKeys = loadError?.let { throw it } ?: stored ?: throw KeyStorageException("no ${kind.name} keys")
+    override fun load(): DeviceKeys {
+        loadCalls++
+        return loadError?.let { throw it } ?: stored ?: throw KeyStorageException("no ${kind.name} keys")
+    }
+
+    override fun hasKeys(): Boolean {
+        hasKeysError?.let { throw it }
+        return present ?: (stored != null)
+    }
 
     override fun delete() {
         deleteCalls++
@@ -215,6 +227,40 @@ class KeyBackendSelectorTest {
         assertEquals(0, software.createCalls)
         assertEquals(0, software.deleteCalls)
         assertEquals(ChoiceState.Absent, choice.read())
+    }
+
+    @Test
+    fun lostChoiceWithPresentButUnloadableKeystoreKeysFailsLoudly() {
+        keystore.present = true
+        keystore.loadError = IllegalStateException("TEE busy")
+        val e = assertFailsWith<KeyStorageException> { selector.select() }
+        assertTrue("without a backend choice" in e.message!!, e.message)
+        assertEquals(0, keystore.loadCalls)
+        assertEquals(0, keystore.createCalls)
+        assertEquals(0, software.createCalls)
+        assertEquals(ChoiceState.Absent, choice.read())
+    }
+
+    @Test
+    fun lostChoiceWithUnanswerablePresenceFailsLoudly() {
+        for (backend in listOf(keystore, software)) {
+            backend.hasKeysError = IllegalStateException("keystore daemon down")
+            val e = assertFailsWith<KeyStorageException> { selector.select() }
+            assertTrue(e.cause is IllegalStateException, e.toString())
+            backend.hasKeysError = null
+        }
+        assertEquals(0, keystore.createCalls)
+        assertEquals(0, software.createCalls)
+        assertEquals(ChoiceState.Absent, choice.read())
+    }
+
+    @Test
+    fun absentChoiceWithNoKeysIsAFirstRun() {
+        val s = selector.select()
+        assertTrue(s.firstRun)
+        assertEquals(0, keystore.loadCalls)
+        assertEquals(0, software.loadCalls)
+        assertEquals(1, keystore.createCalls)
     }
 
     @Test

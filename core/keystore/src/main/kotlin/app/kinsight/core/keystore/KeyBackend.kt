@@ -17,6 +17,15 @@ interface KeyBackend {
     /** Loads existing keys; throws [KeyStorageException] when they are missing or unreadable. */
     fun load(): DeviceKeys
 
+    /**
+     * Whether this backend holds device keys, judged by presence only: never loads, unwraps or uses them, so
+     * keys that exist but are temporarily unusable still count. Throws when presence cannot be determined.
+     *
+     * Android Keystore implementation (Task 7): true when alias `kinsight.sign.v1` or `kinsight.dh.v1` exists.
+     * It must not consider or touch the wrap alias `kinsight.wrap.v1`, which belongs to the software backend.
+     */
+    fun hasKeys(): Boolean
+
     /** Removes this backend's keys; no-op when there are none. */
     fun delete()
 }
