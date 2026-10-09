@@ -66,6 +66,6 @@ private class MemoryEnd(
 
     override fun close() {
         outgoing.close()
-        incoming.cancel()
+        incoming.close(IOException("stream closed by peer"))
     }
 }
