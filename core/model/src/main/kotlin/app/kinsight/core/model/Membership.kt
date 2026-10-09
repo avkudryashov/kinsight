@@ -29,7 +29,10 @@ data class MembershipState(
     fun acceptsEntryFrom(id: DeviceId, seq: Long): Boolean =
         id in active || departed[id]?.let { seq <= it.lastSeq } == true
 
-    fun activeMemberByDhKey(dhPublicKey: ByteArray): Member? {
+    /** Highest Lamport value among effective entries: the clock an author should observe. */
+    val maxLamport: Long get() = effectiveEntries.maxOfOrNull { it.lamport } ?: 0L
+
+        fun activeMemberByDhKey(dhPublicKey: ByteArray): Member? {
         val key = dhPublicKey.toByteString()
         return active.values.firstOrNull { it.dhPublicKey == key }
     }
@@ -53,12 +56,12 @@ object Membership {
     private class Pass(val state: MembershipState, val cutoffs: Cutoffs)
 
     /**
-     * Membership-relevant entries of the group whose signature verifies against a key
+     * Membership-relevant entries of the group within MembershipLimits whose signature verifies against a key
      * introduced by some create/add op, with equivocations (same author+seq) reduced to the min-hex copy.
      * Signatures are checked before deduplication so a forged copy can never displace a genuine entry.
      */
     fun relevant(groupId: GroupId, entries: Collection<DecodedEntry>): List<DecodedEntry> {
-        val candidates = entries.filter { it.groupId == groupId && it.isMembershipRelevant }
+        val candidates = entries.filter { it.groupId == groupId && it.isMembershipRelevant && MembershipLimits.withinLimits(it) }
         val keys = HashMap<DeviceId, ByteArray>()
         for (e in candidates) {
             val op = e.body.membership_op ?: continue

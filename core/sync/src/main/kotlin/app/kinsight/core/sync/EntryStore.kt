@@ -3,6 +3,7 @@ package app.kinsight.core.sync
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.GroupId
+import app.kinsight.core.model.Membership
 
 /**
  * Local replica of the group log. Implementations must make [applyBatch] atomic.
@@ -40,9 +41,12 @@ interface EntryStore {
 
     suspend fun liveEntries(): List<DecodedEntry>
 
-    /** Highest Lamport value among entries ever passed to [applyBatch] or [storeMembership]; feeds EntryAuthor. */
-    suspend fun maxLamport(): Long
-
     /** Deletes entries older than the retention horizon of [policy]; accounting is unchanged. */
     suspend fun prune(policy: SyncPolicy)
 }
+
+/**
+ * The Lamport value a local EntryAuthor should observe: the max over the EFFECTIVE membership entries only, so
+ * a non-admin's entry (or a non-effective op) with a huge value cannot pull the group's clock up.
+ */
+suspend fun EntryStore.observedLamport(): Long = Membership.compute(groupId, membershipEntries())?.maxLamport ?: 0L

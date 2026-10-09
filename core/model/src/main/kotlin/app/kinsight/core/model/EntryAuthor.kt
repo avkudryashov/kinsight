@@ -9,7 +9,9 @@ import okio.ByteString.Companion.toByteString
  * Creates and signs the entries of one device. Each entry gets seq = previous + 1 and a Lamport value
  * max([lastLamport], [observedLamport]()) + 1, where [observedLamport] reports the highest Lamport value
  * this device has seen from anyone (typically the local store's max), so an entry orders after everything
- * its author had observed regardless of wall clocks. The value saturates instead of overflowing.
+ * its author had observed regardless of wall clocks. The value saturates at MembershipLimits.MAX_LAMPORT.
+ * [observedLamport] should report only effective membership entries (MembershipState.maxLamport), so a
+ * non-admin cannot pull everyone's clock up with an arbitrary entry.
  */
 class EntryAuthor(
     val groupId: GroupId,
@@ -31,7 +33,7 @@ class EntryAuthor(
             author_id = keys.deviceId.bytes().toByteString(),
             seq = lastSeq + 1,
             created_at_ms = clock(),
-            lamport = maxOf(lastLamport, observedLamport()).let { if (it == Long.MAX_VALUE) it else it + 1 },
+            lamport = minOf(maxOf(lastLamport, observedLamport()) + 1, MembershipLimits.MAX_LAMPORT).coerceAtLeast(1),
         )
         val body = fill(base)
         require(body.seq == base.seq && body.author_id == base.author_id && body.group_id == base.group_id) {

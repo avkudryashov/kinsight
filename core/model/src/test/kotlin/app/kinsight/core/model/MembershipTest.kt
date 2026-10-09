@@ -1,5 +1,7 @@
 package app.kinsight.core.model
 
+import app.kinsight.core.model.proto.CreateGroup
+import app.kinsight.core.model.proto.MembershipOp
 import app.kinsight.core.model.proto.SignedEntry
 import io.kotest.property.Arb
 import io.kotest.property.arbitrary.long
@@ -10,6 +12,7 @@ import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -146,6 +149,72 @@ class MembershipTest {
         val state = Membership.compute(g.groupId, listOf(g.genesis.entry, add, promote, demote))!!
         assertFalse(state.active.getValue(bobKeys.deviceId).isAdmin)
         assertTrue(demote in state.effectiveEntries)
+    }
+
+    @Test
+    fun displayNameLimitIs64CodePointsAt256BytesMost() {
+        assertTrue(MembershipLimits.nameOk("Планшет бабушки Валентины Петровны")) // 34 code points, 65 bytes
+        assertTrue(MembershipLimits.nameOk("я".repeat(64)))
+        assertTrue(MembershipLimits.nameOk("\uD83D\uDE00".repeat(64))) // 64 code points, 256 bytes
+        assertFalse(MembershipLimits.nameOk("x".repeat(65)))
+        assertFalse(MembershipLimits.nameOk("\uD83D\uDE00".repeat(65)))
+    }
+
+    @Test
+    fun creationRejectsOverCapNames() {
+        val keys = DeviceKeys.generate()
+        assertFailsWith<IllegalArgumentException> { GroupGenesis.create(keys, "x".repeat(65)) }
+        val g = GroupGenesis.create(keys, "Планшет бабушки Валентины Петровны")
+        val admin = EntryAuthor(g.groupId, keys, lastSeq = 1)
+        val other = DeviceKeys.generate()
+        assertFailsWith<IllegalArgumentException> {
+            admin.addMember(other.sign.publicKey, other.dh.publicKey, "x".repeat(65))
+        }
+        assertEquals(1L, admin.lastSeq) // nothing was signed
+        val ok = admin.addMember(other.sign.publicKey, other.dh.publicKey, "Планшет бабушки Валентины Петровны")
+        val state = Membership.compute(g.groupId, listOf(g.genesis(), ok))!!
+        assertEquals("Планшет бабушки Валентины Петровны", state.active.getValue(other.deviceId).displayName)
+    }
+
+    private fun Genesis.genesis() = entry
+
+    @Test
+    fun overCapOpsAreDroppedIdenticallyIncludingTheAuthorsView() {
+        val g = TestGroup()
+        val forgedKeys = DeviceKeys.generate()
+        val forged = g.creator.addMember(forgedKeys, "x".repeat(65)) // fixture bypasses the creation check
+        val highLamport = g.creator.addMember(DeviceKeys.generate(), "ok", lamport = MembershipLimits.MAX_LAMPORT + 1)
+        val clean = listOf(g.genesis.entry)
+        val dirty = clean + forged + highLamport
+        val state = Membership.compute(g.groupId, dirty)!!
+        assertFalse(forgedKeys.deviceId in state.active)
+        assertEquals(setOf(g.genesis.entry), state.effectiveEntries)
+        assertContentEquals(Membership.hash(g.groupId, clean), Membership.hash(g.groupId, dirty))
+    }
+
+    @Test
+    fun overCapGenesisYieldsNoGroupAnywhere() {
+        val keys = DeviceKeys.generate()
+        val salt = ByteArray(16)
+        val groupId = GroupId.derive(keys.sign.publicKey, salt)
+        val forgedGenesis = EntryAuthor(groupId, keys, lastSeq = 0).create {
+            it.copy(
+                membership_op = MembershipOp(
+                    create = CreateGroup(salt.toByteString(), keys.sign.publicKey.toByteString(), keys.dh.publicKey.toByteString(), "x".repeat(65)),
+                ),
+            )
+        }
+        assertNull(Membership.compute(groupId, listOf(forgedGenesis)))
+    }
+
+    @Test
+    fun effectiveMaxLamportIgnoresNonEffectiveOps() {
+        val g = TestGroup()
+        val bobKeys = DeviceKeys.generate()
+        val add = g.creator.addMember(bobKeys)
+        val bobSpam = g.newAuthor(bobKeys).addMember(DeviceKeys.generate(), "spam", lamport = 1_000_000) // bob is no admin
+        val state = Membership.compute(g.groupId, listOf(g.genesis.entry, add, bobSpam))!!
+        assertEquals(add.lamport, state.maxLamport)
     }
 
     @Test

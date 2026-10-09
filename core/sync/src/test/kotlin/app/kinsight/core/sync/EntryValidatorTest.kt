@@ -81,11 +81,18 @@ class EntryValidatorTest {
     }
 
     @Test
-    fun displayNameCappedAt64Utf8Bytes() {
-        assertEquals(Verdict.Accept, validator().check(addNamed("é".repeat(32)), alreadyAccounted = false)) // 64 bytes
-        assertIs<Verdict.Invalid>(validator().check(addNamed("é".repeat(33)), alreadyAccounted = false)) // 66 bytes
-        val longGenesisName = GroupGenesis.create(adminKeys, "x".repeat(65)).entry
-        assertEquals(false, EntryValidator.withinMembershipLimits(longGenesisName))
+    fun displayNameCappedAt64CodePoints() {
+        assertEquals(Verdict.Accept, validator().check(addNamed("Планшет бабушки Валентины Петровны"), alreadyAccounted = false)) // 65 bytes
+        assertEquals(Verdict.Accept, validator().check(addNamed("é".repeat(64)), alreadyAccounted = false)) // 128 bytes
+        assertIs<Verdict.Invalid>(validator().check(addNamed("x".repeat(65)), alreadyAccounted = false))
+    }
+
+    @Test
+    fun lamportAtOrAbove2Pow62IsInvalid() {
+        fun withLamport(l: Long) = bob.create { it.copy(usage_summary = UsageSummary(local_date = "2026-10-09"), lamport = l) }
+        assertEquals(Verdict.Accept, validator().check(withLamport((1L shl 62) - 1), alreadyAccounted = false))
+        assertIs<Verdict.Invalid>(validator().check(withLamport(1L shl 62), alreadyAccounted = false))
+        assertIs<Verdict.Invalid>(validator().check(withLamport(-1L), alreadyAccounted = false)) // uint64 2^64-1
     }
 
     @Test

@@ -4,6 +4,7 @@ import app.kinsight.core.crypto.CryptoException
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.Membership
+import app.kinsight.core.model.MembershipLimits
 import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.proto.BatchAck
 import app.kinsight.core.model.proto.Done
@@ -142,7 +143,7 @@ class SyncSession(
                     }
                     val page = m.membership ?: throw ProtocolException("expected membership offer")
                     page.entries.mapNotNullTo(offered) { raw ->
-                        decodeOrNull(raw)?.takeIf { EntryValidator.withinMembershipLimits(it) }
+                        decodeOrNull(raw)?.takeIf { MembershipLimits.withinLimits(it) }
                     }
                     if (!page.more) break
                 }

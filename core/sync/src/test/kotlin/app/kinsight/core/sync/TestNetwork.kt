@@ -30,7 +30,7 @@ suspend fun buildGroup(size: Int, showOthers: (Int) -> Boolean = { true }): List
     val genesis = GroupGenesis.create(creatorKeys, "node0", clock)
     val stores = List(size) { InMemoryEntryStore(genesis.groupId) }
     val nodes = mutableListOf<Node>()
-    fun observed(i: Int): () -> Long = { runBlocking { (nodes.getOrNull(i)?.store ?: stores[i]).maxLamport() } }
+    fun observed(i: Int): () -> Long = { runBlocking { lamportOf(nodes.getOrNull(i)?.store ?: stores[i]) } }
     val creator = EntryAuthor(
         genesis.groupId, creatorKeys, lastSeq = 1, clock = clock,
         lastLamport = genesis.entry.lamport, observedLamport = observed(0),
@@ -52,6 +52,11 @@ suspend fun buildGroup(size: Int, showOthers: (Int) -> Boolean = { true }): List
     }
     return nodes
 }
+
+/** What an author on this store observes as the group's Lamport clock. */
+suspend fun lamportOf(store: EntryStore): Long = store.observedLamport()
+
+fun Node.lamportSource(): () -> Long = { runBlocking { lamportOf(store) } }
 
 suspend fun Node.publish(vararg entries: app.kinsight.core.model.DecodedEntry) = store.applyBatch(entries.toList())
 

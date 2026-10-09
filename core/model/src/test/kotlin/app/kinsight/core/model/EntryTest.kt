@@ -88,6 +88,13 @@ class EntryTest {
     }
 
     @Test
+    fun lamportSaturatesBelowTheValidityCap() {
+        val a = EntryAuthor(genesis.groupId, keys, lastSeq = 1, observedLamport = { Long.MAX_VALUE - 1 })
+        assertEquals(MembershipLimits.MAX_LAMPORT, a.create { it }.lamport)
+        assertEquals(MembershipLimits.MAX_LAMPORT, a.create { it }.lamport)
+    }
+
+    @Test
     fun authorRefusesToChangeHeader() {
         assertFailsWith<IllegalArgumentException> {
             author.create { it.copy(seq = 99, membership_op = MembershipOp()) }

@@ -86,13 +86,21 @@ class EntryStoreTest {
     }
 
     @Test
-    fun maxLamportCoversStoredAndMembershipEntries() = runTest {
-        assertEquals(0L, store.maxLamport())
+    fun observedLamportComesOnlyFromEffectiveMembership() = runTest {
+        assertEquals(0L, store.observedLamport())
         store.storeMembership(listOf(genesis.entry))
-        assertEquals(genesis.entry.lamport, store.maxLamport())
-        val high = EntryAuthor(genesis.groupId, keys, lastSeq = 1, observedLamport = { 41L }).summary("2026-10-09", 1)
+        assertEquals(genesis.entry.lamport, store.observedLamport())
+        // A usage entry with a huge Lamport value is stored but not observed.
+        val high = EntryAuthor(genesis.groupId, keys, lastSeq = 1, observedLamport = { 1_000_000L }).summary("2026-10-09", 1)
         store.applyBatch(listOf(high))
-        assertEquals(42L, store.maxLamport())
+        assertEquals(genesis.entry.lamport, store.observedLamport())
+        // An effective admin op is observed.
+        val k = DeviceKeys.generate()
+        val add = EntryAuthor(genesis.groupId, keys, lastSeq = 2, observedLamport = { 41L }).create {
+            it.copy(membership_op = MembershipOp(add = AddMember(k.sign.publicKey.toByteString(), k.dh.publicKey.toByteString(), "k")))
+        }
+        store.applyBatch(listOf(add))
+        assertEquals(42L, store.observedLamport())
     }
 
     @Test

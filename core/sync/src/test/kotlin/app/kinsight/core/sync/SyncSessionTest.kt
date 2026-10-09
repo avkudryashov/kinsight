@@ -13,6 +13,7 @@ import app.kinsight.core.model.proto.Reject
 import app.kinsight.core.model.proto.SetAdmin
 import app.kinsight.core.model.proto.SyncMessage
 import app.kinsight.core.model.proto.StateEvent
+import app.kinsight.core.model.proto.UsageSummary
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
@@ -335,6 +336,63 @@ class SyncSessionTest {
     }
 
     @Test
+    fun longCyrillicNameWithin64CodePointsIsActiveOnAllReplicas() = runBlocking {
+        val (a, b, c) = buildGroup(3)
+        val name = "Планшет бабушки Валентины Петровны"
+        assertEquals(34, name.codePointCount(0, name.length))
+        assertEquals(65, name.encodeToByteArray().size)
+        val tablet = DeviceKeys.generate()
+        a.publish(a.author.addMember(tablet, name))
+        for ((x, y) in listOf(a to b, b to c, a to c)) {
+            val (rx, ry) = syncPair(x, y)
+            assertIs<SessionResult.Completed>(rx, "${x.name}-${y.name}")
+            assertIs<SessionResult.Completed>(ry, "${x.name}-${y.name}")
+        }
+        for (n in listOf(a, b, c)) {
+            val view = Membership.compute(n.store.groupId, n.store.membershipEntries())!!
+            assertEquals(name, view.active[tablet.deviceId]?.displayName, n.name)
+        }
+        assertEquals(1, listOf(a, b, c).map { effectiveHash(it) }.toSet().size)
+    }
+
+    @Test
+    fun forgedOverCapNameIsIgnoredByEveryReplica() = runBlocking {
+        val (a, b, c) = buildGroup(3)
+        val forged = DeviceKeys.generate()
+        a.publish(a.author.addMember(forged, "x".repeat(65))) // bypasses the creation check, as a forger would
+        for ((x, y) in listOf(a to b, b to c, a to c, a to b)) {
+            val (rx, ry) = syncPair(x, y)
+            assertIs<SessionResult.Completed>(rx, "${x.name}-${y.name}")
+            assertIs<SessionResult.Completed>(ry, "${x.name}-${y.name}")
+        }
+        for (n in listOf(a, b, c)) {
+            val view = Membership.compute(n.store.groupId, n.store.membershipEntries())!!
+            assertTrue(forged.deviceId !in view.active, "${n.name} sees the forged member")
+        }
+        assertEquals(1, listOf(a, b, c).map { effectiveHash(it) }.toSet().size)
+    }
+
+    @Test
+    fun nonAdminLamportPoisonCannotReorderMembership() = runBlocking {
+        val (a, b) = buildGroup(2)
+        // b (not an admin) publishes a usage entry with a near-maximal Lamport value; it reaches a's store.
+        val poison = b.author.create {
+            it.copy(usage_summary = UsageSummary(local_date = TODAY.toString(), zone_id = "UTC"), lamport = Long.MAX_VALUE - 1)
+        }
+        a.store.applyBatch(listOf(poison))
+        var dKeys = DeviceKeys.generate()
+        while (dKeys.deviceId.hex >= a.keys.deviceId.hex) dKeys = DeviceKeys.generate() // d sorts before a
+        a.publish(a.author.addMember(dKeys, "d"))
+        val d = EntryAuthor(a.store.groupId, dKeys, lastSeq = 0, observedLamport = a.lamportSource())
+        val leave = d.create { it.copy(state_event = StateEvent(kind = StateEvent.Kind.LEFT_GROUP)) }
+        a.store.applyBatch(listOf(leave))
+        val view = Membership.compute(a.store.groupId, a.store.membershipEntries())!!
+        assertTrue(dKeys.deviceId !in view.active, "d's leave was ignored")
+        assertTrue(dKeys.deviceId in view.departed)
+        assertTrue(leave in view.effectiveEntries)
+    }
+
+    @Test
     fun tamperedRelayIsCutOffAfterTenInvalid() = runBlocking {
         val (a, b) = buildGroup(2)
         a.store.applyBatch((0 until 20).map { a.author.summary(TODAY.minusDays(it.toLong()).toString(), 1) })
@@ -347,6 +405,11 @@ class SyncSessionTest {
 
 private fun EntryAuthor.addMember(k: DeviceKeys, name: String = "extra"): DecodedEntry = create {
     it.copy(membership_op = MembershipOp(add = AddMember(k.sign.publicKey.toByteString(), k.dh.publicKey.toByteString(), name)))
+}
+
+private suspend fun effectiveHash(n: Node): String {
+    val view = Membership.compute(n.store.groupId, n.store.membershipEntries())!!
+    return Membership.hash(n.store.groupId, view.effectiveEntries).toByteString().hex()
 }
 
 /** Every entry [author] still holds with seq up to [holder]'s vector for it must be in [holder]'s store. */

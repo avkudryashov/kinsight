@@ -14,7 +14,6 @@ class InMemoryEntryStore(override val groupId: GroupId) : EntryStore {
     private val bySupersede = HashMap<String, DecodedEntry>()
     private val contig = HashMap<DeviceId, Long>()
     private val above = HashMap<DeviceId, TreeSet<Long>>() // accounted seqs above contig, sparse
-    private var maxLamport = 0L
 
     override suspend fun versionVector() = mutex.withLock { VersionVector(contig.filterValues { it > 0 }) }
 
@@ -49,8 +48,6 @@ class InMemoryEntryStore(override val groupId: GroupId) : EntryStore {
         byKey.values.sortedWith(compareBy({ it.author.hex }, { it.seq }))
     }
 
-    override suspend fun maxLamport() = mutex.withLock { maxLamport }
-
     override suspend fun prune(policy: SyncPolicy) = mutex.withLock {
         val expired = byKey.values.filter(policy::isExpired)
         for (e in expired) {
@@ -77,7 +74,6 @@ class InMemoryEntryStore(override val groupId: GroupId) : EntryStore {
     }
 
     private fun insert(e: DecodedEntry) {
-        maxLamport = maxOf(maxLamport, e.lamport)
         val existing = byKey[e.author to e.seq]
         if (existing != null) {
             // Equivocation (same author and seq, different bytes) on a membership op: keep the min-hex copy,

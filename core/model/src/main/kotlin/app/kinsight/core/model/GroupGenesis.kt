@@ -9,6 +9,7 @@ class Genesis(val groupId: GroupId, val entry: DecodedEntry)
 
 object GroupGenesis {
     fun create(keys: DeviceKeys, displayName: String, clock: () -> Long = System::currentTimeMillis): Genesis {
+        require(MembershipLimits.nameOk(displayName)) { "display name over ${MembershipLimits.MAX_NAME_CODE_POINTS} code points" }
         val salt = Primitives.randomBytes(16)
         val groupId = GroupId.derive(keys.sign.publicKey, salt)
         val entry = EntryAuthor(groupId, keys, lastSeq = 0, clock).create {
