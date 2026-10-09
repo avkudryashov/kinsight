@@ -1,23 +1,40 @@
 package app.kinsight.core.sync
 
+import app.kinsight.core.crypto.toHex
+import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
+import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.proto.AddMember
+import app.kinsight.core.model.proto.Heartbeat
 import app.kinsight.core.model.proto.MembershipOp
-import app.kinsight.core.crypto.toHex
-import okio.ByteString.Companion.toByteString
+import app.kinsight.core.model.proto.StateEvent
 import kotlinx.coroutines.test.runTest
+import okio.ByteString.Companion.toByteString
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-class EntryStoreTest {
+/**
+ * Behaviour every [EntryStore] implementation must share. Subclass it in the implementation's tests and supply
+ * [newStore]; JUnit creates a fresh instance per test and calls [disposeStores] after it.
+ */
+abstract class EntryStoreContract {
+    protected abstract fun newStore(groupId: GroupId): EntryStore
+
+    /** Releases whatever [newStore] opened (databases, temp files). */
+    protected open fun disposeStores() {}
+
     private val keys = DeviceKeys.generate()
     private val genesis = GroupGenesis.create(keys, "a")
     private val author = EntryAuthor(genesis.groupId, keys, lastSeq = 1)
-    private val store = InMemoryEntryStore(genesis.groupId)
+    private val store: EntryStore by lazy { newStore(genesis.groupId) }
+
+    @AfterTest
+    fun tearDownStores() = disposeStores()
 
     @Test
     fun applyBumpsVectorAndIsIdempotent() = runTest {
@@ -139,35 +156,79 @@ class EntryStoreTest {
         val (x, y) = add() to add() // same author and seq 2, different bytes
         val min = listOf(x, y).minBy { it.bytes.toHex() }
         for (order in listOf(listOf(x, y), listOf(y, x))) {
-            val viaBatch = InMemoryEntryStore(genesis.groupId)
+            val viaBatch = newStore(genesis.groupId)
             order.forEach { viaBatch.applyBatch(listOf(it)) }
             assertEquals(listOf(min), viaBatch.membershipEntries())
-            val viaOffer = InMemoryEntryStore(genesis.groupId)
+            val viaOffer = newStore(genesis.groupId)
             order.forEach { viaOffer.storeMembership(listOf(it)) }
             assertEquals(listOf(min), viaOffer.membershipEntries())
         }
     }
 
+    // --- added with the Room implementation: pin behaviour the in-memory store had implicitly ---
+
     @Test
-    fun vectorShortHashIsStableAndOrderFree() {
-        val a = DeviceKeys.generate().deviceId
-        val b = DeviceKeys.generate().deviceId
-        val v1 = VersionVector(linkedMapOf(a to 1L, b to 2L))
-        val v2 = VersionVector(linkedMapOf(b to 2L, a to 1L))
-        assertEquals(4, v1.shortHash().size)
-        assertTrue(v1.shortHash().contentEquals(v2.shortHash()))
-        assertFalse(v1.shortHash().contentEquals(VersionVector(mapOf(a to 1L)).shortHash()))
-        assertEquals(v1, VersionVector.fromProto(v1.toProto()))
+    fun liveEntriesAreOrderedByAuthorHexThenSeq() = runTest {
+        val otherAuthor = EntryAuthor(genesis.groupId, DeviceKeys.generate(), lastSeq = 0)
+        val mine = author.summary("2026-10-09", 1)
+        val theirs = (1..3).map { otherAuthor.summary("2026-10-0$it", it.toLong()) }
+        val all: List<DecodedEntry> = theirs + genesis.entry + mine
+        store.applyBatch(all.shuffled())
+        assertEquals(all.sortedWith(compareBy({ it.author.hex }, { it.seq })), store.liveEntries())
     }
 
     @Test
-    fun policyExpiryAndVisibility() {
-        val policy = SyncPolicy(self = keys.deviceId, showOthers = false, today = { TODAY })
-        assertTrue(policy.isExpired(author.detail("2026-07-10")))      // 91 days
-        assertFalse(policy.isExpired(author.detail("2026-07-11")))     // 90 days
-        assertFalse(policy.isExpired(author.summary("2026-07-10", 1)))
-        assertTrue(policy.acceptsFromPeers(author.summary("2026-10-09", 1)))
-        val stranger = EntryAuthor(genesis.groupId, DeviceKeys.generate(), 0)
-        assertFalse(policy.acceptsFromPeers(stranger.summary("2026-10-09", 1)))
+    fun duplicateInsideOneBatchIsStoredOnce() = runTest {
+        val e = author.summary("2026-10-09", 1)
+        store.applyBatch(listOf(genesis.entry, e, e))
+        assertEquals(listOf(genesis.entry, e), store.liveEntries())
+        assertEquals(2L, store.versionVector()[keys.deviceId])
+    }
+
+    @Test
+    fun nonPositiveSeenSeqsAreIgnored() = runTest {
+        store.applyBatch(emptyList(), mapOf(keys.deviceId to setOf(0L, -5L)))
+        assertEquals(VersionVector.EMPTY, store.versionVector())
+    }
+
+    @Test
+    fun completeAuthorStartsVectorForUnknownAuthor() = runTest {
+        val stranger = DeviceKeys.generate().deviceId
+        store.completeAuthor(stranger, 3)
+        assertEquals(3L, store.versionVector()[stranger])
+        assertTrue(store.isAccounted(stranger, 3))
+        assertFalse(store.isAccounted(stranger, 4))
+    }
+
+    @Test
+    fun leaveEventCountsAsMembershipEntry() = runTest {
+        val leave = author.create { it.copy(state_event = StateEvent(kind = StateEvent.Kind.LEFT_GROUP)) }
+        val heartbeat = author.create { it.copy(heartbeat = Heartbeat(app_version = "1", protocol_version = 1)) }
+        store.applyBatch(listOf(genesis.entry, leave, heartbeat))
+        assertEquals(setOf(genesis.entry, leave), store.membershipEntries().toSet())
+    }
+
+    @Test
+    fun entriesAfterIsPerAuthor() = runTest {
+        val otherAuthor = EntryAuthor(genesis.groupId, DeviceKeys.generate(), lastSeq = 0)
+        val theirs = otherAuthor.summary("2026-10-09", 1)
+        val mine = author.summary("2026-10-09", 2)
+        store.applyBatch(listOf(genesis.entry, theirs, mine))
+        assertEquals(listOf(mine), store.entriesAfter(keys.deviceId, 1, 10))
+        assertEquals(listOf(theirs), store.entriesAfter(otherAuthor.keys.deviceId, 0, 10))
+    }
+
+    @Test
+    fun sparseAccountingSurvivesSeveralGaps() = runTest {
+        store.applyBatch(emptyList(), mapOf(keys.deviceId to setOf(2L, 4L, 6L)))
+        assertEquals(0L, store.versionVector()[keys.deviceId])
+        assertTrue(store.isAccounted(keys.deviceId, 4))
+        store.applyBatch(listOf(genesis.entry))
+        assertEquals(2L, store.versionVector()[keys.deviceId])
+        store.applyBatch(emptyList(), mapOf(keys.deviceId to setOf(3L)))
+        assertEquals(4L, store.versionVector()[keys.deviceId])
+        store.completeAuthor(keys.deviceId, 5)
+        assertEquals(6L, store.versionVector()[keys.deviceId])
+        assertFalse(store.isAccounted(keys.deviceId, 7))
     }
 }

@@ -3,6 +3,7 @@ plugins {
 }
 
 dependencies {
+    testImplementation(project(":core:testing"))
     api(project(":core:model"))
     implementation(libs.coroutines.core)
 }

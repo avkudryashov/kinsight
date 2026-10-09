@@ -12,4 +12,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "kinsight"
-include(":core:crypto", ":core:model", ":core:sync")
+include(":core:crypto", ":core:model", ":core:sync", ":core:testing")
