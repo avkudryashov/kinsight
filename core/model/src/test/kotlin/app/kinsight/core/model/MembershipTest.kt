@@ -89,14 +89,63 @@ class MembershipTest {
         val bob = g.newAuthor(bobKeys)
         val legit = bob.addMember(DeviceKeys.generate(), "legit")         // bob seq 1
         val demote = g.creator.setAdmin(bobKeys.deviceId, false, lastSeq = 1)
-        // Timestamps so far: genesis 1001, add 1002, promote 1003, legit 1004, demote 1005.
-        // Bob backdates his next op to 1004, i.e. before the demotion in replay order.
-        g.clock.now = 1_003
-        val evil = bob.addMember(DeviceKeys.generate(), "evil")           // bob seq 2
+        // Lamport so far: genesis 1, add 2, promote 3, legit 4, demote 5.
+        // Bob forges a low Lamport value on his next op, i.e. before the demotion in replay order
+        // (per-author seq order lifts its key to legit's 4, still below the demotion's 5).
+        assertTrue(legit.lamport < demote.lamport)
+        val evil = bob.addMember(DeviceKeys.generate(), "evil", lamport = 1) // bob seq 2
         val state = Membership.compute(g.groupId, listOf(g.genesis.entry, add, promote, legit, demote, evil))!!
+        // Without cutoffs evil would replay while bob is still admin; only the demotion's last_seq voids it.
+        assertTrue(Membership.computeDetailed(g.groupId, listOf(g.genesis.entry, add, promote, legit, demote, evil))!!
+            .cutoffs.admin[bobKeys.deviceId] == 1L)
         assertTrue(legit in state.effectiveEntries)
         assertFalse(evil in state.effectiveEntries)
         assertEquals(3, state.active.size) // creator, bob, legit
+    }
+
+    @Test
+    fun leaveAfterObservedAddWinsDespiteClockSkew() {
+        val adminKeys = DeviceKeys.generate()
+        val bobKeys = DeviceKeys.generate()
+        val genesis = GroupGenesis.create(adminKeys, "admin", clock = { 10_000L })
+        val admin = EntryAuthor(genesis.groupId, adminKeys, lastSeq = 1, clock = { 10_001L }, lastLamport = genesis.entry.lamport)
+        val add = admin.addMember(bobKeys, "bob")
+        // Bob's wall clock is 5 s behind the admin's; he leaves after having observed his own addition.
+        val bob = EntryAuthor(genesis.groupId, bobKeys, lastSeq = 0, clock = { 5_001L }, observedLamport = { add.lamport })
+        val leave = bob.leave()
+        assertTrue(leave.body.created_at_ms < add.body.created_at_ms)
+        val state = Membership.compute(genesis.groupId, listOf(genesis.entry, add, leave))!!
+        assertFalse(bobKeys.deviceId in state.active)
+        assertTrue(leave in state.effectiveEntries)
+        assertEquals(1L, state.departed.getValue(bobKeys.deviceId).lastSeq)
+    }
+
+    @Test
+    fun sameAuthorClockSetBackStillReplaysInSeqOrder() {
+        val g = TestGroup()
+        val bobKeys = DeviceKeys.generate()
+        val add = g.creator.addMember(bobKeys)
+        g.clock.now = 5_000
+        val promote = g.creator.setAdmin(bobKeys.deviceId, true)
+        g.clock.now = 1_000 // the admin's wall clock is set back
+        val demote = g.creator.setAdmin(bobKeys.deviceId, false, lastSeq = 0)
+        assertTrue(demote.body.created_at_ms < promote.body.created_at_ms)
+        val state = Membership.compute(g.groupId, listOf(g.genesis.entry, add, promote, demote))!!
+        assertFalse(state.active.getValue(bobKeys.deviceId).isAdmin)
+        assertTrue(demote in state.effectiveEntries)
+    }
+
+    @Test
+    fun forgedLowLamportCannotReorderAnAuthorsOwnOps() {
+        val g = TestGroup()
+        val bobKeys = DeviceKeys.generate()
+        val add = g.creator.addMember(bobKeys)
+        val promote = g.creator.setAdmin(bobKeys.deviceId, true)
+        // The creator's later op carries a Lamport value below its earlier one: seq order still wins.
+        val demote = g.creator.setAdmin(bobKeys.deviceId, false, lastSeq = 0, lamport = 0)
+        val state = Membership.compute(g.groupId, listOf(g.genesis.entry, add, promote, demote))!!
+        assertFalse(state.active.getValue(bobKeys.deviceId).isAdmin)
+        assertTrue(demote in state.effectiveEntries)
     }
 
     @Test
@@ -388,15 +437,17 @@ class MembershipTest {
             for (k in others) entries += g.creator.addMember(k)
             for (k in others) if (rnd.nextInt(3) > 0) entries += g.creator.setAdmin(k.deviceId, true)
             repeat(rnd.nextInt(3, 11)) {
-                // Mostly forward, sometimes backdated timestamps.
+                // Wall clock wanders both ways (ignored by replay); sometimes an adversarial author
+                // forges a Lamport value at or below what the group has already seen.
                 g.clock.now += if (rnd.nextInt(4) == 0) -rnd.nextLong(1, 20) else rnd.nextLong(0, 3)
+                val forged = if (rnd.nextInt(4) == 0) rnd.nextLong(0, g.clock.lamport + 1) else null
                 val a = author(all.random(rnd))
                 val target = all.random(rnd).deviceId
                 entries += when (rnd.nextInt(5)) {
-                    0, 1 -> a.removeMember(target, lastSeq = rnd.nextLong(0, 12))
-                    2 -> a.setAdmin(target, rnd.nextBoolean(), lastSeq = rnd.nextLong(0, 12))
-                    3 -> a.addMember(DeviceKeys.generate(), "n")
-                    else -> a.leave()
+                    0, 1 -> a.removeMember(target, lastSeq = rnd.nextLong(0, 12), lamport = forged)
+                    2 -> a.setAdmin(target, rnd.nextBoolean(), lastSeq = rnd.nextLong(0, 12), lamport = forged)
+                    3 -> a.addMember(DeviceKeys.generate(), "n", lamport = forged)
+                    else -> a.leave(lamport = forged)
                 }
             }
             val detailed = assertNotNull(Membership.computeDetailed(g.groupId, entries), "seed=$seed")

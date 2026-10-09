@@ -50,6 +50,16 @@ class EntryStoreTest {
     }
 
     @Test
+    fun maxLamportCoversStoredAndMembershipEntries() = runTest {
+        assertEquals(0L, store.maxLamport())
+        store.storeMembership(listOf(genesis.entry))
+        assertEquals(genesis.entry.lamport, store.maxLamport())
+        val high = EntryAuthor(genesis.groupId, keys, lastSeq = 1, observedLamport = { 41L }).summary("2026-10-09", 1)
+        store.applyBatch(listOf(high))
+        assertEquals(42L, store.maxLamport())
+    }
+
+    @Test
     fun seenOnlyBumpsVectorWithoutStoring() = runTest {
         store.applyBatch(emptyList(), mapOf(keys.deviceId to 7L))
         assertEquals(7L, store.versionVector()[keys.deviceId])

@@ -8,6 +8,7 @@ import app.kinsight.core.model.proto.MembershipOp
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.runBlocking
 import okio.ByteString.Companion.toByteString
 
 class Node(
@@ -18,13 +19,22 @@ class Node(
     var policy: SyncPolicy,
 )
 
-/** Node 0 creates the group and adds the others; every node starts with the full membership. */
+/**
+ * Node 0 creates the group and adds the others; every node starts with the full membership.
+ * Each node's author observes the Lamport values of its own (current) store, as the app does.
+ */
 suspend fun buildGroup(size: Int, showOthers: (Int) -> Boolean = { true }): List<Node> {
     var now = 1_000L
     val clock = { ++now }
     val creatorKeys = DeviceKeys.generate()
     val genesis = GroupGenesis.create(creatorKeys, "node0", clock)
-    val creator = EntryAuthor(genesis.groupId, creatorKeys, lastSeq = 1, clock = clock)
+    val stores = List(size) { InMemoryEntryStore(genesis.groupId) }
+    val nodes = mutableListOf<Node>()
+    fun observed(i: Int): () -> Long = { runBlocking { (nodes.getOrNull(i)?.store ?: stores[i]).maxLamport() } }
+    val creator = EntryAuthor(
+        genesis.groupId, creatorKeys, lastSeq = 1, clock = clock,
+        lastLamport = genesis.entry.lamport, observedLamport = observed(0),
+    )
     val otherKeys = (1 until size).map { DeviceKeys.generate() }
     val adds = otherKeys.mapIndexed { i, k ->
         creator.create {
@@ -32,11 +42,10 @@ suspend fun buildGroup(size: Int, showOthers: (Int) -> Boolean = { true }): List
         }
     }
     val membership = listOf(genesis.entry) + adds
-    val nodes = mutableListOf<Node>()
     for (i in 0 until size) {
         val keys = if (i == 0) creatorKeys else otherKeys[i - 1]
-        val author = if (i == 0) creator else EntryAuthor(genesis.groupId, keys, lastSeq = 0, clock = clock)
-        val store = InMemoryEntryStore(genesis.groupId)
+        val author = if (i == 0) creator else EntryAuthor(genesis.groupId, keys, lastSeq = 0, clock = clock, observedLamport = observed(i))
+        val store = stores[i]
         store.storeMembership(membership)
         if (i == 0) store.applyBatch(membership)
         nodes += Node("node$i", keys, author, store, SyncPolicy(keys.deviceId, showOthers(i), today = { TODAY }))

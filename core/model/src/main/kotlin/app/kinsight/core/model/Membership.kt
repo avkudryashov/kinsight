@@ -37,7 +37,9 @@ data class MembershipState(
 
 /**
  * Deterministic membership from an unordered set of signed entries.
- * Replay order: (created_at_ms, author, seq). Removal wins over addition and is permanent.
+ * Replay order: (Lamport key, author, seq), where an author's key is the running max of its own Lamport values
+ * in seq order, so an author's higher seq never replays before its lower seq. Wall-clock time is not used.
+ * Removal wins over addition and is permanent.
  * Cutoffs found in one pass void later-seq ops of removed or demoted authors in the next pass.
  */
 object Membership {
@@ -81,8 +83,7 @@ object Membership {
     internal fun computeDetailed(groupId: GroupId, entries: Collection<DecodedEntry>): Detailed? {
         val ops = relevant(groupId, entries)
         val genesis = ops.filter { isValidGenesis(groupId, it) }.minByOrNull { it.bytes.toHex() } ?: return null
-        val ordered = ops.filter { it != genesis }
-            .sortedWith(compareBy<DecodedEntry>({ it.body.created_at_ms }, { it.author.hex }, { it.seq }))
+        val ordered = replayOrder(ops.filter { it != genesis })
         // Each pass derives cutoffs only from ops effective under the previous cutoffs.
         // A fixed point is the answer; a cycle is resolved by the min-union of the cycle's cutoffs.
         val seen = mutableListOf<Cutoffs>()
@@ -103,6 +104,18 @@ object Membership {
             seen += cutoffs
             cutoffs = replay(groupId, genesis, ordered, cutoffs).cutoffs
         }
+    }
+
+    private fun replayOrder(ops: List<DecodedEntry>): List<DecodedEntry> {
+        val key = HashMap<DecodedEntry, Long>()
+        for ((_, own) in ops.groupBy { it.author }) {
+            var running = 0L
+            for (e in own.sortedBy { it.seq }) {
+                running = maxOf(running, e.lamport)
+                key[e] = running
+            }
+        }
+        return ops.sortedWith(compareBy<DecodedEntry>({ key.getValue(it) }, { it.author.hex }, { it.seq }))
     }
 
     /** Makes a state replayed under merged cycle cutoffs consistent with those cutoffs. */

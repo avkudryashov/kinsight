@@ -13,7 +13,8 @@ message EntryBody {
   bytes group_id = 1;
   bytes author_id = 2;
   uint64 seq = 3;
-  int64 created_at_ms = 4;
+  int64 created_at_ms = 4;  // informational only; never used for ordering
+  uint64 lamport = 5;       // > every Lamport value the author had observed and > its own previous one
   oneof payload {
     UsageSummary usage_summary = 10;
     UsageDetail usage_detail = 11;

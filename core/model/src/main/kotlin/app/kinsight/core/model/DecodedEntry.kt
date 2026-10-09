@@ -20,6 +20,7 @@ class DecodedEntry private constructor(
     val groupId: GroupId = GroupId.fromBytes(body.group_id.toByteArray())
     val author: DeviceId = DeviceId.fromBytes(body.author_id.toByteArray())
     val seq: Long get() = body.seq
+    val lamport: Long get() = body.lamport
 
     val kind: EntryKind = when {
         body.usage_summary != null -> EntryKind.USAGE_SUMMARY

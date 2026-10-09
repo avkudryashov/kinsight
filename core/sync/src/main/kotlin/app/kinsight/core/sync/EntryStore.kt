@@ -27,6 +27,9 @@ interface EntryStore {
 
     suspend fun liveEntries(): List<DecodedEntry>
 
+    /** Highest Lamport value among entries ever passed to [applyBatch] or [storeMembership]; feeds EntryAuthor. */
+    suspend fun maxLamport(): Long
+
     /** Deletes entries older than the retention horizon of [policy]; the vector is unchanged. */
     suspend fun prune(policy: SyncPolicy)
 }

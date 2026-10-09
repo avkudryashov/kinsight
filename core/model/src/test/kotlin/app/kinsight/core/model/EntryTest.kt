@@ -75,6 +75,19 @@ class EntryTest {
     }
 
     @Test
+    fun lamportExceedsOwnPreviousAndObserved() {
+        assertEquals(1L, genesis.entry.lamport)
+        var observed = 0L
+        val a = EntryAuthor(genesis.groupId, keys, lastSeq = 1, lastLamport = 1, observedLamport = { observed })
+        assertEquals(2L, a.create { it }.lamport)
+        observed = 10
+        assertEquals(11L, a.create { it }.lamport)
+        observed = 3 // observing less never moves the author's clock back
+        assertEquals(12L, a.create { it }.lamport)
+        assertEquals(12L, a.lastLamport)
+    }
+
+    @Test
     fun authorRefusesToChangeHeader() {
         assertFailsWith<IllegalArgumentException> {
             author.create { it.copy(seq = 99, membership_op = MembershipOp()) }
