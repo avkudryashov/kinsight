@@ -10,6 +10,7 @@ import app.kinsight.core.model.Membership
 import app.kinsight.core.model.proto.Hello
 import app.kinsight.core.model.proto.MembershipOffer
 import app.kinsight.core.model.proto.Reject
+import app.kinsight.core.model.proto.SetAdmin
 import app.kinsight.core.model.proto.SyncMessage
 import app.kinsight.core.model.proto.StateEvent
 import kotlinx.coroutines.async
@@ -283,6 +284,57 @@ class SyncSessionTest {
     }
 
     @Test
+    fun nonAdminMembershipSpamDoesNotBreakSessions() = runBlocking {
+        val (a, b, c) = buildGroup(3)
+        // b is not an admin; its AddMember ops are never effective, and carry ~40 KB names each.
+        val spam = List(2) {
+            val k = DeviceKeys.generate()
+            b.author.create {
+                it.copy(membership_op = MembershipOp(add = AddMember(k.sign.publicKey.toByteString(), k.dh.publicKey.toByteString(), "x".repeat(40_000))))
+            }
+        }
+        b.publish(*spam.toTypedArray())
+        val (rb, rc) = syncPair(b, c)
+        assertIs<SessionResult.Completed>(rb)
+        assertIs<SessionResult.Completed>(rc)
+        a.publish(a.author.addMember(DeviceKeys.generate())) // membership now differs everywhere
+        for ((x, y) in listOf(a to c, a to b, b to c)) {
+            val (rx, ry) = syncPair(x, y)
+            assertIs<SessionResult.Completed>(rx, "${x.name}-${y.name}")
+            assertIs<SessionResult.Completed>(ry, "${x.name}-${y.name}")
+        }
+        assertTrue(spam.none { it in a.store.liveEntries() || it in c.store.liveEntries() })
+    }
+
+    @Test
+    fun largeMembershipSyncsViaPagedOffer() = runBlocking {
+        val (a, b) = buildGroup(2)
+        val adds = List(300) { a.author.addMember(DeviceKeys.generate(), "m".repeat(60)) }
+        a.publish(*adds.toTypedArray())
+        assertTrue(adds.sumOf { it.bytes.size } > SecureChannel.MAX_PLAINTEXT)
+        val (ra, rb) = syncPair(a, b)
+        assertIs<SessionResult.Completed>(ra)
+        assertIs<SessionResult.Completed>(rb)
+        val view = Membership.compute(b.store.groupId, b.store.membershipEntries())!!
+        assertEquals(302, view.active.size)
+    }
+
+    @Test
+    fun twoMultiPageOffersOverBoundedPipeComplete() = runBlocking {
+        val (a, b) = buildGroup(2)
+        a.publish(a.author.create { it.copy(membership_op = MembershipOp(set_admin = SetAdmin(b.keys.deviceId.bytes().toByteString(), admin = true))) })
+        syncPair(a, b)
+        // Partitioned admins each add 300 members: both offers span several pages.
+        a.publish(*List(300) { a.author.addMember(DeviceKeys.generate(), "a".repeat(60)) }.toTypedArray())
+        b.publish(*List(300) { b.author.addMember(DeviceKeys.generate(), "b".repeat(60)) }.toTypedArray())
+        val (ra, rb) = withTimeout(20.seconds) { syncPair(a, b, capacity = 1) }
+        assertIs<SessionResult.Completed>(ra)
+        assertIs<SessionResult.Completed>(rb)
+        assertEquals(602, Membership.compute(a.store.groupId, a.store.membershipEntries())!!.active.size)
+        assertEquals(602, Membership.compute(b.store.groupId, b.store.membershipEntries())!!.active.size)
+    }
+
+    @Test
     fun tamperedRelayIsCutOffAfterTenInvalid() = runBlocking {
         val (a, b) = buildGroup(2)
         a.store.applyBatch((0 until 20).map { a.author.summary(TODAY.minusDays(it.toLong()).toString(), 1) })
@@ -293,8 +345,8 @@ class SyncSessionTest {
     }
 }
 
-private fun EntryAuthor.addMember(k: DeviceKeys): DecodedEntry = create {
-    it.copy(membership_op = MembershipOp(add = AddMember(k.sign.publicKey.toByteString(), k.dh.publicKey.toByteString(), "extra")))
+private fun EntryAuthor.addMember(k: DeviceKeys, name: String = "extra"): DecodedEntry = create {
+    it.copy(membership_op = MembershipOp(add = AddMember(k.sign.publicKey.toByteString(), k.dh.publicKey.toByteString(), name)))
 }
 
 /** Every entry [author] still holds with seq up to [holder]'s vector for it must be in [holder]'s store. */

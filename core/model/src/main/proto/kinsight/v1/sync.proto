@@ -23,8 +23,11 @@ message VectorAnnounce {
   repeated VectorItem vector = 1;  // contiguous vector, see EntryStore
 }
 
+// One page of the sender's effective membership entries; pages follow each other until more = false.
+// A sender that does not consider the peer an active member sends a single empty page.
 message MembershipOffer {
   repeated bytes entries = 1;  // SignedEntry bytes
+  bool more = 2;
 }
 
 message EntryBatch {

@@ -8,10 +8,14 @@ import app.kinsight.core.model.Membership
 import app.kinsight.core.model.proto.AddMember
 import app.kinsight.core.model.proto.MembershipOp
 import app.kinsight.core.model.proto.RemoveMember
+import app.kinsight.core.model.proto.RotateDiscoveryKey
+import app.kinsight.core.model.proto.SealedKey
+import app.kinsight.core.model.proto.UsageSummary
 import okio.ByteString.Companion.toByteString
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class EntryValidatorTest {
     private val adminKeys = DeviceKeys.generate()
@@ -69,6 +73,33 @@ class EntryValidatorTest {
         val v = validator(listOf(remove))
         assertEquals(Verdict.Accept, v.check(e1, alreadyAccounted = false))
         assertIs<Verdict.Invalid>(v.check(e2, alreadyAccounted = false))
+    }
+
+    private fun addNamed(name: String) = admin.create {
+        val k = DeviceKeys.generate()
+        it.copy(membership_op = MembershipOp(add = AddMember(k.sign.publicKey.toByteString(), k.dh.publicKey.toByteString(), name)))
+    }
+
+    @Test
+    fun displayNameCappedAt64Utf8Bytes() {
+        assertEquals(Verdict.Accept, validator().check(addNamed("é".repeat(32)), alreadyAccounted = false)) // 64 bytes
+        assertIs<Verdict.Invalid>(validator().check(addNamed("é".repeat(33)), alreadyAccounted = false)) // 66 bytes
+        val longGenesisName = GroupGenesis.create(adminKeys, "x".repeat(65)).entry
+        assertEquals(false, EntryValidator.withinMembershipLimits(longGenesisName))
+    }
+
+    @Test
+    fun membershipEntryCappedAt8KiB() {
+        fun rotate(size: Int) = admin.create {
+            it.copy(membership_op = MembershipOp(rotate = RotateDiscoveryKey(epoch = 1, keys = listOf(SealedKey(ciphertext = ByteArray(size).toByteString())))))
+        }
+        assertEquals(Verdict.Accept, validator().check(rotate(7_000), alreadyAccounted = false))
+        val big = rotate(8_200)
+        assertTrue(big.bytes.size > 8 * 1024)
+        assertIs<Verdict.Invalid>(validator().check(big, alreadyAccounted = false))
+        // Non-membership entries are not subject to the cap.
+        val bigSummary = bob.create { it.copy(usage_summary = UsageSummary(local_date = "2026-10-09", zone_id = "x".repeat(9_000))) }
+        assertEquals(Verdict.Accept, validator().check(bigSummary, alreadyAccounted = false))
     }
 
     @Test

@@ -21,6 +21,7 @@ class EntryValidator(
     fun check(e: DecodedEntry, alreadyAccounted: Boolean): Verdict {
         if (e.groupId != groupId) return Verdict.Invalid("foreign group")
         if (e.seq < 1) return Verdict.Invalid("non-positive seq")
+        if (!withinMembershipLimits(e)) return Verdict.Invalid("oversized membership entry")
         val key = membership.signKeyOf(e.author) ?: return Verdict.Invalid("unknown author")
         if (!membership.acceptsEntryFrom(e.author, e.seq)) return Verdict.Invalid("after membership cutoff")
         if (!e.verifySignature(key)) return Verdict.Invalid("bad signature")
@@ -28,5 +29,19 @@ class EntryValidator(
         if (alreadyAccounted) return Verdict.Duplicate
         if (policy.isExpired(e)) return Verdict.Expired
         return Verdict.Accept
+    }
+
+    companion object {
+        const val MAX_MEMBERSHIP_ENTRY_BYTES = 8 * 1024
+        const val MAX_DISPLAY_NAME_BYTES = 64
+
+        /** Size caps for membership-relevant entries (others pass): encoded size and display-name length. */
+        fun withinMembershipLimits(e: DecodedEntry): Boolean {
+            if (!e.isMembershipRelevant) return true
+            if (e.bytes.size > MAX_MEMBERSHIP_ENTRY_BYTES) return false
+            val op = e.body.membership_op ?: return true
+            val name = op.create?.display_name ?: op.add?.display_name ?: return true
+            return name.encodeToByteArray().size <= MAX_DISPLAY_NAME_BYTES
+        }
     }
 }

@@ -93,7 +93,10 @@ class SyncSession(
         val groupBytes = store.groupId.bytes().toByteString()
         val ourMembership = store.membershipEntries()
         val ourView = Membership.compute(store.groupId, ourMembership) ?: throw ProtocolException("no valid genesis")
-        val ourHash = Membership.hash(store.groupId, ourMembership).toByteString()
+        // Hash and offer cover only the effective entries: ops that change nothing (e.g. from non-admins) stay
+        // in the author log flow and cannot bloat or perturb the membership exchange.
+        val ourEffective = ourView.effectiveEntries.sortedWith(compareBy({ it.author.hex }, { it.seq }))
+        val ourHash = Membership.hash(store.groupId, ourEffective).toByteString()
         // Hello goes out before the peer is authenticated as a member: it reveals no vector and no membership.
         send(
             ch,
@@ -124,12 +127,28 @@ class SyncSession(
         if (hello.membership_hash != ourHash) {
             // Exactly one offer each way, empty unless the peer is an active member in our current view, so a
             // stranger (or a removed device) never learns the membership log and neither side waits forever.
-            val shared = if (ourView.activeMemberByDhKey(ch.remoteStaticKey) != null) ourMembership else emptyList()
-            send(ch, SyncMessage(membership = MembershipOffer(entries = shared.map { it.bytes.toByteString() })))
-            val offerMsg = receive(ch)
-            offerMsg.reject?.let { return@coroutineScope SessionResult.Rejected(it.reason, byPeer = true) }
-            val offer = offerMsg.membership ?: throw ProtocolException("expected membership offer")
-            known = ourMembership + offer.entries.mapNotNull { decodeOrNull(it) }
+            val shared = if (ourView.activeMemberByDhKey(ch.remoteStaticKey) != null) ourEffective else emptyList()
+            val offered = mutableListOf<DecodedEntry>()
+            var peerReject: Reject.Reason? = null
+            coroutineScope {
+                // Pages go out while we read the peer's, so two large offers cannot block on a bounded transport.
+                val pages = launch { sendOffer(ch, shared) }
+                while (true) {
+                    val m = receive(ch)
+                    m.reject?.let {
+                        peerReject = it.reason
+                        pages.cancel()
+                        return@coroutineScope
+                    }
+                    val page = m.membership ?: throw ProtocolException("expected membership offer")
+                    page.entries.mapNotNullTo(offered) { raw ->
+                        decodeOrNull(raw)?.takeIf { EntryValidator.withinMembershipLimits(it) }
+                    }
+                    if (!page.more) break
+                }
+            }
+            peerReject?.let { return@coroutineScope SessionResult.Rejected(it, byPeer = true) }
+            known = ourMembership + offered
         }
         val membership = Membership.compute(store.groupId, known) ?: throw ProtocolException("no valid genesis")
         store.storeMembership(membership.effectiveEntries.toList())
@@ -287,6 +306,30 @@ class SyncSession(
         }
         flush()
         return batches
+    }
+
+    /** Sends [entries] as MembershipOffer pages within the batch byte budget; always at least one page. */
+    private suspend fun sendOffer(ch: SecureChannel, entries: List<DecodedEntry>) {
+        val pages = mutableListOf<List<ByteString>>()
+        var page = mutableListOf<ByteString>()
+        var size = 0
+        for (e in entries) {
+            if (e.bytes.size > BATCH_BYTES) {
+                log("skipping oversized membership entry ${e.author.hex}#${e.seq}")
+                continue
+            }
+            if (size + e.bytes.size + ENTRY_OVERHEAD > BATCH_BYTES) {
+                pages += page
+                page = mutableListOf()
+                size = 0
+            }
+            page += e.bytes.toByteString()
+            size += e.bytes.size + ENTRY_OVERHEAD
+        }
+        pages += page
+        pages.forEachIndexed { i, entriesOfPage ->
+            send(ch, SyncMessage(membership = MembershipOffer(entries = entriesOfPage, more = i < pages.lastIndex)))
+        }
     }
 
     private fun decodeOrNull(raw: ByteString): DecodedEntry? = try {
