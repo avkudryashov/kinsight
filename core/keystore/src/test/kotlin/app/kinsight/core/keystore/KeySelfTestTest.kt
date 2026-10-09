@@ -6,8 +6,11 @@ import app.kinsight.core.crypto.Primitives
 import app.kinsight.core.crypto.Signer
 import app.kinsight.core.crypto.X25519
 import app.kinsight.core.model.DeviceKeys
+import java.util.concurrent.CancellationException
 import kotlin.test.Test
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class KeySelfTestTest {
@@ -40,6 +43,16 @@ class KeySelfTestTest {
         val r = KeySelfTest.run(DeviceKeys(goodSign, bad))
         assertFalse(r.passed)
         assertTrue("agreement" in r.detail, r.detail)
+    }
+
+    @Test
+    fun propagatesCancellation() {
+        val cancelled = CancellationException("scope cancelled")
+        val cancelling = object : DhKey {
+            override val publicKey = goodDh.publicKey
+            override fun agree(peerPublicKey: ByteArray): ByteArray = throw cancelled
+        }
+        assertSame(cancelled, assertFailsWith<CancellationException> { KeySelfTest.run(DeviceKeys(goodSign, cancelling)) })
     }
 
     @Test

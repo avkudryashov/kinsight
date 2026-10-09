@@ -32,6 +32,7 @@ private class FakeBackend(
     var stored: DeviceKeys? = null
     var loadError: Exception? = null
     var hasKeysError: Exception? = null
+    var deleteError: Exception? = null
     /** Overrides presence; null = present exactly when [stored] is set. */
     var present: Boolean? = null
     var loadCalls = 0
@@ -56,17 +57,20 @@ private class FakeBackend(
 
     override fun delete() {
         deleteCalls++
+        deleteError?.let { throw it }
         stored = null
     }
 }
 
 private class MemoryChoiceStore(var value: BackendChoice? = null) : BackendChoiceStore {
     var pending = false
+    var pendingError: Exception? = null
 
     override fun read(): ChoiceState = value?.let { ChoiceState.Chosen(it) }
         ?: if (pending) ChoiceState.Pending else ChoiceState.Absent
 
     override fun writePending() {
+        pendingError?.let { throw it }
         value = null
         pending = true
     }
@@ -206,6 +210,29 @@ class KeyBackendSelectorTest {
         keystore.keysFactory = { stateAtCreate = choice.read(); DeviceKeys.generate() }
         selector.select()
         assertEquals(ChoiceState.Pending, stateAtCreate)
+    }
+
+    @Test
+    fun undeletableStaleSoftwareKeysDoNotBlockTheKeystoreChoice() {
+        choice.writePending()
+        software.stored = DeviceKeys.generate()
+        software.deleteError = KeyStorageException("cannot delete keys.bin")
+        val first = selector.select()
+        assertEquals(KeyBackendKind.KEYSTORE, first.kind)
+        assertEquals(BackendChoice(KeyBackendKind.KEYSTORE, null), choice.value)
+        val second = selector.select()
+        assertFalse(second.firstRun)
+        assertEquals(first.keys.deviceId, second.keys.deviceId)
+        assertEquals(1, keystore.createCalls)
+    }
+
+    @Test
+    fun failingPendingMarkIsFatalBeforeAnyKeyIsCreated() {
+        choice.pendingError = KeyStorageException("disk full")
+        assertFailsWith<KeyStorageException> { selector.select() }
+        assertEquals(0, keystore.createCalls)
+        assertEquals(0, software.createCalls)
+        assertNull(choice.value)
     }
 
     @Test

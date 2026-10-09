@@ -83,8 +83,15 @@ class KeyBackendSelector(
         }
         val created = attempt.getOrNull()
         if (created != null && created.second.passed) {
-            software.delete() // stale software keys from an interrupted fallback; no-op when absent
             choice.write(BackendChoice(KeyBackendKind.KEYSTORE, null))
+            // Best effort, after the choice is durable: stale software keys from an interrupted fallback are never
+            // loaded under a KEYSTORE choice, and failing here must not leave the first run pending forever.
+            try {
+                software.delete()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
             return KeySelection(KeyBackendKind.KEYSTORE, created.first, created.second, firstRun = true, fallbackReason = null)
         }
         val reason = if (created != null) {
