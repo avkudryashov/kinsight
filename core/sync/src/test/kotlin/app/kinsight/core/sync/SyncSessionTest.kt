@@ -7,6 +7,7 @@ import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.proto.AddMember
 import app.kinsight.core.model.proto.MembershipOp
 import app.kinsight.core.model.Membership
+import app.kinsight.core.model.MembershipLimits
 import app.kinsight.core.model.proto.Hello
 import app.kinsight.core.model.proto.MembershipOffer
 import app.kinsight.core.model.proto.Reject
@@ -390,6 +391,28 @@ class SyncSessionTest {
         assertTrue(dKeys.deviceId !in view.active, "d's leave was ignored")
         assertTrue(dKeys.deviceId in view.departed)
         assertTrue(leave in view.effectiveEntries)
+    }
+
+    @Test
+    fun leavingMemberCannotPinTheGroupClock() = runBlocking {
+        val (a, x) = buildGroup(2)
+        // Non-admin x leaves with the largest valid Lamport value; a learns the (effective) leave by syncing.
+        val poisonLeave = x.author.create {
+            it.copy(state_event = StateEvent(kind = StateEvent.Kind.LEFT_GROUP), lamport = MembershipLimits.MAX_LAMPORT)
+        }
+        x.publish(poisonLeave)
+        syncPair(a, x)
+        assertTrue(poisonLeave in Membership.compute(a.store.groupId, a.store.membershipEntries())!!.effectiveEntries)
+        var dKeys = DeviceKeys.generate()
+        while (dKeys.deviceId.hex >= a.keys.deviceId.hex) dKeys = DeviceKeys.generate() // d sorts before a
+        a.publish(a.author.addMember(dKeys, "d"))
+        val d = EntryAuthor(a.store.groupId, dKeys, lastSeq = 0, observedLamport = a.lamportSource())
+        val leave = d.create { it.copy(state_event = StateEvent(kind = StateEvent.Kind.LEFT_GROUP)) }
+        a.store.applyBatch(listOf(leave))
+        val view = Membership.compute(a.store.groupId, a.store.membershipEntries())!!
+        assertTrue(leave in view.effectiveEntries, "d's leave was ignored")
+        assertTrue(dKeys.deviceId !in view.active)
+        assertTrue(dKeys.deviceId in view.departed)
     }
 
     @Test

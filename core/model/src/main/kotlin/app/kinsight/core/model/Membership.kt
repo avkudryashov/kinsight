@@ -29,10 +29,14 @@ data class MembershipState(
     fun acceptsEntryFrom(id: DeviceId, seq: Long): Boolean =
         id in active || departed[id]?.let { seq <= it.lastSeq } == true
 
-    /** Highest Lamport value among effective entries: the clock an author should observe. */
-    val maxLamport: Long get() = effectiveEntries.maxOfOrNull { it.lamport } ?: 0L
+    /**
+     * Highest Lamport value among effective membership ops (admin-authored): the clock an author should observe.
+     * Leaves are excluded: any member may leave with an arbitrary valid value, and a departed id cannot come
+     * back, while the per-author rule already orders a leaver's own ops.
+     */
+    val maxLamport: Long get() = effectiveEntries.filter { it.body.membership_op != null }.maxOfOrNull { it.lamport } ?: 0L
 
-        fun activeMemberByDhKey(dhPublicKey: ByteArray): Member? {
+    fun activeMemberByDhKey(dhPublicKey: ByteArray): Member? {
         val key = dhPublicKey.toByteString()
         return active.values.firstOrNull { it.dhPublicKey == key }
     }

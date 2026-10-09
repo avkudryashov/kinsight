@@ -218,6 +218,17 @@ class MembershipTest {
     }
 
     @Test
+    fun effectiveMaxLamportIgnoresLeaves() {
+        val g = TestGroup()
+        val bobKeys = DeviceKeys.generate()
+        val add = g.creator.addMember(bobKeys)
+        val leave = g.newAuthor(bobKeys).leave(lamport = MembershipLimits.MAX_LAMPORT)
+        val state = Membership.compute(g.groupId, listOf(g.genesis.entry, add, leave))!!
+        assertTrue(leave in state.effectiveEntries)
+        assertEquals(add.lamport, state.maxLamport)
+    }
+
+    @Test
     fun leaveMovesMemberToDeparted() {
         val g = TestGroup()
         val bobKeys = DeviceKeys.generate()
