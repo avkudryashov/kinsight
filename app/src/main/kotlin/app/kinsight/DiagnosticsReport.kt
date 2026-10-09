@@ -1,6 +1,7 @@
 package app.kinsight
 
 import app.kinsight.core.keystore.KeySelection
+import app.kinsight.core.keystore.KeyStorageException
 
 /** Plain-text key diagnostics (technical, English only; replaced by the settings screen in stage 4). */
 object DiagnosticsReport {
@@ -16,8 +17,12 @@ object DiagnosticsReport {
                 appendLine("Device ID: ${s.keys.deviceId.hex}")
             },
             onFailure = { e ->
-                appendLine("Key storage error: ${e::class.simpleName}: ${e.message}")
-                appendLine("Keys were not regenerated; a new identity needs clearing app data and re-pairing.")
+                if (e is KeyStorageException) {
+                    appendLine("Key storage error: ${e::class.simpleName}: ${e.message}")
+                    appendLine("Keys were not regenerated; a new identity needs clearing app data and re-pairing.")
+                } else {
+                    appendLine("Key selection failed: ${e::class.simpleName}: ${e.message}")
+                }
             },
         )
     }

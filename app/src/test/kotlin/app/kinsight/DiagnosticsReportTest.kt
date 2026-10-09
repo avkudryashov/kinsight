@@ -40,4 +40,11 @@ class DiagnosticsReportTest {
         assertTrue("not regenerated" in text, text)
         assertFalse("Device ID" in text, text)
     }
+
+    @Test
+    fun otherFailureIsNeutral() {
+        val text = DiagnosticsReport.format(Result.failure(IllegalStateException("oops")), "dev")
+        assertTrue("Key selection failed: IllegalStateException: oops" in text, text)
+        assertFalse("not regenerated" in text, text)
+    }
 }

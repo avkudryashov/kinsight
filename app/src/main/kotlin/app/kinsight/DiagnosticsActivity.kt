@@ -30,7 +30,11 @@ class DiagnosticsActivity : Activity() {
         }
         setContentView(root)
         Thread {
-            val selection = runCatching { DeviceKeyProvider.select(applicationContext) }
+            val selection = try {
+                Result.success(DeviceKeyProvider.select(applicationContext))
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
             val device = "${Build.MANUFACTURER} ${Build.MODEL}, API ${Build.VERSION.SDK_INT}"
             val report = DiagnosticsReport.format(selection, device)
             Log.i(TAG, report)

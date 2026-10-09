@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Do NOT declare android:process on any component: DeviceKeyProvider.select() relies on running in a
-         single process (in-process lock plus file lock for first-run serialization). -->
+    <!-- Do NOT declare android:process on any component: select() takes an in-process lock plus a cross-process
+         file lock, but the key stores (Keystore and the software file) are designed and tested for a single
+         process only. -->
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
