@@ -85,7 +85,12 @@ object Membership {
             if (at >= 0) {
                 val cycle = seen.subList(at, seen.size)
                 if (cycle.size == 1) return replay(groupId, genesis, ordered, cutoffs).state
-                val star = cycle.reduce(::merge)
+                var star = cycle.reduce(::merge)
+                while (true) { // ops effective only under star may add or lower cutoffs; monotone, so it terminates
+                    val next = merge(star, replay(groupId, genesis, ordered, star).cutoffs)
+                    if (next == star) break
+                    star = next
+                }
                 return settle(replay(groupId, genesis, ordered, star), star)
             }
             seen += cutoffs
@@ -181,7 +186,13 @@ object Membership {
                     } else {
                         removedForever += id
                         memberCut[id] = minOf(memberCut[id] ?: op.remove!!.last_seq, op.remove!!.last_seq)
-                        active.remove(id)?.let { departed[id] = Departed(it, op.remove!!.last_seq) }
+                        val lastSeq = op.remove!!.last_seq
+                        val gone = active.remove(id)
+                        if (gone != null) {
+                            departed[id] = Departed(gone, lastSeq)
+                        } else {
+                            departed[id]?.let { departed[id] = it.copy(lastSeq = minOf(it.lastSeq, lastSeq)) }
+                        }
                         true
                     }
                 }

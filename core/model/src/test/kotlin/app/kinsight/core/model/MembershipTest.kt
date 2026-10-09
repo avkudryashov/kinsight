@@ -309,4 +309,49 @@ class MembershipTest {
         assertTrue(promote in state.effectiveEntries)
         assertTrue(bobAdd in state.effectiveEntries)
     }
+
+    @Test
+    fun cycleOnlyRemovalStaysConsistent() {
+        val g = TestGroup()
+        val q = DeviceKeys.generate()
+        val r = DeviceKeys.generate()
+        val z = DeviceKeys.generate()
+        val x = DeviceKeys.generate()
+        val entries = mutableListOf(g.genesis.entry)
+        for (k in listOf(q, r, z, x)) entries += g.creator.addMember(k) // P seq 2..5
+        for (k in listOf(q, r, z, x)) entries += g.creator.setAdmin(k.deviceId, true) // P seq 6..9
+        g.clock.now = 1_500
+        entries += g.creator.removeMember(z.deviceId, lastSeq = 5) // P seq 10
+        g.clock.now = 1_600
+        val x1 = g.newAuthor(x).addMember(DeviceKeys.generate(), "w")
+        entries += x1
+        g.clock.now = 2_000
+        val qa = g.newAuthor(q)
+        entries += qa.removeMember(r.deviceId, lastSeq = 1) // Q seq 1 @2001
+        entries += g.newAuthor(r).removeMember(g.creatorKeys.deviceId, lastSeq = 9) // R seq 1 @2002
+        entries += qa.removeMember(z.deviceId, lastSeq = 5) // Q seq 2 @2003
+        g.clock.now = 2_500
+        entries += g.newAuthor(z).removeMember(x.deviceId, lastSeq = 0) // Z seq 1 @2501
+        g.clock.now = 3_000
+        entries += g.creator.removeMember(q.deviceId, lastSeq = 0) // P seq 11
+        val state = Membership.compute(g.groupId, entries)!!
+        assertConsistent(state)
+        val rnd = Random(3)
+        repeat(10) { assertEquals(state, Membership.compute(g.groupId, entries.shuffled(rnd))) }
+        // Z's removal of X is effective under the settled cutoffs, so X is departed and x1 is void.
+        assertTrue(x.deviceId in state.departed)
+        assertFalse(x1 in state.effectiveEntries)
+    }
+
+    @Test
+    fun laterRemovalLowersDepartedCutoff() {
+        val g = TestGroup()
+        val bobKeys = DeviceKeys.generate()
+        val add = g.creator.addMember(bobKeys)
+        val first = g.creator.removeMember(bobKeys.deviceId, lastSeq = 5)
+        val second = g.creator.removeMember(bobKeys.deviceId, lastSeq = 2)
+        val state = Membership.compute(g.groupId, listOf(g.genesis.entry, add, first, second))!!
+        assertEquals(2L, state.departed.getValue(bobKeys.deviceId).lastSeq)
+        assertFalse(state.acceptsEntryFrom(bobKeys.deviceId, 3))
+    }
 }
