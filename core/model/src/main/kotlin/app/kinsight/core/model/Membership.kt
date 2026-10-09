@@ -41,7 +41,7 @@ data class MembershipState(
  * Cutoffs found in one pass void later-seq ops of removed or demoted authors in the next pass.
  */
 object Membership {
-    private const val MAX_PASSES = 8
+    private const val MAX_PASSES = 1_000
 
     private data class Cutoffs(
         val member: Map<DeviceId, Long> = emptyMap(),
@@ -50,11 +50,24 @@ object Membership {
 
     private class Pass(val state: MembershipState, val cutoffs: Cutoffs)
 
-    fun relevant(groupId: GroupId, entries: Collection<DecodedEntry>): List<DecodedEntry> =
-        entries.asSequence()
-            .filter { it.groupId == groupId && it.isMembershipRelevant }
+    /**
+     * Membership-relevant entries of the group whose signature verifies against a key
+     * introduced by some create/add op, with equivocations (same author+seq) reduced to the min-hex copy.
+     * Signatures are checked before deduplication so a forged copy can never displace a genuine entry.
+     */
+    fun relevant(groupId: GroupId, entries: Collection<DecodedEntry>): List<DecodedEntry> {
+        val candidates = entries.filter { it.groupId == groupId && it.isMembershipRelevant }
+        val keys = HashMap<DeviceId, ByteArray>()
+        for (e in candidates) {
+            val op = e.body.membership_op ?: continue
+            val pk = (op.create?.sign_public_key ?: op.add?.sign_public_key)?.toByteArray() ?: continue
+            if (pk.size == 32) keys[DeviceId.fromSignPublicKey(pk)] = pk
+        }
+        return candidates
+            .filter { e -> keys[e.author]?.let { e.verifySignature(it) } == true }
             .groupBy { it.author to it.seq }
             .map { (_, same) -> same.minBy { it.bytes.toHex() } }
+    }
 
     fun hash(groupId: GroupId, entries: Collection<DecodedEntry>): ByteArray =
         Primitives.sha256(*relevant(groupId, entries).map { it.bytes }.sortedBy { it.toHex() }.toTypedArray())
@@ -64,15 +77,25 @@ object Membership {
         val genesis = ops.filter { isValidGenesis(groupId, it) }.minByOrNull { it.bytes.toHex() } ?: return null
         val ordered = ops.filter { it != genesis }
             .sortedWith(compareBy<DecodedEntry>({ it.body.created_at_ms }, { it.author.hex }, { it.seq }))
+        // Cutoffs only ever decrease (min per id), so the iteration reaches a fixed point.
         var cutoffs = Cutoffs()
         var pass = replay(groupId, genesis, ordered, cutoffs)
         repeat(MAX_PASSES) {
-            if (pass.cutoffs == cutoffs) return pass.state
-            cutoffs = pass.cutoffs
+            val merged = merge(cutoffs, pass.cutoffs)
+            if (merged == cutoffs) return pass.state
+            cutoffs = merged
             pass = replay(groupId, genesis, ordered, cutoffs)
         }
         return pass.state
     }
+
+    private fun mergeMin(a: Map<DeviceId, Long>, b: Map<DeviceId, Long>): Map<DeviceId, Long> {
+        val out = a.toMutableMap()
+        for ((k, v) in b) out[k] = minOf(out[k] ?: v, v)
+        return out
+    }
+
+    private fun merge(a: Cutoffs, b: Cutoffs) = Cutoffs(mergeMin(a.member, b.member), mergeMin(a.admin, b.admin))
 
     private fun isValidGenesis(groupId: GroupId, e: DecodedEntry): Boolean {
         val create = e.body.membership_op?.create ?: return false
@@ -96,6 +119,7 @@ object Membership {
         val removedForever = mutableSetOf<DeviceId>()
         val memberCut = mutableMapOf<DeviceId, Long>()
         val adminCut = mutableMapOf<DeviceId, Long>()
+        val demoted = mutableSetOf<DeviceId>()
         var rotation: RotateDiscoveryKey? = null
         val effective = mutableSetOf(genesis)
 
@@ -103,13 +127,12 @@ object Membership {
             val cut = cutoffs.member[e.author]
             if (cut != null && e.seq > cut) continue
             val author = active[e.author] ?: continue
-            if (!e.verifySignature(author.signPublicKey.toByteArray())) continue
 
             if (e.body.state_event != null) { // LEFT_GROUP
                 active.remove(e.author)
                 departed[e.author] = Departed(author, e.seq)
                 removedForever += e.author
-                memberCut[e.author] = e.seq
+                memberCut[e.author] = minOf(memberCut[e.author] ?: e.seq, e.seq)
                 effective += e
                 continue
             }
@@ -127,7 +150,7 @@ object Membership {
                         false
                     } else {
                         val id = DeviceId.fromSignPublicKey(pk)
-                        if (id in active || id in removedForever) {
+                        if (id in active || id in removedForever || active.values.any { it.dhPublicKey == add.dh_public_key }) {
                             false
                         } else {
                             active[id] = Member(id, add.sign_public_key, add.dh_public_key, add.display_name, isAdmin = false)
@@ -141,7 +164,7 @@ object Membership {
                         false
                     } else {
                         removedForever += id
-                        memberCut[id] = op.remove!!.last_seq
+                        memberCut[id] = minOf(memberCut[id] ?: op.remove!!.last_seq, op.remove!!.last_seq)
                         active.remove(id)?.let { departed[id] = Departed(it, op.remove!!.last_seq) }
                         true
                     }
@@ -150,11 +173,14 @@ object Membership {
                     val sa = op.set_admin!!
                     val id = idOrNull(sa.device_id)
                     val m = id?.let { active[it] }
-                    if (m == null) {
+                    if (m == null || (sa.admin && id in demoted)) {
                         false
                     } else {
                         active[id] = m.copy(isAdmin = sa.admin)
-                        if (!sa.admin) adminCut[id] = sa.last_seq
+                        if (!sa.admin) {
+                            demoted += id
+                            adminCut[id] = minOf(adminCut[id] ?: sa.last_seq, sa.last_seq)
+                        }
                         true
                     }
                 }
