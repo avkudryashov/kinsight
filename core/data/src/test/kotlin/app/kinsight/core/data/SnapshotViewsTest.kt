@@ -77,8 +77,9 @@ class SnapshotViewsTest {
 
     @Test
     fun detailOfAnUnknownDeviceIsNull() {
-        assertNull(SnapshotViews.detail(ready(momKeys), DeviceKeys.generate().deviceId, Period.WEEK, today))
-        assertIs<DeviceDetail>(SnapshotViews.detail(ready(momKeys), kidKeys.deviceId, Period.WEEK, today))
+        val week = DetailRange.of(Period.WEEK, today, java.time.temporal.WeekFields.ISO)
+        assertNull(SnapshotViews.detail(ready(momKeys), DeviceKeys.generate().deviceId, week, today))
+        assertIs<DeviceDetail>(SnapshotViews.detail(ready(momKeys), kidKeys.deviceId, week, today))
     }
 
     @Test

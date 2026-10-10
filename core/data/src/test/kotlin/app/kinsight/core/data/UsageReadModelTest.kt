@@ -9,9 +9,11 @@ import app.kinsight.core.model.proto.AppTotal
 import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.model.proto.UsageSummary
 import okio.ByteString.Companion.toByteString
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
+import java.time.temporal.WeekFields
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -26,6 +28,10 @@ class UsageReadModelTest {
     private val today = LocalDate.of(2026, 10, 10)
     private val member = MemberView(kidKeys.deviceId, "Kid", Role.CHILD, isAdmin = false, isSelf = false, lastSeenMs = null)
     private val min = 60_000L
+    private val monFirst = WeekFields.of(DayOfWeek.MONDAY, 4)
+
+    /** The [p] containing [anchor], Monday-first: today's WEEK is Mon 5 to Sun 11 Oct 2026, its MONTH is October. */
+    private fun range(p: Period, anchor: LocalDate = today) = DetailRange.of(p, anchor, monFirst)
 
     private fun summary(date: LocalDate, minutes: Long, unlocks: Int = 0, vararg apps: Pair<String, Long>) = kid.create {
         it.copy(
@@ -129,11 +135,14 @@ class UsageReadModelTest {
         val usage = UsageReadModel.usage(member, by, events, today)
         assertEquals(30 * min, usage.today.totalMs)
         assertEquals(60 * min, usage.averageMs)
-        val week = UsageReadModel.detail(member, by, emptyMap(), events, today, Period.WEEK)
+        val week = UsageReadModel.detail(member, by, emptyMap(), events, range(Period.WEEK), today)
         assertEquals(90 * min, week.totalMs)
         assertEquals(10, week.unlocks)
         assertEquals(25, week.events.size)
-        assertEquals(190 * min, UsageReadModel.detail(member, by, emptyMap(), events, today, Period.MONTH).totalMs)
+        // MONTH is the calendar month: October holds today and 7 Oct, 20 Sep belongs to September.
+        val october = range(Period.MONTH)
+        assertEquals(90 * min, UsageReadModel.detail(member, by, emptyMap(), events, october, today).totalMs)
+        assertEquals(100 * min, UsageReadModel.detail(member, by, emptyMap(), events, october.previous(), today).totalMs)
     }
 
     private val day = 86_400_000L
@@ -150,10 +159,11 @@ class UsageReadModelTest {
     @Test
     fun peerNumbersAreClamped() {
         val pkg = "com.example.x"
-        val entries = (0L..29).map { raw(today.minusDays(it), Long.MAX_VALUE, Int.MAX_VALUE, listOf(AppTotal(pkg, Long.MAX_VALUE)), Long.MAX_VALUE) } +
+        // Every day from 1 Sep to today; September is a whole 30-day month in the past.
+        val entries = (0L..39).map { raw(today.minusDays(it), Long.MAX_VALUE, Int.MAX_VALUE, listOf(AppTotal(pkg, Long.MAX_VALUE)), Long.MAX_VALUE) } +
             raw(today.minusDays(40), -5, -7)
         val by = UsageReadModel.summaries(entries)[kidKeys.deviceId]
-        val month = UsageReadModel.detail(member, by, emptyMap(), emptyList(), today, Period.MONTH)
+        val month = UsageReadModel.detail(member, by, emptyMap(), emptyList(), range(Period.MONTH).previous(), today)
         assertEquals(30 * day, month.totalMs)
         assertEquals(30 * UsageReadModel.MAX_UNLOCKS_PER_DAY, month.unlocks)
         assertEquals(30 * day, month.apps.single().totalMs)
@@ -186,7 +196,7 @@ class UsageReadModelTest {
         )
         val events = UsageReadModel.events(theirs + mine)
         assertEquals(Sharing.On, UsageReadModel.usage(member, null, events, today).sharing)
-        val detail = UsageReadModel.detail(member, null, emptyMap(), events, today, Period.DAY)
+        val detail = UsageReadModel.detail(member, null, emptyMap(), events, range(Period.DAY), today)
         assertEquals(Sharing.On, detail.sharing)
         assertEquals(listOf(kidKeys.deviceId), detail.events.map { it.author })
     }
@@ -205,7 +215,7 @@ class UsageReadModelTest {
         assertFalse(usage.today.hasData)
         assertNull(usage.averageMs)
         assertNull(usage.updatedMs)
-        val detail = UsageReadModel.detail(view, by, emptyMap(), emptyList(), today, Period.WEEK)
+        val detail = UsageReadModel.detail(view, by, emptyMap(), emptyList(), range(Period.WEEK), today)
         assertEquals(0L, detail.totalMs)
         assertEquals(0, detail.unlocks)
         assertTrue(detail.apps.isEmpty())
@@ -216,7 +226,7 @@ class UsageReadModelTest {
         val hidden = event(StateEvent.Kind.NOTIFICATION_HIDDEN, createdMs = utc(today.minusDays(5)), fromMs = utc(today.minusDays(5)))
         val gaps = (1..30).map { event(StateEvent.Kind.DATA_GAP, createdMs = utc(today, 10), fromMs = utc(today, 9), toMs = utc(today, 10)) }
         val events = UsageReadModel.events(listOf(hidden) + gaps)
-        val week = UsageReadModel.detail(member, null, emptyMap(), events, today, Period.WEEK, zone = ZoneOffset.UTC)
+        val week = UsageReadModel.detail(member, null, emptyMap(), events, range(Period.WEEK), today, zone = ZoneOffset.UTC)
         assertEquals(31, week.events.size)
         assertEquals(StateEvent.Kind.NOTIFICATION_HIDDEN, week.events.last().kind)
         assertEquals(week.events.map { it.seq }.sortedDescending(), week.events.map { it.seq })
@@ -230,11 +240,79 @@ class UsageReadModelTest {
         // Stopped two days ago and reported on restart this morning: it reaches into today.
         val stopped = event(StateEvent.Kind.SYNC_STOPPED, createdMs = utc(today, 8), fromMs = utc(today.minusDays(2)), toMs = utc(today, 8))
         val events = UsageReadModel.events(listOf(threeDaysAgo, tenDaysAgo, fortyDaysAgo, stopped))
-        fun kinds(p: Period) = UsageReadModel.detail(member, null, emptyMap(), events, today, p, zone = ZoneOffset.UTC).events.map { it.kind }.toSet()
-        assertEquals(setOf(StateEvent.Kind.SYNC_STOPPED), kinds(Period.DAY))
-        assertEquals(setOf(StateEvent.Kind.SYNC_STOPPED, StateEvent.Kind.BLUETOOTH_OFF), kinds(Period.WEEK))
-        assertEquals(setOf(StateEvent.Kind.SYNC_STOPPED, StateEvent.Kind.BLUETOOTH_OFF, StateEvent.Kind.CLOCK_CHANGED), kinds(Period.MONTH))
+        fun kinds(r: DetailRange) = UsageReadModel.detail(member, null, emptyMap(), events, r, today, zone = ZoneOffset.UTC).events.map { it.kind }.toSet()
+        assertEquals(setOf(StateEvent.Kind.SYNC_STOPPED), kinds(range(Period.DAY)))
+        assertEquals(setOf(StateEvent.Kind.SYNC_STOPPED, StateEvent.Kind.BLUETOOTH_OFF), kinds(range(Period.WEEK)))
+        // Calendar month: 30 Sep (ten days ago) is in September, not in October.
+        assertEquals(setOf(StateEvent.Kind.SYNC_STOPPED, StateEvent.Kind.BLUETOOTH_OFF), kinds(range(Period.MONTH)))
+        assertEquals(setOf(StateEvent.Kind.CLOCK_CHANGED), kinds(range(Period.MONTH).previous()))
+        // A past day sees the interval that reached into it, a day before it does not.
+        assertEquals(setOf(StateEvent.Kind.SYNC_STOPPED), kinds(range(Period.DAY, today.minusDays(1))))
+        assertEquals(setOf(StateEvent.Kind.BLUETOOTH_OFF), kinds(range(Period.DAY, today.minusDays(3))))
         // Sharing still reads every own event, not only the period's.
-        assertEquals(Sharing.Left, UsageReadModel.detail(member, null, emptyMap(), events, today, Period.DAY, zone = ZoneOffset.UTC).sharing)
+        assertEquals(Sharing.Left, UsageReadModel.detail(member, null, emptyMap(), events, range(Period.DAY), today, zone = ZoneOffset.UTC).sharing)
+    }
+
+    @Test
+    fun detailCoversTheWholeRangeWithFutureDaysEmptyAndUnknown() {
+        // Today is Saturday 10 Oct; the Monday-first week runs to Sunday 11 Oct. A clock-ahead child already wrote 11 Oct.
+        val by = byDate(summary(today, 30, 3, "a" to 30L), summary(today.minusDays(1), 0), summary(today.plusDays(1), 500, 9, "a" to 500L))
+        val week = UsageReadModel.detail(member, by, emptyMap(), emptyList(), range(Period.WEEK), today)
+        assertEquals(range(Period.WEEK), week.range)
+        assertEquals(Period.WEEK, week.period)
+        assertEquals((5..11).map { LocalDate.of(2026, 10, it) }, week.days.map { it.date })
+        val sunday = week.days.last()
+        assertFalse(sunday.known)
+        assertFalse(sunday.hasData)
+        assertEquals(0L, sunday.totalMs)
+        assertEquals(0, sunday.unlocks)
+        assertEquals(30 * min, week.totalMs)
+        assertEquals(3, week.unlocks)
+        assertEquals(listOf(30 * min), week.apps.map { it.totalMs })
+        val month = UsageReadModel.detail(member, by, emptyMap(), emptyList(), range(Period.MONTH), today)
+        assertEquals(31, month.days.size)
+        assertTrue(month.days.drop(10).none { it.known })
+    }
+
+    @Test
+    fun knownTellsAZeroDayFromAMissingOne() {
+        val by = byDate(summary(today.minusDays(1), 0))
+        val days = UsageReadModel.detail(member, by, emptyMap(), emptyList(), range(Period.WEEK), today).days.associateBy { it.date }
+        val zero = days.getValue(today.minusDays(1))
+        assertTrue(zero.known)
+        assertEquals(0L, zero.totalMs)
+        val missing = days.getValue(today.minusDays(2))
+        assertFalse(missing.known)
+        assertEquals(0L, missing.totalMs)
+        assertFalse(days.getValue(today).known)
+    }
+
+    @Test
+    fun canGoBackOnlyWhileAnOlderSummaryExists() {
+        val oldest = LocalDate.of(2026, 9, 29) // Tuesday of the week before today's
+        val by = byDate(summary(oldest, 10), summary(today, 20))
+        fun detail(r: DetailRange, m: MemberView = member, b: Map<LocalDate, DecodedEntry>? = by) =
+            UsageReadModel.detail(m, b, emptyMap(), emptyList(), r, today)
+        val week = range(Period.WEEK)
+        assertTrue(detail(week).canGoBack)
+        assertFalse(detail(week.previous()).canGoBack)
+        assertTrue(detail(range(Period.DAY, oldest.plusDays(1))).canGoBack)
+        assertFalse(detail(range(Period.DAY, oldest)).canGoBack)
+        assertTrue(detail(range(Period.MONTH)).canGoBack) // 29 Sep is before 1 Oct
+        assertFalse(detail(range(Period.MONTH).previous()).canGoBack)
+        assertFalse(detail(week, b = null).canGoBack)
+        // A parent's summaries are never surfaced, so they never offer older periods either.
+        assertFalse(detail(week, member.copy(role = Role.PARENT)).canGoBack)
+    }
+
+    @Test
+    fun canGoForwardUntilTheRangeReachesToday() {
+        fun forward(r: DetailRange) = UsageReadModel.detail(member, null, emptyMap(), emptyList(), r, today).canGoForward
+        assertFalse(forward(range(Period.DAY)))
+        assertTrue(forward(range(Period.DAY, today.minusDays(1))))
+        assertFalse(forward(range(Period.WEEK)))
+        assertTrue(forward(range(Period.WEEK).previous()))
+        assertFalse(forward(range(Period.MONTH)))
+        assertTrue(forward(range(Period.MONTH).previous()))
     }
 }

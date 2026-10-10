@@ -4,6 +4,7 @@ import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.StateEvent
 import java.time.LocalDate
+import java.time.temporal.WeekFields
 
 /** What the screens call a device's role (spec §4.8); unspecified reads as a parent. */
 enum class Role { PARENT, CHILD }
@@ -22,12 +23,60 @@ data class MemberView(
     val lastSeenMs: Long?,
 )
 
-data class DayTotal(val date: LocalDate, val totalMs: Long, val unlocks: Int, val hasData: Boolean = totalMs > 0 || unlocks > 0)
+/**
+ * One day of a child. [known]: a summary exists for the date (a day after the viewer's today never is, it is drawn
+ * empty); a day that is not known reads as «no data», not as zero (spec §9.3, stage 5a).
+ */
+data class DayTotal(
+    val date: LocalDate,
+    val totalMs: Long,
+    val unlocks: Int,
+    val hasData: Boolean = totalMs > 0 || unlocks > 0,
+    val known: Boolean = hasData,
+)
 
 /** One app over a period; [label] falls back to the package name (spec §7: invisible packages). */
 class AppUsage(val packageName: String, val label: String, val icon: ByteArray?, val totalMs: Long)
 
-enum class Period(val days: Int) { DAY(1), WEEK(7), MONTH(30) }
+enum class Period { DAY, WEEK, MONTH }
+
+/**
+ * The dates a detail screen shows, [start] to [end] inclusive (spec §9.3, stage 5a): a DAY is any date, a WEEK the
+ * calendar week whose first day follows the locale ([WeekFields]), a MONTH the calendar month. [previous] and [next]
+ * step one whole period; bounds (oldest summary, today) are the read model's business, not the range's.
+ */
+data class DetailRange(val period: Period, val start: LocalDate, val end: LocalDate) {
+    init {
+        require(!end.isBefore(start)) { "range ends before it starts: $start..$end" }
+    }
+
+    fun previous(): DetailRange = when (period) {
+        Period.DAY -> DetailRange(period, start.minusDays(1), end.minusDays(1))
+        Period.WEEK -> DetailRange(period, start.minusWeeks(1), end.minusWeeks(1))
+        Period.MONTH -> month(start.minusMonths(1))
+    }
+
+    fun next(): DetailRange = when (period) {
+        Period.DAY -> DetailRange(period, start.plusDays(1), end.plusDays(1))
+        Period.WEEK -> DetailRange(period, start.plusWeeks(1), end.plusWeeks(1))
+        Period.MONTH -> month(start.plusMonths(1))
+    }
+
+    /** Every date of the range, oldest first. */
+    fun dates(): List<LocalDate> = generateSequence(start) { it.plusDays(1) }.takeWhile { !it.isAfter(end) }.toList()
+
+    companion object {
+        /** The [period] containing [anchor]; [weekFields] is `WeekFields.of(Locale.getDefault())` on a phone. */
+        fun of(period: Period, anchor: LocalDate, weekFields: WeekFields): DetailRange = when (period) {
+            Period.DAY -> DetailRange(period, anchor, anchor)
+            Period.WEEK -> anchor.with(weekFields.dayOfWeek(), 1).let { DetailRange(period, it, it.plusDays(6)) }
+            Period.MONTH -> month(anchor)
+        }
+
+        private fun month(anchor: LocalDate): DetailRange =
+            DetailRange(Period.MONTH, anchor.withDayOfMonth(1), anchor.withDayOfMonth(anchor.lengthOfMonth()))
+    }
+}
 
 /** A child's sharing as the group sees it, from its own signed events. */
 sealed interface Sharing {
@@ -66,14 +115,22 @@ data class DeviceUsage(
     val updatedMs: Long?,
 )
 
-/** Levels 1 and 2 of spec §9.3 for one period, and the device's latest events (newest first). */
+/**
+ * Levels 1 and 2 of spec §9.3 for one [range] (every date of it in [days], oldest first), and the device's events of
+ * the range (newest first). [canGoBack]: a summary older than the range exists; [canGoForward]: the range ends before
+ * the viewer's today.
+ */
 data class DeviceDetail(
     val member: MemberView,
-    val period: Period,
+    val range: DetailRange,
     val days: List<DayTotal>,
     val totalMs: Long,
     val unlocks: Int,
     val apps: List<AppUsage>,
     val events: List<EventView>,
     val sharing: Sharing,
-)
+    val canGoBack: Boolean = false,
+    val canGoForward: Boolean = false,
+) {
+    val period: Period get() = range.period
+}

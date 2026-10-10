@@ -270,15 +270,18 @@ class GroupRepository(
 
 class UsageRepository(
     private val snapshots: Snapshots,
-    private val today: () -> LocalDate = LocalDate::now,
+    private val date: () -> LocalDate = LocalDate::now,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     val dashboard: Flow<DashboardState?> = snapshots.snapshots.map { s ->
         (s as? GroupSnapshot.Ready)?.takeUnless { it.removed }?.let { SnapshotViews.dashboard(it, today(), clock()) }
     }
 
-    fun detail(id: DeviceId, period: Period): Flow<DeviceDetail?> = snapshots.snapshots.map { s ->
-        (s as? GroupSnapshot.Ready)?.let { SnapshotViews.detail(it, id, period, today(), clock()) }
+    /** The viewer's local date, the bound of forward navigation; screens anchor their first range on it. */
+    fun today(): LocalDate = date()
+
+    fun detail(id: DeviceId, range: DetailRange): Flow<DeviceDetail?> = snapshots.snapshots.map { s ->
+        (s as? GroupSnapshot.Ready)?.let { SnapshotViews.detail(it, id, range, today(), clock()) }
     }
 }
 

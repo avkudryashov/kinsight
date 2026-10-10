@@ -53,10 +53,16 @@ object UsageReadModel {
         entries.filter { it.author == author }.sortedBy { it.seq }.mapNotNull { it.body.app_catalog }.associateBy { it.package_name }
 
     /** [n] days ending with [today], oldest first; a day without a summary is zero. */
-    fun days(byDate: Map<LocalDate, DecodedEntry>?, today: LocalDate, n: Int): List<DayTotal> = (n - 1 downTo 0).map { back ->
-        val date = today.minusDays(back.toLong())
-        val s = byDate?.get(date)?.body?.usage_summary
-        DayTotal(date, clampMs(s?.total_ms ?: 0L), (s?.unlocks ?: 0).coerceIn(0, MAX_UNLOCKS_PER_DAY), hasData = s != null)
+    fun days(byDate: Map<LocalDate, DecodedEntry>?, today: LocalDate, n: Int): List<DayTotal> =
+        days(byDate, (n - 1 downTo 0).map { today.minusDays(it.toLong()) }, today)
+
+    /**
+     * One [DayTotal] per date; a day without a summary is zero and not known. A day after [today] is zero and not
+     * known whatever a clock-ahead child already wrote for it.
+     */
+    fun days(byDate: Map<LocalDate, DecodedEntry>?, dates: List<LocalDate>, today: LocalDate): List<DayTotal> = dates.map { date ->
+        val s = byDate?.get(date)?.body?.usage_summary?.takeUnless { date.isAfter(today) }
+        DayTotal(date, clampMs(s?.total_ms ?: 0L), (s?.unlocks ?: 0).coerceIn(0, MAX_UNLOCKS_PER_DAY), hasData = s != null, known = s != null)
     }
 
     /** Mean of the [n] days before today that have a summary; null when none has. */
@@ -109,25 +115,27 @@ object UsageReadModel {
         byDate: Map<LocalDate, DecodedEntry>?,
         catalog: Map<String, AppCatalog>,
         events: List<EventView>,
+        range: DetailRange,
         today: LocalDate,
-        period: Period,
         departed: Boolean = false,
         zone: ZoneId = ZoneId.systemDefault(),
     ): DeviceDetail {
         val own = surfaced(member, byDate)
         val mine = events.filter { it.author == member.id }
-        val days = days(own, today, period.days)
-        val start = days.first().date.atStartOfDay(zone).toInstant().toEpochMilli()
-        val end = today.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val days = days(own, range.dates(), today)
+        val start = range.start.atStartOfDay(zone).toInstant().toEpochMilli()
+        val end = range.end.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
         return DeviceDetail(
             member = member,
-            period = period,
+            range = range,
             days = days,
             totalMs = days.sumOf { it.totalMs },
             unlocks = days.sumOf { it.unlocks },
-            apps = apps(own, days.map { it.date }, catalog),
+            apps = apps(own, days.filter { it.known }.map { it.date }, catalog),
             events = mine.filter { inWindow(it, start, end) }.sortedByDescending { it.seq },
             sharing = sharing(mine, departed),
+            canGoBack = own?.keys?.any { it.isBefore(range.start) } == true,
+            canGoForward = range.end.isBefore(today),
         )
     }
 

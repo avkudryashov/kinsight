@@ -83,7 +83,7 @@ object SnapshotViews {
     fun detail(
         s: GroupSnapshot.Ready,
         id: DeviceId,
-        period: Period,
+        range: DetailRange,
         today: LocalDate,
         nowMs: Long = System.currentTimeMillis(),
         zone: ZoneId = ZoneId.systemDefault(),
@@ -95,8 +95,8 @@ object SnapshotViews {
             byDate = UsageReadModel.summaries(s.summaries)[id],
             catalog = UsageReadModel.catalogOf(s.catalog, id),
             events = UsageReadModel.events(s.events).filter { it.author == id },
+            range = range,
             today = today,
-            period = period,
             departed = departed != null,
             zone = zone,
         )

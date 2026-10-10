@@ -13,6 +13,7 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.kinsight.core.data.AppUsage
 import app.kinsight.core.data.DayTotal
+import app.kinsight.core.data.DetailRange
 import app.kinsight.core.data.DeviceDetail
 import app.kinsight.core.data.EventView
 import app.kinsight.core.data.MemberView
@@ -40,7 +41,8 @@ class DeviceDetailScreenTest {
     private val apps = (1..7).map { AppUsage("pkg.$it", "App $it", null, (8 - it) * 60_000L) }
     private val event = EventView(kid.id, 5, StateEvent.Kind.SYNC_STOPPED, 0, 3_600_000, 1_000, 0)
     private val detail = DeviceDetail(
-        kid, Period.WEEK, (6 downTo 0).map { DayTotal(today.minusDays(it.toLong()), 90 * 60_000L / 7, 1) },
+        // Sun 4 to Sat 10 Oct: the Sunday-first calendar week containing today.
+        kid, DetailRange(Period.WEEK, today.minusDays(6), today), (6 downTo 0).map { DayTotal(today.minusDays(it.toLong()), 90 * 60_000L / 7, 1) },
         totalMs = 90 * 60_000L, unlocks = 7, apps = apps, events = listOf(event), sharing = Sharing.On,
     )
 
@@ -143,7 +145,7 @@ class DeviceDetailScreenTest {
 
     @Test
     fun weekShowsTheChartButDayDoesNot() {
-        show(detail.copy(period = Period.DAY, days = detail.days.takeLast(1)))
+        show(detail.copy(range = DetailRange(Period.DAY, today, today), days = detail.days.takeLast(1)))
         rule.onNode(hasContentDescription("Average", substring = true)).assertDoesNotExist()
         rule.onNodeWithText("1 h 30 min").assertExists()
     }
