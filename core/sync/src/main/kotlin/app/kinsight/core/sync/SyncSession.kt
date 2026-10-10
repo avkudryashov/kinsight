@@ -16,12 +16,14 @@ import app.kinsight.core.model.proto.SyncMessage
 import app.kinsight.core.model.proto.VectorAnnounce
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
 import java.io.IOException
@@ -88,6 +90,17 @@ class SyncSession(
         } catch (e: CryptoException) {
             log("could not deliver reject $reason: ${e.message}")
         }
+    }
+
+    /**
+     * Sends [reason] before stopping our sender. Cancelling a sender in the middle of a frame closes a BLE stream (the
+     * cut frame would corrupt it), and a notice sent after that is lost. The write lock is fair, so the notice goes out
+     * right after the frame in flight; only then is the sender cancelled. A link that does not move within
+     * [REJECT_GRACE] gets no notice.
+     */
+    private suspend fun rejectThenStop(ch: SecureChannel, sender: Job, reason: Reject.Reason) {
+        withTimeoutOrNull(REJECT_GRACE) { reject(ch, reason) }
+        sender.cancel()
     }
 
     private suspend fun exchange(ch: SecureChannel): SessionResult = coroutineScope {
@@ -183,7 +196,9 @@ class SyncSession(
 
         // Dedicated reader: keeps draining the link while our sender is still pushing, so the peer's
         // acks and batches never back up behind us on a bounded transport.
-        val inbox = Channel<SyncMessage>(Channel.UNLIMITED)
+        // Bounded: a peer that floods us suspends our reader (and, through the link, itself) instead of filling memory.
+        // Honest peers never fill it: acks are tiny and batches arrive at link speed, far slower than we apply them.
+        val inbox = Channel<SyncMessage>(INBOX_CAPACITY)
         val reader = launch {
             try {
                 while (true) inbox.send(receive(ch))
@@ -234,8 +249,7 @@ class SyncSession(
                             }
                         }
                         if (invalid > MAX_INVALID) {
-                            sender.cancel()
-                            reject(ch, Reject.Reason.TOO_MANY_INVALID)
+                            rejectThenStop(ch, sender, Reject.Reason.TOO_MANY_INVALID)
                             return@coroutineScope SessionResult.TooManyInvalid(peer.id)
                         }
                         store.applyBatch(accepted, seen)
@@ -341,6 +355,10 @@ class SyncSession(
 
     companion object {
         const val MAX_INVALID = 10
+
+        /** Messages buffered between the dedicated reader and the main loop. */
+        const val INBOX_CAPACITY = 64
+        private val REJECT_GRACE = 5.seconds
         private const val PAGE = 200
         /** Byte budget of one EntryBatch; an entry above it is never sent (core/usage caps UsageDetail by it). */
         const val BATCH_BYTES = 60_000
