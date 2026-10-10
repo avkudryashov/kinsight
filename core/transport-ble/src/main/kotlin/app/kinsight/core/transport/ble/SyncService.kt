@@ -81,6 +81,7 @@ class SyncService : Service() {
     private var fastUntilMono = 0L
     private var fastEnd: Job? = null
     private val scanThrottle = ScanThrottle()
+    private var lastVisible: Boolean? = null // serial dispatcher only
     private var scanWanted: Boolean? = null
     private var scanActive: Boolean? = null
     private var scanRetry: Job? = null
@@ -227,7 +228,7 @@ class SyncService : Service() {
         val state = SyncGraph.state(applicationContext)
         if (byUser) {
             stopping = false // a Stop that ran just before this start left the service alive for it
-            quietly("clear the stop flag") { state.setStoppedByUser(false) }
+            quietly("record the stopped interval") { SyncGraph.onUserStart(applicationContext) }
         } else {
             var stopped = false
             quietly("read the stop flag") { stopped = state.stoppedByUser() }
@@ -242,7 +243,7 @@ class SyncService : Service() {
     /** Under the lock. A start command newer than [startId] keeps the service (its own onStart decides). */
     private suspend fun stopByUser(startId: Int) {
         stopRadio()
-        quietly("persist the stop flag") { SyncGraph.state(applicationContext).setStoppedByUser(true) }
+        quietly("persist the stop flag") { SyncGraph.onUserStop(applicationContext) }
         log("stopped by the user")
         stopNow(startId)
     }
@@ -289,7 +290,11 @@ class SyncService : Service() {
             return problem(ServiceState.STORAGE_ERROR, "${e::class.simpleName}: ${e.message}")
         }
         val missing = BlePermissions.missing(c)
-        if (missing.isNotEmpty()) return problem(ServiceState.NO_PERMISSION, missing.joinToString { it.substringAfterLast('.') })
+        if (missing.isNotEmpty()) {
+            quietly("nearby off") { SyncGraph.onNearbyPermission(c, granted = false) }
+            return problem(ServiceState.NO_PERMISSION, missing.joinToString { it.substringAfterLast('.') })
+        }
+        quietly("nearby on") { SyncGraph.onNearbyPermission(c, granted = true) }
         val adapter = getSystemService(BluetoothManager::class.java).adapter
         if (adapter == null || !adapter.isEnabled) return bluetoothOff()
         if (!startRadio(adapter)) return
@@ -511,13 +516,19 @@ class SyncService : Service() {
         val sessionEnded = s.finishedSessions != snapshot.sync.finishedSessions
         snapshot = snapshot.copy(sync = s, lastSyncWallMs = last ?: snapshot.lastSyncWallMs)
         if (sessionEnded) refreshPeers() // a session may have brought membership changes
+        val peer = s.lastPeer
+        val at = s.lastSyncWallMs
+        if (sessionEnded && s.lastProblem == null && peer != null && at != null) {
+            quietly("peer seen") { SyncGraph.onSessionCompleted(applicationContext, peer, at) }
+        }
+        if (sessionEnded) runCatching { SyncGraph.onSessionFinished(applicationContext) }
         publish()
     }
 
     private suspend fun refreshPeers() {
         quietly("peer names") {
-            val names = SyncGraph.peerNames(applicationContext)
-            snapshot = snapshot.copy(peers = names)
+            val p = SyncGraph.notificationPeers(applicationContext)
+            snapshot = snapshot.copy(peers = p.names, peersAreParents = p.parentsOnly)
         }
     }
 
@@ -542,6 +553,11 @@ class SyncService : Service() {
             channelImportance = nm.getNotificationChannel(CHANNEL_ID)?.importance,
         )
         SyncGraph.publish(snapshot)
+        val visible = StatusText.notificationVisible(snapshot)
+        if (visible != null && visible != lastVisible) {
+            lastVisible = visible
+            scope.launch { quietly("notification visibility") { SyncGraph.onNotificationVisibility(applicationContext, visible) } }
+        }
         if (!stopping) nm.notify(NOTIFICATION_ID, notification(snapshot))
     }
 
@@ -562,7 +578,9 @@ class SyncService : Service() {
         val lastSync = line.lastSyncWallMs?.let {
             getString(R.string.kinsight_last_sync, DateUtils.formatDateTime(this, it, DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_SHOW_DATE))
         } ?: getString(R.string.kinsight_never_synced)
-        val peers = s.peers.takeIf { it.isNotEmpty() }?.let { getString(R.string.kinsight_peers, it.joinToString(", ")) }
+        val peers = s.peers.takeIf { it.isNotEmpty() }?.let {
+            getString(if (s.peersAreParents) R.string.kinsight_shared_with else R.string.kinsight_peers, it.joinToString(", "))
+        }
         val open = packageManager.getLaunchIntentForPackage(packageName)
             ?.let { PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE) }
         val stop = Notification.Action.Builder(
@@ -612,6 +630,9 @@ class SyncService : Service() {
 
         /** The reason a start from the app's own screen passes: only it clears the user's Stop. */
         const val REASON_UI = "ui"
+
+        /** Opening the app: starts the service, but honours the user's Stop (only REASON_UI clears it). */
+        const val REASON_APP_OPEN = "app_open"
         private const val EXTRA_REASON = "reason"
         private const val EXTRA_BY_USER = "by_user"
         private const val TAG = "KinsightSync"
@@ -655,6 +676,20 @@ class SyncService : Service() {
 
         internal fun scanOk() {
             instance?.onScanOk()
+        }
+
+        /** Stops the service without the user's Stop flag (a wipe of the group: nothing to sync). */
+        fun stop(context: Context) {
+            context.stopService(Intent(context, SyncService::class.java))
+        }
+
+        /** «Stop» from the app's own screen: the same as the notification action (flag, SYNC_STOPPED on restart). */
+        fun requestStop(context: Context) {
+            try {
+                context.startService(Intent(context, SyncService::class.java).setAction(ACTION_STOP))
+            } catch (e: Exception) {
+                Log.w(TAG, "cannot request stop", e)
+            }
         }
     }
 }

@@ -9,8 +9,12 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import app.kinsight.core.model.DeviceId
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import java.io.File
 
 data class HeartbeatMark(val atMs: Long, val version: String)
@@ -49,6 +53,55 @@ class TransportStateStore(private val store: DataStore<Preferences>) {
         store.edit { if (stopped) it[STOPPED_BY_USER] = true else it.remove(STOPPED_BY_USER) }
     }
 
+    val stoppedByUserFlow: Flow<Boolean> = store.data.map { it[STOPPED_BY_USER] ?: false }.distinctUntilChanged()
+
+    /** When the user pressed Stop; null while sync runs (StopTracker). */
+    suspend fun stoppedAtMs(): Long? = store.data.first()[STOPPED_AT]
+
+    suspend fun setStoppedAtMs(ms: Long?) {
+        store.edit { if (ms == null) it.remove(STOPPED_AT) else it[STOPPED_AT] = ms }
+    }
+
+    /** Since when the sync notification cannot be seen; null while it can (NotificationWatch). */
+    suspend fun notificationHiddenSinceMs(): Long? = store.data.first()[NOTIFICATION_HIDDEN_SINCE]
+
+    suspend fun setNotificationHiddenSinceMs(ms: Long?) {
+        store.edit { if (ms == null) it.remove(NOTIFICATION_HIDDEN_SINCE) else it[NOTIFICATION_HIDDEN_SINCE] = ms }
+    }
+
+    /** Since when «Nearby devices» is missing; null while granted (NearbyWatch). */
+    suspend fun nearbyOffSinceMs(): Long? = store.data.first()[NEARBY_OFF_SINCE]
+
+    suspend fun setNearbyOffSinceMs(ms: Long?) {
+        store.edit { if (ms == null) it.remove(NEARBY_OFF_SINCE) else it[NEARBY_OFF_SINCE] = ms }
+    }
+
+    /** When the system's exit records were last checked for force stops (ForceStopCheck); null before the first check. */
+    suspend fun forceStopCheckedMs(): Long? = store.data.first()[FORCE_STOP_CHECKED]
+
+    suspend fun setForceStopCheckedMs(ms: Long) {
+        store.edit { it[FORCE_STOP_CHECKED] = ms }
+    }
+
+    /** Wall time of the last completed direct session per peer («last seen», stage 4). */
+    val peerSeenFlow: Flow<Map<DeviceId, Long>> = store.data.map { decodePeers(it[PEER_SEEN]) }.distinctUntilChanged()
+
+    suspend fun peerSeen(): Map<DeviceId, Long> = decodePeers(store.data.first()[PEER_SEEN])
+
+    /** Keeps the later of the stored and the new time. */
+    suspend fun setPeerSeen(peer: DeviceId, atMs: Long) {
+        store.edit {
+            val all = decodePeers(it[PEER_SEEN]).toMutableMap()
+            all[peer] = maxOf(all[peer] ?: Long.MIN_VALUE, atMs)
+            it[PEER_SEEN] = encodePeers(all)
+        }
+    }
+
+    /** A wiped group or identity: everything here belonged to the old group. */
+    suspend fun clear() {
+        store.edit { it.clear() }
+    }
+
     companion object {
         const val NAME = "kinsight_transport_state"
         private val LAST_SYNC = longPreferencesKey("last_sync_ms")
@@ -56,6 +109,20 @@ class TransportStateStore(private val store: DataStore<Preferences>) {
         private val HEARTBEAT_AT = longPreferencesKey("heartbeat_at_ms")
         private val HEARTBEAT_VERSION = stringPreferencesKey("heartbeat_version")
         private val STOPPED_BY_USER = booleanPreferencesKey("stopped_by_user")
+        private val STOPPED_AT = longPreferencesKey("stopped_at_ms")
+        private val NOTIFICATION_HIDDEN_SINCE = longPreferencesKey("notification_hidden_since_ms")
+        private val PEER_SEEN = stringPreferencesKey("peer_seen")
+        private val NEARBY_OFF_SINCE = longPreferencesKey("nearby_off_since_ms")
+        private val FORCE_STOP_CHECKED = longPreferencesKey("force_stop_checked_ms")
+
+        /** "hex=ms;hex=ms"; malformed parts are skipped (the file is a cache). */
+        internal fun decodePeers(text: String?): Map<DeviceId, Long> = text.orEmpty().split(';').mapNotNull { part ->
+            val (id, ms) = part.split('=').takeIf { it.size == 2 } ?: return@mapNotNull null
+            val time = ms.toLongOrNull() ?: return@mapNotNull null
+            runCatching { DeviceId(id) to time }.getOrNull()
+        }.toMap()
+
+        internal fun encodePeers(all: Map<DeviceId, Long>): String = all.entries.joinToString(";") { "${it.key.hex}=${it.value}" }
 
         /**
          * [file] must end with ".preferences_pb"; one active instance per file in a process. A corrupt file starts

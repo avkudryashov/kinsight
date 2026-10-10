@@ -48,6 +48,14 @@ class GroupStore(private val file: File) {
         loaded = true
     }
 
+    /** Leaving the group or a new identity; the next read() sees no group. Idempotent. */
+    @Synchronized
+    fun delete() {
+        if (file.exists() && !file.delete()) throw GroupStoreException("cannot delete ${file.name}")
+        cached = null
+        loaded = true
+    }
+
     private fun load(): GroupConfig? {
         if (!file.exists()) return null
         val bytes = try {

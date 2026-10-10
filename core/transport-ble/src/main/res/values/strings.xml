@@ -12,5 +12,6 @@
     <string name="kinsight_last_sync">Last sync %1$s</string>
     <string name="kinsight_never_synced">No sync yet</string>
     <string name="kinsight_peers">Shares data with %1$s</string>
+    <string name="kinsight_shared_with">Your screen time is visible to: %1$s</string>
     <string name="kinsight_action_stop">Stop</string>
 </resources>
