@@ -19,4 +19,16 @@
             <category android:name="android.intent.category.HOME" />
         </intent>
     </queries>
+
+    <application>
+        <!-- System broadcasts reach non-exported receivers; nothing else may trigger a run. -->
+        <receiver
+            android:name=".UsageTriggerReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
+    </application>
 </manifest>

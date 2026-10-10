@@ -5,6 +5,7 @@
          file lock, but the key stores (Keystore and the software file) are designed and tested for a single
          process only. -->
     <application
+        android:name=".KinsightApplication"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"

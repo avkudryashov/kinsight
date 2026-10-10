@@ -15,4 +15,6 @@ dependencies {
     api(project(":core:database"))
     implementation(libs.coroutines.core)
     implementation(libs.datastore.preferences)
+    implementation(libs.work.runtime)
+    androidTestImplementation(libs.work.testing)
 }
