@@ -13,6 +13,15 @@ class DayContent(val summary: UsageSummary, val detail: UsageDetail, val hash: S
 
 /** Pure: one local date of the queue → UsageSummary + UsageDetail (variant A: hourly per-app) and a content hash. */
 object UsageContent {
+    /** At most this many named apps per UsageDetail hour; the rest of the hour is folded into [OTHER_PACKAGE]. */
+    const val MAX_APPS_PER_HOUR = 40
+
+    /**
+     * Reserved package name for the folded remainder of a crowded hour. Never collides with a real app: Android
+     * package names allow only letters, digits, '_' and '.', so '~' cannot occur in one.
+     */
+    const val OTHER_PACKAGE = "~other"
+
     fun build(date: String, zoneId: String, apps: List<PendingUsageRow>, hours: List<PendingHourRow>): DayContent {
         val live = apps.filter { it.foregroundMs > 0 }
         val totals = live.groupBy { it.packageName }
@@ -34,13 +43,24 @@ object UsageContent {
             hours = activeHours.map { h ->
                 HourBucket(
                     hour = h,
-                    apps = appsByHour[h].orEmpty().sortedBy { it.packageName }
-                        .map { AppTotal(package_name = it.packageName, foreground_ms = it.foregroundMs) },
+                    apps = cap(appsByHour[h].orEmpty()),
                     unlocks = hourRows[h]?.unlocks ?: 0,
                 )
             },
         )
         val hash = Primitives.sha256(UsageSummary.ADAPTER.encode(summary), UsageDetail.ADAPTER.encode(detail)).toHex()
         return DayContent(summary, detail, hash)
+    }
+
+    /**
+     * One hour's cells: the [MAX_APPS_PER_HOUR] apps with the most time (ties by package name), by package name,
+     * then one [OTHER_PACKAGE] cell with the exact remainder of the hour if anything was left out.
+     */
+    private fun cap(rows: List<PendingUsageRow>): List<AppTotal> {
+        val ranked = rows.sortedWith(compareByDescending<PendingUsageRow> { it.foregroundMs }.thenBy { it.packageName })
+        val kept = ranked.take(MAX_APPS_PER_HOUR).sortedBy { it.packageName }
+            .map { AppTotal(package_name = it.packageName, foreground_ms = it.foregroundMs) }
+        val rest = ranked.drop(MAX_APPS_PER_HOUR)
+        return if (rest.isEmpty()) kept else kept + AppTotal(package_name = OTHER_PACKAGE, foreground_ms = rest.sumOf { it.foregroundMs })
     }
 }

@@ -52,7 +52,8 @@ class PublisherTest {
         if (fresh) store.applyBatch(listOf(genesis.entry))
     }
 
-    private fun publisher() = Publisher(queue, store, keys, apps, { now }, { today })
+    private fun publisher(detailLimit: Int = Publisher.MAX_DETAIL_ENTRY_BYTES) =
+        Publisher(queue, store, keys, apps, { now }, { today }, detailLimit)
 
     private suspend fun seed(date: String, hour: Int, pkg: String, minutes: Long, unlocks: Int = 0) = queue.commit(
         CollectBatch(
@@ -210,5 +211,27 @@ class PublisherTest {
         val e = own().single().body.state_event!!
         assertEquals(StateEvent.Kind.SHARING_PAUSED, e.kind)
         assertEquals(now to now, e.from_ms to e.to_ms)
+    }
+
+    @Test
+    fun oversizedDetailFallsBackToSummaryWithoutBurningASeq() = runTest {
+        open()
+        seed("2026-10-08", 10, MAPS, 30)
+        val report = publisher(detailLimit = 1).publish(sharing, force = false)
+        assertEquals(listOf("2026-10-08"), report.days)
+        assertEquals(listOf("2026-10-08"), report.oversized)
+        assertEquals(listOf(EntryKind.USAGE_SUMMARY to 2L), own().map { it.kind to it.seq })
+        assertEquals(2L, lastSeq())
+        assertTrue(queue.changedDays().isEmpty())
+
+        // Unchanged content is not retried; new content is, and seqs stay contiguous.
+        now += 2 * HOUR_MS
+        queue.commit(CollectBatch(days = listOf(DayZone("2026-10-08", "Europe/Madrid")), state = state))
+        assertTrue(publisher(detailLimit = 1).publish(sharing, force = false).days.isEmpty())
+        seed("2026-10-08", 11, MAPS, 5)
+        assertEquals(listOf("2026-10-08"), publisher().publish(sharing, force = true).days)
+        // The seq-2 summary is superseded by the new version; no seq was skipped or reused.
+        assertEquals(listOf(EntryKind.USAGE_SUMMARY to 3L, EntryKind.USAGE_DETAIL to 4L), own().map { it.kind to it.seq })
+        assertEquals(4L, store.versionVector()[keys.deviceId])
     }
 }

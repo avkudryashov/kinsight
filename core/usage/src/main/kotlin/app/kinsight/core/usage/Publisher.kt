@@ -16,7 +16,16 @@ import java.time.LocalDate
 /** The group and identity entries are signed for; null until a group exists (stage 4). */
 data class PublishTarget(val groupId: GroupId, val keys: DeviceKeys)
 
-data class PublishReport(val events: Int, val days: List<String>, val catalog: List<String>) {
+/**
+ * What one [Publisher.publish] call signed. [oversized] lists dates whose UsageDetail entry would exceed
+ * [Publisher.MAX_DETAIL_ENTRY_BYTES]: only their UsageSummary went out (local diagnostic, nothing is stored).
+ */
+data class PublishReport(
+    val events: Int,
+    val days: List<String>,
+    val catalog: List<String>,
+    val oversized: List<String> = emptyList(),
+) {
     companion object {
         val NONE = PublishReport(0, emptyList(), emptyList())
     }
@@ -34,10 +43,11 @@ class Publisher(
     private val apps: AppInfoSource,
     private val clock: () -> Long,
     private val today: () -> LocalDate,
+    private val detailLimitBytes: Int = MAX_DETAIL_ENTRY_BYTES,
 ) {
     suspend fun publish(settings: UsageSettings, force: Boolean): PublishReport {
         if (!settings.sharing) return PublishReport.NONE
-        val author = newAuthor()
+        var author = newAuthor()
 
         var events = 0
         for (row in queue.pendingEvents()) {
@@ -54,6 +64,7 @@ class Publisher(
         val summaryHorizon = today().minusDays(settings.summaryRetentionDays.toLong())
         val detailHorizon = today().minusDays(settings.detailRetentionDays.toLong())
         val days = mutableListOf<String>()
+        val oversized = mutableListOf<String>()
         val packages = sortedSetOf<String>()
         for (day in queue.changedDays()) {
             val usage = queue.dayUsage(day.date)
@@ -61,8 +72,21 @@ class Publisher(
             val date = LocalDate.parse(day.date)
             val entries = mutableListOf<DecodedEntry>()
             if (content.hash != day.publishedHash) {
+                val before = author.lastSeq to author.lastLamport
                 if (!date.isBefore(summaryHorizon)) entries += author.create { it.copy(usage_summary = content.summary) }
-                if (!date.isBefore(detailHorizon)) entries += author.create { it.copy(usage_detail = content.detail) }
+                if (!date.isBefore(detailHorizon)) {
+                    val detail = author.create { it.copy(usage_detail = content.detail) }
+                    if (detail.bytes.size <= detailLimitBytes) {
+                        entries += detail
+                    } else {
+                        // Sync would never send it: keep the summary only. Rewind the author so no seq is burned
+                        // (the summary is re-signed with the same seq and Lamport value).
+                        oversized += day.date
+                        author = newAuthor(before.first, before.second)
+                        entries.clear()
+                        if (!date.isBefore(summaryHorizon)) entries += author.create { it.copy(usage_summary = content.summary) }
+                    }
+                }
             }
             if (entries.isEmpty()) {
                 queue.markPublished(day.date, content.hash, day.version)
@@ -92,7 +116,7 @@ class Publisher(
             store.appendOwn(listOf(e)) { queue.setCatalogHash(pkg, hash) }
             catalog += pkg
         }
-        return PublishReport(events, days, catalog)
+        return PublishReport(events, days, catalog, oversized)
     }
 
     /** SHARING_PAUSED / SHARING_RESUMED: signed at once, whatever the sharing switch says (spec §5). */
@@ -105,13 +129,23 @@ class Publisher(
 
     private suspend fun newAuthor(): EntryAuthor {
         val state = store.authorState(keys.deviceId)
+        return newAuthor(state.lastSeq, state.lastLamport)
+    }
+
+    private suspend fun newAuthor(lastSeq: Long, lastLamport: Long): EntryAuthor {
         val observed = store.observedLamport()
-        return EntryAuthor(store.groupId, keys, state.lastSeq, clock, state.lastLamport) { observed }
+        return EntryAuthor(store.groupId, keys, lastSeq, clock, lastLamport) { observed }
     }
 
     companion object {
         /** At most one new UsageSummary/UsageDetail version per hour, except a forced run (spec §7). */
         const val MIN_INTERVAL_MS = 3_600_000L
+
+        /**
+         * Largest signed UsageDetail entry we publish. Mirrors SyncSession.BATCH_BYTES in core/sync (private there):
+         * SyncSession never sends an entry above its batch budget, so a bigger one would never leave this device.
+         */
+        const val MAX_DETAIL_ENTRY_BYTES = 60_000
     }
 }
 
