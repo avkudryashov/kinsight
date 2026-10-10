@@ -39,6 +39,9 @@ class BootReceiver : BroadcastReceiver() {
                     false
                 }
                 if (stopped) Log.i(TAG, "$action: stopped by the user, not starting") else SyncService.start(app, action)
+            } catch (e: Exception) {
+                // A group file or permission check that throws must not crash the process at boot.
+                Log.e(TAG, "$action: start check failed, not starting", e)
             } finally {
                 pending.finish()
             }

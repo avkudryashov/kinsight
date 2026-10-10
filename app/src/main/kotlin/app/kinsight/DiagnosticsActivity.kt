@@ -86,9 +86,19 @@ class DiagnosticsActivity : Activity() {
     private fun wantedPermissions(): List<String> =
         if (Build.VERSION.SDK_INT >= 33) BlePermissions.REQUIRED + Manifest.permission.POST_NOTIFICATIONS else BlePermissions.REQUIRED
 
-    /** No group (stage 4 pairing) means nothing to run: do not flash a notification for a service that stops at once. */
+    /**
+     * No group (stage 4 pairing) means nothing to run: do not flash a notification for a service that stops at once.
+     * The group check reads the file system, so it runs off the main thread (like [refresh]).
+     */
     private fun startSync(fast: Boolean) {
-        if (SyncGraph.groups(this).exists()) SyncService.start(this, SyncService.REASON_UI, fast)
+        val app = applicationContext
+        Thread {
+            try {
+                if (SyncGraph.groups(app).exists()) SyncService.start(app, SyncService.REASON_UI, fast)
+            } catch (e: Exception) {
+                Log.w(TAG, "cannot start sync", e)
+            }
+        }.start()
     }
 
     private fun refresh() {

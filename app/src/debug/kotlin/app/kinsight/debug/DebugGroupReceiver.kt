@@ -47,7 +47,7 @@ class DebugGroupReceiver : BroadcastReceiver() {
             } catch (e: Exception) {
                 1 to "error: ${e::class.simpleName}: ${e.message}"
             }
-            Log.i(TAG, "${intent.action}: $data")
+            Log.i(TAG, logLine(intent.action, code, data)) // the data can hold the discovery key (seeds): never logged
             pending.setResult(code, data, null)
             pending.finish()
         }
@@ -125,8 +125,11 @@ class DebugGroupReceiver : BroadcastReceiver() {
         return "group=${group.groupId.hex} self=${self.hex} vector=$vector btOff=$btOff service=$service"
     }
 
-    private companion object {
-        const val TAG = "KinsightDebug"
-        const val PREFIX = "app.kinsight.debug"
+    companion object {
+        private const val TAG = "KinsightDebug"
+        private const val PREFIX = "app.kinsight.debug"
+
+        /** A short status only: the result data (seeds carry the discovery key) goes to adb, never to logcat. */
+        internal fun logLine(action: String?, code: Int, data: String): String = "$action: code=$code, ${data.length} chars"
     }
 }
