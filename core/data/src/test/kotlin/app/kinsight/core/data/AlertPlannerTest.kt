@@ -85,6 +85,41 @@ class AlertPlannerTest {
     }
 
     @Test
+    fun noSummaryOnTheDayTheChildJoined() {
+        // Paired at 20:14, after SUMMARY_HOUR: a "<1 min" summary right away would mislead.
+        val joinedTonight = mapOf(kid.id to at(10, 20) + 14 * 60_000L)
+        val evening = AlertPlanner.plan(input(now = at(10, 21), children = listOf(usage(kid, 30_000)), joined = joinedTonight))
+        assertTrue(evening.alerts.none { it is Alert.Summary })
+        // Nothing was posted, so the day is not used up either.
+        assertEquals(null, evening.markers.lastSummaryDate)
+        // The next evening the child is summarised as usual.
+        val next = AlertPlanner.plan(input(now = at(11, 21), joined = joinedTonight, markers = evening.markers))
+        assertEquals(listOf(Alert.Summary(weekly = false, lines = listOf("Kid" to 2 * h))), next.alerts.filterIsInstance<Alert.Summary>())
+    }
+
+    @Test
+    fun aChildJoinedTodayIsLeftOutOfTheOthersSummary() {
+        val sis = MemberView(DeviceId("dd".repeat(16)), "Sis", Role.CHILD, isAdmin = false, isSelf = false, lastSeenMs = null)
+        val plan = AlertPlanner.plan(
+            input(
+                members = listOf(mom, kid, sis),
+                now = at(10, 21),
+                children = listOf(usage(kid, 2 * h), usage(sis, 60_000)),
+                joined = mapOf(kid.id to at(1, 9), sis.id to at(10, 8)),
+            ),
+        )
+        assertEquals(listOf(Alert.Summary(weekly = false, lines = listOf("Kid" to 2 * h))), plan.alerts.filterIsInstance<Alert.Summary>())
+    }
+
+    @Test
+    fun summaryIsNotRepostedWhenUsageGrowsLaterTheSameDay() {
+        val evening = AlertPlanner.plan(input(now = at(10, 20), children = listOf(usage(kid, h))))
+        assertEquals(1, evening.alerts.filterIsInstance<Alert.Summary>().size)
+        val later = AlertPlanner.plan(input(now = at(10, 23), children = listOf(usage(kid, 3 * h)), markers = evening.markers))
+        assertTrue(later.alerts.none { it is Alert.Summary })
+    }
+
+    @Test
     fun weeklySummaryOnlyOnSundayAndOffNever() {
         // 2026-10-10 is a Saturday, 2026-10-11 a Sunday.
         assertTrue(AlertPlanner.plan(input(now = at(10, 21), mode = SummaryMode.WEEKLY)).alerts.none { it is Alert.Summary })

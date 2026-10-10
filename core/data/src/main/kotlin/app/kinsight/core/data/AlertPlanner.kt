@@ -43,6 +43,10 @@ data class AlertPlan(val alerts: List<Alert>, val markers: AlertMarkers)
  * Pure alert planning, run hourly and after each session. A parent hears about its children only: integrity events
  * (each once, by seq; the first run marks history as seen), no contact for longer than N hours (once per loss) and a
  * daily (after [SUMMARY_HOUR]) or weekly (Sunday) summary. A child hears about every new parent.
+ *
+ * The summary is posted at most once per day and is a snapshot of that moment: usage synced later the same evening does
+ * not re-post or update it (the dashboard shows the live figure). A child is left out of the summary on the day it
+ * joined the group, so a parent who pairs in the evening is not told "<1 min".
  */
 object AlertPlanner {
     val INTEGRITY_KINDS = setOf(
@@ -121,9 +125,14 @@ object AlertPlanner {
             SummaryMode.DAILY -> true
             SummaryMode.WEEKLY -> now.dayOfWeek == DayOfWeek.SUNDAY
         }
-        if (dayOk && now.hour >= SUMMARY_HOUR && lastSummary != today && i.children.isNotEmpty()) {
+        // A child that joined today has only minutes of data (pairing often happens in the evening): it is left out
+        // until its first full day. With nobody left, nothing is posted and the day is not used up.
+        val summarised = i.children.filter { c ->
+            i.joinedMs[c.member.id]?.let { Instant.ofEpochMilli(it).atZone(i.zone).toLocalDate() != now.toLocalDate() } ?: true
+        }
+        if (dayOk && now.hour >= SUMMARY_HOUR && lastSummary != today && summarised.isNotEmpty()) {
             val weekly = i.summaryMode == SummaryMode.WEEKLY
-            alerts += Alert.Summary(weekly, i.children.map { it.member.name to if (weekly) it.week.sumOf { d -> d.totalMs } else it.today.totalMs })
+            alerts += Alert.Summary(weekly, summarised.map { it.member.name to if (weekly) it.week.sumOf { d -> d.totalMs } else it.today.totalMs })
             lastSummary = today
         }
         return AlertPlan(alerts, i.markers.copy(notifiedSeq = notified, noContact = noContact, lastSummaryDate = lastSummary, initialized = true))
