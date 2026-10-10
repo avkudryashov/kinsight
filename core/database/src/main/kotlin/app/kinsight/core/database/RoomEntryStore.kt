@@ -1,7 +1,5 @@
 package app.kinsight.core.database
 
-import androidx.room.immediateTransaction
-import androidx.room.useWriterConnection
 import app.kinsight.core.crypto.toHex
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
@@ -10,13 +8,18 @@ import app.kinsight.core.sync.EntryStore
 import app.kinsight.core.sync.SyncPolicy
 import app.kinsight.core.sync.VersionVector
 
+/** The local author's last used seq and Lamport value (spec §7, «Состояние автора»). */
+data class AuthorState(val lastSeq: Long, val lastLamport: Long)
+
 /**
  * Room-backed [EntryStore] with exactly the semantics of InMemoryEntryStore (pinned by EntryStoreContract).
  * Every mutation runs in one IMMEDIATE transaction, so a batch is applied completely or not at all (spec §5.6).
+ * Own new entries go through [appendOwn], which also persists the author state in the same transaction.
  */
 class RoomEntryStore(private val db: KinsightDatabase, override val groupId: GroupId) : EntryStore {
     private val entryDao = db.entryDao()
     private val vector = db.vectorDao()
+    private val authorDao = db.authorDao()
 
     /** Test hook, called inside the [applyBatch] transaction after each entry with its index, then once with -1 after the seen accounting. */
     internal var faultInjector: ((Int) -> Unit)? = null
@@ -34,7 +37,7 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
         return entryDao.bytesAfter(author.hex, afterSeq, limit).map(DecodedEntry::decode)
     }
 
-    override suspend fun applyBatch(entries: List<DecodedEntry>, seen: Map<DeviceId, Set<Long>>): Unit = write {
+    override suspend fun applyBatch(entries: List<DecodedEntry>, seen: Map<DeviceId, Set<Long>>): Unit = db.write {
         entries.forEachIndexed { i, e ->
             insert(e)
             account(e.author.hex, e.seq)
@@ -44,7 +47,7 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
         faultInjector?.invoke(SEEN_ACCOUNTED)
     }
 
-    override suspend fun completeAuthor(author: DeviceId, upToSeq: Long): Unit = write {
+    override suspend fun completeAuthor(author: DeviceId, upToSeq: Long): Unit = db.write {
         val a = author.hex
         if (upToSeq > (vector.contig(a) ?: 0L)) {
             vector.deleteAboveUpTo(a, upToSeq)
@@ -53,25 +56,54 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
         }
     }
 
-    override suspend fun storeMembership(entries: List<DecodedEntry>): Unit = write {
+    override suspend fun storeMembership(entries: List<DecodedEntry>): Unit = db.write {
         entries.forEach { insert(it) }
     }
 
     override suspend fun liveEntries(): List<DecodedEntry> = entryDao.allBytes().map(DecodedEntry::decode)
 
-    override suspend fun prune(policy: SyncPolicy): Unit = write {
+    override suspend fun prune(policy: SyncPolicy): Unit = db.write {
         for (bytes in entryDao.bytesWithUsageDate()) {
             val e = DecodedEntry.decode(bytes)
             if (policy.isExpired(e)) entryDao.delete(e.author.hex, e.seq)
         }
     }
 
+    suspend fun authorState(author: DeviceId): AuthorState = db.write { authorStateLocked(author.hex) }
+
+    /**
+     * Stores the local author's new [entries] (consecutive seqs right after [authorState]), accounts for them and
+     * persists the author state, then runs [alsoInTransaction]; all in one transaction. Any failure leaves no entry
+     * and no state change, so a fresh EntryAuthor reuses the seq nobody saw and the log never gets a gap.
+     */
+    suspend fun appendOwn(entries: List<DecodedEntry>, alsoInTransaction: suspend () -> Unit = {}): Unit = db.write {
+        require(entries.isNotEmpty()) { "nothing to append" }
+        val author = entries.first().author
+        require(entries.all { it.author == author && it.groupId == groupId }) { "own entries must share author and group" }
+        val a = author.hex
+        var state = authorStateLocked(a)
+        for (e in entries) {
+            check(e.seq == state.lastSeq + 1) { "own entry seq ${e.seq} does not follow ${state.lastSeq}" }
+            insert(e)
+            account(a, e.seq)
+            state = AuthorState(e.seq, maxOf(state.lastLamport, e.lamport))
+        }
+        authorDao.set(AuthorStateRow(a, state.lastSeq, state.lastLamport))
+        alsoInTransaction()
+    }
+
     private companion object {
         const val SEEN_ACCOUNTED = -1
     }
 
-    private suspend fun <T> write(block: suspend () -> T): T =
-        db.useWriterConnection { transactor -> transactor.immediateTransaction { block() } }
+    private suspend fun authorStateLocked(a: String): AuthorState {
+        val row = authorDao.get(a)
+        val known = maxOf(entryDao.maxSeq(a) ?: 0L, vector.contig(a) ?: 0L, vector.above(a).lastOrNull() ?: 0L)
+        if (row != null && row.lastSeq >= known) return AuthorState(row.lastSeq, row.lastLamport)
+        // No row yet (only entries that came in another way, such as the genesis) or a row behind the log.
+        val stored = entryDao.bytesAfter(a, 0, Int.MAX_VALUE).maxOfOrNull { DecodedEntry.decode(it).lamport } ?: 0L
+        return AuthorState(maxOf(row?.lastSeq ?: 0L, known), maxOf(row?.lastLamport ?: 0L, stored))
+    }
 
     private suspend fun account(author: String, seq: Long) {
         if (seq < 1 || vector.isAccounted(author, seq)) return
