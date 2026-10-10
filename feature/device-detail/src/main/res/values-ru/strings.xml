@@ -46,4 +46,40 @@
     <string name="det_ev_notification_shown_open">Уведомление синхронизации снова видно</string>
     <string name="det_ev_nearby_off_open">Разрешение «Устройства поблизости» было выключено</string>
     <string name="det_ev_force_stopped_open">Kinsight был принудительно остановлен</string>
+    <string name="det_today">Сегодня</string>
+    <string name="det_yesterday">Вчера</string>
+    <string name="det_no_data_day">Нет данных за этот день</string>
+    <string name="det_open_day">Открыть %1$s</string>
+    <string name="det_categories">Категории</string>
+    <string name="det_category_share">%1$s · %2$d %%</string>
+    <string name="det_cat_games">Игры</string>
+    <string name="det_cat_social">Соцсети и общение</string>
+    <string name="det_cat_video">Видео</string>
+    <string name="det_cat_audio">Музыка и аудио</string>
+    <string name="det_cat_photos">Фото</string>
+    <string name="det_cat_news">Новости</string>
+    <string name="det_cat_maps">Карты и навигация</string>
+    <string name="det_cat_productivity">Работа и учёба</string>
+    <string name="det_cat_other">Другое</string>
+    <string name="det_categories_summary">Время по категориям за каждый день. %1$s</string>
+    <string name="det_time_of_day">Время суток</string>
+    <plurals name="det_hours_unavailable">
+        <item quantity="one">Почасовые данные за этот период недоступны (хранится %d день)</item>
+        <item quantity="few">Почасовые данные за этот период недоступны (хранятся %d дня)</item>
+        <item quantity="many">Почасовые данные за этот период недоступны (хранятся %d дней)</item>
+        <item quantity="other">Почасовые данные за этот период недоступны (хранятся %d дня)</item>
+    </plurals>
+    <plurals name="det_heatmap_coverage">
+        <item quantity="one">В среднем по %1$d из %2$d дня</item>
+        <item quantity="few">В среднем по %1$d из %2$d дней</item>
+        <item quantity="many">В среднем по %1$d из %2$d дней</item>
+        <item quantity="other">В среднем по %1$d из %2$d дня</item>
+    </plurals>
+    <string name="det_heatmap_summary">Больше всего — %1$s, около %2$s</string>
+    <string name="det_hours_summary">Больше всего — в %1$s (%2$s)</string>
+    <string name="det_hours_none">По часам времени нет</string>
+    <string name="det_unlocks_by_hour">Разблокировки по часам</string>
+    <string name="det_unlocks_summary">Больше всего разблокировок — в %1$s (%2$d)</string>
+    <string name="det_unlocks_none">По часам разблокировок нет</string>
+    <string name="det_open_app">Открыть сведения о приложении</string>
 </resources>

@@ -54,6 +54,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.GroupState
+import app.kinsight.core.data.DetailRange
 import app.kinsight.core.data.Period
 import app.kinsight.core.data.ResetKind
 import app.kinsight.core.data.ResetStatus
@@ -75,6 +76,7 @@ import app.kinsight.feature.settings.SettingsRoute
 import app.kinsight.feature.settings.TransparencyRoute
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import java.time.LocalDate
 import kotlin.reflect.KClass
 
 /**
@@ -254,11 +256,15 @@ private fun MainScaffold(appVersion: String, openDevice: StateFlow<String?>, onD
             }
             composable<DeviceDest> { e ->
                 val r = e.toRoute<DeviceDest>()
-                DeviceDetailRoute(DeviceId(r.id), onAllApps = { p -> nav.navigate(AllAppsDest(r.id, p.name)) }, onBack = { nav.popBackStack() })
+                DeviceDetailRoute(
+                    DeviceId(r.id),
+                    onAllApps = { range -> nav.navigate(AllAppsDest(r.id, range.period.name, range.start.toString(), range.end.toString())) },
+                    onBack = { nav.popBackStack() },
+                )
             }
             composable<AllAppsDest> { e ->
                 val r = e.toRoute<AllAppsDest>()
-                AllAppsRoute(DeviceId(r.id), Period.valueOf(r.period), onBack = { nav.popBackStack() })
+                AllAppsRoute(DeviceId(r.id), DetailRange(Period.valueOf(r.period), LocalDate.parse(r.start), LocalDate.parse(r.end)), onBack = { nav.popBackStack() })
             }
             composable<InviteDest> { e -> InviteRoute(Role.valueOf(e.toRoute<InviteDest>().role), onClose = { nav.popBackStack() }) }
             composable<TransparencyDest> { TransparencyRoute(onBack = { nav.popBackStack() }) }

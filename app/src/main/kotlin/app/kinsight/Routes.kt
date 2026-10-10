@@ -11,7 +11,8 @@ import kotlinx.serialization.Serializable
 
 @Serializable data class DeviceDest(val id: String)
 
-@Serializable data class AllAppsDest(val id: String, val period: String)
+/** The detail range on screen: [period] a Period name, [start] and [end] ISO dates. */
+@Serializable data class AllAppsDest(val id: String, val period: String, val start: String, val end: String)
 
 @Serializable data class InviteDest(val role: String)
 

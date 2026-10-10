@@ -44,4 +44,36 @@
     <string name="det_ev_notification_shown_open">Sync notification visible again</string>
     <string name="det_ev_nearby_off_open">The Nearby devices permission was off</string>
     <string name="det_ev_force_stopped_open">Kinsight was force-stopped</string>
+    <string name="det_today">Today</string>
+    <string name="det_yesterday">Yesterday</string>
+    <string name="det_no_data_day">No data for this day</string>
+    <string name="det_open_day">Open %1$s</string>
+    <string name="det_categories">Categories</string>
+    <string name="det_category_share">%1$s · %2$d%%</string>
+    <string name="det_cat_games">Games</string>
+    <string name="det_cat_social">Social and messaging</string>
+    <string name="det_cat_video">Video</string>
+    <string name="det_cat_audio">Music and audio</string>
+    <string name="det_cat_photos">Photos</string>
+    <string name="det_cat_news">News</string>
+    <string name="det_cat_maps">Maps and navigation</string>
+    <string name="det_cat_productivity">Work and study</string>
+    <string name="det_cat_other">Other</string>
+    <string name="det_categories_summary">Time by category per day. %1$s</string>
+    <string name="det_time_of_day">Time of day</string>
+    <plurals name="det_hours_unavailable">
+        <item quantity="one">Hourly data for this period is not available (it is kept for %d day)</item>
+        <item quantity="other">Hourly data for this period is not available (it is kept for %d days)</item>
+    </plurals>
+    <plurals name="det_heatmap_coverage">
+        <item quantity="one">Average of %1$d of %2$d day</item>
+        <item quantity="other">Average of %1$d of %2$d days</item>
+    </plurals>
+    <string name="det_heatmap_summary">Most time on %1$s around %2$s</string>
+    <string name="det_hours_summary">Most time at %1$s (%2$s)</string>
+    <string name="det_hours_none">No screen time by hour</string>
+    <string name="det_unlocks_by_hour">Unlocks by hour</string>
+    <string name="det_unlocks_summary">Most unlocks at %1$s (%2$d)</string>
+    <string name="det_unlocks_none">No unlocks by hour</string>
+    <string name="det_open_app">Open app details</string>
 </resources>

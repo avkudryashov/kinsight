@@ -2,7 +2,16 @@ package app.kinsight.feature.devicedetail
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Text
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -11,7 +20,11 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import app.kinsight.core.data.AppCategory
 import app.kinsight.core.data.AppUsage
+import app.kinsight.core.data.CategoryTotal
+import app.kinsight.core.data.Heatmap
+import app.kinsight.core.data.HourTotal
 import app.kinsight.core.data.DayTotal
 import app.kinsight.core.data.DetailRange
 import app.kinsight.core.data.DeviceDetail
@@ -30,6 +43,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import java.time.LocalDate
+import java.util.Locale
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35])
@@ -46,9 +60,30 @@ class DeviceDetailScreenTest {
         totalMs = 90 * 60_000L, unlocks = 7, apps = apps, events = listOf(event), sharing = Sharing.On,
     )
 
-    private fun show(d: DeviceDetail, onAllApps: (Period) -> Unit = {}) = rule.setContent {
-        KinsightTheme(dynamicColor = false) { DeviceDetailScreen(d, onPeriod = {}, onAllApps = onAllApps, onBack = {}) }
+    private fun show(
+        d: DeviceDetail,
+        onAllApps: (DetailRange) -> Unit = {},
+        onPrevious: () -> Unit = {},
+        onNext: () -> Unit = {},
+        onOpenDay: (LocalDate) -> Unit = {},
+        onOpenApp: ((String) -> Unit)? = null,
+        detailRetentionDays: Int = 90,
+    ) = rule.setContent {
+        KinsightTheme(dynamicColor = false) {
+            DeviceDetailScreen(
+                d, onPeriod = {}, onAllApps = onAllApps, onBack = {}, onPrevious = onPrevious, onNext = onNext,
+                onOpenDay = onOpenDay, onOpenApp = onOpenApp, detailRetentionDays = detailRetentionDays,
+            )
+        }
     }
+
+    private fun day(date: LocalDate, known: Boolean = true) = detail.copy(
+        range = DetailRange(Period.DAY, date, date),
+        days = listOf(if (known) DayTotal(date, 30 * 60_000L, 3) else DayTotal(date, 0, 0)),
+        totalMs = if (known) 30 * 60_000L else 0, unlocks = if (known) 3 else 0, today = today,
+    )
+
+    private val list get() = rule.onNodeWithTag("det_list")
 
     /** Every kind's line in the current locale, in Kind.entries order. */
     private fun allEventTexts(): List<String> {
@@ -66,7 +101,7 @@ class DeviceDetailScreenTest {
 
     @Test
     fun levelsOneAndTwoWithAllAppsLink() {
-        var opened: Period? = null
+        var opened: DetailRange? = null
         show(detail, onAllApps = { opened = it })
         rule.onNodeWithText("1 h 30 min").assertExists()
         rule.onNodeWithText("7 unlocks").assertExists()
@@ -76,7 +111,7 @@ class DeviceDetailScreenTest {
         rule.onNodeWithText("App 6").assertDoesNotExist()
         rule.onNodeWithTag("det_all_apps").performClick()
         rule.waitForIdle()
-        assertEquals(Period.WEEK, opened)
+        assertEquals(detail.range, opened)
         list.performScrollToNode(hasText("Sync was stopped for 1 h"))
     }
 
@@ -214,5 +249,142 @@ class DeviceDetailScreenTest {
         rule.onNodeWithText("Bluetooth был выключен на 1 ч").assertExists()
         rule.onNodeWithText("Разрешение «Устройства поблизости» было выключено на 1 ч").assertExists()
         rule.onNodeWithText("Уведомление синхронизации снова видно, было скрыто на 1 ч").assertExists()
+    }
+
+    @Test
+    fun periodHeaderStepsAndNamesTheDay() {
+        var steps = ""
+        show(day(today).copy(canGoBack = true), onPrevious = { steps += "<" }, onNext = { steps += ">" })
+        rule.onNodeWithTag("det_period_title").assertTextEquals("Today")
+        rule.onNodeWithTag("det_next").assertIsNotEnabled()
+        rule.onNodeWithTag("det_prev").performClick()
+        rule.waitForIdle()
+        assertEquals("<", steps)
+    }
+
+    @Test
+    fun yesterdayAndOlderDaysAndWeeksHaveTitles() {
+        val shown = mutableStateOf(day(today.minusDays(1)))
+        rule.setContent { KinsightTheme(dynamicColor = false) { DeviceDetailScreen(shown.value, onPeriod = {}, onAllApps = {}, onBack = {}) } }
+        rule.onNodeWithTag("det_period_title").assertTextEquals("Yesterday")
+        shown.value = day(LocalDate.of(2026, 10, 6))
+        rule.onNodeWithTag("det_period_title").assertTextContains("Oct", substring = true)
+        rule.onNodeWithTag("det_period_title").assertTextContains("6", substring = true)
+        shown.value = detail.copy(today = today)
+        rule.onNodeWithTag("det_period_title").assertTextContains("Oct 4", substring = true)
+        shown.value = detail.copy(range = DetailRange(Period.MONTH, LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 31)), today = today)
+        rule.onNodeWithTag("det_period_title").assertTextContains("October 2026", substring = true)
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun russianDayTitles() {
+        show(day(today))
+        rule.onNodeWithTag("det_period_title").assertTextEquals("Сегодня")
+    }
+
+    @Test
+    fun tappingABarOpensThatDay() {
+        var opened: LocalDate? = null
+        val stacks = detail.days.map { mapOf(AppCategory.GAMES to it.totalMs) }
+        show(detail.copy(dayCategories = stacks, today = today), onOpenDay = { opened = it })
+        rule.onAllNodes(hasClickAction() and hasContentDescription("Open ", substring = true))[2].performClick()
+        rule.waitForIdle()
+        assertEquals(detail.days[2].date, opened)
+    }
+
+    @Test
+    fun anUnknownDayShowsNoDataNotZero() {
+        show(day(today.minusDays(3), known = false))
+        rule.onNodeWithText("No data for this day").assertExists()
+        rule.onNodeWithText("0 unlocks").assertDoesNotExist()
+        rule.onNodeWithText("<1 min").assertDoesNotExist()
+    }
+
+    @Test
+    fun levelFourSaysWhenHourlyDataIsUnavailable() {
+        show(detail.copy(today = today), detailRetentionDays = 30)
+        list.performScrollToNode(hasText("Time of day"))
+        list.performScrollToNode(hasText("Hourly data for this period is not available (it is kept for 30 days)"))
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun levelFourUnavailableInRussian() {
+        show(day(today), detailRetentionDays = 30)
+        list.performScrollToNode(hasText("Почасовые данные за этот период недоступны (хранятся 30 дней)"))
+    }
+
+    @Test
+    fun weekHeatmapSaysHowManyDaysItAverages() {
+        val cells = Array(7) { LongArray(24) { h -> if (h == 15) 30 * 60_000L else 0 } }
+        show(detail.copy(heatmap = Heatmap(cells, IntArray(24), coveredDays = 3, rangeDays = 7), today = today))
+        list.performScrollToNode(hasText("Average of 3 of 7 days"))
+        rule.onNode(hasContentDescription("Most time on", substring = true)).assertExists()
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun heatmapCoverageInRussian() {
+        val cells = Array(7) { LongArray(24) }
+        show(detail.copy(heatmap = Heatmap(cells, IntArray(24), coveredDays = 3, rangeDays = 7), today = today))
+        list.performScrollToNode(hasText("В среднем по 3 из 7 дней"))
+    }
+
+    @Test
+    fun dayShowsHourlyBarsAndUnlocks() {
+        val hours = (0..23).map { h ->
+            val ms = if (h == 20) 40 * 60_000L else 0L
+            HourTotal(h, ms, if (h == 8) 4 else 0, if (ms > 0) mapOf(AppCategory.VIDEO to ms) else emptyMap())
+        }
+        show(day(today).copy(hours = hours))
+        list.performScrollToNode(hasContentDescription("Most time at", substring = true))
+        list.performScrollToNode(hasContentDescription("Most unlocks at", substring = true))
+        rule.onNode(hasText("Hourly data", substring = true)).assertDoesNotExist()
+    }
+
+    @Test
+    fun categoriesAreListedWithTotalsAndShares() {
+        val cats = listOf(CategoryTotal(AppCategory.GAMES, 60 * 60_000L), CategoryTotal(AppCategory.VIDEO, 30 * 60_000L))
+        show(detail.copy(categories = cats, today = today))
+        list.performScrollToNode(hasTestTag("det_category_GAMES"))
+        rule.onNodeWithText("1 h · 67%").assertExists()
+        list.performScrollToNode(hasTestTag("det_category_VIDEO"))
+        rule.onNodeWithText("30 min · 33%").assertExists()
+    }
+
+    @Test
+    fun topAppsOpenTheAppScreenWhenWired() {
+        var app: String? = null
+        show(detail, onOpenApp = { app = it })
+        list.performScrollToNode(hasTestTag("det_app_pkg.2"))
+        rule.onNodeWithTag("det_app_pkg.2").performClick()
+        rule.waitForIdle()
+        assertEquals("pkg.2", app)
+    }
+
+    @Test
+    fun topAppsAreNotClickableWithoutTheAppScreen() {
+        show(detail)
+        list.performScrollToNode(hasTestTag("det_app_pkg.2"))
+        rule.onNodeWithTag("det_app_pkg.2").assert(hasClickAction().not())
+    }
+
+    @Test
+    fun horizontalSwipeStepsLikeTheArrows() {
+        var steps = ""
+        show(detail.copy(canGoBack = true, canGoForward = true), onPrevious = { steps += "<" }, onNext = { steps += ">" })
+        list.performTouchInput { swipeLeft() }
+        rule.waitForIdle()
+        list.performTouchInput { swipeRight() }
+        rule.waitForIdle()
+        assertEquals("><", steps)
+    }
+
+    @Test
+    fun hourLabelsFollowTheClockFormat() {
+        val norm = { l: List<String> -> l.map { it.replace('\u202f', ' ').replace('\u00a0', ' ') } }
+        assertEquals(listOf("12 AM", "6 AM", "12 PM", "6 PM"), norm(hourLabels(Locale.US, is24Hour = false)))
+        assertEquals(listOf("0", "6", "12", "18"), hourLabels(Locale.forLanguageTag("ru"), is24Hour = true))
     }
 }
