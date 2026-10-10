@@ -4,8 +4,11 @@ import android.content.Context
 import android.text.format.DateUtils
 import app.kinsight.R
 import app.kinsight.core.data.Alert
+import app.kinsight.core.data.AppCategory
+import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.designsystem.component.formatDuration
 import app.kinsight.core.model.proto.StateEvent
+import app.kinsight.feature.devicedetail.R as DetailR
 
 /** Notification texts for the planner's alerts; every kind in AlertPlanner.INTEGRITY_KINDS has its own (tested). */
 object AlertText {
@@ -50,6 +53,32 @@ object AlertText {
                 context.getString(if (alert.weekly) R.string.alert_summary_weekly else R.string.alert_summary_daily),
                 alert.lines.joinToString("\n") { (name, ms) -> "$name: ${formatDuration(context.resources, ms)}" },
             )
+            is Alert.Threshold -> Content(AlertChannels.THRESHOLDS, threshold(context, alert), context.getString(R.string.alert_threshold_body))
         }
+    }
+
+    /** «Kid: 3 h 10 min today (limit 3 h)»; a category or app is named («Kid: Games 1 h 5 min today (limit 1 h)»). */
+    private fun threshold(context: Context, alert: Alert.Threshold): String {
+        val used = formatDuration(context.resources, alert.usedMs)
+        val limit = formatDuration(context.resources, alert.limitMs)
+        val target = when (val t = alert.target) {
+            ThresholdTarget.Total -> return context.getString(R.string.alert_threshold_total, alert.device, used, limit)
+            is ThresholdTarget.Category -> context.getString(categoryName(t.category))
+            is ThresholdTarget.App -> alert.targetLabel ?: t.packageName
+        }
+        return context.getString(R.string.alert_threshold_target, alert.device, target, used, limit)
+    }
+
+    /** The category names of the detail screen (feature/device-detail), so both read the same. */
+    private fun categoryName(c: AppCategory): Int = when (c) {
+        AppCategory.GAMES -> DetailR.string.det_cat_games
+        AppCategory.SOCIAL -> DetailR.string.det_cat_social
+        AppCategory.VIDEO -> DetailR.string.det_cat_video
+        AppCategory.AUDIO -> DetailR.string.det_cat_audio
+        AppCategory.PHOTOS -> DetailR.string.det_cat_photos
+        AppCategory.NEWS -> DetailR.string.det_cat_news
+        AppCategory.MAPS -> DetailR.string.det_cat_maps
+        AppCategory.PRODUCTIVITY -> DetailR.string.det_cat_productivity
+        AppCategory.OTHER -> DetailR.string.det_cat_other
     }
 }

@@ -24,6 +24,12 @@
     <string name="alert_new_parent_body">В вашу семейную группу вступил новый родитель. Все, кто видит данные, перечислены в Настройки → Кто видит мои данные.</string>
     <string name="alert_summary_daily">Экранное время за сегодня</string>
     <string name="alert_summary_weekly">Экранное время за неделю</string>
+    <string name="channel_thresholds">Пороги</string>
+    <string name="channel_thresholds_description">Ребёнок превысил заданный вами порог за день (только уведомление, ничего не блокируется)</string>
+    <string name="alert_public_threshold">Порог превышен</string>
+    <string name="alert_threshold_total">%1$s: сегодня %2$s (порог %3$s)</string>
+    <string name="alert_threshold_target">%1$s: %2$s сегодня %3$s (порог %4$s)</string>
+    <string name="alert_threshold_body">Нажмите, чтобы посмотреть экранное время за сегодня.</string>
     <string name="nav_overview">Обзор</string>
     <string name="nav_group">Группа</string>
     <string name="nav_settings">Настройки</string>

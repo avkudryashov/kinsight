@@ -29,6 +29,12 @@
     <string name="alert_new_parent_body">A new parent joined your family group. Settings → Who sees my data shows everyone.</string>
     <string name="alert_summary_daily">Screen time today</string>
     <string name="alert_summary_weekly">Screen time this week</string>
+    <string name="channel_thresholds">Thresholds</string>
+    <string name="channel_thresholds_description">A child passed a daily limit you set (it only notifies, nothing is blocked)</string>
+    <string name="alert_public_threshold">Daily limit passed</string>
+    <string name="alert_threshold_total">%1$s: %2$s today (limit %3$s)</string>
+    <string name="alert_threshold_target">%1$s: %2$s %3$s today (limit %4$s)</string>
+    <string name="alert_threshold_body">Tap to see today\'s screen time.</string>
     <string name="nav_overview">Overview</string>
     <string name="nav_group">Group</string>
     <string name="nav_settings">Settings</string>

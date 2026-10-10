@@ -12,6 +12,7 @@ import app.kinsight.MainActivity
 import app.kinsight.R
 import app.kinsight.core.data.Alert
 import app.kinsight.core.data.AlertPlanner
+import app.kinsight.core.data.ThresholdRule
 import app.kinsight.core.model.proto.StateEvent
 
 object AlertNotifier {
@@ -52,7 +53,11 @@ object AlertNotifier {
     internal fun build(context: Context, alert: Alert): Notification {
         val t = AlertText.of(context, alert)
         val publicTitle = context.getString(
-            if (alert is Alert.Summary) R.string.alert_public_summary else R.string.alert_public_integrity,
+            when (alert) {
+                is Alert.Summary -> R.string.alert_public_summary
+                is Alert.Threshold -> R.string.alert_public_threshold
+                else -> R.string.alert_public_integrity
+            },
         )
         val public = NotificationCompat.Builder(context, t.channel)
             .setSmallIcon(R.drawable.ic_stat_kinsight)
@@ -72,11 +77,15 @@ object AlertNotifier {
     }
 
     /**
-     * An integrity alert opens that child's detail screen; a child that left (no detail any more) and every other
-     * alert open the dashboard. The request code is the notification id, so each child keeps its own target.
+     * An integrity or threshold alert opens that child's detail screen; a child that left (no detail any more) and
+     * every other alert open the dashboard. The request code is the notification id, so each child keeps its own target.
      */
     private fun contentIntent(context: Context, alert: Alert): PendingIntent {
-        val device = (alert as? Alert.Integrity)?.takeIf { it.kind != StateEvent.Kind.LEFT_GROUP }?.id?.hex
+        val device = when (alert) {
+            is Alert.Integrity -> alert.takeIf { it.kind != StateEvent.Kind.LEFT_GROUP }?.id?.hex
+            is Alert.Threshold -> alert.child.hex
+            else -> null
+        }
         val intent = if (device != null) MainActivity.openDevice(context, device) else MainActivity.open(context)
         return PendingIntent.getActivity(context, idOf(alert), intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
@@ -84,6 +93,7 @@ object AlertNotifier {
     /**
      * One notification per child and kind of problem (a newer one replaces it); summaries share one id. An integrity
      * id is keyed by the child's device (its name only when unknown), so a [Alert.Resolved] finds it after a rename.
+     * A threshold is keyed by its rule (child and target): a re-post the next day or after a limit change replaces it.
      */
     private fun idOf(alert: Alert): Int = when (alert) {
         is Alert.Integrity -> integrityId(alert.id?.hex ?: alert.device, alert.kind)
@@ -91,6 +101,7 @@ object AlertNotifier {
         is Alert.NoContact -> ("c" + alert.device).hashCode()
         is Alert.NewParent -> ("p" + alert.name).hashCode()
         is Alert.Summary -> SUMMARY_ID
+        is Alert.Threshold -> ("t" + ThresholdRule.idOf(alert.child, alert.target)).hashCode()
     }
 
     private fun integrityId(child: String, kind: StateEvent.Kind): Int = ("i" + child + kind.name).hashCode()

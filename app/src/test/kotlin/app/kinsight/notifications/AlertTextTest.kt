@@ -7,6 +7,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.kinsight.R
 import app.kinsight.core.data.Alert
 import app.kinsight.core.data.AlertPlanner
+import app.kinsight.core.data.AppCategory
+import app.kinsight.core.data.ThresholdTarget
+import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.proto.StateEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -104,5 +107,43 @@ class AlertTextTest {
         val body = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000)).body
         assertTrue(body, body.startsWith("Когда: "))
         assertTrue(context.getString(R.string.channel_integrity_description).isNotBlank())
+    }
+
+    private val kidId = DeviceId("cc".repeat(16))
+    private val min = 60_000L
+
+    @Test
+    fun thresholdTextsNameTheChildTheTargetAndTheLimit() {
+        val total = AlertText.of(context, Alert.Threshold(kidId, "Kid", ThresholdTarget.Total, null, 190 * min, 180 * min))
+        assertEquals(AlertChannels.THRESHOLDS, total.channel)
+        assertEquals("Kid: 3 h 10 min today (limit 3 h)", total.title)
+        val games = AlertText.of(context, Alert.Threshold(kidId, "Kid", ThresholdTarget.Category(AppCategory.GAMES), null, 65 * min, 60 * min))
+        assertEquals("Kid: Games 1 h 5 min today (limit 1 h)", games.title)
+        val app = AlertText.of(context, Alert.Threshold(kidId, "Kid", ThresholdTarget.App("com.roblox.client"), "Roblox", 65 * min, 60 * min))
+        assertEquals("Kid: Roblox 1 h 5 min today (limit 1 h)", app.title)
+        val unknown = AlertText.of(context, Alert.Threshold(kidId, "Kid", ThresholdTarget.App("com.roblox.client"), null, 65 * min, 60 * min))
+        assertEquals("Kid: com.roblox.client 1 h 5 min today (limit 1 h)", unknown.title)
+        assertTrue(total.body.isNotBlank())
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun thresholdTextsInRussian() {
+        val total = AlertText.of(context, Alert.Threshold(kidId, "Kid", ThresholdTarget.Total, null, 190 * min, 180 * min))
+        assertEquals("Kid: сегодня 3 ч 10 мин (порог 3 ч)", total.title)
+        val games = AlertText.of(context, Alert.Threshold(kidId, "Kid", ThresholdTarget.Category(AppCategory.GAMES), null, 65 * min, 60 * min))
+        assertEquals("Kid: Игры сегодня 1 ч 5 мин (порог 1 ч)", games.title)
+        AlertChannels.ensure(context)
+        assertEquals("Пороги", context.getSystemService(NotificationManager::class.java).getNotificationChannel(AlertChannels.THRESHOLDS).name.toString())
+    }
+
+    @Test
+    fun thresholdChannelIsCreatedAndDescribed() {
+        AlertChannels.ensure(context)
+        val channel = context.getSystemService(NotificationManager::class.java).getNotificationChannel(AlertChannels.THRESHOLDS)
+        assertNotNull(channel)
+        assertEquals("Thresholds", channel.name.toString())
+        assertEquals(NotificationManager.IMPORTANCE_DEFAULT, channel.importance)
+        assertTrue(channel.description.orEmpty().isNotBlank())
     }
 }

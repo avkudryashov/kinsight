@@ -20,6 +20,7 @@ import app.kinsight.core.transport.ble.BlePermissions
 import app.kinsight.core.transport.ble.SyncGraph
 import app.kinsight.feature.widget.KinsightWidget
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.LocalDate
@@ -45,7 +46,14 @@ object AlertsRun {
         if (snapshot.removed) return@serialized
         val prefs = g.prefs.current()
         val nowMs = System.currentTimeMillis()
-        val input = clampJoined(AlertPlanner.input(snapshot, prefs, g.prefs.alertMarkers(), nowMs, ZoneId.systemDefault()))
+        // Threshold rules and category overrides are the parent's local preferences (stage 5b); the planner evaluates
+        // only rules of active children.
+        val input = clampJoined(
+            AlertPlanner.input(
+                snapshot, prefs, g.prefs.alertMarkers(), nowMs, ZoneId.systemDefault(),
+                thresholds = g.prefs.thresholds.first(), overrides = g.prefs.categoryOverrides.first(),
+            ),
+        )
         AlertChannels.ensure(context)
         // setAlertMarkers is one DataStore edit: the markers are replaced whole or not at all.
         deliver(context, input, AlertPlanner.plan(input)) { g.prefs.setAlertMarkers(it) }
