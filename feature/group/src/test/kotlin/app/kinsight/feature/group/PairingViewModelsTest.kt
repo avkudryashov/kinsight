@@ -7,6 +7,7 @@ import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.sync.pairing.Invite
+import app.kinsight.core.transport.ble.RadioProblem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -67,8 +68,9 @@ class PairingViewModelsTest {
         assertEquals(1, invites.size)
         assertEquals(Role.CHILD, invites[0].role)
         assertEquals("Mom", invites[0].adminName)
-        invites[0].state.value = InviteState.Showing("kinsight://pair/1/AAAA", 5L, problem = "advertising failed (2), retrying")
-        assertEquals(InviteState.Showing("kinsight://pair/1/AAAA", 5L, "advertising failed (2), retrying"), vm.state.value)
+        val busy = RadioProblem(RadioProblem.Kind.ADVERTISE_FAILED, retrying = true, code = 2)
+        invites[0].state.value = InviteState.Showing("kinsight://pair/1/AAAA", 5L, problem = busy)
+        assertEquals(InviteState.Showing("kinsight://pair/1/AAAA", 5L, busy), vm.state.value)
     }
 
     @Test

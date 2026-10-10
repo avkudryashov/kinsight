@@ -20,7 +20,7 @@ interface PairingHostHandle : AutoCloseable {
      * A standing radio problem while hosting, for the invite screen (the advert failed after its retry, the GATT service
      * was refused), or null while guests can find and dial this phone.
      */
-    val problem: StateFlow<String?>
+    val problem: StateFlow<RadioProblem?>
 }
 
 /**

@@ -116,14 +116,14 @@ internal val LISTENER_REOPEN_DELAYS_MS = listOf(1_000L, 5_000L, 30_000L, 120_000
  */
 internal class PairingAdvertProblems(private val scope: CoroutineScope, private val log: (String) -> Unit) {
     private val retry = AdvertiseRetry()
-    private val _problem = MutableStateFlow<String?>(null)
-    val problem: StateFlow<String?> = _problem.asStateFlow()
+    private val _problem = MutableStateFlow<RadioProblem?>(null)
+    val problem: StateFlow<RadioProblem?> = _problem.asStateFlow()
 
     @Volatile
-    private var service: String? = null
+    private var service: RadioProblem? = null
 
     @Volatile
-    private var advert: String? = null
+    private var advert: RadioProblem? = null
 
     @Volatile
     private var start: () -> Unit = {}
@@ -147,7 +147,7 @@ internal class PairingAdvertProblems(private val scope: CoroutineScope, private 
             start()
         } catch (e: Exception) {
             log("pairing advert start threw: $e")
-            setAdvert("advertising failed: ${e::class.simpleName}")
+            setAdvert(RadioProblem(RadioProblem.Kind.ADVERTISE_FAILED, cause = e::class.simpleName))
         }
     }
 
@@ -161,7 +161,7 @@ internal class PairingAdvertProblems(private val scope: CoroutineScope, private 
             AdvertiseRetry.Next.OK -> setAdvert(null)
             AdvertiseRetry.Next.RETRY -> {
                 log("pairing advert failed: $errorCode, retrying in ${RETRY_MS / 1000} s")
-                setAdvert("advertising failed ($errorCode), retrying")
+                setAdvert(RadioProblem(RadioProblem.Kind.ADVERTISE_FAILED, retrying = true, code = errorCode))
                 val gen = retry.current()
                 pending = scope.launch {
                     delay(RETRY_MS)
@@ -170,14 +170,14 @@ internal class PairingAdvertProblems(private val scope: CoroutineScope, private 
             }
             AdvertiseRetry.Next.GIVE_UP -> {
                 log("pairing advert failed: $errorCode")
-                setAdvert("advertising failed ($errorCode)")
+                setAdvert(RadioProblem(RadioProblem.Kind.ADVERTISE_FAILED, code = errorCode))
             }
         }
     }
 
-    fun serviceProblem(text: String) {
-        log(text)
-        service = text
+    fun serviceProblem(problem: RadioProblem) {
+        log(problem.detail)
+        service = problem
         publish()
     }
 
@@ -187,8 +187,8 @@ internal class PairingAdvertProblems(private val scope: CoroutineScope, private 
         pending?.cancel()
     }
 
-    private fun setAdvert(text: String?) {
-        advert = text
+    private fun setAdvert(problem: RadioProblem?) {
+        advert = problem
         publish()
     }
 

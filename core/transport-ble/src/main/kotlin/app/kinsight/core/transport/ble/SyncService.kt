@@ -85,7 +85,7 @@ class SyncService : Service() {
     private var stopping = false
     private var fastUntilMono = 0L
     private var fastEnd: Job? = null
-    private val scanThrottle = ScanThrottle()
+    private val scanThrottle = ScanThrottle.PROCESS // shared with pairing: Android counts scan starts per app
     private var lastVisible: Boolean? = null // serial dispatcher only
     private var scanWanted: Boolean? = null
     private var scanActive: Boolean? = null
@@ -95,8 +95,8 @@ class SyncService : Service() {
     private var radioRetry: Job? = null
 
     /** Shown as the RUNNING detail (diagnostics) while they stand; cleared when the radio stops. */
-    private var scanProblem: String? = null
-    private var advertProblem: String? = null
+    private var scanProblem: RadioProblem? = null
+    private var advertProblem: RadioProblem? = null
 
     // Main thread only.
     private var foreground = false
@@ -252,7 +252,7 @@ class SyncService : Service() {
         scope.launch {
             if (radio == null) return@launch
             scanActive = null
-            scanProblem = "scan failed (error $code)"
+            scanProblem = RadioProblem(RadioProblem.Kind.SCAN_FAILED, retrying = true, code = code)
             refreshRadioDetail()
             if (scanRetry?.isActive != true) scheduleScanRetry(scanRecovery.onError())
         }
@@ -363,7 +363,7 @@ class SyncService : Service() {
     /** Under the lock. True when the radio runs afterwards. */
     private suspend fun startRadio(adapter: BluetoothAdapter): Boolean {
         if (radio != null) {
-            show(ServiceState.RUNNING, radioDetail())
+            showRunning()
             return true
         }
         val c = applicationContext
@@ -425,7 +425,7 @@ class SyncService : Service() {
         radioRetry?.cancel() // started by another path (adapter on, a start command) while a retry waited
         radioRetry = null
         radioRetrySchedule.reset()
-        show(ServiceState.RUNNING, radioDetail())
+        showRunning()
         rs.launch { quietly("heartbeat") { SyncGraph.emitHeartbeatIfDue(c) } }
         return true
     }
@@ -549,7 +549,7 @@ class SyncService : Service() {
         val want = scanWanted ?: return
         if (scanActive == want) return
         val now = SystemClock.elapsedRealtime()
-        val wait = scanThrottle.waitMs(now)
+        val wait = scanThrottle.tryStart(now) // takes the slot when 0: pairing scans count against the same budget
         if (wait > 0) {
             log("scan restart deferred ${wait}ms (throttle)")
             scanRetry = radioScope?.launch {
@@ -559,14 +559,13 @@ class SyncService : Service() {
             }
             return
         }
-        scanThrottle.record(now)
         val rc = r.startScan(want)
         val retryIn = scanRecovery.onStarted(rc)
         if (retryIn == null) {
             scanActive = want // accepted; only a delivered batch (onScanOk) proves it works and clears the problem
         } else {
             scanActive = null
-            scanProblem = "scan failed (rc $rc)"
+            scanProblem = RadioProblem(RadioProblem.Kind.SCAN_START_FAILED, retrying = true, code = rc)
             refreshRadioDetail()
             scheduleScanRetry(retryIn)
         }
@@ -583,14 +582,20 @@ class SyncService : Service() {
         }
     }
 
-    private fun radioDetail(): String? = listOfNotNull(scanProblem, advertProblem).joinToString("; ").ifEmpty { null }
+    private fun radioProblems(): List<RadioProblem> = listOfNotNull(scanProblem, advertProblem)
 
-    /** While RUNNING, the detail names a scan or advertising failure that stands (diagnostics shows it). */
+    private suspend fun showRunning() {
+        val p = radioProblems()
+        show(ServiceState.RUNNING, RadioProblem.detailOf(p), p)
+    }
+
+    /** While RUNNING, the typed problems (and the detail naming them, for diagnostics) are the standing radio failures. */
     private fun refreshRadioDetail() {
         if (snapshot.state != ServiceState.RUNNING) return
-        val d = radioDetail()
-        if (snapshot.detail == d) return
-        snapshot = snapshot.copy(detail = d)
+        val p = radioProblems()
+        if (snapshot.radioProblems == p) return
+        val d = RadioProblem.detailOf(p)
+        snapshot = snapshot.copy(detail = d, radioProblems = p)
         log("radio detail: ${d ?: "none"}")
         publish()
     }
@@ -617,14 +622,14 @@ class SyncService : Service() {
         }
     }
 
-    private suspend fun show(state: ServiceState, detail: String? = null) {
+    private suspend fun show(state: ServiceState, detail: String? = null, radioProblems: List<RadioProblem> = emptyList()) {
         if (snapshot.lastSyncWallMs == null) {
             quietly("read last sync") {
                 val last = SyncGraph.state(applicationContext).lastSyncMs()
                 snapshot = snapshot.copy(lastSyncWallMs = snapshot.lastSyncWallMs ?: last)
             }
         }
-        snapshot = snapshot.copy(state = state, detail = detail)
+        snapshot = snapshot.copy(state = state, detail = detail, radioProblems = radioProblems)
         log("state $state${detail?.let { ": $it" } ?: ""}")
         publish()
     }

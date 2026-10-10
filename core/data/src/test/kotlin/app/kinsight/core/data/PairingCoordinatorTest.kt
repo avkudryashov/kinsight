@@ -9,6 +9,7 @@ import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.model.removeMemberEntry
 import app.kinsight.core.sync.pairing.Invite
 import app.kinsight.core.transport.ble.PairingRadioException
+import app.kinsight.core.transport.ble.RadioProblem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
@@ -184,8 +185,9 @@ class PairingCoordinatorTest {
     fun aRadioProblemIsShownWhileTheInviteStaysUsable() = runBlocking<Unit> {
         mom.group.createGroup("Mom")
         val (invite, qr) = openInvite()
-        air.problem.value = "advertising failed (3)"
-        assertEquals("advertising failed (3)", assertIs<InviteState.Showing>(invite.state.awaitFirst { (it as? InviteState.Showing)?.problem != null }).problem)
+        val failed = RadioProblem(RadioProblem.Kind.ADVERTISE_FAILED, code = 3)
+        air.problem.value = failed
+        assertEquals(failed, assertIs<InviteState.Showing>(invite.state.awaitFirst { (it as? InviteState.Showing)?.problem != null }).problem)
         air.problem.value = null
         invite.state.awaitFirst { it is InviteState.Showing && it.problem == null }
         val join = kidPairing.join(scope, qr, "Kid", consent = false)

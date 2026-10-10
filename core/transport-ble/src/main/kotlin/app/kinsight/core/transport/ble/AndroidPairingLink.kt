@@ -108,7 +108,7 @@ class AndroidPairingLink(
     ) : PairingHostHandle {
         private val closed = AtomicBoolean(false)
         private val ads = PairingAdvertProblems(scope, log)
-        override val problem: StateFlow<String?> get() = ads.problem
+        override val problem: StateFlow<RadioProblem?> get() = ads.problem
 
         @Volatile
         var watcher: Job? = null
@@ -177,7 +177,7 @@ class AndroidPairingLink(
                 isClosed = closed::get,
                 onSocket = { socket -> onInbound(socket.byteStream()) },
                 discard = { socket -> socket.close() },
-                onGiveUp = { ads.serviceProblem(it) },
+                onGiveUp = { ads.serviceProblem(RadioProblem(RadioProblem.Kind.PAIRING_LISTENER_FAILED, cause = it)) },
                 log = log,
                 what = "pairing",
             )
@@ -196,12 +196,12 @@ class AndroidPairingLink(
             // Advertise only once the service is in the GATT database, else a quick guest reads no PSM. A refusal or
             // silence is shown on the invite screen; the advert still goes out (it may recover, it costs nothing).
             if (!gattServer.addService(service)) {
-                ads.serviceProblem("pairing GATT service refused")
+                ads.serviceProblem(RadioProblem(RadioProblem.Kind.PAIRING_SERVICE_FAILED, cause = "refused"))
             } else {
                 when (val status = withTimeoutOrNull(SERVICE_ADDED_TIMEOUT) { serviceAdded.await() }) {
                     BluetoothGatt.GATT_SUCCESS -> Unit
-                    null -> ads.serviceProblem("pairing GATT service not confirmed")
-                    else -> ads.serviceProblem("pairing GATT service failed ($status)")
+                    null -> ads.serviceProblem(RadioProblem(RadioProblem.Kind.PAIRING_SERVICE_FAILED, cause = "not confirmed"))
+                    else -> ads.serviceProblem(RadioProblem(RadioProblem.Kind.PAIRING_SERVICE_FAILED, code = status))
                 }
             }
             ensureOpen()
@@ -272,10 +272,7 @@ class AndroidPairingLink(
     /** Waits for a scan-start slot (shared with every pairing dial in the process), then scans for [tag]. */
     private suspend fun find(adapter: BluetoothAdapter, tag: ByteArray): BluetoothDevice {
         while (true) {
-            val wait = synchronized(scanThrottle) {
-                val now = SystemClock.elapsedRealtime()
-                scanThrottle.waitMs(now).also { if (it == 0L) scanThrottle.record(now) }
-            }
+            val wait = scanThrottle.tryStart(SystemClock.elapsedRealtime())
             if (wait == 0L) break
             log("pairing scan deferred ${wait}ms (throttle)")
             delay(wait)
@@ -332,9 +329,9 @@ class AndroidPairingLink(
         val SERVICE_ADDED_TIMEOUT = 5.seconds
 
         /**
-         * Android counts scan starts per app (5 per 30 s) and the sync service's PendingIntent scan shares that budget,
-         * so pairing keeps to 2 of the 5 slots per window.
+         * Android counts scan starts per app (5 per 30 s): pairing takes its slots from the process budget the sync
+         * service's PendingIntent scan uses too, and keeps to 2 of the 5 per window.
          */
-        val scanThrottle = ScanThrottle(maxStarts = 2)
+        val scanThrottle = ScanThrottle.PROCESS.share(maxStarts = 2)
     }
 }

@@ -139,7 +139,7 @@ class PairingHostSupportTest {
         assertEquals(1, starts.get())
 
         ads.onStartFailure(tooMany)
-        assertEquals("advertising failed ($tooMany), retrying", ads.problem.value)
+        assertEquals(RadioProblem(RadioProblem.Kind.ADVERTISE_FAILED, retrying = true, code = tooMany), ads.problem.value)
         advanceTimeBy(PairingAdvertProblems.RETRY_MS - 1)
         runCurrent()
         assertEquals(1, starts.get())
@@ -148,7 +148,7 @@ class PairingHostSupportTest {
         assertEquals(2, starts.get())
 
         ads.onStartFailure(tooMany)
-        assertEquals("advertising failed ($tooMany)", ads.problem.value)
+        assertEquals(RadioProblem(RadioProblem.Kind.ADVERTISE_FAILED, retrying = false, code = tooMany), ads.problem.value)
         advanceTimeBy(60_000)
         runCurrent()
         assertEquals(2, starts.get())
@@ -171,7 +171,7 @@ class PairingHostSupportTest {
     fun aStartThatThrowsIsAProblemToo() = runTest {
         val ads = PairingAdvertProblems(backgroundScope, log = {})
         ads.begin { throw SecurityException("revoked") }
-        assertTrue(ads.problem.value!!.startsWith("advertising failed"))
+        assertEquals(RadioProblem(RadioProblem.Kind.ADVERTISE_FAILED, cause = "SecurityException"), ads.problem.value)
     }
 
     @Test
@@ -191,10 +191,10 @@ class PairingHostSupportTest {
     @Test
     fun aGattServiceProblemOutlivesAWorkingAdvert() = runTest {
         val ads = PairingAdvertProblems(backgroundScope, log = {})
-        ads.serviceProblem("pairing GATT service refused")
+        ads.serviceProblem(RadioProblem(RadioProblem.Kind.PAIRING_SERVICE_FAILED, cause = "refused"))
         ads.begin {}
         ads.onStartSuccess()
 
-        assertEquals("pairing GATT service refused", ads.problem.value)
+        assertEquals(RadioProblem.Kind.PAIRING_SERVICE_FAILED, ads.problem.value?.kind)
     }
 }

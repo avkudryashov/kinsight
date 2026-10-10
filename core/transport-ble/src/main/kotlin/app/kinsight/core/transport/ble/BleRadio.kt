@@ -50,7 +50,7 @@ internal class BleRadio(
     private val adapter: BluetoothAdapter,
     private val log: (String) -> Unit,
     /** An advertising failure that stands (text), or null once advertising works; called on any thread. */
-    private val onAdvertProblem: (String?) -> Unit = {},
+    private val onAdvertProblem: (RadioProblem?) -> Unit = {},
     /** The L2CAP listener died and could not be reopened (text): the owner restarts the radio; any thread. */
     private val onListenerLost: (String) -> Unit = {},
 ) {
@@ -97,7 +97,7 @@ internal class BleRadio(
                 }
                 AdvertiseRetry.Next.RETRY -> {
                     log("advertising failed: $errorCode, retrying in ${ADVERTISE_RETRY_MS / 1000} s")
-                    onAdvertProblem("advertising failed ($errorCode), retrying")
+                    onAdvertProblem(RadioProblem(RadioProblem.Kind.ADVERTISE_FAILED, retrying = true, code = errorCode))
                     val gen = advertiseRetry.current()
                     val again = lastAdvert
                     scope?.launch {
@@ -107,7 +107,7 @@ internal class BleRadio(
                 }
                 AdvertiseRetry.Next.GIVE_UP -> {
                     log("advertising failed: $errorCode")
-                    onAdvertProblem("advertising failed ($errorCode)")
+                    onAdvertProblem(RadioProblem(RadioProblem.Kind.ADVERTISE_FAILED, code = errorCode))
                 }
             }
         }
@@ -222,7 +222,7 @@ internal class BleRadio(
             if (closed) runCatching { advertiser.stopAdvertising(advertiseCallback) }.also { advertising = false }
         } catch (e: Exception) {
             log("advertise failed: $e")
-            onAdvertProblem("advertising failed: ${e::class.simpleName}")
+            onAdvertProblem(RadioProblem(RadioProblem.Kind.ADVERTISE_FAILED, cause = e::class.simpleName))
         }
     }
 

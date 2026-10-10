@@ -6,6 +6,7 @@ import app.kinsight.core.sync.MemoryPipe
 import app.kinsight.core.transport.ble.InviteHostNotFoundException
 import app.kinsight.core.transport.ble.PairingHostHandle
 import app.kinsight.core.transport.ble.PairingLink
+import app.kinsight.core.transport.ble.RadioProblem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,7 +24,7 @@ import kotlin.time.Duration
 class FakePairingLink : PairingLink {
     private val hosts = ConcurrentHashMap<String, (ByteStream) -> Unit>()
     private val aliases = ConcurrentHashMap<String, String>()
-    val problem = MutableStateFlow<String?>(null)
+    val problem = MutableStateFlow<RadioProblem?>(null)
     val hostError = AtomicReference<Exception?>(null)
 
     fun hosting(): Int = hosts.size
@@ -37,7 +38,7 @@ class FakePairingLink : PairingLink {
         val key = tag.toHex()
         hosts[key] = onInbound
         val handle = object : PairingHostHandle {
-            override val problem: StateFlow<String?> = this@FakePairingLink.problem
+            override val problem: StateFlow<RadioProblem?> = this@FakePairingLink.problem
 
             override fun close() {
                 hosts.remove(key, onInbound)

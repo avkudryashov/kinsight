@@ -51,6 +51,7 @@ import app.kinsight.core.data.Role
 import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.QrCode
 import app.kinsight.core.sync.pairing.Invite
+import app.kinsight.core.transport.ble.RadioProblem
 
 fun PairFailure.messageRes(): Int = when (this) {
     PairFailure.NO_PERMISSION -> R.string.pair_fail_no_permission
@@ -103,7 +104,7 @@ fun InviteScreen(
         InviteState.Starting -> CircularProgressIndicator()
         is InviteState.Showing -> {
             InviteQr(state.uri, state.expiresAtMs, nowMs)
-            state.problem?.let { RadioProblem(it) }
+            state.problem?.let { RadioProblemText(it) }
         }
         is InviteState.Confirm -> {
             InviteQr(state.uri, state.expiresAtMs, nowMs)
@@ -178,14 +179,13 @@ private fun InviteQr(uri: String, expiresAtMs: Long, nowMs: Long) {
 
 /** The host's standing radio problem: a human line, then the technical detail for support. The QR stays usable. */
 @Composable
-private fun RadioProblem(detail: String) {
-    val retrying = detail.contains("retrying")
+private fun RadioProblemText(problem: RadioProblem) {
     Text(
-        stringResource(if (retrying) R.string.inv_problem_retrying else R.string.inv_problem),
+        stringResource(if (problem.retrying) R.string.inv_problem_retrying else R.string.inv_problem),
         color = MaterialTheme.colorScheme.error,
         textAlign = TextAlign.Center,
     )
-    Text(detail, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+    Text(problem.detail, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
 }
 
 /** The joining phone (spec §9.4): progress with Cancel until the welcome is being stored, then Retry on failure. */

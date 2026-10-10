@@ -28,6 +28,7 @@ import app.kinsight.core.transport.ble.InviteHostNotFoundException
 import app.kinsight.core.transport.ble.PairingHostHandle
 import app.kinsight.core.transport.ble.PairingLink
 import app.kinsight.core.transport.ble.PairingRadioException
+import app.kinsight.core.transport.ble.RadioProblem
 import app.kinsight.core.usage.SettingsStore
 import app.kinsight.core.usage.UsagePipeline
 import kotlinx.coroutines.CancellationException
@@ -61,7 +62,7 @@ sealed interface InviteState {
     data object Starting : InviteState
 
     /** [problem]: a standing radio problem while hosting (PairingHostHandle.problem); the QR stays usable. */
-    data class Showing(val uri: String, val expiresAtMs: Long, val problem: String? = null) : InviteState
+    data class Showing(val uri: String, val expiresAtMs: Long, val problem: RadioProblem? = null) : InviteState
 
     data class Confirm(val uri: String, val expiresAtMs: Long, val name: String, val role: Role) : InviteState
 

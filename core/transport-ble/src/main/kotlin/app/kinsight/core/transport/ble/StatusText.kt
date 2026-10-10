@@ -16,6 +16,8 @@ data class ServiceSnapshot(
     val state: ServiceState = ServiceState.STOPPED,
     val detail: String? = null,
     val sync: SyncStatus = SyncStatus(),
+    /** While RUNNING: the scan or advertising failures that stand, typed (the UI words them); [detail] names them. */
+    val radioProblems: List<RadioProblem> = emptyList(),
     val lastSyncWallMs: Long? = null,
     val peers: List<String> = emptyList(),
     val peersAreParents: Boolean = false,

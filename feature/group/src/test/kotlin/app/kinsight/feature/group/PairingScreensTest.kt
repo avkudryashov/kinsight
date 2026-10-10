@@ -23,6 +23,7 @@ import app.kinsight.core.data.JoinState
 import app.kinsight.core.data.PairFailure
 import app.kinsight.core.data.Role
 import app.kinsight.core.designsystem.theme.KinsightTheme
+import app.kinsight.core.transport.ble.RadioProblem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -103,7 +104,7 @@ class PairingScreensTest {
 
     @Test
     fun aRadioProblemIsShownWhileTheQrStays() {
-        invite(InviteState.Showing(uri, now + 60_000, problem = "advertising failed (2), retrying"))
+        invite(InviteState.Showing(uri, now + 60_000, problem = RadioProblem(RadioProblem.Kind.ADVERTISE_FAILED, retrying = true, code = 2)))
         rule.onNodeWithContentDescription("Invitation QR code").assertExists()
         rule.onNodeWithText("Bluetooth is busy", substring = true).assertExists()
         rule.onNodeWithText("advertising failed (2), retrying", substring = true).assertExists()
@@ -111,9 +112,19 @@ class PairingScreensTest {
 
     @Test
     fun aStandingRadioProblemSaysOtherPhonesMayNotFindThisOne() {
-        invite(InviteState.Showing(uri, now + 60_000, problem = "advertising failed (3)"))
+        invite(InviteState.Showing(uri, now + 60_000, problem = RadioProblem(RadioProblem.Kind.ADVERTISE_FAILED, code = 3)))
         rule.onNodeWithContentDescription("Invitation QR code").assertExists()
         rule.onNodeWithText("may not find this phone", substring = true).assertExists()
+        rule.onNodeWithText("advertising failed (3)", substring = true).assertExists()
+    }
+
+    @Test
+    fun theRetryingTextFollowsTheTypedFlagNotTheWording() {
+        // A problem that is not retried gets the standing line even when its technical cause mentions retrying.
+        val standing = RadioProblem(RadioProblem.Kind.ADVERTISE_FAILED, retrying = false, cause = "retrying exhausted")
+        invite(InviteState.Showing(uri, now + 60_000, problem = standing))
+        rule.onNodeWithText("may not find this phone", substring = true).assertExists()
+        rule.onNodeWithText("Bluetooth is busy", substring = true).assertDoesNotExist()
     }
 
     @Test
