@@ -13,6 +13,7 @@ import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resumeWithException
 import kotlin.time.Duration.Companion.seconds
@@ -24,7 +25,12 @@ import kotlin.time.Duration.Companion.seconds
  * the engine logs; the GATT callbacks run on binder threads and never let one escape there.
  */
 @SuppressLint("MissingPermission")
-internal class BleConnector(private val context: Context, private val log: (String) -> Unit) : BleLink {
+internal class BleConnector(
+    private val context: Context,
+    private val log: (String) -> Unit,
+    private val serviceUuid: UUID = BleIds.SERVICE_UUID,
+    private val psmUuid: UUID = BleIds.PSM_UUID,
+) : BleLink {
     override suspend fun connect(address: PeerAddress): ByteStream {
         val device = (address as AndroidPeerAddress).device
         val psm = withTimeoutOrNull(GATT_TIMEOUT) { readPsm(device) } ?: throw IOException("GATT timed out")
@@ -69,7 +75,7 @@ internal class BleConnector(private val context: Context, private val log: (Stri
             }
 
             override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) = guard(gatt) {
-                val ch = gatt.getService(BleIds.SERVICE_UUID)?.getCharacteristic(BleIds.PSM_UUID)
+                val ch = gatt.getService(serviceUuid)?.getCharacteristic(psmUuid)
                 if (status != BluetoothGatt.GATT_SUCCESS || ch == null || !gatt.readCharacteristic(ch)) {
                     finish(gatt, Result.failure(IOException("no PSM characteristic (status $status)")))
                 }
