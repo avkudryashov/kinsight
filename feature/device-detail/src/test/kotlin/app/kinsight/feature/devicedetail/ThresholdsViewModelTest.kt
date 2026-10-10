@@ -171,6 +171,20 @@ class ThresholdsViewModelTest {
     }
 
     @Test
+    fun savingTheSameTargetInsideTheUndoWindowCancelsThePendingDelete() = runTest(dispatcher) {
+        val source = FakeSource()
+        val r = rule(ThresholdTarget.Total, 3 * hour)
+        source.rules.value = listOf(r)
+        val vm = vm(source)
+        vm.delete(r)
+        assertTrue(vm.save(ThresholdTarget.Total, 2 * hour))
+        vm.commitDelete(r) // the snackbar times out afterwards
+        val again = rule(ThresholdTarget.Total, 2 * hour)
+        assertEquals(listOf(again), source.rules.value)
+        assertEquals(listOf(again), vm.state.value!!.rules, "shown again")
+    }
+
+    @Test
     fun leavingTheScreenCommitsAPendingDelete() = runTest(dispatcher) {
         val source = FakeSource()
         val r = rule(ThresholdTarget.Total, 3 * hour)

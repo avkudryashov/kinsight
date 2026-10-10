@@ -12,6 +12,7 @@ import app.kinsight.core.data.ThresholdRule
 import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.data.UsageRepository
 import app.kinsight.core.model.DeviceId
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -67,6 +68,7 @@ class AppDetailViewModel internal constructor(
     weekFields: WeekFields,
     initial: DetailRange,
     ticks: Flow<Unit> = minuteTicks(),
+    writeScope: CoroutineScope? = null,
 ) : ViewModel() {
     constructor(
         usage: UsageRepository,
@@ -75,7 +77,11 @@ class AppDetailViewModel internal constructor(
         initial: DetailRange,
         saved: SavedStateHandle,
         weekFields: WeekFields = WeekFields.of(Locale.getDefault()),
-    ) : this(RepositoryAppSource(usage, id, packageName), saved, weekFields, initial)
+        writeScope: CoroutineScope? = null,
+    ) : this(RepositoryAppSource(usage, id, packageName), saved, weekFields, initial, writeScope = writeScope)
+
+    /** Limit writes run here (the app's scope in production), so leaving the screen at once does not cancel them. */
+    private val writes: CoroutineScope = writeScope ?: viewModelScope
 
     private val nav = RangeNavigator(viewModelScope, source::today, source::app, saved, weekFields, initial, ticks, restoreFirst = true)
 
@@ -105,12 +111,12 @@ class AppDetailViewModel internal constructor(
     fun setThreshold(limitMs: Long) {
         val d = detail.value?.takeIf(::canSetThreshold) ?: return
         val rule = ThresholdRule.of(d.member.id, ThresholdTarget.App(d.packageName), limitMs) ?: return
-        viewModelScope.launch { source.setThreshold(rule) }
+        writes.launch { source.setThreshold(rule) }
     }
 
     fun removeThreshold() {
         val d = detail.value?.takeIf(::canSetThreshold) ?: return
-        viewModelScope.launch { source.removeThreshold(ThresholdRule.idOf(d.member.id, ThresholdTarget.App(d.packageName))) }
+        writes.launch { source.removeThreshold(ThresholdRule.idOf(d.member.id, ThresholdTarget.App(d.packageName))) }
     }
 }
 

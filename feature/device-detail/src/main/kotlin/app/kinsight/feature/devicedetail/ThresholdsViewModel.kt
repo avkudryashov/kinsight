@@ -99,7 +99,10 @@ class ThresholdsViewModel internal constructor(
     fun save(target: ThresholdTarget, limitMs: Long): Boolean {
         if (!canEdit) return false
         val rule = ThresholdRule.of(child, target, limitMs) ?: return false
-        viewModelScope.launch { source.set(rule) }
+        // A rule of the same target saved inside its delete's «Undo» window: the delete is off ([commitDelete] returns).
+        pending.update { it - rule.id }
+        // On [commitScope]: leaving the screen right away must not cancel the write.
+        commitScope.launch { source.set(rule) }
         return true
     }
 

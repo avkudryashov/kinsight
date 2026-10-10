@@ -71,7 +71,7 @@ import java.time.format.TextStyle
 fun AppDetailRoute(id: DeviceId, packageName: String, range: DetailRange, onBack: () -> Unit) {
     val graph = AppGraph.get(LocalContext.current)
     val vm: AppDetailViewModel = viewModel(key = "app-${id.hex}-$packageName") {
-        AppDetailViewModel(graph.usage, id, packageName, range, createSavedStateHandle())
+        AppDetailViewModel(graph.usage, id, packageName, range, createSavedStateHandle(), writeScope = graph.scope)
     }
     val app by vm.detail.collectAsStateWithLifecycle()
     val settings by graph.settingsRepository.usageSettings.collectAsStateWithLifecycle(initialValue = UsageSettings())
