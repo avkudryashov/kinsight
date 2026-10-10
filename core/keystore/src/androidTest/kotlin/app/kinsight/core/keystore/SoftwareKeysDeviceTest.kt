@@ -15,6 +15,7 @@ import java.nio.file.StandardOpenOption
 import javax.crypto.SecretKeyFactory
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 @RunWith(AndroidJUnit4::class)
@@ -46,6 +47,18 @@ class SoftwareKeysDeviceTest {
         val strongBox = context.packageManager.hasSystemFeature(PackageManager.FEATURE_STRONGBOX_KEYSTORE)
         val expected = if (strongBox) KeyProperties.SECURITY_LEVEL_STRONGBOX else KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT
         assertEquals(expected, info.securityLevel)
+    }
+
+    // No KeyInfo getter exists for setUnlockedDeviceRequired; keystoreAesKey never sets it (wrap must work while locked).
+    @Test
+    fun wrapKeyRequiresNoUserAuthentication(): Unit = runBlocking {
+        val key = keystoreAesKey(context, wrapAlias)
+        val info = SecretKeyFactory.getInstance(key.algorithm, KeystoreKeys.ANDROID_KEYSTORE)
+            .getKeySpec(key, KeyInfo::class.java) as KeyInfo
+        assertFalse(info.isUserAuthenticationRequired)
+        assertFalse(info.isUserAuthenticationRequirementEnforcedBySecureHardware)
+        assertFalse(info.isInvalidatedByBiometricEnrollment)
+        assertEquals(0, info.userAuthenticationValidityDurationSeconds)
     }
 
     @Test

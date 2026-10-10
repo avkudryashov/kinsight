@@ -1,5 +1,6 @@
 package app.kinsight.core.keystore
 
+import android.security.keystore.KeyInfo
 import android.security.keystore.KeyProperties
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -17,6 +18,7 @@ import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.security.KeyFactory
 import java.security.KeyPairGenerator
 import javax.crypto.KeyAgreement
 import kotlin.test.assertContentEquals
@@ -55,6 +57,23 @@ class KeystoreKeysTest {
                 level == KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT || level == KeyProperties.SECURITY_LEVEL_STRONGBOX,
                 "security level $level",
             )
+        }
+    }
+
+    // KeyInfo exposes no getter for setUnlockedDeviceRequired, so "no unlocked-device gate" is not readable here:
+    // the specs in KeystoreKeys.generate never call it (background sync runs while locked) and signing in
+    // passesSelfTest/operations succeed regardless. Only the user-authentication properties are asserted.
+    @Test
+    fun keysRequireNoUserAuthentication() {
+        val ks = KeystoreKeys.keyStore()
+        for (alias in listOf(SIGN, DH)) {
+            val key = ks.getKey(alias, null) as java.security.PrivateKey
+            val info = KeyFactory.getInstance(KeyProperties.KEY_ALGORITHM_EC, KeystoreKeys.ANDROID_KEYSTORE)
+                .getKeySpec(key, KeyInfo::class.java)
+            assertFalse(info.isUserAuthenticationRequired, "$alias isUserAuthenticationRequired")
+            assertFalse(info.isUserAuthenticationRequirementEnforcedBySecureHardware, "$alias enforcedBySecureHardware")
+            assertFalse(info.isInvalidatedByBiometricEnrollment, "$alias invalidatedByBiometricEnrollment")
+            assertEquals(0, info.userAuthenticationValidityDurationSeconds, "$alias validity duration")
         }
     }
 
