@@ -2,6 +2,7 @@ package app.kinsight.core.transport.ble
 
 import app.kinsight.core.sync.ByteStream
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.StateFlow
 import java.io.IOException
 import kotlin.time.Duration
 
@@ -13,13 +14,26 @@ class PairingRadioException(val reason: Reason, message: String, cause: Throwabl
 /** Nobody advertised the invite's tag in time: the invite screen is closed, expired, or the phones are too far apart. */
 class InviteHostNotFoundException(message: String) : IOException(message)
 
+/** An open invite on the radio. Closing it stops the advert and the servers; idempotent, never throws. */
+interface PairingHostHandle : AutoCloseable {
+    /**
+     * A standing radio problem while hosting, for the invite screen (the advert failed after its retry, the GATT service
+     * was refused), or null while guests can find and dial this phone.
+     */
+    val problem: StateFlow<String?>
+}
+
 /**
  * The radio side of pairing (spec §6.4), separate from the sync radio: while the invite screen is open the admin
  * advertises the invite's tag on its own GATT service and L2CAP server; the new device finds the tag and dials it.
  */
 interface PairingLink {
-    /** Starts hosting; every inbound stream goes to [onInbound]. Closing the handle stops it. Throws PairingRadioException. */
-    fun host(scope: CoroutineScope, tag: ByteArray, onInbound: (ByteStream) -> Unit): AutoCloseable
+    /**
+     * Starts hosting and returns once the advert has been asked for. Every inbound stream goes to [onInbound], called on
+     * the accept thread: it must not block (launch the work), or the next guest waits. Closing the handle, or the end
+     * of [scope], stops it. Throws PairingRadioException; IllegalArgumentException for a tag that does not fit the advert.
+     */
+    suspend fun host(scope: CoroutineScope, tag: ByteArray, onInbound: (ByteStream) -> Unit): PairingHostHandle
 
     /** Finds the host advertising [tag] and connects; InviteHostNotFoundException after [timeout]. */
     suspend fun dial(tag: ByteArray, timeout: Duration): ByteStream

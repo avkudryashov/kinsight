@@ -23,13 +23,11 @@ import android.os.SystemClock
 import android.util.Log
 import app.kinsight.core.sync.ByteStream
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
@@ -37,6 +35,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Pairing over BLE (spec §6.4) with the patterns of BleRadio and BleConnector: an insecure L2CAP listener whose PSM is
@@ -76,37 +75,43 @@ class AndroidPairingLink(
         else -> PairingRadioException(PairingRadioException.Reason.RADIO, "$what: $e", e)
     }
 
-    override fun host(scope: CoroutineScope, tag: ByteArray, onInbound: (ByteStream) -> Unit): AutoCloseable {
+    override suspend fun host(scope: CoroutineScope, tag: ByteArray, onInbound: (ByteStream) -> Unit): PairingHostHandle {
+        // C13: the advert is flags + service data (128-bit UUID, tag); a tag that breaks legacy advertising is a bug.
+        require(PairingAdvert.advertisementBytes(tag.size) <= PairingAdvert.LEGACY_BYTES) {
+            "pairing advert of ${PairingAdvert.advertisementBytes(tag.size)} bytes exceeds legacy advertising"
+        }
         val adapter = adapter()
-        val session = HostSession(adapter, tag.copyOf(), onInbound)
+        val session = HostSession(adapter, tag.copyOf(), onInbound, scope)
+        // First, so the end of [scope] closes whatever is open from here on, during setup included.
+        session.watcher = scope.closeOnCancel(session)
         try {
-            session.open(scope)
+            session.open()
+        } catch (e: CancellationException) {
+            session.close()
+            throw e
         } catch (e: Exception) {
             session.close()
             throw radioFailure(adapter, "cannot open the pairing radio", e)
         }
-        // A scope that ends without close() (screen gone) must not leave the advert and the servers behind; for a
-        // scope that has already ended this runs at once.
-        session.onScopeEnd = scope.coroutineContext[Job]?.invokeOnCompletion { session.close() }
         return session
     }
 
-    /** One open invite: L2CAP listener, GATT server with the PSM, the tag advert. [close] is idempotent, never throws. */
+    /**
+     * One open invite: L2CAP listener, GATT server with the PSM, the tag advert. Every resource is stored, then [closed]
+     * is checked; [close] sets [closed], then reads the fields: one of the two sees the other, so nothing outlives it.
+     */
     private inner class HostSession(
         private val adapter: BluetoothAdapter,
         private val tag: ByteArray,
         private val onInbound: (ByteStream) -> Unit,
-    ) : AutoCloseable {
-        /** Set first by [close] (the handle and the scope's end may both call it): the advert start checks it again. */
+        private val scope: CoroutineScope,
+    ) : PairingHostHandle {
         private val closed = AtomicBoolean(false)
+        private val ads = PairingAdvertProblems(scope, log)
+        override val problem: StateFlow<String?> get() = ads.problem
 
-        /** The scope-end hook; disposed by [close] so a long-lived scope does not keep every finished invite. */
         @Volatile
-        var onScopeEnd: DisposableHandle? = null
-            set(value) {
-                field = value
-                if (closed.get()) value?.dispose()
-            }
+        var watcher: Job? = null
 
         @Volatile
         private var server: BluetoothServerSocket? = null
@@ -120,17 +125,19 @@ class AndroidPairingLink(
         @Volatile
         private var psm = -1
 
-        private val advertiseCallback = object : AdvertiseCallback() {
-            override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
-                log("pairing advert on, mode=${settingsInEffect.mode}")
-            }
+        private val serviceAdded = CompletableDeferred<Int>()
 
-            override fun onStartFailure(errorCode: Int) {
-                log("pairing advert failed: $errorCode") // the guest then times out with InviteHostNotFound
-            }
+        private val advertiseCallback = object : AdvertiseCallback() {
+            override fun onStartSuccess(settingsInEffect: AdvertiseSettings) = ads.onStartSuccess()
+
+            override fun onStartFailure(errorCode: Int) = ads.onStartFailure(errorCode)
         }
 
         private val gattCallback = object : BluetoothGattServerCallback() {
+            override fun onServiceAdded(status: Int, service: BluetoothGattService) {
+                if (service.uuid == BleIds.PAIRING_SERVICE_UUID) serviceAdded.complete(status)
+            }
+
             override fun onCharacteristicReadRequest(
                 device: BluetoothDevice,
                 requestId: Int,
@@ -147,37 +154,26 @@ class AndroidPairingLink(
             }
         }
 
-        fun open(scope: CoroutineScope) {
-            // C13: the advert below is flags + service data(128-bit UUID, tag); it must stay legacy-sized.
-            check(PairingAdvert.advertisementBytes(tag.size) <= PairingAdvert.LEGACY_BYTES) {
-                "pairing advert of ${PairingAdvert.advertisementBytes(tag.size)} bytes exceeds legacy advertising"
-            }
+        private fun ensureOpen() {
+            if (closed.get()) throw IOException("pairing host closed during setup (its scope ended)")
+        }
+
+        suspend fun open() {
             val listener = adapter.listenUsingInsecureL2capChannel()
             server = listener
+            ensureOpen()
             psm = listener.psm
-            scope.launch(Dispatchers.IO) {
-                while (isActive && !closed.get()) {
-                    val socket = try {
-                        listener.accept()
-                    } catch (e: Exception) {
-                        log("pairing accept ended: $e") // close() of the listener lands here
-                        break
-                    }
-                    if (closed.get()) {
-                        runCatching { socket.close() }
-                        break
-                    }
-                    try {
-                        onInbound(socket.byteStream())
-                    } catch (e: Exception) {
-                        runCatching { socket.close() }
-                        log("pairing inbound unusable: $e")
-                    }
-                }
-            }
+            scope.launchAcceptLoop(
+                accept = listener::accept,
+                isClosed = closed::get,
+                onSocket = { socket -> onInbound(socket.byteStream()) },
+                discard = { socket -> socket.close() },
+                log = log,
+            )
 
             val gattServer = manager.openGattServer(app, gattCallback) ?: throw IOException("openGattServer returned null")
             gatt = gattServer
+            ensureOpen()
             val service = BluetoothGattService(BleIds.PAIRING_SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
             service.addCharacteristic(
                 BluetoothGattCharacteristic(
@@ -186,7 +182,18 @@ class AndroidPairingLink(
                     BluetoothGattCharacteristic.PERMISSION_READ,
                 ),
             )
-            if (!gattServer.addService(service)) log("pairing addService refused")
+            // Advertise only once the service is in the GATT database, else a quick guest reads no PSM. A refusal or
+            // silence is shown on the invite screen; the advert still goes out (it may recover, it costs nothing).
+            if (!gattServer.addService(service)) {
+                ads.serviceProblem("pairing GATT service refused")
+            } else {
+                when (val status = withTimeoutOrNull(SERVICE_ADDED_TIMEOUT) { serviceAdded.await() }) {
+                    BluetoothGatt.GATT_SUCCESS -> Unit
+                    null -> ads.serviceProblem("pairing GATT service not confirmed")
+                    else -> ads.serviceProblem("pairing GATT service failed ($status)")
+                }
+            }
+            ensureOpen()
 
             val advertiser = adapter.bluetoothLeAdvertiser ?: throw IOException("no advertiser")
             val settings = AdvertiseSettings.Builder()
@@ -204,22 +211,26 @@ class AndroidPairingLink(
                 .setIncludeDeviceName(false)
                 .addServiceUuid(ParcelUuid(BleIds.PAIRING_SERVICE_UUID))
                 .build()
-            advertiser.startAdvertising(settings, data, response, advertiseCallback)
-            advertising = true
-            // close() sets closed before it stops: one of us sees the other, so no advert outlives the invite.
-            if (closed.get()) runCatching { advertiser.stopAdvertising(advertiseCallback) }.also { advertising = false }
+            ads.begin {
+                if (closed.get()) return@begin
+                if (advertising) runCatching { advertiser.stopAdvertising(advertiseCallback) } // the retry
+                advertiser.startAdvertising(settings, data, response, advertiseCallback)
+                advertising = true
+                if (closed.get()) runCatching { advertiser.stopAdvertising(advertiseCallback) }.also { advertising = false }
+            }
             log("pairing host open, psm=$psm")
         }
 
         override fun close() {
             if (!closed.compareAndSet(false, true)) return
+            ads.stop()
             if (advertising) runCatching { adapter.bluetoothLeAdvertiser?.stopAdvertising(advertiseCallback) }
             advertising = false
             runCatching { server?.close() }
             runCatching { gatt?.close() }
             server = null
             gatt = null
-            onScopeEnd?.dispose()
+            watcher?.cancel()
             log("pairing host closed")
         }
     }
@@ -307,6 +318,7 @@ class AndroidPairingLink(
 
     private companion object {
         const val TAG = "KinsightPair"
+        val SERVICE_ADDED_TIMEOUT = 5.seconds
 
         /**
          * Android counts scan starts per app (5 per 30 s) and the sync service's PendingIntent scan shares that budget,
