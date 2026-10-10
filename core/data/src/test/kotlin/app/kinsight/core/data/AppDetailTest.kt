@@ -122,6 +122,10 @@ class AppDetailTest {
         val over = app(game, range(Period.WEEK), *week, overrides = mapOf(game to AppCategory.PRODUCTIVITY))
         assertEquals(AppCategory.PRODUCTIVITY, over.category)
         assertTrue(over.overridden)
+        assertEquals(AppCategory.GAMES, over.defaultCategory) // what «Default» returns to
+        assertEquals(AppCategory.GAMES, plain.defaultCategory)
+        assertEquals(AppCategory.VIDEO, app("com.google.android.youtube", range(Period.WEEK), *week).defaultCategory) // built-in table
+        assertEquals(AppCategory.OTHER, app(Categories.REMAINDER_PACKAGE, range(Period.WEEK), *week).defaultCategory)
         // An app without a catalog entry can be categorised too.
         assertTrue(app("com.example.none", range(Period.WEEK), *week).canChangeCategory)
     }

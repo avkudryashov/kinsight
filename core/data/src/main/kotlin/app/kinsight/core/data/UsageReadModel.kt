@@ -329,6 +329,7 @@ object UsageReadModel {
             canGoBack = own?.keys?.any { it.isBefore(range.start) } == true,
             canGoForward = range.end.isBefore(today),
             today = today,
+            defaultCategory = Categories.of(packageName, c?.category, emptyMap()),
         )
     }
 

@@ -206,6 +206,8 @@ class AppDetail(
     override val canGoBack: Boolean,
     val canGoForward: Boolean,
     override val today: LocalDate?,
+    /** What «Default» returns to: the category without the parent's override (catalog, built-in table, else Other). */
+    val defaultCategory: AppCategory,
 ) : RangedView {
     val period: Period get() = range.period
 }
