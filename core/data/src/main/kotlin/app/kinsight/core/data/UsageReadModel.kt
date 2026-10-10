@@ -5,13 +5,16 @@ import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.proto.AppCatalog
 import app.kinsight.core.model.proto.StateEvent
+import app.kinsight.core.model.proto.UsageDetail
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.temporal.WeekFields
+import java.util.Locale
 
 /**
- * Pure views over signed entries for the v1 screens. Only UsageSummary is read (levels 1 to 3 of spec §9.3);
- * UsageDetail is not: level 4 (hours) must take a day's detail only when its seq is above the summary's seq of the
- * same date, never a detail older than the summary (stage 3b review).
+ * Pure views over signed entries for the v1 screens. Totals (levels 1 to 3 of spec §9.3) come only from UsageSummary;
+ * level 4 (hours) takes a day's UsageDetail only when its seq is above the summary's seq of the same date, never a
+ * detail older than the summary (stage 3b review, [detailOf]).
  *
  * Zone rule: `today` is the viewer's (the parent's) local date. A summary is keyed by the local_date its child wrote
  * in its own zone; days are matched by that date label, not by instant, so a child in another zone shows its own
@@ -30,11 +33,103 @@ object UsageReadModel {
     const val MAX_UNLOCKS_PER_DAY = 10_000
     const val MAX_CLOCK_SKEW_MS = 5 * 60_000L
 
+    /** Most a clock hour slot holds: two runs of the hour on a fall-back day. */
+    const val MAX_MS_PER_HOUR_SLOT = 2 * 3_600_000L
+
+    private const val MAX_MS_PER_BUCKET = 3_600_000L
+
     /** Per author and local date, the summary with the highest seq (a malformed date is skipped). */
-    fun summaries(entries: List<DecodedEntry>): Map<DeviceId, Map<LocalDate, DecodedEntry>> =
-        entries.filter { it.kind == EntryKind.USAGE_SUMMARY && it.usageDate != null }
+    fun summaries(entries: List<DecodedEntry>): Map<DeviceId, Map<LocalDate, DecodedEntry>> = latest(entries, EntryKind.USAGE_SUMMARY)
+
+    /** Per author and local date, the UsageDetail with the highest seq (a malformed date is skipped). */
+    fun details(entries: List<DecodedEntry>): Map<DeviceId, Map<LocalDate, DecodedEntry>> = latest(entries, EntryKind.USAGE_DETAIL)
+
+    private fun latest(entries: List<DecodedEntry>, kind: EntryKind): Map<DeviceId, Map<LocalDate, DecodedEntry>> =
+        entries.filter { it.kind == kind && it.usageDate != null }
             .groupBy { it.author }
             .mapValues { (_, own) -> own.groupBy { it.usageDate!! }.mapValues { (_, same) -> same.maxBy { it.seq } } }
+
+    /**
+     * The UsageDetail of [date] usable for level 4: only when the date has a summary and the detail's seq is above it
+     * (a detail not newer than the summary describes an older state of the day); else null.
+     */
+    fun detailOf(summaries: Map<LocalDate, DecodedEntry>?, details: Map<LocalDate, DecodedEntry>?, date: LocalDate): UsageDetail? {
+        val summary = summaries?.get(date) ?: return null
+        val detail = details?.get(date)?.takeIf { it.seq > summary.seq } ?: return null
+        return detail.body.usage_detail
+    }
+
+    /**
+     * 24 clock hours of [detail] (spec §7: hours are the child's local clock hours). A missing hour is 0, buckets of the
+     * same hour (fall-back day) are summed; a bucket outside 0..23 is dropped. Untrusted peer: each bucket's apps are
+     * scaled down to one hour, each slot holds at most [MAX_MS_PER_HOUR_SLOT] and [MAX_UNLOCKS_PER_DAY] unlocks.
+     */
+    fun hours(detail: UsageDetail, catalog: Map<String, AppCatalog>, overrides: Map<String, AppCategory>): List<HourTotal> {
+        val cats = Array(24) { java.util.EnumMap<AppCategory, Long>(AppCategory::class.java) }
+        val unlocks = IntArray(24)
+        for (b in detail.hours) {
+            val h = b.hour
+            if (h !in 0..23) continue
+            val bucket = java.util.EnumMap<AppCategory, Long>(AppCategory::class.java)
+            for (a in b.apps) {
+                val ms = a.foreground_ms.coerceIn(0L, MAX_MS_PER_BUCKET)
+                if (ms > 0) bucket.merge(Categories.of(a.package_name, catalog[a.package_name]?.category, overrides), ms, Long::plus)
+            }
+            fitDown(bucket, MAX_MS_PER_BUCKET)
+            val room = MAX_MS_PER_HOUR_SLOT - cats[h].values.sum()
+            fitDown(bucket, room)
+            bucket.forEach { (c, ms) -> cats[h].merge(c, ms, Long::plus) }
+            unlocks[h] = (unlocks[h] + b.unlocks.coerceIn(0, MAX_UNLOCKS_PER_DAY)).coerceAtMost(MAX_UNLOCKS_PER_DAY)
+        }
+        return (0..23).map { h ->
+            val byCategory = cats[h].filterValues { it > 0 }
+            HourTotal(h, byCategory.values.sum(), unlocks[h], byCategory)
+        }
+    }
+
+    /**
+     * Weekday × hour means over the [dates] that have a usable detail (spec §9.3: average over days with hourly data);
+     * null when none has. Rows follow [weekFields]' first day of week.
+     */
+    fun heatmap(
+        summaries: Map<LocalDate, DecodedEntry>?,
+        details: Map<LocalDate, DecodedEntry>?,
+        dates: List<LocalDate>,
+        today: LocalDate,
+        catalog: Map<String, AppCatalog>,
+        overrides: Map<String, AppCategory>,
+        weekFields: WeekFields,
+    ): Heatmap? {
+        val past = dates.filter { !it.isAfter(today) }
+        val sums = Array(7) { LongArray(24) }
+        val perWeekday = IntArray(7)
+        val unlockSums = LongArray(24)
+        var covered = 0
+        for (date in past) {
+            val detail = detailOf(summaries, details, date) ?: continue
+            val row = (date.dayOfWeek.value - weekFields.firstDayOfWeek.value + 7) % 7
+            perWeekday[row]++
+            covered++
+            hours(detail, catalog, overrides).forEach {
+                sums[row][it.hour] += it.totalMs
+                unlockSums[it.hour] += it.unlocks.toLong()
+            }
+        }
+        if (covered == 0) return null
+        val cells = Array(7) { row -> LongArray(24) { h -> if (perWeekday[row] == 0) 0L else sums[row][h] / perWeekday[row] } }
+        val unlocks = IntArray(24) { h -> Math.round(unlockSums[h].toDouble() / covered).toInt() }
+        return Heatmap(cells, unlocks, covered, past.size)
+    }
+
+    /** Scales [cats] down so it sums to at most [cap] (≥ 0), the rounding residue going to the largest entry. */
+    private fun fitDown(cats: MutableMap<AppCategory, Long>, cap: Long) {
+        val sum = cats.values.sum()
+        val total = cap.coerceAtLeast(0L)
+        if (sum <= total) return
+        for (e in cats.entries) e.setValue((e.value.toDouble() * total / sum).toLong())
+        val largest = cats.entries.maxBy { it.value }
+        largest.setValue(largest.value + total - cats.values.sum())
+    }
 
     fun events(entries: List<DecodedEntry>): List<EventView> {
         val sharingKinds = setOf(StateEvent.Kind.SHARING_PAUSED, StateEvent.Kind.SHARING_RESUMED)
@@ -116,13 +211,7 @@ object UsageReadModel {
         }
         val sum = cats.values.sum()
         val total = day.totalMs
-        if (sum <= total) {
-            if (sum < total) cats.merge(AppCategory.OTHER, total - sum, Long::plus)
-        } else {
-            for (e in cats.entries) e.setValue((e.value.toDouble() * total / sum).toLong())
-            val largest = cats.entries.maxBy { it.value }
-            largest.setValue(largest.value + total - cats.values.sum())
-        }
+        if (sum < total) cats.merge(AppCategory.OTHER, total - sum, Long::plus) else fitDown(cats, total)
         return cats.filterValues { it > 0 }
     }
 
@@ -151,8 +240,11 @@ object UsageReadModel {
         departed: Boolean = false,
         zone: ZoneId = ZoneId.systemDefault(),
         overrides: Map<String, AppCategory> = emptyMap(),
+        details: Map<LocalDate, DecodedEntry>? = null,
+        weekFields: WeekFields = WeekFields.of(Locale.getDefault()),
     ): DeviceDetail {
         val own = surfaced(member, byDate)
+        val ownDetails = surfaced(member, details)
         val mine = events.filter { it.author == member.id }
         val days = days(own, range.dates(), today)
         val dayCategories = days.map { dayCategories(own, it, catalog, overrides) }
@@ -175,6 +267,12 @@ object UsageReadModel {
                 .sortedWith(compareByDescending<Map.Entry<AppCategory, Long>> { it.value }.thenBy { it.key.ordinal })
                 .map { CategoryTotal(it.key, it.value) },
             dayCategories = dayCategories,
+            hours = if (range.period == Period.DAY) {
+                detailOf(own, ownDetails, range.start)?.takeUnless { range.start.isAfter(today) }?.let { hours(it, catalog, overrides) }
+            } else {
+                null
+            },
+            heatmap = if (range.period == Period.DAY) null else heatmap(own, ownDetails, range.dates(), today, catalog, overrides, weekFields),
         )
     }
 

@@ -78,6 +78,20 @@ data class DetailRange(val period: Period, val start: LocalDate, val end: LocalD
     }
 }
 
+/**
+ * One local clock hour (0..23) of a day's UsageDetail, as the child's clock read it: on a fall-back day both runs of the
+ * repeated hour are summed here, on a spring-forward day the skipped hour is zero. [totalMs] sums [byCategory].
+ */
+class HourTotal(val hour: Int, val totalMs: Long, val unlocks: Int, val byCategory: Map<AppCategory, Long>)
+
+/**
+ * Level 4 of a week or month: [cells] is [weekday][hour], weekday 0 being the locale's first day of week, each cell the
+ * mean over the covered days of that weekday (a weekday with none is 0). [unlocks]: per hour, the mean over all
+ * [coveredDays]. [coveredDays]: days of the range with a usable UsageDetail; [rangeDays]: days of the range up to the
+ * viewer's today (a future day cannot have data).
+ */
+class Heatmap(val cells: Array<LongArray>, val unlocks: IntArray, val coveredDays: Int, val rangeDays: Int)
+
 /** A child's sharing as the group sees it, from its own signed events. */
 sealed interface Sharing {
     data object On : Sharing
@@ -135,6 +149,10 @@ data class DeviceDetail(
     val categories: List<CategoryTotal> = emptyList(),
     /** Level 3: one stack per entry of [days] (same order); empty for a day with no time; each sums to its day total. */
     val dayCategories: List<Map<AppCategory, Long>> = emptyList(),
+    /** Level 4 of a DAY: 24 clock hours; null when the date has no usable UsageDetail (none, or not newer than its summary). */
+    val hours: List<HourTotal>? = null,
+    /** Level 4 of a WEEK or MONTH: weekday × hour averages; null when no day of the range has a usable UsageDetail. */
+    val heatmap: Heatmap? = null,
 ) {
     val period: Period get() = range.period
 }
