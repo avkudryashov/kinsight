@@ -2,6 +2,7 @@ package app.kinsight.notifications
 
 import android.Manifest
 import android.app.Application
+import android.app.Notification
 import android.app.NotificationManager
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -195,6 +196,22 @@ class AlertsRunTest {
         AlertNotifier.post(context, Alert.Integrity("Sis", StateEvent.Kind.SHARING_PAUSED, 1_000, sis))
         AlertNotifier.post(context, Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000, kid.id))
         assertTrue(AlertNotifier.post(context, Alert.Resolved(kid.id, StateEvent.Kind.SHARING_PAUSED)))
-        assertEquals(2, shadowOf(nm).allNotifications.size)
+        val titles = shadowOf(nm).allNotifications.map { it.extras.getCharSequence(Notification.EXTRA_TITLE).toString() }.toSet()
+        val left = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.LEFT_GROUP, 1_000, kid.id)).title
+        val sisPaused = AlertText.of(context, Alert.Integrity("Sis", StateEvent.Kind.SHARING_PAUSED, 1_000, sis)).title
+        val kidPaused = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000, kid.id)).title
+        assertEquals(setOf(left, sisPaused), titles)
+        assertFalse(kidPaused in titles)
+    }
+
+    @Test
+    fun aNewPauseReplacesAnOldBuildsNameKeyedNotification() = runBlocking<Unit> {
+        // Before integrity ids were keyed by device, a "paused" notification had the id built from the display name.
+        val legacyId = ("i" + "Kid" + StateEvent.Kind.SHARING_PAUSED.name).hashCode()
+        val old = AlertNotifier.build(context, Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 500, null))
+        nm.notify(legacyId, old)
+        assertTrue(AlertNotifier.post(context, Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000, kid.id)))
+        assertNull(shadowOf(nm).getNotification(legacyId))
+        assertEquals(1, shadowOf(nm).allNotifications.size)
     }
 }

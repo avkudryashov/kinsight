@@ -11,6 +11,7 @@ import androidx.core.app.NotificationManagerCompat
 import app.kinsight.MainActivity
 import app.kinsight.R
 import app.kinsight.core.data.Alert
+import app.kinsight.core.data.AlertPlanner
 import app.kinsight.core.model.proto.StateEvent
 
 object AlertNotifier {
@@ -34,6 +35,10 @@ object AlertNotifier {
             return true
         }
         if (!canPost(context)) return false
+        // Builds before device-keyed ids keyed a pause or hidden notification by the name: replace that one too.
+        if (alert is Alert.Integrity && alert.id != null && alert.kind in AlertPlanner.CLOSERS) {
+            NotificationManagerCompat.from(context).cancel(integrityId(alert.device, alert.kind))
+        }
         NotificationManagerCompat.from(context).notify(idOf(alert), build(context, alert))
         return true
     }
