@@ -1,6 +1,11 @@
 package app.kinsight.feature.group
 
+import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -40,6 +45,7 @@ class GroupScreenTest {
         self: MemberView,
         members: List<MemberView>,
         nowMs: Long = 0,
+        leaving: Boolean = false,
         onGrantAdmin: (DeviceId) -> Unit = {},
         onRemove: (DeviceId) -> Unit = {},
         onLeave: () -> Unit = {},
@@ -48,7 +54,7 @@ class GroupScreenTest {
             GroupScreen(
                 GroupState.Ready(group, self, members),
                 nowMs = nowMs,
-                leaving = false,
+                leaving = leaving,
                 onInvite = {},
                 onGrantAdmin = onGrantAdmin,
                 onRemove = onRemove,
@@ -92,9 +98,48 @@ class GroupScreenTest {
         rule.onNodeWithText("Remove from group").performClick()
         rule.waitForIdle()
         assertEquals(null, removed)
-        rule.onNodeWithTag("grp_confirm").performClick()
+        rule.onNodeWithTag("grp_confirm").assertTextEquals("Remove").performClick()
         rule.waitForIdle()
         assertEquals(kid.id, removed)
+    }
+
+    @Test
+    fun cancellingAConfirmationDoesNothing() {
+        var removed: DeviceId? = null
+        show(mom, listOf(mom, kid), onRemove = { removed = it })
+        rule.onNodeWithContentDescription("Actions for Kid").performClick()
+        rule.onNodeWithText("Remove from group").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Cancel").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("grp_confirm").assertDoesNotExist()
+        assertEquals(null, removed)
+    }
+
+    @Test
+    fun whileLeavingLeaveIsDisabledAndProgressShown() {
+        val self = kid.copy(isSelf = true)
+        show(self, listOf(self, mom.copy(isSelf = false)), leaving = true)
+        rule.onNodeWithTag("grp_list").performScrollToNode(hasTestTag("grp_leave"))
+        rule.onNodeWithTag("grp_leave").assertIsNotEnabled()
+        rule.onNodeWithText("telling your family", substring = true).assertExists()
+    }
+
+    @Test
+    fun theClockTicksEveryMinute() {
+        var wall = 1_000L
+        rule.mainClock.autoAdvance = false
+        rule.setContent {
+            val now by rememberNowMs(clock = { wall })
+            Text(now.toString(), Modifier.testTag("now"))
+        }
+        rule.mainClock.advanceTimeByFrame()
+        rule.onNodeWithTag("now").assertTextEquals("1000")
+        wall = 61_000L
+        rule.mainClock.advanceTimeBy(30_000L)
+        rule.onNodeWithTag("now").assertTextEquals("1000")
+        rule.mainClock.advanceTimeBy(31_000L)
+        rule.onNodeWithTag("now").assertTextEquals("61000")
     }
 
     @Test
@@ -114,7 +159,7 @@ class GroupScreenTest {
         rule.onNodeWithText("Make admin").performClick()
         rule.waitForIdle()
         assertEquals(null, granted)
-        rule.onNodeWithTag("grp_confirm").performClick()
+        rule.onNodeWithTag("grp_confirm").assertTextEquals("Make admin").performClick()
         rule.waitForIdle()
         assertEquals(dad.id, granted)
     }
@@ -128,8 +173,9 @@ class GroupScreenTest {
         rule.onNodeWithTag("grp_leave").assertIsEnabled().performClick()
         rule.waitForIdle()
         rule.onNodeWithText("Coming back needs a new invitation", substring = true).assertExists()
+        rule.onNodeWithText("The group's data on this phone will be deleted", substring = true).assertExists()
         assertEquals(false, left)
-        rule.onNodeWithTag("grp_confirm").performClick()
+        rule.onNodeWithTag("grp_confirm").assertTextEquals("Leave").performClick()
         rule.waitForIdle()
         assertTrue(left)
     }

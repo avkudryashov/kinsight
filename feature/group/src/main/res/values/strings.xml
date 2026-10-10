@@ -19,10 +19,11 @@
     <string name="grp_remove_body">The phone stops syncing with the group. To come back it needs a new invitation and a reset of its identity.</string>
     <string name="grp_leave">Leave the group</string>
     <string name="grp_leave_title">Leave the family group?</string>
-    <string name="grp_leave_body">Everyone in the group will see that this phone left. Data already on their phones stays until their retention ends. Coming back needs a new invitation.</string>
+    <string name="grp_leave_body">Everyone in the group will be told that this phone left. The group\'s data on this phone will be deleted. Data already on their phones stays until their retention ends. Coming back needs a new invitation.</string>
     <string name="grp_leave_sole_admin">You are the only admin. Make another parent an admin first, or remove the other phones.</string>
     <string name="grp_leaving">Leaving: telling your family…</string>
-    <string name="grp_confirm">Confirm</string>
+    <string name="grp_confirm_remove">Remove</string>
+    <string name="grp_confirm_leave">Leave</string>
     <string name="grp_cancel">Cancel</string>
     <string name="grp_no_group_title">No group</string>
     <string name="grp_no_group_body">This phone is not in a family group.</string>
@@ -35,6 +36,6 @@
     <string name="grp_err_leave_sole_admin">Leaving was refused: other phones are still in the group and this phone is their only admin. Make another parent an admin, or remove the other phones, then leave.</string>
     <string name="grp_err_leave_not_signed">Could not record that this phone is leaving. Nothing was deleted; try again.</string>
     <string name="grp_err_leave_wipe_failed">Your family was told that this phone left, but clearing this phone failed. Tap Start over to finish.</string>
-    <string name="grp_err_grant">Could not make that phone an admin. This phone may no longer be in the group.</string>
-    <string name="grp_err_remove">Could not remove that phone. This phone may no longer be in the group.</string>
+    <string name="grp_err_grant">Could not make this member an admin.</string>
+    <string name="grp_err_remove">Could not remove this member.</string>
 </resources>

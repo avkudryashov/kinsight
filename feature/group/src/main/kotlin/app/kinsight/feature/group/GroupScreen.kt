@@ -28,8 +28,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -54,6 +56,7 @@ import app.kinsight.core.designsystem.component.EmptyState
 import app.kinsight.core.designsystem.component.ErrorState
 import app.kinsight.core.designsystem.component.relativeTime
 import app.kinsight.core.model.DeviceId
+import kotlinx.coroutines.delay
 
 private sealed interface GroupAction {
     data class GrantAdmin(val member: MemberView) : GroupAction
@@ -74,8 +77,9 @@ fun GroupRoute(onInvite: (Role) -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     val leaving by vm.leaving.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
+    val nowMs by rememberNowMs()
     when (val s = state) {
-        is GroupState.Ready -> GroupScreen(s, System.currentTimeMillis(), leaving, onInvite, vm::grantAdmin, vm::remove, vm::leave)
+        is GroupState.Ready -> GroupScreen(s, nowMs, leaving, onInvite, vm::grantAdmin, vm::remove, vm::leave)
         GroupState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         GroupState.Leaving -> LeavingContent()
         GroupState.NoGroup -> EmptyState(stringResource(R.string.grp_no_group_title), stringResource(R.string.grp_no_group_body))
@@ -201,6 +205,14 @@ fun GroupScreen(
             is GroupAction.Remove -> stringResource(R.string.grp_remove_title, action.member.name) to stringResource(R.string.grp_remove_body)
             GroupAction.Leave -> stringResource(R.string.grp_leave_title) to stringResource(R.string.grp_leave_body)
         }
+        val confirmLabel = stringResource(
+            when (action) {
+                is GroupAction.GrantAdmin -> R.string.grp_make_admin
+                is GroupAction.Remove -> R.string.grp_confirm_remove
+                GroupAction.Leave -> R.string.grp_confirm_leave
+            },
+        )
+        val destructive = action !is GroupAction.GrantAdmin
         AlertDialog(
             onDismissRequest = { pending = null },
             title = { Text(title) },
@@ -216,7 +228,8 @@ fun GroupScreen(
                         pending = null
                     },
                     modifier = Modifier.testTag("grp_confirm"),
-                ) { Text(stringResource(R.string.grp_confirm)) }
+                    colors = if (destructive) ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error) else ButtonDefaults.textButtonColors(),
+                ) { Text(confirmLabel) }
             },
             dismissButton = { TextButton({ pending = null }) { Text(stringResource(R.string.grp_cancel)) } },
         )
@@ -264,3 +277,13 @@ private fun MemberRow(m: MemberView, self: MemberView, nowMs: Long, onAction: (G
         },
     )
 }
+
+/** The wall clock, re-read every [periodMs] so «seen 5 minutes ago» stays current while the screen is open. */
+@Composable
+internal fun rememberNowMs(clock: () -> Long = System::currentTimeMillis, periodMs: Long = 60_000L): State<Long> =
+    produceState(clock(), clock, periodMs) {
+        while (true) {
+            delay(periodMs)
+            value = clock()
+        }
+    }
