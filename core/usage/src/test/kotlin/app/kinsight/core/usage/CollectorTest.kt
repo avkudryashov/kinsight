@@ -156,6 +156,21 @@ class CollectorTest {
     }
 
     @Test
+    fun aDataGapResetsTheCarriedStream() = runTest {
+        source.events += s.resumed("09:50", MAPS)
+        collector.collect() // 10:00, MAPS carried as open
+        assertEquals("$MAPS/$MAPS.Main", queue.state()!!.resumed)
+        clock.advance(10 * DAY)
+        collector.collect() // DATA_GAP: reading restarts from StreamState.INITIAL, MAPS is not carried over the gap
+        assertEquals(StateEvent.Kind.DATA_GAP.value, queue.pendingEvents().single().kind)
+        val afterGap = queue.changedDays().map { it.date }.filter { it > "2026-10-09" }
+            .sumOf { d -> queue.dayUsage(d).apps.sumOf { it.foregroundMs } }
+        assertEquals(0L, afterGap)
+        assertEquals(StreamState.INITIAL.screenOn, queue.state()!!.screenOn)
+        assertEquals("", queue.state()!!.resumed)
+    }
+
+    @Test
     fun accessRevokedDuringTheReadDoesNotCommitIt() = runTest {
         collector.collect() // 10:00
         source.events += listOf(s.resumed("10:10", MAPS), s.paused("10:40", MAPS))
