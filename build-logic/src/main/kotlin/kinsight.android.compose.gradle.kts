@@ -1,5 +1,6 @@
 import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.api.dsl.LibraryExtension
+import com.android.build.api.variant.AndroidComponentsExtension
 
 // Compose for an Android library or application module, plus JVM Compose tests: Robolectric runs JUnit 4 tests
 // through the vintage engine on the JUnit Platform the other modules already use.
@@ -20,6 +21,17 @@ pluginManager.withPlugin("com.android.application") {
     extensions.configure<ApplicationExtension> {
         buildFeatures { compose = true }
         testOptions { unitTests.isIncludeAndroidResources = true }
+    }
+}
+
+// Compose UI tests need ui-test-manifest's ComponentActivity, which only debug builds carry (it must never ship in a
+// release APK): host tests run on the debug variant only, so `./gradlew test` does not run them against release.
+pluginManager.withPlugin("com.android.base") {
+    (extensions.getByName("androidComponents") as AndroidComponentsExtension<*, *, *>).apply {
+        beforeVariants(selector().withBuildType("release")) { variant ->
+            (variant as? com.android.build.api.variant.HasHostTestsBuilder)
+                ?.hostTests?.get(com.android.build.api.variant.HostTestBuilder.UNIT_TEST_TYPE)?.enable = false
+        }
     }
 }
 
