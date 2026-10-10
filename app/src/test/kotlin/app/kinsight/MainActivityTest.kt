@@ -3,6 +3,7 @@ package app.kinsight
 import android.app.Application
 import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.compose.ui.test.hasTestTag
@@ -16,6 +17,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.annotation.Config
 import app.kinsight.feature.onboarding.R as OnbR
 
@@ -62,6 +64,33 @@ class MainActivityTest {
         )
         assertEquals(emptyList<String>(), forbidden.filter { it in requested })
         assertEquals(true, "android.permission.BLUETOOTH_SCAN" in requested) // the check reads the merged manifest
+    }
+
+    /** A deep link must land in the running instance (onNewIntent), never in a second copy of the app. */
+    @Test
+    fun mainActivityIsSingleTaskAndTheScannerModuleIsDeclared() {
+        val info = app.packageManager.getActivityInfo(ComponentName(app, MainActivity::class.java), 0)
+        assertEquals(ActivityInfo.LAUNCH_SINGLE_TASK, info.launchMode)
+        val meta = app.packageManager.getApplicationInfo(app.packageName, PackageManager.GET_META_DATA).metaData
+        assertEquals("barcode_ui", meta.getString("com.google.mlkit.vision.DEPENDENCIES"))
+    }
+
+    @Test
+    fun aPairLinkToTheRunningAppReachesTheFirstRun() {
+        Robolectric.buildActivity(MainActivity::class.java).setup().use { controller ->
+            rule.waitUntil(LAUNCH_TIMEOUT_MS) { rule.onAllNodes(hasTestTag("onb_create")).fetchSemanticsNodes().isNotEmpty() }
+            controller.newIntent(Intent(Intent.ACTION_VIEW, Uri.parse("kinsight://pair/1/not-an-invite")))
+            val invalid = app.getString(OnbR.string.onb_scan_invalid)
+            rule.waitUntil(LAUNCH_TIMEOUT_MS) { rule.onAllNodes(hasText(invalid)).fetchSemanticsNodes().isNotEmpty() }
+        }
+    }
+
+    @Test
+    fun aDeviceExtraIsReadOnlyFromAHexId() {
+        val hex = "cc".repeat(16)
+        assertEquals(hex, MainActivity.deviceOf(MainActivity.openDevice(app, hex)))
+        assertEquals(null, MainActivity.deviceOf(Intent().putExtra(MainActivity.EXTRA_DEVICE, "not hex")))
+        assertEquals(null, MainActivity.deviceOf(null))
     }
 
     @Test

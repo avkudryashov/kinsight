@@ -73,6 +73,7 @@ import app.kinsight.feature.settings.KeyErrorRoute
 import app.kinsight.feature.settings.RemovedRoute
 import app.kinsight.feature.settings.SettingsRoute
 import app.kinsight.feature.settings.TransparencyRoute
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.reflect.KClass
 
@@ -83,7 +84,13 @@ import kotlin.reflect.KClass
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun KinsightApp(invite: StateFlow<String?>, onInviteConsumed: () -> Unit, appVersion: String) {
+fun KinsightApp(
+    invite: StateFlow<String?>,
+    onInviteConsumed: () -> Unit,
+    appVersion: String,
+    openDevice: StateFlow<String?> = MutableStateFlow(null),
+    onDeviceOpened: () -> Unit = {},
+) {
     val context = LocalContext.current
     val graph = remember { AppGraph.get(context) }
     val group by graph.group.state.collectAsStateWithLifecycle(initialValue = GroupState.Loading)
@@ -131,7 +138,7 @@ fun KinsightApp(invite: StateFlow<String?>, onInviteConsumed: () -> Unit, appVer
                                 onInviteConsumed()
                             }
                         }
-                        MainScaffold(appVersion)
+                        MainScaffold(appVersion, openDevice, onDeviceOpened)
                     }
                 }
             }
@@ -184,7 +191,7 @@ private val tabs = listOf(
 )
 
 @Composable
-private fun MainScaffold(appVersion: String) {
+private fun MainScaffold(appVersion: String, openDevice: StateFlow<String?>, onDeviceOpened: () -> Unit) {
     val context = LocalContext.current
     val graph = remember { AppGraph.get(context) }
     val nav = rememberNavController()
@@ -195,6 +202,14 @@ private fun MainScaffold(appVersion: String) {
     val leaveError by graph.group.leaveError.collectAsStateWithLifecycle()
     LaunchedEffect(leaveError) {
         if (leaveError != null && nav.currentDestination?.hasRoute(GroupDest::class) != true) nav.selectTab(GroupDest)
+    }
+    // An integrity alert was tapped: the overview tab, then that child's detail on top of it.
+    val device by openDevice.collectAsStateWithLifecycle()
+    LaunchedEffect(device) {
+        val hex = device ?: return@LaunchedEffect
+        nav.selectTab(OverviewDest)
+        nav.navigate(DeviceDest(hex)) { launchSingleTop = true }
+        onDeviceOpened()
     }
     NavigationSuiteScaffold(
         navigationSuiteItems = {

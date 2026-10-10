@@ -117,7 +117,7 @@ class AlertsRunTest {
         assertTrue(kept.noContact.isEmpty())
         // Later, with the permission: the no-contact alert comes, the old pause does not.
         val next = AlertPlanner.plan(input(markers = kept, events = listOf(paused(4), paused(5)), joined = mapOf(kid.id to 0L)))
-        assertEquals(listOf(Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 5_000), Alert.NoContact("Kid", 0L)), next.alerts)
+        assertEquals(listOf(Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 5_000, kid.id), Alert.NoContact("Kid", 0L)), next.alerts)
     }
 
     @Test

@@ -2,6 +2,10 @@
 <resources>
     <string name="channel_integrity">Целостность</string>
     <string name="channel_summaries">Сводки</string>
+    <string name="channel_integrity_description">Изменения в том, что видит семья: обмен на паузе, выключено разрешение, телефон не на связи, новый родитель</string>
+    <string name="channel_summaries_description">Экранное время детей за день или за неделю</string>
+    <string name="alert_public_integrity">Kinsight: нарушение</string>
+    <string name="alert_public_summary">Сводка экранного времени</string>
     <string name="alert_paused">%1$s: обмен на паузе</string>
     <string name="alert_access_revoked">%1$s: доступ к истории использования выключен</string>
     <string name="alert_left">%1$s вышел из семейной группы</string>
@@ -13,7 +17,7 @@
     <string name="alert_data_gap">%1$s: часть истории экранного времени отсутствует</string>
     <string name="alert_clock_changed">%1$s: на телефоне перевели часы</string>
     <string name="alert_event">%1$s: что-то изменилось</string>
-    <string name="alert_at">В %1$s.</string>
+    <string name="alert_at">Когда: %1$s</string>
     <string name="alert_no_contact">%1$s не на связи</string>
     <string name="alert_no_contact_body">Последний раз на связи %1$s. Держите телефоны рядом или проверьте, что включён Bluetooth.</string>
     <string name="alert_new_parent">%1$s теперь видит ваше экранное время</string>

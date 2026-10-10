@@ -13,8 +13,10 @@ object AlertChannels {
     fun ensure(context: Context) {
         context.getSystemService(NotificationManager::class.java).createNotificationChannels(
             listOf(
-                NotificationChannel(INTEGRITY, context.getString(R.string.channel_integrity), NotificationManager.IMPORTANCE_DEFAULT),
-                NotificationChannel(SUMMARIES, context.getString(R.string.channel_summaries), NotificationManager.IMPORTANCE_LOW),
+                NotificationChannel(INTEGRITY, context.getString(R.string.channel_integrity), NotificationManager.IMPORTANCE_DEFAULT)
+                    .apply { description = context.getString(R.string.channel_integrity_description) },
+                NotificationChannel(SUMMARIES, context.getString(R.string.channel_summaries), NotificationManager.IMPORTANCE_LOW)
+                    .apply { description = context.getString(R.string.channel_summaries_description) },
             ),
         )
     }

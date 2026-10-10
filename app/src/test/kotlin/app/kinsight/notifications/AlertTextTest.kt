@@ -83,4 +83,26 @@ class AlertTextTest {
         assertEquals(NotificationManager.IMPORTANCE_DEFAULT, nm.getNotificationChannel(AlertChannels.INTEGRITY).importance)
         assertEquals(NotificationManager.IMPORTANCE_LOW, nm.getNotificationChannel(AlertChannels.SUMMARIES).importance)
     }
+
+    @Test
+    fun channelsAreDescribed() {
+        AlertChannels.ensure(context)
+        val nm = context.getSystemService(NotificationManager::class.java)
+        assertTrue(nm.getNotificationChannel(AlertChannels.INTEGRITY).description.orEmpty().isNotBlank())
+        assertTrue(nm.getNotificationChannel(AlertChannels.SUMMARIES).description.orEmpty().isNotBlank())
+    }
+
+    @Test
+    fun theTimeReadsAsWhen() {
+        val body = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000)).body
+        assertTrue(body, body.startsWith("When: "))
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun theTimeReadsAsWhenInRussian() {
+        val body = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000)).body
+        assertTrue(body, body.startsWith("Когда: "))
+        assertTrue(context.getString(R.string.channel_integrity_description).isNotBlank())
+    }
 }

@@ -53,7 +53,7 @@ class AlertPlannerTest {
         )
         val first = AlertPlanner.plan(input(events = events))
         assertEquals(
-            listOf(Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 2_000), Alert.Integrity("Kid", StateEvent.Kind.NOTIFICATION_HIDDEN, 3_000)),
+            listOf(Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 2_000, kid.id), Alert.Integrity("Kid", StateEvent.Kind.NOTIFICATION_HIDDEN, 3_000, kid.id)),
             first.alerts,
         )
         assertTrue(AlertPlanner.plan(input(events = events, markers = first.markers)).alerts.isEmpty())
@@ -62,7 +62,7 @@ class AlertPlannerTest {
     @Test
     fun aChildThatLeftIsReportedByName() {
         val plan = AlertPlanner.plan(input(members = listOf(mom, dad), departed = listOf(kid), events = listOf(ev(kid, 4, StateEvent.Kind.LEFT_GROUP)), children = emptyList()))
-        assertEquals(listOf(Alert.Integrity("Kid", StateEvent.Kind.LEFT_GROUP, 4_000)), plan.alerts)
+        assertEquals(listOf(Alert.Integrity("Kid", StateEvent.Kind.LEFT_GROUP, 4_000, kid.id)), plan.alerts)
     }
 
     @Test
@@ -106,7 +106,7 @@ class AlertPlannerTest {
     @Test
     fun laterChildWithoutMarkerIsReportedFromZero() {
         val plan = AlertPlanner.plan(input(events = listOf(ev(kid, 1, StateEvent.Kind.SHARING_PAUSED))))
-        assertEquals(listOf(Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000)), plan.alerts)
+        assertEquals(listOf(Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000, kid.id)), plan.alerts)
         assertEquals(1L, plan.markers.notifiedSeq[kid.id])
     }
 
@@ -122,7 +122,7 @@ class AlertPlannerTest {
     @Test
     fun intervalEventsReportTheirStart() {
         val e = EventView(kid.id, 1, StateEvent.Kind.NOTIFICATION_HIDDEN, 5_000, 0, 9_000, 0)
-        assertEquals(listOf(Alert.Integrity("Kid", StateEvent.Kind.NOTIFICATION_HIDDEN, 5_000)), AlertPlanner.plan(input(events = listOf(e))).alerts)
+        assertEquals(listOf(Alert.Integrity("Kid", StateEvent.Kind.NOTIFICATION_HIDDEN, 5_000, kid.id)), AlertPlanner.plan(input(events = listOf(e))).alerts)
     }
 
     @Test

@@ -1,5 +1,6 @@
 package app.kinsight
 
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -13,19 +14,32 @@ import kotlinx.coroutines.flow.MutableStateFlow
 class MainActivity : ComponentActivity() {
     private val invite = MutableStateFlow<String?>(null)
 
+    /** A child's device to open (hex id, from an integrity alert); the main screen navigates and clears it. */
+    private val device = MutableStateFlow<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         // A recreated activity has already handed its link to the first run.
-        if (savedInstanceState == null) invite.value = inviteOf(intent)
+        if (savedInstanceState == null) {
+            invite.value = inviteOf(intent)
+            device.value = deviceOf(intent)
+        }
         val version = packageManager.getPackageInfo(packageName, 0).versionName.orEmpty()
-        setContent { KinsightTheme { KinsightApp(invite, onInviteConsumed = { invite.value = null }, appVersion = version) } }
+        setContent { KinsightTheme { KinsightApp(
+                    invite,
+                    onInviteConsumed = { invite.value = null },
+                    appVersion = version,
+                    openDevice = device,
+                    onDeviceOpened = { device.value = null },
+                ) } }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         inviteOf(intent)?.let { invite.value = it }
+        deviceOf(intent)?.let { device.value = it }
     }
 
     /** Opening the app starts sync, but honours the user's Stop (SyncControl.start; only the Start button clears it). */
@@ -40,4 +54,25 @@ class MainActivity : ComponentActivity() {
      */
     private fun inviteOf(intent: Intent?): String? =
         intent?.takeIf { it.action == Intent.ACTION_VIEW }?.data?.takeIf { it.scheme == "kinsight" && it.host == "pair" }?.toString()
+
+    companion object {
+        /** The hex id of a child's device whose detail screen an alert opens. */
+        const val EXTRA_DEVICE = "app.kinsight.extra.DEVICE"
+        private val HEX_ID = Regex("[0-9a-f]{32}")
+
+        /** The app as the launcher opens it (the dashboard, or whatever root the state calls for). */
+        fun open(context: Context): Intent = Intent(context, MainActivity::class.java)
+            .setAction(Intent.ACTION_MAIN)
+            .addCategory(Intent.CATEGORY_LAUNCHER)
+
+        /** The app on the detail screen of [hex]'s device. Own action: never mistaken for the launcher intent. */
+        fun openDevice(context: Context, hex: String): Intent = Intent(context, MainActivity::class.java)
+            .setAction(ACTION_OPEN_DEVICE)
+            .putExtra(EXTRA_DEVICE, hex)
+
+        /** Only a well formed id: anything else from an intent is ignored. */
+        fun deviceOf(intent: Intent?): String? = intent?.getStringExtra(EXTRA_DEVICE)?.takeIf { HEX_ID.matches(it) }
+
+        private const val ACTION_OPEN_DEVICE = "app.kinsight.OPEN_DEVICE"
+    }
 }

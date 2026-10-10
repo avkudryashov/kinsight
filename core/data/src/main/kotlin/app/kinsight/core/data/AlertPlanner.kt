@@ -8,7 +8,8 @@ import java.time.ZoneId
 
 /** What the app should notify (spec §9.7); the app turns it into notifications on its channels. */
 sealed interface Alert {
-    data class Integrity(val device: String, val kind: StateEvent.Kind, val atMs: Long) : Alert
+    /** [id]: the child's device, so tapping the alert can open its detail screen; null when unknown. */
+    data class Integrity(val device: String, val kind: StateEvent.Kind, val atMs: Long, val id: DeviceId? = null) : Alert
 
     data class NoContact(val device: String, val sinceMs: Long) : Alert
 
@@ -96,7 +97,7 @@ object AlertPlanner {
             val max = own.maxOfOrNull { it.seq } ?: 0L
             val mark = notified[child.id] ?: if (i.markers.initialized) 0L else max
             own.filter { it.seq > mark && it.kind in INTEGRITY_KINDS }.sortedBy { it.seq }
-                .forEach { alerts += Alert.Integrity(child.name, it.kind, if (it.fromMs > 0) it.fromMs else it.createdMs) }
+                .forEach { alerts += Alert.Integrity(child.name, it.kind, if (it.fromMs > 0) it.fromMs else it.createdMs, child.id) }
             notified[child.id] = maxOf(mark, max)
         }
 

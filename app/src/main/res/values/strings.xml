@@ -7,6 +7,10 @@
     <string name="diagnostics_refresh" translatable="false">Refresh</string>
     <string name="channel_integrity">Integrity</string>
     <string name="channel_summaries">Summaries</string>
+    <string name="channel_integrity_description">Changes in what the family can see: sharing paused, a permission turned off, a phone out of contact, a new parent</string>
+    <string name="channel_summaries_description">Daily or weekly screen time of the children</string>
+    <string name="alert_public_integrity">Kinsight: integrity alert</string>
+    <string name="alert_public_summary">Screen time summary</string>
     <string name="alert_paused">%1$s: sharing paused</string>
     <string name="alert_access_revoked">%1$s: usage access turned off</string>
     <string name="alert_left">%1$s left the family group</string>
@@ -18,7 +22,7 @@
     <string name="alert_data_gap">%1$s: part of the screen time history is missing</string>
     <string name="alert_clock_changed">%1$s: the phone clock was changed</string>
     <string name="alert_event">%1$s: something changed</string>
-    <string name="alert_at">At %1$s.</string>
+    <string name="alert_at">When: %1$s</string>
     <string name="alert_no_contact">%1$s is out of contact</string>
     <string name="alert_no_contact_body">Last in contact %1$s. Keep the phones close, or check that Bluetooth is on.</string>
     <string name="alert_new_parent">%1$s can now see your screen time</string>
