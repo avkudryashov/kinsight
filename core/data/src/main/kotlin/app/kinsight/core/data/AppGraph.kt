@@ -5,6 +5,7 @@ import androidx.datastore.preferences.preferencesDataStoreFile
 import app.kinsight.core.database.KinsightDatabaseFactory
 import app.kinsight.core.keystore.DeviceIdentity
 import app.kinsight.core.model.DeviceKeys
+import app.kinsight.core.transport.ble.AndroidPairingLink
 import app.kinsight.core.transport.ble.BlePermissions
 import app.kinsight.core.transport.ble.SyncGraph
 import app.kinsight.core.usage.UsageGraph
@@ -43,6 +44,17 @@ class Graph internal constructor(app: Context) {
         prefs = prefs,
         sync = sync,
         wipeIdentity = { DeviceIdentity.resetBlocking(app) },
+        snapshots = snapshots,
+    )
+    val pairing = PairingCoordinator(
+        link = AndroidPairingLink(app),
+        db = db,
+        groups = groups,
+        keys = keys,
+        pipeline = pipeline,
+        settings = settings,
+        reset = reset,
+        sync = sync,
         snapshots = snapshots,
     )
     val group = GroupRepository(
