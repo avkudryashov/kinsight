@@ -60,6 +60,14 @@ class GroupRepositoryTest {
     }
 
     @Test
+    fun leaveStartsSyncAsTheUserSoAStopDoesNotSwallowLeftGroup() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        mom.group.leave()
+        // Leaving is an explicit user action: it must clear a user's Stop (startByUser), then go fast.
+        assertEquals(listOf("start:false", "startByUser", "start:true"), mom.sync.calls)
+    }
+
+    @Test
     fun keyErrorYieldsKeyError() = runBlocking<Unit> {
         mom.identityBroken = KeyStorageException("device keys exist without a backend choice")
         assertIs<GroupState.KeyError>(mom.group.state.first { it !is GroupState.Loading })

@@ -50,7 +50,7 @@ class LeaveFlowTest {
         assertFalse(mom.groups.exists())
         assertFalse(mom.group.leaving.value)
         assertNull(mom.group.leaveError.value)
-        assertEquals(listOf("start:false", "start:true", "stop"), mom.sync.calls)
+        assertEquals(listOf("start:false", "startByUser", "start:true", "stop"), mom.sync.calls)
         withTimeout(5_000) { while (seen.lastOrNull() != GroupState.NoGroup) delay(10) }
         watcher.cancel()
         assertTrue(GroupState.Removed !in seen, "states seen: $seen")

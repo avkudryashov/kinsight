@@ -145,9 +145,14 @@ class GroupRepository(
         sync.start(fast = true)
     }
 
-    /** LEFT_GROUP, then a fast sync so the family sees it (spec §9.5). Only through [leaveAndForget], which wipes. */
+    /**
+     * LEFT_GROUP, then a fast sync so the family sees it (spec §9.5). Only through [leaveAndForget], which wipes.
+     * Leaving is an explicit user action, so it starts the service as the user ([SyncControl.startByUser]): with
+     * the user's Stop active a plain start would be honoured as stopped and LEFT_GROUP would never be sent.
+     */
     internal suspend fun leave() {
         signOwn("leave") { author -> listOf(author.leaveGroupEntry()) }
+        sync.startByUser()
         sync.start(fast = true)
     }
 
