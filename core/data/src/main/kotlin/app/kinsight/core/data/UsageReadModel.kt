@@ -89,7 +89,8 @@ object UsageReadModel {
         return (0..23).map { h ->
             fitDown(cats[h], lengths[h])
             val byCategory = cats[h].filterValues { it > 0 }
-            HourTotal(h, byCategory.values.sum(), unlocks[h], byCategory)
+            // A skipped spring-forward hour did not happen: no time, and no unlocks either.
+            HourTotal(h, byCategory.values.sum(), if (lengths[h] == 0L) 0 else unlocks[h], byCategory)
         }
     }
 
@@ -241,6 +242,9 @@ object UsageReadModel {
         nowMs: Long = System.currentTimeMillis(),
     ): DeviceUsage {
         val own = surfaced(member, byDate)
+        // The child's own day (spec §9.3), as on the detail screen: it can already be tomorrow for the viewer.
+        @Suppress("NAME_SHADOWING")
+        val today = childToday(own, today, nowMs)
         val week = days(own, today, 7)
         val updated = own?.values?.maxOfOrNull { it.body.created_at_ms.coerceAtMost(nowMs + MAX_CLOCK_SKEW_MS) }
         val mine = events.filter { it.author == member.id }

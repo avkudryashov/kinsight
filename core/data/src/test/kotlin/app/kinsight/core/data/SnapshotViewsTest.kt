@@ -36,10 +36,10 @@ class SnapshotViewsTest {
     private val resumed = kid.create { it.copy(state_event = StateEvent(kind = StateEvent.Kind.SHARING_RESUMED)) }
     private val beat = kid.create { it.copy(heartbeat = Heartbeat(app_version = "t")) }
 
-    private fun ready(self: DeviceKeys, extraOps: List<app.kinsight.core.model.DecodedEntry> = emptyList(), seen: Map<app.kinsight.core.model.DeviceId, Long> = emptyMap()) =
+    private fun ready(self: DeviceKeys, extraOps: List<app.kinsight.core.model.DecodedEntry> = emptyList(), seen: Map<app.kinsight.core.model.DeviceId, Long> = emptyMap(), more: List<app.kinsight.core.model.DecodedEntry> = emptyList()) =
         GroupSnapshot.Ready(
             genesis.groupId, self.deviceId, Membership.compute(genesis.groupId, ops + extraOps)!!,
-            summaries = listOf(sum), catalog = emptyList(), events = listOf(resumed), heartbeats = listOf(beat), peerSeen = seen,
+            summaries = listOf(sum) + more, catalog = emptyList(), events = listOf(resumed), heartbeats = listOf(beat), peerSeen = seen,
         )
 
     @Test
@@ -65,6 +65,19 @@ class SnapshotViewsTest {
         assertEquals(600_000L, d.children.single().today.totalMs)
         assertEquals(Sharing.On, d.children.single().sharing)
         assertNull(d.selfUsage)
+    }
+
+    @Test
+    fun dashboardCardTodayIsTheChildsOwnDay() {
+        // The child's clock (UTC) is already on 11 Oct while the viewer is still on the 10th.
+        val next = kid.create { it.copy(usage_summary = UsageSummary(local_date = today.plusDays(1).toString(), zone_id = "UTC", total_ms = 777_000)) }
+        val nowMs = today.plusDays(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli() + 30 * 60_000L
+        val r = ready(momKeys, more = listOf(next))
+        val card = SnapshotViews.dashboard(r, today, nowMs).children.single()
+        assertEquals(today.plusDays(1), card.today.date)
+        assertEquals(777_000L, card.today.totalMs)
+        val own = ready(kidKeys, more = listOf(next))
+        assertEquals(today.plusDays(1), SnapshotViews.dashboard(own, today, nowMs).selfUsage!!.today.date)
     }
 
     @Test

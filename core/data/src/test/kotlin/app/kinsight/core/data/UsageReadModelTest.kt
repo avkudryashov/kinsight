@@ -132,7 +132,7 @@ class UsageReadModelTest {
         val entries = listOf(summary(today, 30, 4), summary(today.minusDays(3), 60, 6), summary(today.minusDays(20), 100, 1))
         val by = UsageReadModel.summaries(entries)[kidKeys.deviceId]
         val events = UsageReadModel.events((1..25).map { event(StateEvent.Kind.CLOCK_CHANGED) })
-        val usage = UsageReadModel.usage(member, by, events, today)
+        val usage = UsageReadModel.usage(member, by, events, today, nowMs = today.atTime(12, 0).atZone(ZoneId.of("Europe/Madrid")).toInstant().toEpochMilli())
         assertEquals(30 * min, usage.today.totalMs)
         assertEquals(60 * min, usage.averageMs)
         val week = UsageReadModel.detail(member, by, emptyMap(), events, range(Period.WEEK), today)

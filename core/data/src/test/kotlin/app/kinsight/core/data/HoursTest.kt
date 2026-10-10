@@ -222,6 +222,7 @@ class HoursTest {
         )
         assertEquals(0L, hours[2].totalMs)
         assertEquals(emptyMap(), hours[2].byCategory)
+        assertEquals(0, hours[2].unlocks)
         assertEquals(20 * min, hours[1].totalMs)
     }
 
