@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -60,6 +61,8 @@ import app.kinsight.core.data.HourTotal
 import app.kinsight.core.data.Period
 import app.kinsight.core.data.Role
 import app.kinsight.core.data.Sharing
+import app.kinsight.core.data.ThresholdRule
+import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.designsystem.component.AppIcon
 import app.kinsight.core.designsystem.component.BarChart
 import app.kinsight.core.designsystem.component.CategoryLegend
@@ -87,7 +90,8 @@ private val SWIPE_THRESHOLD = 72.dp
 
 /**
  * [onAllApps] opens the full list of the range on screen; [onOpenApp] (a package name and the range on screen) opens
- * one app on the same period, its rows are clickable only when it is given.
+ * one app on the same period, its rows are clickable only when it is given; [onThresholds] opens the child's limits
+ * (offered on a parent's phone only).
  */
 @Composable
 fun DeviceDetailRoute(
@@ -95,17 +99,21 @@ fun DeviceDetailRoute(
     onAllApps: (DetailRange) -> Unit,
     onBack: () -> Unit,
     onOpenApp: ((String, DetailRange) -> Unit)? = null,
+    onThresholds: () -> Unit = {},
 ) {
     val graph = AppGraph.get(LocalContext.current)
     val vm: DeviceDetailViewModel = viewModel(key = "detail-${id.hex}") { DeviceDetailViewModel(graph.usage, id, createSavedStateHandle()) }
     val detail by vm.detail.collectAsStateWithLifecycle()
     val settings by graph.settingsRepository.usageSettings.collectAsStateWithLifecycle(initialValue = UsageSettings())
+    val thresholds by vm.thresholds.collectAsStateWithLifecycle()
     detail?.let { d ->
         DeviceDetailScreen(
             d, vm::select, onAllApps, onBack,
             onPrevious = vm::back, onNext = vm::forward, onOpenDay = vm::openDay,
             onOpenApp = onOpenApp?.let { open -> { pkg: String -> open(pkg, d.range) } },
             detailRetentionDays = settings.detailRetentionDays,
+            thresholds = thresholds,
+            onThresholds = onThresholds,
         )
     } ?: Loading()
 }
@@ -170,6 +178,8 @@ internal fun SectionTitle(text: String) =
  * day, heatmap of a week or month, or why there are none) and the range's events. A day without a summary reads
  * «no data» rather than «0 min» (DayTotal.known); a parent's phone has no usage to show at all (Play Stalkerware
  * ruling), only its events. [detailRetentionDays] is how long hourly detail is kept, for the «unavailable» text.
+ * [thresholds] (a parent's phone only, else null) adds the «Limits» entry with their count ([onThresholds]) and draws
+ * the total's limit: a line on the WEEK chart, a line of text under a DAY's total (its chart is clock hours).
  */
 @Composable
 fun DeviceDetailScreen(
@@ -182,8 +192,11 @@ fun DeviceDetailScreen(
     onOpenDay: (LocalDate) -> Unit = {},
     onOpenApp: ((String) -> Unit)? = null,
     detailRetentionDays: Int = UsageSettings().detailRetentionDays,
+    thresholds: List<ThresholdRule>? = null,
+    onThresholds: () -> Unit = {},
 ) = Screen(detail.member.name, onBack) { padding ->
     val child = detail.member.role == Role.CHILD
+    val totalLimit = thresholds?.firstOrNull { it.target == ThresholdTarget.Total }?.limitMs
     val today = detail.today ?: LocalDate.now()
     val known = detail.days.any { it.known }
     val swipe = Modifier.swipeSteps(detail.canGoBack, detail.canGoForward, onPrevious, onNext)
@@ -221,13 +234,35 @@ fun DeviceDetailScreen(
                     Column {
                         Text(durationText(detail.totalMs), style = MaterialTheme.typography.displaySmall)
                         Text(pluralStringResource(R.plurals.det_unlocks, detail.unlocks, detail.unlocks))
+                        if (detail.period == Period.DAY && totalLimit != null) {
+                            Text(stringResource(R.string.det_limit_line, durationText(totalLimit)), Modifier.testTag("det_limit"))
+                        }
                     }
                 }
-                if (detail.period != Period.DAY) item(key = "chart") { DaysChart(detail, today, onOpenDay) }
+                if (detail.period != Period.DAY) {
+                    item(key = "chart") { DaysChart(detail, today, onOpenDay, limit = totalLimit.takeIf { detail.period == Period.WEEK }) }
+                }
             } else if (detail.period == Period.DAY) {
                 item(key = "no_data") { Text(stringResource(R.string.det_no_data_day), style = MaterialTheme.typography.titleLarge) }
             } else {
                 item(key = "no_data") { EmptyState(stringResource(R.string.det_no_data_title), stringResource(R.string.det_no_data_body)) }
+            }
+            if (thresholds != null && detail.sharing != Sharing.Left) {
+                item(key = "thresholds") {
+                    ListItem(
+                        headlineContent = { Text(stringResource(R.string.det_thresholds)) },
+                        supportingContent = {
+                            Text(
+                                if (thresholds.isEmpty()) {
+                                    stringResource(R.string.det_thresholds_none)
+                                } else {
+                                    pluralStringResource(R.plurals.det_thresholds_count, thresholds.size, thresholds.size)
+                                },
+                            )
+                        },
+                        modifier = Modifier.heightIn(min = 48.dp).clickable(onClick = onThresholds).testTag("det_thresholds"),
+                    )
+                }
             }
             if (detail.categories.isNotEmpty()) {
                 item(key = "categories_title") { SectionTitle(stringResource(R.string.det_categories)) }
@@ -349,7 +384,7 @@ internal fun locale(): Locale = LocalConfiguration.current.locales[0]
  * opens that day. Average and busiest day count only days with a summary, as on the dashboard card.
  */
 @Composable
-private fun DaysChart(detail: DeviceDetail, today: LocalDate, onOpenDay: (LocalDate) -> Unit) {
+private fun DaysChart(detail: DeviceDetail, today: LocalDate, onOpenDay: (LocalDate) -> Unit, limit: Long? = null) {
     val locale = locale()
     val days = detail.days
     // A month is labelled every 5th day from the 1st, thinned from the 1st as well.
@@ -389,6 +424,8 @@ private fun DaysChart(detail: DeviceDetail, today: LocalDate, onOpenDay: (LocalD
         highlight = days.indexOfFirst { it.date == today }.takeIf { it >= 0 },
         barClickable = { i -> !days[i].date.isAfter(today) },
         labelAnchor = if (detail.period == Period.MONTH) 0 else null,
+        limit = limit,
+        limitLabel = limit?.let { stringResource(R.string.det_limit_line, durationText(it)) },
     )
 }
 

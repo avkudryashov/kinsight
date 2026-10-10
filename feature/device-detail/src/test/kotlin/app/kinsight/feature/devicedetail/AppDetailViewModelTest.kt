@@ -8,6 +8,8 @@ import app.kinsight.core.data.DetailRange
 import app.kinsight.core.data.MemberView
 import app.kinsight.core.data.Period
 import app.kinsight.core.data.Role
+import app.kinsight.core.data.ThresholdRule
+import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.model.DeviceId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -29,6 +31,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -46,6 +49,18 @@ class AppDetailViewModelTest {
         val known = (0L..13).map { sat.minusDays(it) }.toSet()
 
         var viewerToday = sat
+        var canChange = true
+        val limit = MutableStateFlow<ThresholdRule?>(null)
+
+        override fun threshold(): Flow<ThresholdRule?> = limit
+
+        override suspend fun setThreshold(rule: ThresholdRule) {
+            limit.value = rule
+        }
+
+        override suspend fun removeThreshold(id: String) {
+            if (limit.value?.id == id) limit.value = null
+        }
 
         override fun today(): LocalDate = viewerToday
 
@@ -53,7 +68,7 @@ class AppDetailViewModelTest {
             val days = range.dates().map { d -> (d in known).let { DayTotal(d, if (it) 60_000 else 0, 0, hasData = it, known = it) } }
             AppDetail(
                 kid, pkg, range, "Game", null, o[pkg] ?: AppCategory.GAMES, o.containsKey(pkg), days, days.sumOf { it.totalMs },
-                hours = null, rank = 1, canChangeCategory = true,
+                hours = null, rank = 1, canChangeCategory = canChange,
                 canGoBack = known.any { it.isBefore(range.start) }, canGoForward = range.end.isBefore(viewerToday), today = viewerToday, defaultCategory = AppCategory.GAMES,
             )
         }
@@ -133,5 +148,29 @@ class AppDetailViewModelTest {
         vm.setCategory(null) // «По умолчанию»
         assertEquals(AppCategory.GAMES, vm.detail.value!!.category)
         assertFalse(vm.detail.value!!.overridden)
+    }
+
+    @Test
+    fun aParentSetsChangesAndRemovesTheAppsLimit() = runTest(dispatcher) {
+        val source = FakeSource()
+        val vm = vm(source, week(sat))
+        backgroundScope.launch { vm.threshold.collect {} }
+        val hour = 3_600_000L
+        vm.setThreshold(hour)
+        assertEquals(ThresholdRule.of(kid.id, ThresholdTarget.App(pkg), hour), vm.threshold.value)
+        vm.setThreshold(2 * hour)
+        assertEquals(2 * hour, vm.threshold.value?.limitMs)
+        vm.setThreshold(10 * 60_000L) // off the 15-minute step
+        assertEquals(2 * hour, vm.threshold.value?.limitMs)
+        vm.removeThreshold()
+        assertNull(vm.threshold.value)
+    }
+
+    @Test
+    fun noAppLimitWhereTheCategoryCannotChange() = runTest(dispatcher) {
+        val source = FakeSource().apply { canChange = false } // a child's own phone
+        val vm = vm(source, week(sat))
+        vm.setThreshold(3_600_000L)
+        assertNull(source.limit.value)
     }
 }

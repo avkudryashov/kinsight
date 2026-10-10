@@ -51,6 +51,8 @@ import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.Categories
 import app.kinsight.core.data.DetailRange
 import app.kinsight.core.data.Period
+import app.kinsight.core.data.ThresholdRule
+import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.designsystem.component.AppIcon
 import app.kinsight.core.designsystem.component.BarChart
 import app.kinsight.core.designsystem.component.EmptyState
@@ -73,11 +75,13 @@ fun AppDetailRoute(id: DeviceId, packageName: String, range: DetailRange, onBack
     }
     val app by vm.detail.collectAsStateWithLifecycle()
     val settings by graph.settingsRepository.usageSettings.collectAsStateWithLifecycle(initialValue = UsageSettings())
+    val threshold by vm.threshold.collectAsStateWithLifecycle()
     app?.let {
         AppDetailScreen(
             it, vm::select, onBack,
             onPrevious = vm::back, onNext = vm::forward, onOpenDay = vm::openDay, onCategory = vm::setCategory,
             detailRetentionDays = settings.detailRetentionDays,
+            threshold = threshold, onThreshold = vm::setThreshold, onRemoveThreshold = vm::removeThreshold,
         )
     } ?: Loading()
 }
@@ -87,6 +91,8 @@ fun AppDetailRoute(id: DeviceId, packageName: String, range: DetailRange, onBack
  * and header like the detail screen, the time of the range with per-day bars (WEEK, MONTH: tap a bar to open that
  * day) or clock hours (DAY, or why there are none). «Change category» is offered only when
  * [AppDetail.canChangeCategory] (a parent, not the `~other` remainder); its dialog's «Default» passes null.
+ * «Notify if more than…» (the same parent's phone, a child's app) sets, changes or deletes the app's daily limit
+ * [threshold] (spec §9.7, stage 5b).
  */
 @Composable
 fun AppDetailScreen(
@@ -98,10 +104,15 @@ fun AppDetailScreen(
     onOpenDay: (LocalDate) -> Unit = {},
     onCategory: (AppCategory?) -> Unit = {},
     detailRetentionDays: Int = UsageSettings().detailRetentionDays,
+    threshold: ThresholdRule? = null,
+    onThreshold: (Long) -> Unit = {},
+    onRemoveThreshold: () -> Unit = {},
 ) = Screen(appLabel(app.packageName, app.label), onBack) { padding ->
     val today = app.today ?: LocalDate.now()
     val known = app.days.any { it.known }
     var choosing by rememberSaveable { mutableStateOf(false) }
+    var limiting by rememberSaveable { mutableStateOf(false) }
+    val canLimit = canSetThreshold(app)
     LazyColumn(
         Modifier.fillMaxSize().padding(padding).testTag("app_list"),
         contentPadding = PaddingValues(16.dp),
@@ -112,6 +123,16 @@ fun AppDetailScreen(
             item(key = "change") {
                 TextButton({ choosing = true }, Modifier.heightIn(min = 48.dp).testTag("app_category")) {
                     Text(stringResource(R.string.app_change_category))
+                }
+            }
+        }
+        if (canLimit) {
+            item(key = "threshold") {
+                TextButton({ limiting = true }, Modifier.heightIn(min = 48.dp).testTag("app_threshold")) {
+                    Text(
+                        threshold?.let { stringResource(R.string.app_threshold_set, durationText(it.limitMs)) }
+                            ?: stringResource(R.string.app_threshold),
+                    )
                 }
             }
         }
@@ -176,6 +197,26 @@ fun AppDetailScreen(
                 }
             }
         }
+    }
+    if (limiting && canLimit) {
+        ThresholdDialog(
+            title = stringResource(R.string.app_threshold_title, appLabel(app.packageName, app.label)),
+            fixedTarget = ThresholdTarget.App(app.packageName),
+            existing = listOfNotNull(threshold),
+            apps = emptyList(),
+            onDismiss = { limiting = false },
+            onSave = { _, ms ->
+                limiting = false
+                onThreshold(ms)
+            },
+            onDelete = threshold?.let {
+                {
+                    limiting = false
+                    onRemoveThreshold()
+                }
+            },
+            deleteId = threshold?.id,
+        )
     }
     if (choosing) {
         CategoryDialog(

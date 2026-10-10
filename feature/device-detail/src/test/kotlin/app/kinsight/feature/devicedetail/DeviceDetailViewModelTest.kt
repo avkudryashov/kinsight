@@ -8,6 +8,8 @@ import app.kinsight.core.data.MemberView
 import app.kinsight.core.data.Period
 import app.kinsight.core.data.Role
 import app.kinsight.core.data.Sharing
+import app.kinsight.core.data.ThresholdRule
+import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.model.DeviceId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -41,6 +43,12 @@ class DeviceDetailViewModelTest {
         val viewerToday = MutableStateFlow(sat)
         val known = MutableStateFlow(known)
         var childToday: LocalDate? = null
+        val parent = MutableStateFlow(false)
+        val rules = MutableStateFlow<List<ThresholdRule>>(emptyList())
+
+        override fun viewerIsParent(): Flow<Boolean> = parent
+
+        override fun thresholds(): Flow<List<ThresholdRule>> = rules
 
         override fun today(): LocalDate = viewerToday.value
 
@@ -167,5 +175,17 @@ class DeviceDetailViewModelTest {
         assertEquals(week(wed), vm.range.value)
         assertEquals(wed.plusDays(1), vm.detail.value?.today)
         assertEquals(true, vm.detail.value?.days?.first { it.date == wed.plusDays(1) }?.known)
+    }
+
+    @Test
+    fun thresholdsAreOnlyListedForAParent() = runTest(dispatcher) {
+        val source = FakeSource(lastTwoWeeks)
+        val vm = vm(source)
+        backgroundScope.launch { vm.thresholds.collect {} }
+        val total = ThresholdRule.of(kid.id, ThresholdTarget.Total, 3_600_000L)!!
+        source.rules.value = listOf(total)
+        assertEquals(null, vm.thresholds.value, "a child's phone: no entry, no line")
+        source.parent.value = true
+        assertEquals(listOf(total), vm.thresholds.value)
     }
 }

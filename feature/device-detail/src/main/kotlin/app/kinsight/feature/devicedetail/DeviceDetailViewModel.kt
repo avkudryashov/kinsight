@@ -6,10 +6,16 @@ import androidx.lifecycle.viewModelScope
 import app.kinsight.core.data.DetailRange
 import app.kinsight.core.data.DeviceDetail
 import app.kinsight.core.data.Period
+import app.kinsight.core.data.ThresholdRule
 import app.kinsight.core.data.UsageRepository
 import app.kinsight.core.model.DeviceId
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import java.time.LocalDate
 import java.time.temporal.WeekFields
 import java.util.Locale
@@ -19,12 +25,22 @@ internal interface DetailSource {
     fun today(): LocalDate
 
     fun detail(range: DetailRange): Flow<DeviceDetail?>
+
+    /** Only a parent sets thresholds (spec §9.7, stage 5b). */
+    fun viewerIsParent(): Flow<Boolean> = flowOf(false)
+
+    /** The parent's rules of this device. */
+    fun thresholds(): Flow<List<ThresholdRule>> = flowOf(emptyList())
 }
 
 private class RepositorySource(private val usage: UsageRepository, private val id: DeviceId, private val weekFields: WeekFields) : DetailSource {
     override fun today(): LocalDate = usage.today()
 
     override fun detail(range: DetailRange): Flow<DeviceDetail?> = usage.detail(id, range, weekFields)
+
+    override fun viewerIsParent(): Flow<Boolean> = usage.viewerIsParent
+
+    override fun thresholds(): Flow<List<ThresholdRule>> = usage.thresholds.map { rules -> rules.filter { it.child == id } }
 }
 
 /**
@@ -51,6 +67,11 @@ class DeviceDetailViewModel internal constructor(
     val range: StateFlow<DetailRange> = nav.range
 
     val detail: StateFlow<DeviceDetail?> = nav.detail
+
+    /** The device's thresholds on a parent's phone (the «Limits» entry and the total's line); null on a child's. */
+    val thresholds: StateFlow<List<ThresholdRule>?> = combine(source.viewerIsParent(), source.thresholds()) { parent, rules ->
+        rules.takeIf { parent }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** Another period around the same anchor; going to DAY picks the range's last known day up to today. */
     fun select(p: Period) = nav.select(p)

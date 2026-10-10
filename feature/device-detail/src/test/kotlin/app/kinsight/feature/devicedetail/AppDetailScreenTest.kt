@@ -22,6 +22,8 @@ import app.kinsight.core.data.MemberView
 import app.kinsight.core.data.Period
 import app.kinsight.core.data.Role
 import app.kinsight.core.data.Sharing
+import app.kinsight.core.data.ThresholdRule
+import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.designsystem.theme.KinsightTheme
 import app.kinsight.core.model.DeviceId
 import org.junit.Assert.assertEquals
@@ -202,5 +204,40 @@ class AppDetailScreenTest {
         rule.setContent { KinsightTheme(dynamicColor = false) { AllAppsScreen(AppList(detail.member, detail.range, detail.apps, null), onBack = {}, onOpenApp = { opened = it }) } }
         rule.onNodeWithTag("det_app_com.example.game").performClick()
         assertEquals("com.example.game", opened)
+    }
+
+    private fun showLimit(a: AppDetail, threshold: ThresholdRule?, onSet: (Long) -> Unit = {}, onRemove: () -> Unit = {}) = rule.setContent {
+        KinsightTheme(dynamicColor = false) {
+            AppDetailScreen(a, onPeriod = {}, onBack = {}, threshold = threshold, onThreshold = onSet, onRemoveThreshold = onRemove)
+        }
+    }
+
+    @Test
+    fun aParentSetsTheAppsLimitFromTheAppScreen() {
+        val set = mutableListOf<Long>()
+        showLimit(app(), null, onSet = { set += it })
+        rule.onNodeWithTag("app_threshold").assertTextEquals("Notify if more than…").performClick()
+        rule.onNodeWithTag("thr_value").assertTextEquals("1 h")
+        rule.onNodeWithTag("thr_plus").performClick()
+        rule.onNodeWithTag("thr_save").performClick()
+        assertEquals(listOf(3_600_000L + 15 * 60_000L), set)
+    }
+
+    @Test
+    fun anExistingAppLimitIsShownEditedAndRemoved() {
+        val limit = ThresholdRule.of(kid.id, ThresholdTarget.App("com.example.game"), 2 * 3_600_000L)!!
+        var removed = 0
+        showLimit(app(), limit, onRemove = { removed++ })
+        rule.onNodeWithTag("app_threshold").assertTextEquals("Notify if more than 2 h").performClick()
+        rule.onNodeWithTag("thr_value").assertTextEquals("2 h")
+        rule.onNodeWithTag("thr_delete_${limit.id}").performClick()
+        assertEquals(1, removed)
+        rule.onNodeWithTag("thr_value").assertDoesNotExist()
+    }
+
+    @Test
+    fun noAppLimitOnAChildsPhone() {
+        showLimit(app(canChange = false), null)
+        rule.onNodeWithTag("app_threshold").assertDoesNotExist()
     }
 }

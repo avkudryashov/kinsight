@@ -7,10 +7,17 @@ import app.kinsight.core.data.AppCategory
 import app.kinsight.core.data.AppDetail
 import app.kinsight.core.data.DetailRange
 import app.kinsight.core.data.Period
+import app.kinsight.core.data.Role
+import app.kinsight.core.data.ThresholdRule
+import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.data.UsageRepository
 import app.kinsight.core.model.DeviceId
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.temporal.WeekFields
@@ -24,6 +31,13 @@ internal interface AppSource {
 
     /** null returns the app to its own category («По умолчанию»). */
     suspend fun setCategory(category: AppCategory?)
+
+    /** The parent's limit of this app (spec §9.7, stage 5b), null without one. */
+    fun threshold(): Flow<ThresholdRule?> = flowOf(null)
+
+    suspend fun setThreshold(rule: ThresholdRule) {}
+
+    suspend fun removeThreshold(id: String) {}
 }
 
 private class RepositoryAppSource(private val usage: UsageRepository, private val id: DeviceId, private val packageName: String) : AppSource {
@@ -32,6 +46,14 @@ private class RepositoryAppSource(private val usage: UsageRepository, private va
     override fun app(range: DetailRange): Flow<AppDetail?> = usage.app(id, packageName, range)
 
     override suspend fun setCategory(category: AppCategory?) = usage.setCategory(packageName, category)
+
+    private val ruleId = ThresholdRule.idOf(id, ThresholdTarget.App(packageName))
+
+    override fun threshold(): Flow<ThresholdRule?> = usage.thresholds.map { rules -> rules.firstOrNull { it.id == ruleId } }
+
+    override suspend fun setThreshold(rule: ThresholdRule) = usage.setThreshold(rule)
+
+    override suspend fun removeThreshold(id: String) = usage.removeThreshold(id)
 }
 
 /**
@@ -61,6 +83,9 @@ class AppDetailViewModel internal constructor(
 
     val detail: StateFlow<AppDetail?> = nav.detail
 
+    /** This app's limit («Notify if more than…»). */
+    val threshold: StateFlow<ThresholdRule?> = source.threshold().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     fun select(p: Period) = nav.select(p)
 
     fun back() = nav.back()
@@ -75,4 +100,19 @@ class AppDetailViewModel internal constructor(
         if (detail.value?.canChangeCategory != true) return
         viewModelScope.launch { source.setCategory(category) }
     }
+
+    /** Only where [canSetThreshold]; a limit [ThresholdRule.of] refuses is ignored. */
+    fun setThreshold(limitMs: Long) {
+        val d = detail.value?.takeIf(::canSetThreshold) ?: return
+        val rule = ThresholdRule.of(d.member.id, ThresholdTarget.App(d.packageName), limitMs) ?: return
+        viewModelScope.launch { source.setThreshold(rule) }
+    }
+
+    fun removeThreshold() {
+        val d = detail.value?.takeIf(::canSetThreshold) ?: return
+        viewModelScope.launch { source.removeThreshold(ThresholdRule.idOf(d.member.id, ThresholdTarget.App(d.packageName))) }
+    }
 }
+
+/** A parent's phone (as for the category: not `~other`) and a child's app: «Notify if more than…» is offered. */
+internal fun canSetThreshold(app: AppDetail): Boolean = app.canChangeCategory && app.member.role == Role.CHILD

@@ -35,6 +35,8 @@ import app.kinsight.core.data.MemberView
 import app.kinsight.core.data.Period
 import app.kinsight.core.data.Role
 import app.kinsight.core.data.Sharing
+import app.kinsight.core.data.ThresholdRule
+import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.designsystem.theme.KinsightTheme
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.proto.StateEvent
@@ -445,5 +447,57 @@ class DeviceDetailScreenTest {
         val norm = { l: List<String> -> l.map { it.replace('\u202f', ' ').replace('\u00a0', ' ') } }
         assertEquals(listOf("12 AM", "6 AM", "12 PM", "6 PM"), norm(hourLabels(Locale.US, is24Hour = false)))
         assertEquals(listOf("0", "6", "12", "18"), hourLabels(Locale.forLanguageTag("ru"), is24Hour = true))
+    }
+
+    private fun showWithLimits(d: DeviceDetail, thresholds: List<ThresholdRule>?, onThresholds: () -> Unit = {}) = rule.setContent {
+        KinsightTheme(dynamicColor = false) {
+            DeviceDetailScreen(d, onPeriod = {}, onAllApps = {}, onBack = {}, thresholds = thresholds, onThresholds = onThresholds)
+        }
+    }
+
+    private val totalLimit = ThresholdRule.of(kid.id, ThresholdTarget.Total, 3 * 3_600_000L)!!
+    private val gamesLimit = ThresholdRule.of(kid.id, ThresholdTarget.Category(AppCategory.GAMES), 3_600_000L)!!
+
+    @Test
+    fun aParentOpensTheLimitsFromTheDetailWithTheirCount() {
+        var opened = 0
+        showWithLimits(detail, listOf(totalLimit, gamesLimit)) { opened++ }
+        list.performScrollToNode(hasTestTag("det_thresholds"))
+        rule.onNodeWithTag("det_thresholds").assert(hasClickAction())
+        rule.onNodeWithText("Limits").assertExists()
+        rule.onNodeWithText("2 limits").assertExists()
+        rule.onNodeWithTag("det_thresholds").performClick()
+        assertEquals(1, opened)
+    }
+
+    @Test
+    fun noLimitsSaysSo() {
+        showWithLimits(detail, emptyList())
+        list.performScrollToNode(hasTestTag("det_thresholds"))
+        rule.onNodeWithText("None set").assertExists()
+    }
+
+    @Test
+    fun noLimitsEntryOnAChildsOwnPhone() {
+        showWithLimits(detail, null)
+        rule.onNodeWithTag("det_thresholds").assertDoesNotExist()
+    }
+
+    @Test
+    fun onlyTheTotalLimitIsDrawnOnTheChart() {
+        showWithLimits(detail, listOf(gamesLimit))
+        rule.onNode(hasContentDescription("Limit", substring = true)).assertDoesNotExist()
+    }
+
+    @Test
+    fun theTotalLimitIsReadWithTheWeekChart() {
+        showWithLimits(detail, listOf(totalLimit, gamesLimit))
+        rule.onNodeWithTag("det_chart").assert(hasContentDescription("Limit 3 h", substring = true))
+    }
+
+    @Test
+    fun aDayShowsTheTotalLimitUnderItsTotal() {
+        showWithLimits(day(today), listOf(totalLimit))
+        rule.onNodeWithTag("det_limit").assertTextEquals("Limit 3 h")
     }
 }
