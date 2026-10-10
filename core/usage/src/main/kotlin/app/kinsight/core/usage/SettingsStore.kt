@@ -24,7 +24,8 @@ class SettingsStore(private val store: DataStore<Preferences>) {
 
     suspend fun current(): UsageSettings = settings.first()
 
-    suspend fun setSharing(on: Boolean) {
+    /** Only [UsagePipeline] flips sharing: it records the SHARING_* event under its lock first. */
+    internal suspend fun setSharing(on: Boolean) {
         store.edit { it[SHARING] = on }
     }
 
