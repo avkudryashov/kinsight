@@ -14,6 +14,7 @@ import java.time.LocalDate
 import java.time.temporal.WeekFields
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
@@ -71,6 +72,21 @@ class HoursTest {
         assertEquals(0L, hours[10].totalMs)
         assertEquals(emptyMap(), hours[10].byCategory)
         assertNull(d.heatmap)
+    }
+
+    @Test
+    fun theSameInputsGiveAnEqualDetailWithHoursAndHeatmap() {
+        // Value equality (final fix F7): HourTotal, Heatmap and AppUsage compare by content.
+        val entries = arrayOf(summary(today, 50), detail(today, Triple(9, game, 20L), Triple(21, chat, 20L), unlocks = mapOf(9 to 3)))
+        val day = DetailRange.of(Period.DAY, today, monFirst)
+        val week = DetailRange.of(Period.WEEK, today, monFirst)
+        assertEquals(detailOf(day, monFirst, *entries), detailOf(day, monFirst, *entries))
+        assertEquals(detailOf(week, monFirst, *entries), detailOf(week, monFirst, *entries))
+        assertEquals(detailOf(week, monFirst, *entries).hashCode(), detailOf(week, monFirst, *entries).hashCode())
+        val map = Heatmap(arrayOf(longArrayOf(1, 2)), intArrayOf(3), 1, 7)
+        assertEquals(map, Heatmap(arrayOf(longArrayOf(1, 2)), intArrayOf(3), 1, 7))
+        assertEquals(map.hashCode(), Heatmap(arrayOf(longArrayOf(1, 2)), intArrayOf(3), 1, 7).hashCode())
+        assertFalse(map == Heatmap(arrayOf(longArrayOf(1, 3)), intArrayOf(3), 1, 7))
     }
 
     @Test

@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
@@ -293,7 +294,8 @@ class UsageRepository(
 
     /**
      * [range] of device [id], reloaded on every log change; the device's UsageDetail entries of the range are read with
-     * each snapshot for level 4. [weekFields]: the same as the range's, it orders the heatmap's weekday rows.
+     * each snapshot for level 4 (an equal state is not re-emitted). [weekFields]: the same as the range's, it orders the
+     * heatmap's weekday rows.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     fun detail(id: DeviceId, range: DetailRange, weekFields: WeekFields = WeekFields.of(Locale.getDefault())): Flow<DeviceDetail?> =
@@ -302,9 +304,9 @@ class UsageRepository(
                 val details = snapshots.details(it.groupId, id, range)
                 SnapshotViews.detail(it, id, range, today(), clock(), overrides = o, details = details, weekFields = weekFields)
             }
-        }
+        }.distinctUntilChanged()
 
-    /** App [packageName] of device [id] over [range], reloaded on every log or category change (the app screen). */
+    /** App [packageName] of device [id] over [range], reloaded on every log or category change (the app screen); an equal state is not re-emitted. */
     @OptIn(ExperimentalCoroutinesApi::class)
     fun app(id: DeviceId, packageName: String, range: DetailRange): Flow<AppDetail?> =
         combine(snapshots.snapshots, categoryOverrides) { s, o -> s to o }.mapLatest { (s, o) ->
@@ -313,7 +315,7 @@ class UsageRepository(
                 val details = if (range.period == Period.DAY) snapshots.details(it.groupId, id, range) else emptyList()
                 SnapshotViews.app(it, id, packageName, range, today(), clock(), overrides = o, details = details)
             }
-        }
+        }.distinctUntilChanged()
 }
 
 data class ServiceStatus(

@@ -36,8 +36,15 @@ data class DayTotal(
     val known: Boolean = hasData,
 )
 
-/** One app over a period; [label] falls back to the package name (spec §7: invisible packages). */
-class AppUsage(val packageName: String, val label: String, val icon: ByteArray?, val totalMs: Long)
+/** One app over a period; [label] falls back to the package name (spec §7: invisible packages). Equal by content. */
+class AppUsage(val packageName: String, val label: String, val icon: ByteArray?, val totalMs: Long) {
+    override fun equals(other: Any?): Boolean = other is AppUsage && packageName == other.packageName && label == other.label &&
+        totalMs == other.totalMs && icon.contentEquals(other.icon)
+
+    override fun hashCode(): Int = ((packageName.hashCode() * 31 + label.hashCode()) * 31 + totalMs.hashCode()) * 31 + icon.contentHashCode()
+
+    override fun toString(): String = "AppUsage($packageName, $label, $totalMs)"
+}
 
 enum class Period { DAY, WEEK, MONTH }
 
@@ -83,7 +90,7 @@ data class DetailRange(val period: Period, val start: LocalDate, val end: LocalD
  * One local clock hour (0..23) of a day's UsageDetail, as the child's clock read it: on a fall-back day both runs of the
  * repeated hour are summed here, on a spring-forward day the skipped hour is zero. [totalMs] sums [byCategory].
  */
-class HourTotal(val hour: Int, val totalMs: Long, val unlocks: Int, val byCategory: Map<AppCategory, Long>)
+data class HourTotal(val hour: Int, val totalMs: Long, val unlocks: Int, val byCategory: Map<AppCategory, Long>)
 
 /**
  * Level 4 of a week or month: [cells] is [weekday][hour], weekday 0 being the locale's first day of week, each cell the
@@ -100,7 +107,16 @@ class Heatmap(
     val coveredDays: Int,
     val rangeDays: Int,
     val firstDayOfWeek: DayOfWeek = DayOfWeek.MONDAY,
-)
+) {
+    /** By content, so an identical heatmap does not redraw the screen. */
+    override fun equals(other: Any?): Boolean = other is Heatmap && coveredDays == other.coveredDays && rangeDays == other.rangeDays &&
+        firstDayOfWeek == other.firstDayOfWeek && cells.contentDeepEquals(other.cells) && unlocks.contentEquals(other.unlocks)
+
+    override fun hashCode(): Int =
+        (((cells.contentDeepHashCode() * 31 + unlocks.contentHashCode()) * 31 + coveredDays) * 31 + rangeDays) * 31 + firstDayOfWeek.hashCode()
+
+    override fun toString(): String = "Heatmap(covered=$coveredDays/$rangeDays, first=$firstDayOfWeek)"
+}
 
 /** A child's sharing as the group sees it, from its own signed events. */
 sealed interface Sharing {
@@ -186,7 +202,8 @@ interface RangedView {
 /**
  * One app of a child over [range] (the app screen, spec §9.3, stage 5a). [days]: the app's time per date of the range
  * (known when the date has a summary, so a known zero is a day the app was not used); [hours]: 24 clock hours of a DAY
- * from a usable UsageDetail, else null; [rank]: 1-based place in the child's top of the range, null without time.
+ * from a usable UsageDetail, else null; [rank]: 1-based place in the child's top of the range (the `~other`
+ * remainder is not ranked), null without time.
  * [category] with the parent's override applied ([overridden]); [canChangeCategory]: the viewer is a parent and the
  * package is not the `~other` remainder.
  */
@@ -210,4 +227,14 @@ class AppDetail(
     val defaultCategory: AppCategory,
 ) : RangedView {
     val period: Period get() = range.period
+
+    /** By content ([icon] too), so the app screen's flow drops an identical state. */
+    override fun equals(other: Any?): Boolean = other is AppDetail && fields() == other.fields() && icon.contentEquals(other.icon)
+
+    override fun hashCode(): Int = fields().hashCode() * 31 + icon.contentHashCode()
+
+    private fun fields(): List<Any?> = listOf(
+        member, packageName, range, label, category, overridden, days, totalMs, hours, rank, canChangeCategory, canGoBack,
+        canGoForward, today, defaultCategory,
+    )
 }

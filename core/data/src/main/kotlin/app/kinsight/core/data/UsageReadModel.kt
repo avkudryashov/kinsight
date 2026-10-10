@@ -324,7 +324,9 @@ object UsageReadModel {
             days = days,
             totalMs = days.sumOf { it.totalMs },
             hours = hours,
-            rank = top.indexOfFirst { it.packageName == packageName }.takeIf { it >= 0 }?.plus(1),
+            // The ~other remainder is not an app: it neither has a place nor takes one from the apps below it.
+            rank = top.filter { it.packageName != Categories.REMAINDER_PACKAGE }.indexOfFirst { it.packageName == packageName }
+                .takeIf { it >= 0 }?.plus(1),
             canChangeCategory = viewerIsParent && !remainder,
             canGoBack = own?.keys?.any { it.isBefore(range.start) } == true,
             canGoForward = range.end.isBefore(today),

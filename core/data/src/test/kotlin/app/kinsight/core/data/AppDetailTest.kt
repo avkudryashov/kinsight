@@ -160,6 +160,28 @@ class AppDetailTest {
     }
 
     @Test
+    fun theSameInputsGiveAnEqualAppDetail() {
+        // Value equality (final fix F7): the flows drop an identical state instead of redrawing it.
+        val a = app(game, range(Period.DAY), summary(today, 60, game to 30L), detail(today, Triple(9, game, 20L)))
+        val b = app(game, range(Period.DAY), summary(today, 60, game to 30L), detail(today, Triple(9, game, 20L)))
+        assertEquals(a, b)
+        assertEquals(a.hashCode(), b.hashCode())
+        assertEquals(AppUsage(game, "Game", byteArrayOf(7, 8), 5), AppUsage(game, "Game", byteArrayOf(7, 8), 5))
+        assertEquals(AppUsage(game, "Game", byteArrayOf(7, 8), 5).hashCode(), AppUsage(game, "Game", byteArrayOf(7, 8), 5).hashCode())
+        assertFalse(AppUsage(game, "Game", byteArrayOf(7, 8), 5) == AppUsage(game, "Game", byteArrayOf(7, 9), 5))
+    }
+
+    @Test
+    fun theRemainderBucketTakesNoPlaceInTheTop() {
+        // ~other is the summary's bucket of apps beyond its list, not an app: it is not ranked and does not push others down.
+        val other = Categories.REMAINDER_PACKAGE
+        val day = arrayOf(summary(today, 60, other to 40L, game to 15L, chat to 5L))
+        assertEquals(1, app(game, range(Period.DAY), *day).rank)
+        assertEquals(2, app(chat, range(Period.DAY), *day).rank)
+        assertNull(app(other, range(Period.DAY), *day).rank)
+    }
+
+    @Test
     fun aParentsUsageIsNeverSurfaced() {
         val a = app(game, range(Period.WEEK), *week, m = member.copy(role = Role.PARENT))
         assertEquals(0L, a.totalMs)
