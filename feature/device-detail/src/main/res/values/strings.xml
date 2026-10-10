@@ -78,4 +78,15 @@
     <string name="det_open_app">Open app details</string>
     <string name="det_hours_not_arrived">Hourly data for this period has not arrived yet</string>
     <string name="det_category_item">%1$s %2$s</string>
+    <string name="app_rank">#%1$d in top apps</string>
+    <string name="app_not_used">Not used in this period</string>
+    <string name="app_category_label">Category: %1$s</string>
+    <string name="app_category_yours">Chosen by you</string>
+    <string name="app_change_category">Change category</string>
+    <string name="app_category_title">Category of %1$s</string>
+    <string name="app_category_default">Default</string>
+    <string name="app_category_save">Save</string>
+    <string name="app_category_cancel">Cancel</string>
+    <string name="app_hours_title">By hour</string>
+    <string name="app_days_title">By day</string>
 </resources>

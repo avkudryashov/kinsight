@@ -109,20 +109,20 @@ fun DeviceDetailRoute(
 }
 
 @Composable
-fun AllAppsRoute(id: DeviceId, range: DetailRange, onBack: () -> Unit) {
+fun AllAppsRoute(id: DeviceId, range: DetailRange, onBack: () -> Unit, onOpenApp: ((String) -> Unit)? = null) {
     val graph = AppGraph.get(LocalContext.current)
     val vm: DeviceDetailViewModel = viewModel(key = "apps-${id.hex}-${range.period}-${range.start}") {
         DeviceDetailViewModel(graph.usage, id, SavedStateHandle(), initial = range)
     }
     val detail by vm.detail.collectAsStateWithLifecycle()
-    detail?.let { AllAppsScreen(it, onBack) } ?: Loading()
+    detail?.let { AllAppsScreen(it, onBack, onOpenApp) } ?: Loading()
 }
 
 @Composable
-private fun Loading() = Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+internal fun Loading() = Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
 
 @Composable
-private fun periodLabel(p: Period) = stringResource(
+internal fun periodLabel(p: Period) = stringResource(
     when (p) {
         Period.DAY -> R.string.det_day
         Period.WEEK -> R.string.det_week
@@ -147,7 +147,7 @@ internal fun categoryName(c: AppCategory) = stringResource(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun Screen(title: String, onBack: () -> Unit, content: @Composable (PaddingValues) -> Unit) = Scaffold(
+internal fun Screen(title: String, onBack: () -> Unit, content: @Composable (PaddingValues) -> Unit) = Scaffold(
     topBar = {
         TopAppBar(
             title = { Text(title) },
@@ -160,7 +160,7 @@ private fun Screen(title: String, onBack: () -> Unit, content: @Composable (Padd
 )
 
 @Composable
-private fun SectionTitle(text: String) =
+internal fun SectionTitle(text: String) =
     Text(text, style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
 
 /**
@@ -309,12 +309,13 @@ private fun Modifier.swipeSteps(canBack: Boolean, canForward: Boolean, onBack: (
     }
 }
 
+/** [onOpenApp] (a package name) makes the rows open one app, as on the detail screen. */
 @Composable
-fun AllAppsScreen(detail: DeviceDetail, onBack: () -> Unit) =
+fun AllAppsScreen(detail: DeviceDetail, onBack: () -> Unit, onOpenApp: ((String) -> Unit)? = null) =
     Screen(stringResource(R.string.det_all_apps_title, detail.member.name, rangeTitle(detail.range, detail.today ?: LocalDate.now())), onBack) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("det_apps"), contentPadding = PaddingValues(16.dp)) {
             if (detail.apps.isEmpty()) item { Text(stringResource(R.string.det_no_apps)) }
-            items(detail.apps, key = { it.packageName }) { AppRow(it, null) }
+            items(detail.apps, key = { it.packageName }) { AppRow(it, onOpenApp) }
         }
     }
 
@@ -335,7 +336,7 @@ private fun AppRow(app: AppUsage, onOpen: ((String) -> Unit)?) {
 }
 
 @Composable
-private fun locale(): Locale = LocalConfiguration.current.locales[0]
+internal fun locale(): Locale = LocalConfiguration.current.locales[0]
 
 /**
  * Levels 1 and 3: one stacked bar per day by category (colour order = AppCategory order), today highlighted; a tap

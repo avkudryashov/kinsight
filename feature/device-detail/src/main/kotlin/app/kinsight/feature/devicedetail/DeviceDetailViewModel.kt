@@ -8,23 +8,9 @@ import app.kinsight.core.data.DeviceDetail
 import app.kinsight.core.data.Period
 import app.kinsight.core.data.UsageRepository
 import app.kinsight.core.model.DeviceId
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.onStart
-import kotlinx.coroutines.flow.stateIn
 import java.time.LocalDate
-import java.time.format.DateTimeParseException
 import java.time.temporal.WeekFields
 import java.util.Locale
 
@@ -41,26 +27,14 @@ private class RepositorySource(private val usage: UsageRepository, private val i
     override fun detail(range: DetailRange): Flow<DeviceDetail?> = usage.detail(id, range, weekFields)
 }
 
-/** Every minute: the day can change while the screen is open. */
-private fun minuteTicks(): Flow<Unit> = flow {
-    while (true) {
-        delay(60_000)
-        emit(Unit)
-    }
-}
-
 /**
- * The detail screen's range (spec §9.3, stage 5a): it starts on the WEEK containing today and moves with [back],
- * [forward], [select] and [openDay], never past the child's today ([DeviceDetail.today], else the viewer's) nor before
- * the oldest summary ([DeviceDetail.canGoBack]). A range that contains today follows it: when the date changes while
- * the screen is open (or the child's zone is already a day ahead) it moves to the range containing the new today; a
- * range the user stepped back to stays. Period, anchor and following survive process death in [saved].
+ * The detail screen's range and its detail (spec §9.3, stage 5a): it starts on the WEEK containing today (or
+ * [initial]) and moves as [RangeNavigator] describes; period, anchor and following survive process death in [saved].
  */
-@OptIn(ExperimentalCoroutinesApi::class)
 class DeviceDetailViewModel internal constructor(
-    private val source: DetailSource,
-    private val saved: SavedStateHandle,
-    private val weekFields: WeekFields,
+    source: DetailSource,
+    saved: SavedStateHandle,
+    weekFields: WeekFields,
     initial: DetailRange? = null,
     ticks: Flow<Unit> = minuteTicks(),
 ) : ViewModel() {
@@ -72,89 +46,25 @@ class DeviceDetailViewModel internal constructor(
         initial: DetailRange? = null,
     ) : this(RepositorySource(usage, id, weekFields), saved, weekFields, initial)
 
-    private val _range = MutableStateFlow(initial ?: restored() ?: DetailRange.of(Period.WEEK, source.today(), weekFields))
-    private var follows: Boolean = saved[KEY_FOLLOW] ?: (initial == null && !_range.value.end.isBefore(source.today()))
+    private val nav = RangeNavigator(viewModelScope, source::today, source::detail, saved, weekFields, initial, ticks)
 
-    val range: StateFlow<DetailRange> = _range.asStateFlow()
+    val range: StateFlow<DetailRange> = nav.range
 
-    /** The viewer's date, re-read on every tick; a change resubscribes the detail so today, known days and the child's today are fresh. */
-    private val dates: Flow<LocalDate> = ticks.map { source.today() }.onStart { emit(source.today()) }.distinctUntilChanged()
-
-    val detail: StateFlow<DeviceDetail?> = combine(_range, dates) { r, _ -> r }
-        .flatMapLatest { source.detail(it) }
-        .onEach { reanchor(it) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
-    init {
-        save()
-    }
+    val detail: StateFlow<DeviceDetail?> = nav.detail
 
     /** Another period around the same anchor; going to DAY picks the range's last known day up to today. */
-    fun select(p: Period) {
-        val current = _range.value
-        if (p == current.period) return
-        set(DetailRange.of(p, anchor(), weekFields))
-    }
+    fun select(p: Period) = nav.select(p)
 
-    fun back() {
-        val d = current() ?: return
-        if (d.canGoBack) set(_range.value.previous())
-    }
+    fun back() = nav.back()
 
-    fun forward() {
-        val next = _range.value.next()
-        if (!next.start.isAfter(today())) set(next)
-    }
+    fun forward() = nav.forward()
 
     /** A tapped bar of a week or month: that day. */
-    fun openDay(date: LocalDate) {
-        if (!date.isAfter(today())) set(DetailRange.of(Period.DAY, date, weekFields))
-    }
-
-    /** The loaded detail of the current range, not a previous one still on screen. */
-    private fun current(): DeviceDetail? = detail.value?.takeIf { it.range == _range.value }
-
-    private fun today(): LocalDate = maxOf(source.today(), detail.value?.today ?: source.today())
-
-    private fun anchor(): LocalDate {
-        val today = today()
-        val r = _range.value
-        return current()?.days?.lastOrNull { it.known && !it.date.isAfter(today) }?.date ?: minOf(r.end, today).coerceAtLeast(r.start)
-    }
-
-    private fun reanchor(d: DeviceDetail?) {
-        val today = maxOf(source.today(), d?.today ?: source.today())
-        val r = _range.value
-        if (follows && r.end.isBefore(today)) set(DetailRange.of(r.period, today, weekFields))
-    }
-
-    private fun set(r: DetailRange) {
-        follows = !r.end.isBefore(today())
-        _range.value = r
-        save()
-    }
-
-    private fun save() {
-        saved[KEY_PERIOD] = _range.value.period.name
-        saved[KEY_ANCHOR] = _range.value.start.toString()
-        saved[KEY_FOLLOW] = follows
-    }
-
-    private fun restored(): DetailRange? {
-        val period = saved.get<String>(KEY_PERIOD)?.let { p -> Period.entries.firstOrNull { it.name == p } } ?: return null
-        val anchor = saved.get<String>(KEY_ANCHOR)?.let {
-            try {
-                LocalDate.parse(it)
-            } catch (_: DateTimeParseException) {
-                null
-            }
-        } ?: return null
-        return DetailRange.of(period, anchor, weekFields)
-    }
+    fun openDay(date: LocalDate) = nav.openDay(date)
 
     internal companion object {
-        const val KEY_PERIOD = "detail_period"
-        const val KEY_ANCHOR = "detail_anchor"
-        const val KEY_FOLLOW = "detail_follows"
+        const val KEY_PERIOD = RangeNavigator.KEY_PERIOD
+        const val KEY_ANCHOR = RangeNavigator.KEY_ANCHOR
+        const val KEY_FOLLOW = RangeNavigator.KEY_FOLLOW
     }
 }
