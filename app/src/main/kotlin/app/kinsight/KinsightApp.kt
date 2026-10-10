@@ -235,6 +235,8 @@ private fun MainScaffold(appVersion: String, openDevice: StateFlow<String?>, onD
                             nav.selectTab(GroupDest)
                             nav.navigate(InviteDest(Role.CHILD.name))
                         },
+                        // A key error: Settings holds Diagnostics and the identity reset.
+                        onOpenSettings = { nav.selectTab(SettingsDest) },
                     )
                 }
             }

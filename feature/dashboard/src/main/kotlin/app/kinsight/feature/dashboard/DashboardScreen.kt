@@ -42,8 +42,10 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -75,7 +77,7 @@ private const val HOUR_MS = 3_600_000L
 private const val REFRESH_MS = 1_500L
 
 @Composable
-fun DashboardRoute(onOpenDevice: (DeviceId) -> Unit, onConsent: () -> Unit, onInviteChild: () -> Unit) {
+fun DashboardRoute(onOpenDevice: (DeviceId) -> Unit, onConsent: () -> Unit, onInviteChild: () -> Unit, onOpenSettings: () -> Unit) {
     val context = LocalContext.current
     val vm: DashboardViewModel = viewModel {
         val g = AppGraph.get(context)
@@ -89,7 +91,7 @@ fun DashboardRoute(onOpenDevice: (DeviceId) -> Unit, onConsent: () -> Unit, onIn
             now = System.currentTimeMillis()
         }
     }
-    DashboardScreen(ui, now, onOpenDevice, vm::pause, vm::resume, onConsent, vm::start, vm::syncNow, onInviteChild)
+    DashboardScreen(ui, now, onOpenDevice, vm::pause, vm::resume, onConsent, vm::start, vm::syncNow, onInviteChild, onOpenSettings)
 }
 
 /**
@@ -110,6 +112,7 @@ fun DashboardScreen(
     onStart: () -> Unit,
     onSyncNow: () -> Unit,
     onInviteChild: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     val d = ui.dashboard
     if (d == null) {
@@ -125,6 +128,7 @@ fun DashboardScreen(
     val child = d.self.role == MemberRole.CHILD
     val noContactMs = ui.noContactHours * HOUR_MS
     val attention = SyncAttention.of(ui.service)
+    val syncNowLabel = stringResource(R.string.dash_sync_now)
     var refreshing by remember { mutableStateOf(false) }
     LaunchedEffect(refreshing) {
         if (refreshing) {
@@ -141,12 +145,20 @@ fun DashboardScreen(
         modifier = Modifier.fillMaxSize(),
     ) {
         LazyColumn(
-            Modifier.fillMaxSize().testTag("dash_list"),
+            // Pull to refresh is a gesture only: TalkBack and switch users get the same «Sync now» as an action.
+            Modifier.fillMaxSize().testTag("dash_list").semantics {
+                customActions = listOf(
+                    CustomAccessibilityAction(syncNowLabel) {
+                        onSyncNow()
+                        true
+                    },
+                )
+            },
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item { Text(stringResource(R.string.dash_title), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() }) }
-            attention?.let { a -> item { AttentionBanner(a, onStart) } }
+            attention?.let { a -> item { AttentionBanner(a, onStart, onOpenSettings) } }
             if (child) {
                 item { ChildTransparencyRow(d.parents, d.selfUsage?.sharing ?: Sharing.Never, ui.sharingFailed, onPause, onResume, onConsent) }
                 d.selfUsage?.let { u -> item { DeviceCard(u, nowMs, noContactMs) { onOpenDevice(u.member.id) } } }
@@ -187,7 +199,7 @@ internal enum class SyncAttention {
 }
 
 @Composable
-private fun AttentionBanner(a: SyncAttention, onStart: () -> Unit) {
+private fun AttentionBanner(a: SyncAttention, onStart: () -> Unit, onOpenSettings: () -> Unit) {
     val context = LocalContext.current
     Card(
         Modifier.fillMaxWidth().testTag("dash_banner").semantics { liveRegion = LiveRegionMode.Polite },
@@ -218,7 +230,10 @@ private fun AttentionBanner(a: SyncAttention, onStart: () -> Unit) {
                     { context.open(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) },
                     Modifier.testTag("dash_bt_settings"),
                 ) { Text(stringResource(R.string.dash_open_bluetooth)) }
-                SyncAttention.KEY_ERROR, SyncAttention.RADIO_ERROR -> Unit
+                SyncAttention.KEY_ERROR -> Button(onOpenSettings, Modifier.testTag("dash_open_settings")) {
+                    Text(stringResource(R.string.dash_open_kinsight_settings))
+                }
+                SyncAttention.RADIO_ERROR -> Unit
             }
         }
     }

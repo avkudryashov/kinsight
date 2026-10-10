@@ -59,11 +59,12 @@ class DashboardScreenTest {
         onOpenDevice: (DeviceId) -> Unit = {},
         onSyncNow: () -> Unit = {},
         onInviteChild: () -> Unit = {},
+        onOpenSettings: () -> Unit = {},
     ) = rule.setContent {
         KinsightTheme(dynamicColor = false) {
             DashboardScreen(
                 ui, now, onOpenDevice, onPause = onPause, onResume = onResume, onConsent = onConsent, onStart = onStart,
-                onSyncNow = onSyncNow, onInviteChild = onInviteChild,
+                onSyncNow = onSyncNow, onInviteChild = onInviteChild, onOpenSettings = onOpenSettings,
             )
         }
     }
@@ -157,6 +158,25 @@ class DashboardScreenTest {
     fun aKeyErrorShowsABanner() = bannerFor(running.copy(state = ServiceState.STORAGE_ERROR), "Key storage error")
 
     @Test
+    fun aKeyErrorBannerOpensSettings() {
+        var opened = false
+        show(childUi(Sharing.On).copy(service = running.copy(state = ServiceState.STORAGE_ERROR)), onOpenSettings = { opened = true })
+        rule.onNodeWithTag("dash_open_settings").performClick()
+        rule.waitForIdle()
+        assertTrue(opened)
+    }
+
+    @Test
+    fun syncNowIsAnAccessibilityActionOnTheList() {
+        var synced = 0
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), emptyList()), running, true), onSyncNow = { synced++ })
+        val node = rule.onNodeWithTag("dash_list").fetchSemanticsNode()
+        val action = node.config.getOrNull(SemanticsActions.CustomActions)?.single { it.label == "Sync now" }
+        rule.runOnIdle { action!!.action() }
+        assertEquals(1, synced)
+    }
+
+    @Test
     fun aStopOnAChildShowsTheBannerWithStart() {
         var started = false
         show(childUi(Sharing.On).copy(service = running.copy(state = ServiceState.STOPPED, stoppedByUser = true)), onStart = { started = true })
@@ -181,7 +201,7 @@ class DashboardScreenTest {
             KinsightTheme(dynamicColor = false) {
                 DashboardScreen(
                     DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), emptyList()), current, true), now, {},
-                    onPause = {}, onResume = {}, onConsent = {}, onStart = {}, onSyncNow = {}, onInviteChild = {},
+                    onPause = {}, onResume = {}, onConsent = {}, onStart = {}, onSyncNow = {}, onInviteChild = {}, onOpenSettings = {},
                 )
             }
         }
