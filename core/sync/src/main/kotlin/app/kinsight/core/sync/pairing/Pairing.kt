@@ -2,6 +2,7 @@ package app.kinsight.core.sync.pairing
 
 import app.kinsight.core.crypto.DhKey
 import app.kinsight.core.crypto.Ed25519
+import app.kinsight.core.crypto.Primitives
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.DeviceKeys
@@ -22,11 +23,17 @@ import okio.ByteString.Companion.toByteString
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
-/** Guest side: the host is not the admin of the QR code, or what it sent is malformed or not a valid welcome. */
+/**
+ * A pairing attempt that failed outside the protocol's own refusals: [Kind.WRONG_ADMIN] (guest: the host's static key
+ * is not the QR's admin key), [Kind.MALFORMED] (either side: an undecodable or unexpected message) and
+ * [Kind.INVALID_WELCOME] (guest: the welcome is not a valid membership with this device under the QR's role).
+ */
 class PairingException(val kind: Kind, message: String, cause: Throwable? = null) : IOException(message, cause) {
     enum class Kind { WRONG_ADMIN, MALFORMED, INVALID_WELCOME }
 }
@@ -59,11 +66,19 @@ object PairingProtocol {
     /** Entries per PairWelcome page, below SecureChannel.MAX_PLAINTEXT with room for framing. */
     const val PAGE_BYTES = 60_000
     val DECISION_TIMEOUT: Duration = 3.minutes
+    val REQUEST_TIMEOUT: Duration = 20.seconds
     private val PROOF_LABEL = "kinsight-pair-v1".encodeToByteArray()
 
     /** Never equal to SecureChannel.prologue: a pairing handshake cannot be mistaken for a sync session. */
-    fun prologue(groupId: GroupId): ByteArray =
-        "kinsight-pair".encodeToByteArray() + groupId.bytes() + ByteBuffer.allocate(4).putInt(SecureChannel.PROTOCOL_FAMILY).array()
+    private val PROLOGUE_LABEL = "kinsight-pair-prologue".encodeToByteArray()
+
+    /**
+     * Never equal to SecureChannel.prologue: a pairing handshake cannot be mistaken for a sync session. The token's
+     * MAC makes a device without the QR fail the handshake itself (bounded by SecureChannel.HANDSHAKE_TIMEOUT).
+     */
+    fun prologue(groupId: GroupId, token: ByteArray): ByteArray =
+        "kinsight-pair".encodeToByteArray() + groupId.bytes() + ByteBuffer.allocate(4).putInt(SecureChannel.PROTOCOL_FAMILY).array() +
+            Primitives.hmacSha256(token, PROLOGUE_LABEL)
 
     fun proofMessage(token: ByteArray, dhPublicKey: ByteArray): ByteArray = PROOF_LABEL + token + dhPublicKey
 
@@ -80,14 +95,28 @@ object PairingProtocol {
 
     /** Lets the peer read our last frame before the link closes: wait (bounded) for it to hang up first. */
     internal suspend fun linger(ch: SecureChannel) {
-        withTimeoutOrNull(5.seconds) { runCatching { while (true) ch.receive() } }
+        withTimeoutOrNull(5.seconds) {
+            try {
+                while (true) ch.receive()
+            } catch (e: CancellationException) {
+                throw e // our own timeout ends the wait; an outer cancellation must propagate
+            } catch (_: Exception) {
+                // the peer hung up: done
+            }
+        }
     }
 }
 
 /**
  * The admin's side of one pairing attempt (spec §6.4): responder of a Noise XX handshake with the pairing prologue,
  * checks expiry, token, proof of the guest's signing key and its name, answers PairPending, asks [decide] and sends
- * the welcome (paged) or the refusal. The stream is always closed on return; link errors propagate.
+ * the welcome (paged) or the refusal. The stream is always closed on return; link errors propagate, and a guest that
+ * sends no request within [PairingProtocol.REQUEST_TIMEOUT] after the handshake gets an IOException.
+ *
+ * One instance serves one invite and may serve several connections. Once a joiner has been welcomed, the token is bound
+ * to its X25519 key: any other key presenting the token is refused with BAD_TOKEN before [decide] is asked, while the
+ * same key again still reaches [decide], which must answer it with a re-welcome (no new AddMember). Expiry is checked on
+ * the request and again right before a welcome is sent.
  */
 class PairingHost(
     private val invite: Invite,
@@ -96,17 +125,22 @@ class PairingHost(
     private val clock: () -> Long = System::currentTimeMillis,
     private val decisionTimeout: Duration = PairingProtocol.DECISION_TIMEOUT,
 ) {
+    private val boundKey = AtomicReference<ByteArray?>(null)
+
     suspend fun serve(stream: ByteStream, decide: suspend (Joiner) -> HostDecision): HostOutcome {
         try {
-            val ch = SecureChannel.accept(stream, dhKey, PairingProtocol.prologue(invite.groupId))
-            val request = PairingProtocol.receive(ch).request
-                ?: return reject(ch, PairReject.Reason.REASON_UNSPECIFIED, null)
+            val ch = SecureChannel.accept(stream, dhKey, PairingProtocol.prologue(invite.groupId, invite.token))
+            val first = withTimeoutOrNull(PairingProtocol.REQUEST_TIMEOUT) { PairingProtocol.receive(ch) }
+                ?: throw IOException("no pairing request within ${PairingProtocol.REQUEST_TIMEOUT}")
+            val request = first.request ?: return reject(ch, PairReject.Reason.REASON_UNSPECIFIED, null)
             val joiner = Joiner(request.sign_public_key.toByteArray(), ch.remoteStaticKey, request.display_name)
             problem(request, ch.remoteStaticKey)?.let { return reject(ch, it, joiner) }
             PairingProtocol.send(ch, PairMessage(pending = PairPending()))
             return when (val d = withTimeoutOrNull(decisionTimeout) { decide(joiner) } ?: HostDecision.Reject(PairReject.Reason.EXPIRED)) {
                 is HostDecision.Reject -> reject(ch, d.reason, joiner)
                 is HostDecision.Welcome -> {
+                    if (clock() > expiresAtMs) return reject(ch, PairReject.Reason.EXPIRED, joiner)
+                    if (!bind(joiner.dhPublicKey)) return reject(ch, PairReject.Reason.BAD_TOKEN, joiner)
                     sendWelcome(ch, d)
                     PairingProtocol.linger(ch)
                     HostOutcome.Welcomed(joiner)
@@ -123,12 +157,18 @@ class PairingHost(
         return when {
             clock() > expiresAtMs -> PairReject.Reason.EXPIRED
             token.size != Invite.TOKEN_BYTES || !MessageDigest.isEqual(token, invite.token) -> PairReject.Reason.BAD_TOKEN
+            boundKey.get()?.contentEquals(guestDh) == false -> PairReject.Reason.BAD_TOKEN
             sign.size != 32 || !verifies(sign, PairingProtocol.proofMessage(invite.token, guestDh), r.proof.toByteArray()) ->
                 PairReject.Reason.BAD_PROOF
-            r.display_name.isBlank() || !MembershipLimits.nameOk(r.display_name) -> PairReject.Reason.NAME_INVALID
+            r.display_name.isBlank() || !MembershipLimits.nameOk(r.display_name) || PairingNames.hasUnsafe(r.display_name) ->
+                PairReject.Reason.NAME_INVALID
             else -> null
         }
     }
+
+    /** Binds the token to [dh] on the first welcome; true when it is (now) bound to [dh]. */
+    private fun bind(dh: ByteArray): Boolean =
+        boundKey.compareAndSet(null, dh.copyOf()) || boundKey.get()!!.contentEquals(dh)
 
     private fun verifies(key: ByteArray, message: ByteArray, signature: ByteArray): Boolean =
         runCatching { Ed25519.verify(key, message, signature) }.getOrDefault(false)
@@ -167,7 +207,9 @@ class PairingHost(
 /**
  * The new device's side: initiator of the handshake, refuses any host whose static key is not the QR's admin key,
  * proves its signing key, waits (bounded) for the admin's decision and checks the welcome: a valid membership of the
- * QR's group with this device active under its own keys and the QR's role. The stream is always closed on return.
+ * QR's group with this device active under its own keys and the QR's role, the inviting admin active under the QR's
+ * keys. Each wait for the admin (PairPending, then the decision) is bounded by [decisionTimeout]. The stream is always
+ * closed on return.
  */
 class PairingGuest(
     private val invite: Invite,
@@ -177,7 +219,7 @@ class PairingGuest(
 ) {
     suspend fun join(stream: ByteStream, onPending: () -> Unit = {}): GuestResult {
         try {
-            val ch = SecureChannel.initiate(stream, keys.dh, PairingProtocol.prologue(invite.groupId))
+            val ch = SecureChannel.initiate(stream, keys.dh, PairingProtocol.prologue(invite.groupId, invite.token))
             if (!ch.remoteStaticKey.contentEquals(invite.adminDhKey)) {
                 throw PairingException(PairingException.Kind.WRONG_ADMIN, "the device is not the admin from the QR code")
             }
@@ -189,7 +231,8 @@ class PairingGuest(
                 proof = proof.toByteString(),
             )
             PairingProtocol.send(ch, PairMessage(request = request))
-            val first = PairingProtocol.receive(ch)
+            val first = withTimeoutOrNull(decisionTimeout) { PairingProtocol.receive(ch) }
+                ?: throw IOException("no answer from the admin within $decisionTimeout")
             first.reject?.let { return GuestResult.Rejected(it.reason) }
             if (first.pending == null) throw PairingException(PairingException.Kind.MALFORMED, "expected PairPending")
             onPending()
@@ -224,7 +267,9 @@ class PairingGuest(
         val me = state.active[keys.deviceId] ?: invalid("this device was not added")
         if (!me.dhPublicKey.toByteArray().contentEquals(keys.dh.publicKey)) invalid("added with another X25519 key")
         if (me.role != invite.role) invalid("added as ${me.role}, invited as ${invite.role}")
-        if (state.active[invite.adminId]?.isAdmin != true) invalid("the inviting admin is not an active admin")
+        val inviter = state.active[invite.adminId]
+        if (inviter?.isAdmin != true) invalid("the inviting admin is not an active admin")
+        if (!inviter.dhPublicKey.toByteArray().contentEquals(invite.adminDhKey)) invalid("the admin's X25519 key differs from the QR")
         return GuestResult.Joined(discoveryKey, entries, state)
     }
 }

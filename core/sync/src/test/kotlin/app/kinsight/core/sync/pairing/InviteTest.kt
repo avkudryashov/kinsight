@@ -4,6 +4,7 @@ import app.kinsight.core.crypto.Primitives
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.proto.DeviceRole
+import app.kinsight.core.sync.PROTOCOL_VERSION
 import java.util.Base64
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -63,5 +64,39 @@ class InviteTest {
         assertEquals(Invite.ADVERT_TAG_BYTES, invite.advertTag.size)
         assertContentEquals(invite.advertTag, Invite.parse(invite.toUri()).advertTag)
         assertFalse(invite.advertTag.contentEquals(other.advertTag))
+    }
+
+    private fun withName(name: ByteArray): String {
+        val head = invite.encode().copyOf(1 + 2 + 16 + 32 + 32 + 16 + 1)
+        return Invite.PREFIX + Base64.getUrlEncoder().withoutPadding().encodeToString(head + byteArrayOf(name.size.toByte()) + name)
+    }
+
+    @Test
+    fun rejectsOverlongText() {
+        val padded = invite.toUri() + "\n".repeat(Invite.MAX_TEXT_CHARS)
+        assertFailsWith<InvalidInviteException> { Invite.parse(padded) }
+    }
+
+    @Test
+    fun otherVersionsAreUnsupported() {
+        assertFailsWith<UnsupportedInviteVersionException> { Invite.parse("kinsight://pair/2/AAAA") }
+        val newer = Invite(PROTOCOL_VERSION + 1, invite.groupId, invite.adminSignKey, invite.adminDhKey, invite.token, invite.role, invite.adminName)
+        assertFailsWith<UnsupportedInviteVersionException> { Invite.parse(newer.toUri()) }
+    }
+
+    @Test
+    fun rejectsBlankOrUnsafeAdminNames() {
+        assertEquals("Mom", Invite.parse(withName("Mom".encodeToByteArray())).adminName)
+        for (name in listOf("", "   ", "Mo\u202Em", "Mo\u2066m", "Mo\u0007m", "Mo\u0085m", "Mo\u007Fm")) {
+            assertFailsWith<InvalidInviteException>(name) { Invite.parse(withName(name.encodeToByteArray())) }
+        }
+        assertFailsWith<IllegalArgumentException> {
+            Invite(invite.protocolVersion, invite.groupId, invite.adminSignKey, invite.adminDhKey, invite.token, invite.role, " ")
+        }
+    }
+
+    @Test
+    fun createStripsUnsafeCharacters() {
+        assertEquals("Mom", Invite.create(genesis.groupId, admin, DeviceRole.CHILD, " Mo\u202Em\u0000\u2069 ").adminName)
     }
 }
