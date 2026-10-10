@@ -98,6 +98,30 @@ class UsageReadModelTest {
     }
 
     @Test
+    fun onlyTheFirstSharingEventOfAnAuthorReadsAsStarted() {
+        // Emulator run 2026-10-10: the consent's SHARING_RESUMED read «Sharing resumed» although sharing had just begun.
+        val first = event(StateEvent.Kind.SHARING_RESUMED)
+        val paused = event(StateEvent.Kind.SHARING_PAUSED)
+        val again = event(StateEvent.Kind.SHARING_RESUMED)
+        val events = UsageReadModel.events(listOf(again, paused, first)).associateBy { it.seq }
+        assertTrue(events.getValue(first.seq).firstSharing)
+        assertFalse(events.getValue(again.seq).firstSharing)
+        assertFalse(events.getValue(paused.seq).firstSharing)
+        // A device that paused first never «started» with a resume.
+        val pausedFirst = UsageReadModel.events(listOf(event(StateEvent.Kind.SHARING_PAUSED), event(StateEvent.Kind.SHARING_RESUMED)))
+        assertTrue(pausedFirst.none { it.firstSharing })
+    }
+
+    @Test
+    fun anIntervalEventIsShownAtItsStartLikeItsAlert() {
+        // «sync was stopped, When: 7:34 PM» in the alert, «Oct 10, 7:38 PM» (signing time) in the list: one time now.
+        val stopped = UsageReadModel.events(listOf(event(StateEvent.Kind.SYNC_STOPPED, createdMs = 9_000, fromMs = 5_000, toMs = 8_000))).single()
+        assertEquals(5_000, stopped.atMs)
+        val paused = UsageReadModel.events(listOf(event(StateEvent.Kind.SHARING_PAUSED, createdMs = 9_000))).single()
+        assertEquals(9_000, paused.atMs)
+    }
+
+    @Test
     fun usageAndDetailTotalThePeriod() {
         val entries = listOf(summary(today, 30, 4), summary(today.minusDays(3), 60, 6), summary(today.minusDays(20), 100, 1))
         val by = UsageReadModel.summaries(entries)[kidKeys.deviceId]

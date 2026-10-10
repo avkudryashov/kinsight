@@ -49,7 +49,12 @@ data class EventView(
     val toMs: Long,
     val createdMs: Long,
     val shiftMs: Long,
-)
+    /** The author's first SHARING_* event, and a resume: sharing began here (consent), it was not resumed. */
+    val firstSharing: Boolean = false,
+) {
+    /** When it happened, the same for the event list and the alert: an interval's start, else the signing time. */
+    val atMs: Long get() = if (fromMs > 0) fromMs else createdMs
+}
 
 /** A dashboard card: today, the last 7 days (oldest first), the mean of the 7 days before today. */
 data class DeviceUsage(

@@ -36,8 +36,17 @@ object UsageReadModel {
             .groupBy { it.author }
             .mapValues { (_, own) -> own.groupBy { it.usageDate!! }.mapValues { (_, same) -> same.maxBy { it.seq } } }
 
-    fun events(entries: List<DecodedEntry>): List<EventView> = entries.mapNotNull { e ->
-        e.body.state_event?.let { EventView(e.author, e.seq, it.kind, it.from_ms, it.to_ms, e.body.created_at_ms, it.clock_shift_ms) }
+    fun events(entries: List<DecodedEntry>): List<EventView> {
+        val sharingKinds = setOf(StateEvent.Kind.SHARING_PAUSED, StateEvent.Kind.SHARING_RESUMED)
+        val firstSharing = entries.filter { it.body.state_event?.kind in sharingKinds }
+            .groupBy { it.author }
+            .mapValues { (_, own) -> own.minBy { it.seq }.seq }
+        return entries.mapNotNull { e ->
+            e.body.state_event?.let {
+                val first = it.kind == StateEvent.Kind.SHARING_RESUMED && firstSharing[e.author] == e.seq
+                EventView(e.author, e.seq, it.kind, it.from_ms, it.to_ms, e.body.created_at_ms, it.clock_shift_ms, first)
+            }
+        }
     }
 
     fun catalogOf(entries: List<DecodedEntry>, author: DeviceId): Map<String, AppCatalog> =

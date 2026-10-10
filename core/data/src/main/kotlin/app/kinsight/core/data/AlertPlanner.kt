@@ -97,7 +97,7 @@ object AlertPlanner {
             val max = own.maxOfOrNull { it.seq } ?: 0L
             val mark = notified[child.id] ?: if (i.markers.initialized) 0L else max
             own.filter { it.seq > mark && it.kind in INTEGRITY_KINDS }.sortedBy { it.seq }
-                .forEach { alerts += Alert.Integrity(child.name, it.kind, if (it.fromMs > 0) it.fromMs else it.createdMs, child.id) }
+                .forEach { alerts += Alert.Integrity(child.name, it.kind, it.atMs, child.id) }
             notified[child.id] = maxOf(mark, max)
         }
 

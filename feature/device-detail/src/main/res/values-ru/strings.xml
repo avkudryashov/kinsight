@@ -25,6 +25,7 @@
     <string name="det_parent_not_shared">Kinsight передаёт только экранное время детей, поэтому для этого телефона показаны только события.</string>
     <string name="det_ev_paused">Обмен поставлен на паузу</string>
     <string name="det_ev_resumed">Пауза обмена снята</string>
+    <string name="det_ev_started">Обмен включён</string>
     <string name="det_ev_access_off">Доступ к истории использования выключен</string>
     <string name="det_ev_access_on">Доступ к истории использования включён</string>
     <string name="det_ev_clock_forward">Часы переведены вперёд на %1$s</string>

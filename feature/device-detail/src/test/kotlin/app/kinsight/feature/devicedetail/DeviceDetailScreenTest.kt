@@ -161,6 +161,29 @@ class DeviceDetailScreenTest {
     }
 
     @Test
+    fun theFirstResumeReadsAsSharingStarted() {
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                Column {
+                    Text(eventText(event.copy(kind = StateEvent.Kind.SHARING_RESUMED, firstSharing = true)))
+                    Text(eventText(event.copy(kind = StateEvent.Kind.SHARING_RESUMED)))
+                }
+            }
+        }
+        rule.onNodeWithText("Sharing started").assertExists()
+        rule.onNodeWithText("Sharing resumed").assertExists()
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun theFirstResumeInRussian() {
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) { Text(eventText(event.copy(kind = StateEvent.Kind.SHARING_RESUMED, firstSharing = true))) }
+        }
+        rule.onNodeWithText("Обмен включён").assertExists()
+    }
+
+    @Test
     fun missingOrReversedSpanHasNoDuration() {
         rule.setContent {
             KinsightTheme(dynamicColor = false) {

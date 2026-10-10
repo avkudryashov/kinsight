@@ -25,7 +25,7 @@ fun eventText(e: EventView): String {
 
     return when (e.kind) {
         StateEvent.Kind.SHARING_PAUSED -> stringResource(R.string.det_ev_paused)
-        StateEvent.Kind.SHARING_RESUMED -> stringResource(R.string.det_ev_resumed)
+        StateEvent.Kind.SHARING_RESUMED -> stringResource(if (e.firstSharing) R.string.det_ev_started else R.string.det_ev_resumed)
         StateEvent.Kind.USAGE_ACCESS_REVOKED -> stringResource(R.string.det_ev_access_off)
         StateEvent.Kind.USAGE_ACCESS_RESTORED -> stringResource(R.string.det_ev_access_on)
         StateEvent.Kind.CLOCK_CHANGED -> {

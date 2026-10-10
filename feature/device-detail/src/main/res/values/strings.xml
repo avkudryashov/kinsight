@@ -23,6 +23,7 @@
     <string name="det_parent_not_shared">Kinsight shares only children\'s screen time, so this phone shows only its events.</string>
     <string name="det_ev_paused">Sharing paused</string>
     <string name="det_ev_resumed">Sharing resumed</string>
+    <string name="det_ev_started">Sharing started</string>
     <string name="det_ev_access_off">Usage access turned off</string>
     <string name="det_ev_access_on">Usage access turned on</string>
     <string name="det_ev_clock_forward">Clock moved forward by %1$s</string>

@@ -162,7 +162,7 @@ fun DeviceDetailScreen(detail: DeviceDetail, onPeriod: (Period) -> Unit, onAllAp
             items(detail.events.take(MAX_EVENTS), key = { "ev:${it.author.hex}-${it.seq}" }) { e ->
                 ListItem(
                     headlineContent = { Text(eventText(e)) },
-                    supportingContent = { Text(dateTime(e.createdMs)) },
+                    supportingContent = { Text(dateTime(e.atMs)) }, // the alert's time too
                     modifier = Modifier.testTag("det_event_${e.seq}"),
                 )
             }
