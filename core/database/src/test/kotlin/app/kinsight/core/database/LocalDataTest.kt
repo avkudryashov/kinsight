@@ -59,6 +59,16 @@ class LocalDataTest {
     }
 
     @Test
+    fun peerControlledKeyTextCannotSpoofAKind() = runTest {
+        val fakeApp = author.create { it.copy(app_catalog = AppCatalog(package_name = "x/hb", label = "X")) }
+        val fakeSum = summary("x/app/y")
+        store.applyBatch(listOf(genesis.entry, fakeApp, fakeSum))
+        assertEquals(emptyList(), store.heartbeats())
+        assertEquals(listOf(fakeApp), store.catalog())
+        assertEquals(listOf(fakeSum), store.summaries())
+    }
+
+    @Test
     fun queueIsPrunedBeforeTheHorizon() = runTest {
         queue.commit(
             CollectBatch(
@@ -116,6 +126,7 @@ class LocalDataTest {
         queue.setLastUsagePublishMs(1)
         queue.setCatalogHash("a.app", "x")
         db.vectorDao().addAbove(AboveRow(keys.deviceId.hex, 9))
+        for (table in WIPED_TABLES) assertTrue(count(table) > 0, "$table empty before wipe")
         db.wipeAll()
         for (table in WIPED_TABLES) assertEquals(0L, count(table), table)
         assertEquals(0L, store.authorState(keys.deviceId).lastSeq)

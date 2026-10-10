@@ -64,11 +64,11 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
     override suspend fun liveEntries(): List<DecodedEntry> = entryDao.allBytes().map(DecodedEntry::decode)
 
     /** Live UsageSummary entries of every author (the v1 screens read only these, spec §9.3). */
-    suspend fun summaries(): List<DecodedEntry> = entryDao.bytesBySupersedeKey("%/sum/%").map(DecodedEntry::decode)
+    suspend fun summaries(): List<DecodedEntry> = entryDao.bytesBySupersedeKey("/sum/%").map(DecodedEntry::decode).filter { it.kind == EntryKind.USAGE_SUMMARY }
 
-    suspend fun catalog(): List<DecodedEntry> = entryDao.bytesBySupersedeKey("%/app/%").map(DecodedEntry::decode)
+    suspend fun catalog(): List<DecodedEntry> = entryDao.bytesBySupersedeKey("/app/%").map(DecodedEntry::decode).filter { it.kind == EntryKind.APP_CATALOG }
 
-    suspend fun heartbeats(): List<DecodedEntry> = entryDao.bytesBySupersedeKey("%/hb").map(DecodedEntry::decode)
+    suspend fun heartbeats(): List<DecodedEntry> = entryDao.bytesBySupersedeKey("/hb").map(DecodedEntry::decode).filter { it.kind == EntryKind.HEARTBEAT }
 
     /** Every StateEvent, LEFT_GROUP included (stored as membership), ordered by author and seq. */
     suspend fun stateEvents(): List<DecodedEntry> =

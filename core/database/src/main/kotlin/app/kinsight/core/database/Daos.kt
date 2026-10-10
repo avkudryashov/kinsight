@@ -37,9 +37,9 @@ interface EntryDao {
     @Query("SELECT bytes FROM entries WHERE usage_date IS NOT NULL")
     suspend fun bytesWithUsageDate(): List<ByteArray>
 
-    /** Superseded kinds by the shape of their key (DecodedEntry.supersedeKey), e.g. "%/sum/%" for UsageSummary. */
-    @Query("SELECT bytes FROM entries WHERE supersede_key LIKE :pattern ORDER BY author, seq")
-    suspend fun bytesBySupersedeKey(pattern: String): List<ByteArray>
+    /** Superseded kinds by the kind marker right after the author in their key (DecodedEntry.supersedeKey), e.g. "/sum/%" for UsageSummary. */
+    @Query("SELECT bytes FROM entries WHERE supersede_key LIKE author || :suffix ORDER BY author, seq")
+    suspend fun bytesBySupersedeKey(suffix: String): List<ByteArray>
 
     /** Never superseded and not membership: state events except LEFT_GROUP, and unknown kinds. */
     @Query("SELECT bytes FROM entries WHERE supersede_key IS NULL AND membership = 0 ORDER BY author, seq")
