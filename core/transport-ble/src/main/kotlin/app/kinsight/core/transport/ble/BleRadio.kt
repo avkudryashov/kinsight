@@ -21,6 +21,7 @@ import android.os.ParcelUuid
 import app.kinsight.core.sync.ByteStream
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.IOException
@@ -50,6 +51,8 @@ internal class BleRadio(
     private val context: Context,
     private val adapter: BluetoothAdapter,
     private val log: (String) -> Unit,
+    /** An advertising failure that stands (text), or null once advertising works; called on any thread. */
+    private val onAdvertProblem: (String?) -> Unit = {},
 ) {
     private val manager = context.getSystemService(BluetoothManager::class.java)
 
@@ -66,6 +69,16 @@ internal class BleRadio(
     @Volatile
     private var advertising = false
 
+    /** The radio's scope (from [openServers]): the advertising retry runs in it and dies with it. */
+    @Volatile
+    private var scope: CoroutineScope? = null
+
+    private val advertiseRetry = AdvertiseRetry()
+
+    // The advert the retry repeats; written by advertise() before it starts, read on the binder thread.
+    @Volatile
+    private var lastAdvert: Pair<AdvertPayload, Boolean>? = null
+
     /** Set by [close]: a call racing the teardown (another thread) must not start a scan or an advert again. */
     @Volatile
     private var closed = false
@@ -73,10 +86,30 @@ internal class BleRadio(
     private val advertiseCallback = object : AdvertiseCallback() {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
             log("advertising mode=${settingsInEffect.mode}")
+            onAdvertProblem(null)
         }
 
         override fun onStartFailure(errorCode: Int) {
-            log("advertising failed: $errorCode")
+            when (advertiseRetry.onFailure(errorCode)) {
+                AdvertiseRetry.Next.OK -> {
+                    log("advertising already started")
+                    onAdvertProblem(null)
+                }
+                AdvertiseRetry.Next.RETRY -> {
+                    log("advertising failed: $errorCode, retrying in ${ADVERTISE_RETRY_MS / 1000} s")
+                    onAdvertProblem("advertising failed ($errorCode), retrying")
+                    val gen = advertiseRetry.current()
+                    val again = lastAdvert
+                    scope?.launch {
+                        delay(ADVERTISE_RETRY_MS)
+                        if (again != null && advertiseRetry.isCurrent(gen)) start(again.first, again.second)
+                    }
+                }
+                AdvertiseRetry.Next.GIVE_UP -> {
+                    log("advertising failed: $errorCode")
+                    onAdvertProblem("advertising failed ($errorCode)")
+                }
+            }
         }
     }
 
@@ -102,6 +135,7 @@ internal class BleRadio(
      * either cannot be opened; the caller then calls [close].
      */
     fun openServers(scope: CoroutineScope, onInbound: (ByteStream) -> Unit) {
+        this.scope = scope
         val server = adapter.listenUsingInsecureL2capChannel()
         l2cap = server
         psm = server.psm
@@ -139,9 +173,17 @@ internal class BleRadio(
 
     /**
      * (Re)starts legacy connectable advertising: flags + our service data (31 bytes exactly), the 128-bit service UUID
-     * list in the scan response (it does not fit in the advertisement). Never throws.
+     * list in the scan response (it does not fit in the advertisement). A failure reported by the stack is retried
+     * once after [ADVERTISE_RETRY_MS] (a newer advert cancels that retry) and handed to onAdvertProblem. Never throws.
      */
     fun advertise(payload: AdvertPayload, fast: Boolean) {
+        if (closed) return
+        lastAdvert = payload to fast
+        advertiseRetry.fresh()
+        start(payload, fast)
+    }
+
+    private fun start(payload: AdvertPayload, fast: Boolean) {
         if (closed) return
         try {
             val advertiser = adapter.bluetoothLeAdvertiser ?: return log("no advertiser")
@@ -170,6 +212,7 @@ internal class BleRadio(
             if (closed) runCatching { advertiser.stopAdvertising(advertiseCallback) }.also { advertising = false }
         } catch (e: Exception) {
             log("advertise failed: $e")
+            onAdvertProblem("advertising failed: ${e::class.simpleName}")
         }
     }
 
@@ -177,11 +220,12 @@ internal class BleRadio(
      * (Re)starts the background scan delivered through ScanReceiver's PendingIntent. Two OR-ed filters (the UUID list
      * from the scan response, the service data from the advertisement). Normal mode batches results in the controller
      * for [BATCH_DELAY_MS] when supported (each delivery wakes the app); fast mode reports at once. Never throws.
+     * Returns the startScan result: 0 when the scan runs, [SCAN_NOT_STARTED] when it was not even attempted or threw.
      */
-    fun startScan(fast: Boolean) {
-        if (closed) return
-        try {
-            val scanner = adapter.bluetoothLeScanner ?: return log("no scanner")
+    fun startScan(fast: Boolean): Int {
+        if (closed) return SCAN_NOT_STARTED
+        return try {
+            val scanner = adapter.bluetoothLeScanner ?: return SCAN_NOT_STARTED.also { log("no scanner") }
             val pending = ScanReceiver.pendingIntent(context)
             runCatching { scanner.stopScan(pending) }
             val filters = listOf(
@@ -197,8 +241,10 @@ internal class BleRadio(
             val rc = scanner.startScan(filters, settings, pending)
             if (closed) runCatching { scanner.stopScan(pending) } // same pairing as for the advert
             log("scan started fast=$fast reportDelay=$delay rc=$rc")
+            rc
         } catch (e: Exception) {
             log("scan failed: $e")
+            SCAN_NOT_STARTED
         }
     }
 
@@ -216,5 +262,7 @@ internal class BleRadio(
 
     companion object {
         const val BATCH_DELAY_MS = 30_000L
+        const val ADVERTISE_RETRY_MS = 5_000L
+        const val SCAN_NOT_STARTED = -1
     }
 }

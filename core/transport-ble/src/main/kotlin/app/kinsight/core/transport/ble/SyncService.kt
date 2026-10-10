@@ -39,7 +39,9 @@ import kotlinx.coroutines.sync.withLock
  * the sync engine. Started from the UI, on BOOT_COMPLETED and MY_PACKAGE_REPLACED (only when a group exists, the
  * «Nearby devices» permissions are granted and the user has not stopped it). Without a group it stops itself; with a
  * key storage or group file error, a missing permission or Bluetooth off it stays in the foreground, idle, and says so
- * in the notification (no crash, so no START_STICKY restart loop).
+ * in the notification (no crash, so no START_STICKY restart loop). A radio that will not open with Bluetooth on
+ * (RADIO_ERROR) is retried on [RadioRetrySchedule]; a failed scan start or a scan error is retried the same way, under
+ * the scan throttle, and a standing scan or advertising failure is the RUNNING detail.
  *
  * Play policy (docs/research/2026-10-10-play-policy.md): the notification has a Stop action (remembered across boots
  * until the next start from the UI), a dismissed notification is posted again, and the snapshot reports whether
@@ -82,6 +84,13 @@ class SyncService : Service() {
     private var scanWanted: Boolean? = null
     private var scanActive: Boolean? = null
     private var scanRetry: Job? = null
+    private val scanRetrySchedule = RadioRetrySchedule()
+    private val radioRetrySchedule = RadioRetrySchedule()
+    private var radioRetry: Job? = null
+
+    /** Shown as the RUNNING detail (diagnostics) while they stand; cleared when the radio stops. */
+    private var scanProblem: String? = null
+    private var advertProblem: String? = null
 
     // Main thread only.
     private var foreground = false
@@ -188,6 +197,17 @@ class SyncService : Service() {
         scope.launch { engine?.refreshAdvert() }
     }
 
+    /** A scan error delivered to ScanReceiver (EXTRA_ERROR_CODE): the scan is not running, retry it. */
+    private fun onScanError(code: Int) {
+        scope.launch {
+            if (radio == null) return@launch
+            scanActive = null
+            scanProblem = "scan failed (error $code)"
+            refreshRadioDetail()
+            if (scanRetry?.isActive != true) scheduleScanRetry()
+        }
+    }
+
     /** A start from the UI clears the user's Stop; any other start (boot, update, adb) honours it. Under the lock. */
     private suspend fun onStart(byUser: Boolean, fast: Boolean, startId: Int) {
         val state = SyncGraph.state(applicationContext)
@@ -269,6 +289,7 @@ class SyncService : Service() {
 
     private suspend fun bluetoothOff(detail: String? = null) {
         stopRadio()
+        radioRetrySchedule.reset() // a radio error before Bluetooth went off starts over once it is back
         quietly("bluetooth-off start") { SyncGraph.onBluetoothOff(applicationContext) }
         show(ServiceState.BLUETOOTH_OFF, detail)
     }
@@ -276,7 +297,7 @@ class SyncService : Service() {
     /** Under the lock. True when the radio runs afterwards. */
     private suspend fun startRadio(adapter: BluetoothAdapter): Boolean {
         if (radio != null) {
-            show(ServiceState.RUNNING)
+            show(ServiceState.RUNNING, radioDetail())
             return true
         }
         val c = applicationContext
@@ -291,7 +312,14 @@ class SyncService : Service() {
             monoClock = SystemClock::elapsedRealtime,
             log = ::log,
         )
-        val r = BleRadio(c, adapter, ::log)
+        lateinit var r: BleRadio
+        r = BleRadio(c, adapter, ::log) { problem ->
+            scope.launch {
+                if (radio !== r) return@launch // a callback of a radio already torn down
+                advertProblem = problem
+                refreshRadioDetail()
+            }
+        }
         try {
             r.openServers(rs) { stream -> e.onInbound(stream) }
         } catch (ex: Exception) {
@@ -300,7 +328,12 @@ class SyncService : Service() {
             log("cannot open servers: $ex")
             // Bluetooth going off under us: the ordinary off path (tracker included). With Bluetooth on it is a radio
             // error, never a BLUETOOTH_OFF interval the family would see.
-            if (adapter.isEnabled) problem(ServiceState.RADIO_ERROR, "cannot open servers: ${ex.message}") else bluetoothOff()
+            if (adapter.isEnabled) {
+                problem(ServiceState.RADIO_ERROR, "cannot open servers: ${ex.message}")
+                scheduleRadioRetry()
+            } else {
+                bluetoothOff()
+            }
             return false
         }
         radio = r
@@ -316,7 +349,10 @@ class SyncService : Service() {
         requestScan(fast = false)
         RotationReceiver.schedule(c)
         refreshPeers()
-        show(ServiceState.RUNNING)
+        radioRetry?.cancel() // started by another path (adapter on, a start command) while a retry waited
+        radioRetry = null
+        radioRetrySchedule.reset()
+        show(ServiceState.RUNNING, radioDetail())
         rs.launch { quietly("heartbeat") { SyncGraph.emitHeartbeatIfDue(c) } }
         return true
     }
@@ -334,8 +370,29 @@ class SyncService : Service() {
         return false
     }
 
+    /**
+     * RADIO_ERROR with the adapter on: the next start attempt after [RadioRetrySchedule] (5 s, 30 s, 2 min, then every
+     * 15 min), through the normal start path under the lock. stopRadio cancels it, so Stop, onDestroy (scope),
+     * Bluetooth off and any other problem end the retries; the job clears its own handle first so the start it runs
+     * cannot cancel itself.
+     */
+    private fun scheduleRadioRetry() {
+        radioRetry?.cancel()
+        val wait = radioRetrySchedule.next()
+        log("radio retry in ${wait / 1000} s")
+        radioRetry = scope.launch {
+            delay(wait)
+            controlLock.withLock {
+                radioRetry = null
+                reconcile(fast = false)
+            }
+        }
+    }
+
     /** Cancelling the scope and closing the radio always go together: the accept loop ends only on close(). */
     private fun stopRadio() {
+        radioRetry?.cancel()
+        radioRetry = null
         val r = radio
         val e = engine
         radioScope?.cancel()
@@ -347,6 +404,9 @@ class SyncService : Service() {
         scanWanted = null
         scanActive = null
         scanRetry = null
+        scanRetrySchedule.reset()
+        scanProblem = null
+        advertProblem = null
         fastEnd = null
         fastUntilMono = 0L
         if (r != null) RotationReceiver.cancel(applicationContext)
@@ -396,8 +456,43 @@ class SyncService : Service() {
             return
         }
         scanThrottle.record(now)
-        r.startScan(want)
-        scanActive = want
+        val rc = r.startScan(want)
+        if (rc == 0) {
+            scanActive = want
+            scanRetrySchedule.reset()
+            if (scanProblem != null) {
+                scanProblem = null
+                refreshRadioDetail()
+            }
+        } else {
+            scanActive = null
+            scanProblem = "scan failed (rc $rc)"
+            refreshRadioDetail()
+            scheduleScanRetry()
+        }
+    }
+
+    /** A failed scan start: again after the retry schedule, never sooner than the throttle allows. */
+    private fun scheduleScanRetry() {
+        val wait = maxOf(scanRetrySchedule.next(), scanThrottle.waitMs(SystemClock.elapsedRealtime()))
+        log("scan retry in ${wait}ms")
+        scanRetry = radioScope?.launch {
+            delay(wait)
+            scanRetry = null
+            applyScan()
+        }
+    }
+
+    private fun radioDetail(): String? = listOfNotNull(scanProblem, advertProblem).joinToString("; ").ifEmpty { null }
+
+    /** While RUNNING, the detail names a scan or advertising failure that stands (diagnostics shows it). */
+    private fun refreshRadioDetail() {
+        if (snapshot.state != ServiceState.RUNNING) return
+        val d = radioDetail()
+        if (snapshot.detail == d) return
+        snapshot = snapshot.copy(detail = d)
+        log("radio detail: ${d ?: "none"}")
+        publish()
     }
 
     private suspend fun onSyncStatus(s: SyncStatus) {
@@ -542,6 +637,10 @@ class SyncService : Service() {
 
         internal fun rotationTick() {
             instance?.onRotationTick()
+        }
+
+        internal fun scanError(code: Int) {
+            instance?.onScanError(code)
         }
     }
 }
