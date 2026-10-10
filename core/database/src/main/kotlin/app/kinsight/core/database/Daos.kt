@@ -116,8 +116,8 @@ interface UsageDao {
     suspend fun hours(date: String): List<PendingHourRow>
 
     @Query(
-        "UPDATE pending_days SET published_version = MAX(published_version, :version), published_hash = :hash " +
-            "WHERE date = :date",
+        "UPDATE pending_days SET published_version = :version, published_hash = :hash " +
+            "WHERE date = :date AND :version >= published_version",
     )
     suspend fun markPublished(date: String, hash: String, version: Long)
 

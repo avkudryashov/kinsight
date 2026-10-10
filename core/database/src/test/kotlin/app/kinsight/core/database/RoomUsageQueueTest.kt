@@ -66,6 +66,17 @@ class RoomUsageQueueTest {
     }
 
     @Test
+    fun aStaleMarkNeverMovesThePublishedMarkerBack() = runTest {
+        val q = open()
+        q.commit(usage(minute))
+        q.commit(usage(minute))
+        q.markPublished(date, "h2", 2)
+        q.markPublished(date, "h1", 1) // a late mark from an older run
+        q.commit(usage(minute))
+        assertEquals(listOf(PendingDayRow(date, "Europe/Madrid", 3, 2, "h2")), q.changedDays())
+    }
+
+    @Test
     fun eventsKeepOrderUntilDeleted() = runTest {
         val q = open()
         q.commit(CollectBatch(events = listOf(PendingEventRow(kind = 3, fromMs = 1, toMs = 1)), state = state))

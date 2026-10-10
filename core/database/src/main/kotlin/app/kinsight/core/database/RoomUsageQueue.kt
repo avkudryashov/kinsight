@@ -51,7 +51,7 @@ class RoomUsageQueue(private val db: KinsightDatabase) {
 
     suspend fun dayUsage(date: String): DayUsage = DayUsage(dao.usage(date), dao.hours(date))
 
-    /** Marks [date] published as of [version]; a stale version never hides a newer change. */
+    /** Marks [date] published as of [version]; a stale version changes nothing, so the marker never moves back. */
     suspend fun markPublished(date: String, hash: String, version: Long) = dao.markPublished(date, hash, version)
 
     suspend fun pendingEvents(): List<PendingEventRow> = dao.events()
