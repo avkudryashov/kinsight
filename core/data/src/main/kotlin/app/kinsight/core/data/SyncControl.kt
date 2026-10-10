@@ -4,7 +4,13 @@ import android.content.Context
 import app.kinsight.core.transport.ble.ServiceState
 import app.kinsight.core.transport.ble.SyncGraph
 import app.kinsight.core.transport.ble.SyncService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration.Companion.seconds
 
@@ -23,21 +29,28 @@ interface SyncControl {
     suspend fun stopAndWait()
 }
 
+/**
+ * The group-file check is file I/O, so starts run on a serial IO lane (preflight C20, fix round 1); [stopAndWait]
+ * goes through the same lane, so a start queued before it can never land after the stop.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
 class ServiceSyncControl(context: Context) : SyncControl {
     private val app = context.applicationContext
+    private val lane = Dispatchers.IO.limitedParallelism(1)
+    private val scope = CoroutineScope(SupervisorJob() + lane)
 
     override fun start(fast: Boolean) {
-        if (SyncGraph.groups(app).exists()) SyncService.start(app, SyncService.REASON_APP_OPEN, fast)
+        scope.launch { if (SyncGraph.groups(app).exists()) SyncService.start(app, SyncService.REASON_APP_OPEN, fast) }
     }
 
     override fun startByUser() {
-        if (SyncGraph.groups(app).exists()) SyncService.start(app, SyncService.REASON_UI)
+        scope.launch { if (SyncGraph.groups(app).exists()) SyncService.start(app, SyncService.REASON_UI) }
     }
 
     override fun requestStop() = SyncService.requestStop(app)
 
     override suspend fun stopAndWait() {
-        SyncService.stop(app)
+        withContext(lane) { SyncService.stop(app) }
         withTimeoutOrNull(5.seconds) { SyncGraph.snapshot.first { it.state == ServiceState.STOPPED } }
     }
 }

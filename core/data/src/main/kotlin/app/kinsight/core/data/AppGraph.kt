@@ -53,7 +53,7 @@ class Graph internal constructor(app: Context) {
         pipeline = pipeline,
         sync = sync,
         scope = scope,
-        sessionsFinished = SyncGraph.snapshot.map { it.sync.finishedSessions },
+        sessions = SyncGraph.snapshot.map { SessionProgress(it.sync.finishedSessions, it.sync.syncing) },
         forget = reset::forgetGroup,
     )
     val usage = UsageRepository(snapshots)

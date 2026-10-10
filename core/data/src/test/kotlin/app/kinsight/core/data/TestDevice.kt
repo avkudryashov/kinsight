@@ -72,7 +72,7 @@ private class FixedClock(private val ms: () -> Long) : DeviceClock {
 
 /**
  * One phone for core/data tests: its own database, files, settings, pipeline (the app's own-usage rule,
- * [ownUsageAllowed]) and repositories. [sessionsFinished] stands in for the sync engine's finished-session counter.
+ * [ownUsageAllowed]) and repositories. [sessions] stands in for the sync engine's session counter.
  */
 class TestDevice(
     val keys: DeviceKeys = DeviceKeys.generate(),
@@ -87,7 +87,7 @@ class TestDevice(
     val settings = SettingsStore.create(File(dir, "u.preferences_pb"), scope)
     val prefs = AppPrefs.create(File(dir, "a.preferences_pb"), scope)
     val sync = FakeSyncControl()
-    val sessionsFinished = MutableStateFlow(0)
+    val sessions = MutableStateFlow(SessionProgress(finished = 0, syncing = false))
     var identityBroken: Exception? = null
     val keyProvider: suspend () -> DeviceKeys = { identityBroken?.let { throw it } ?: keys }
     val pipeline = UsagePipeline(
@@ -125,7 +125,7 @@ class TestDevice(
         pipeline = pipeline,
         sync = sync,
         scope = scope,
-        sessionsFinished = sessionsFinished,
+        sessions = sessions,
         forget = reset::forgetGroup,
         leaveTimeoutMs = leaveTimeoutMs,
     )

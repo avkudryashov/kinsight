@@ -1,11 +1,14 @@
 package app.kinsight.core.data
 
+import android.util.Log
 import app.kinsight.core.crypto.Primitives
 import app.kinsight.core.database.KinsightDatabase
 import app.kinsight.core.database.RoomEntryStore
 import app.kinsight.core.database.wipeAll
+import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.DeviceKeys
+import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.grantAdminEntry
 import app.kinsight.core.model.leaveGroupEntry
@@ -24,11 +27,8 @@ import app.kinsight.core.usage.UsageSettings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,9 +44,27 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalDate
 
+/** The sync engine's session progress: finished sessions (any outcome; from zero after a service restart), one running. */
+data class SessionProgress(val finished: Int, val syncing: Boolean)
+
+/** Why «Leave group» did not finish; the group screen shows it (T15) and calls [GroupRepository.dismissLeaveError]. */
+enum class LeaveError {
+    /** No group, or this device is no longer an active member: nothing to leave. */
+    NO_GROUP,
+
+    /** The only admin while others remain: grant admin to another parent first (spec §9.5). */
+    SOLE_ADMIN,
+
+    /** LEFT_GROUP could not be signed or stored; nothing was wiped. */
+    NOT_SIGNED,
+
+    /** LEFT_GROUP is signed but the local wipe failed: the state reads Removed, «start over» retries the wipe. */
+    WIPE_FAILED,
+}
+
 /**
  * The group as the screens see it, and the admin and leave operations. [scope] is app-wide (owned by Graph): leaving
- * outlives any screen (preflight C5). [sessionsFinished] is the sync engine's finished-session counter; [forget] is
+ * outlives any screen (preflight C5). [sessions] is the sync engine's session progress; [forget] is
  * LocalReset.forgetGroup. GroupStore calls are fsynced file I/O and run on [io] (preflight C20).
  */
 class GroupRepository(
@@ -57,24 +75,44 @@ class GroupRepository(
     private val pipeline: UsagePipeline,
     private val sync: SyncControl,
     private val scope: CoroutineScope,
-    private val sessionsFinished: Flow<Int>,
+    private val sessions: Flow<SessionProgress>,
     private val forget: suspend () -> Unit,
     private val leaveTimeoutMs: Long = LEAVE_TIMEOUT_MS,
     private val random: (Int) -> ByteArray = Primitives::randomBytes,
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) {
+    private enum class Phase { IDLE, LEAVING, LEFT }
+
+    private val phase = MutableStateFlow(Phase.IDLE)
     private val _leaving = MutableStateFlow(false)
+    private val _leaveError = MutableStateFlow<LeaveError?>(null)
     private val leaveLock = Any()
     private var leaveJob: Job? = null
 
-    /** True from leaveAndForget until the local wipe is done (or failed). */
+    /** True from the start of a leave until the local wipe is done and the snapshot reads NoGroup, or it failed. */
     val leaving: StateFlow<Boolean> = _leaving.asStateFlow()
 
-    /** While [leaving], every state but a key or storage error reads as [GroupState.Leaving]. */
-    val state: Flow<GroupState> =
-        combine(snapshots.snapshots.map(SnapshotViews::groupState).onStart { emit(GroupState.Loading) }, _leaving) { s, leaving ->
-            if (leaving && s !is GroupState.KeyError && s !is GroupState.StorageError) GroupState.Leaving else s
-        }
+    /** The last leave failure, until [dismissLeaveError]. */
+    val leaveError: StateFlow<LeaveError?> = _leaveError.asStateFlow()
+
+    /**
+     * While leaving, every state but a key or storage error reads as [GroupState.Leaving]. After a successful leave
+     * each collector keeps reading Leaving until its own snapshot reaches NoGroup, so a stale Removed never flashes.
+     */
+    val state: Flow<GroupState> = flow {
+        var holding = false
+        combine(snapshots.snapshots.map(SnapshotViews::groupState).onStart { emit(GroupState.Loading) }, phase) { s, p -> s to p }
+            .collect { (s, p) ->
+                val terminal = s is GroupState.NoGroup || s is GroupState.KeyError || s is GroupState.StorageError
+                holding = when {
+                    terminal -> false
+                    p == Phase.LEAVING -> true
+                    p == Phase.LEFT -> holding // until this collector's own snapshot reaches NoGroup
+                    else -> false // IDLE: no leave, or a failed one (its Removed or Ready is real)
+                }
+                emit(if (holding) GroupState.Leaving else s)
+            }
+    }
 
     /** «Создать группу» (spec §9.4): this device becomes the first admin, a parent (spec §4.8), in a fresh database. */
     suspend fun createGroup(deviceName: String) {
@@ -82,80 +120,144 @@ class GroupRepository(
         val k = keys()
         val genesis = GroupGenesis.create(k, deviceName)
         pipeline.exclusive { db.wipeAll() }
-        pipeline.appendOwn(PublishTarget(genesis.groupId, k)) { author ->
-            check(author.lastSeq == 0L) { "own log not empty" }
-            listOf(genesis.entry)
-        }
+        check(
+            pipeline.appendOwn(PublishTarget(genesis.groupId, k)) { author ->
+                check(author.lastSeq == 0L) { "own log not empty" }
+                listOf(genesis.entry)
+            },
+        ) { "genesis not stored" }
         withContext(io) { groups.write(GroupConfig(genesis.groupId, random(32))) } // last: a crash before leaves no group
         snapshots.invalidate()
         sync.start(fast = false)
     }
 
+    /** Throws IllegalStateException without a group (nothing signed, no sync started). */
     suspend fun grantAdmin(id: DeviceId) {
-        pipeline.appendOwn { author -> listOf(author.grantAdminEntry(id)) }
+        signOwn("grant admin") { author -> listOf(author.grantAdminEntry(id)) }
         sync.start(fast = true)
     }
 
-    /** RemoveMember with the removed device's contiguous seq as we know it (spec §4.5). */
+    /** RemoveMember with the removed device's contiguous seq as we know it (spec §4.5). Throws without a group. */
     suspend fun remove(id: DeviceId) {
-        val group = withContext(io) { groups.read() } ?: return
+        val group = checkNotNull(withContext(io) { groups.read() }) { "no group: cannot remove a member" }
         val lastSeq = RoomEntryStore(db, group.groupId).versionVector()[id]
-        pipeline.appendOwn { author -> listOf(author.removeMemberEntry(id, lastSeq)) }
+        signOwn("remove member") { author -> listOf(author.removeMemberEntry(id, lastSeq)) }
         sync.start(fast = true)
     }
 
-    /** LEFT_GROUP, then a fast sync so the family sees it (spec §9.5); [leaveAndForget] wipes afterwards. */
-    suspend fun leave() {
-        pipeline.appendOwn { author -> listOf(author.leaveGroupEntry()) }
+    /** LEFT_GROUP, then a fast sync so the family sees it (spec §9.5). Only through [leaveAndForget], which wipes. */
+    internal suspend fun leave() {
+        signOwn("leave") { author -> listOf(author.leaveGroupEntry()) }
         sync.start(fast = true)
+    }
+
+    private suspend fun signOwn(what: String, build: (EntryAuthor) -> List<DecodedEntry>) {
+        if (!pipeline.appendOwn(build = build)) {
+            Log.w(TAG, "$what: no group to sign in")
+            throw IllegalStateException("no group: cannot $what")
+        }
+    }
+
+    fun dismissLeaveError() {
+        _leaveError.value = null
     }
 
     /**
-     * The «Leave group» button (spec §9.5, preflight C5/C6), on the app scope: sign LEFT_GROUP, start a fast sync,
-     * wait until one more session has finished (bounded by [leaveTimeoutMs]), then forget the group locally. The
-     * family gets LEFT_GROUP through the membership offer of that session, which then ends NOT_A_MEMBER, so the wait
-     * is on the finished-session counter, not on a completed sync. A second call while leaving returns the same job.
-     * A failure ends [leaving] and leaves the state as it is (Removed after a signed LEFT_GROUP: «start over»).
+     * The «Leave group» button (spec §9.5, preflight C5/C6), on the app scope:
+     * 1. refuse ([leaveError]) without a group or for the sole admin of others ([SnapshotViews.canLeave]);
+     * 2. sign LEFT_GROUP and start a fast sync; a failure here wipes nothing ([LeaveError.NOT_SIGNED]);
+     * 3. right after the commit, take the session baseline and wait (bounded by [leaveTimeoutMs]) for a session that
+     *    began after it: one more finished session, two if one was running at the commit. The family gets LEFT_GROUP
+     *    through that session's membership offer, which then ends NOT_A_MEMBER, so this waits on any finished session;
+     * 4. forget the group locally, then wait for the snapshot to read NoGroup before [leaving] ends.
+     * A second call while leaving returns the same job. Every failure is logged.
      */
     fun leaveAndForget(): Job = synchronized(leaveLock) {
         leaveJob?.takeIf { it.isActive }?.let { return it }
-        _leaving.value = true
+        _leaveError.value = null
         scope.launch {
-            try {
-                coroutineScope {
-                    // Subscribed before signing, so the counter's current value is the baseline.
-                    val session = async(start = CoroutineStart.UNDISPATCHED) {
-                        withTimeoutOrNull(leaveTimeoutMs) { sessionsFinished.awaitIncrease() }
-                    }
-                    leave()
-                    session.await()
-                }
-                forget()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                // Nothing to report to: the screens see the state (Removed or Ready) once leaving is false.
+            val refusal = refusal()
+            if (refusal != null) {
+                Log.w(TAG, "leave refused: $refusal")
+                _leaveError.value = refusal
+                return@launch
             }
-        }.also {
-            leaveJob = it
-            // Also when the scope is already cancelled and the body never runs.
-            it.invokeOnCompletion { _leaving.value = false }
+            setPhase(Phase.LEAVING)
+            var left = false
+            try {
+                try {
+                    leave()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "leave: LEFT_GROUP not signed", e)
+                    _leaveError.value = LeaveError.NOT_SIGNED
+                    return@launch
+                }
+                val carried = withTimeoutOrNull(leaveTimeoutMs) { sessions.awaitSessionAfterNow() }
+                if (carried == null) Log.w(TAG, "leave: no session finished within $leaveTimeoutMs ms; forgetting anyway")
+                try {
+                    forget()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "leave: local wipe failed", e)
+                    _leaveError.value = LeaveError.WIPE_FAILED
+                    return@launch
+                }
+                withTimeoutOrNull(NO_GROUP_WAIT_MS) { snapshots.snapshots.first { it is GroupSnapshot.NoGroup } }
+                left = true
+            } finally {
+                setPhase(if (left) Phase.LEFT else Phase.IDLE)
+            }
+        }.also { leaveJob = it }
+    }
+
+    private fun setPhase(p: Phase) {
+        _leaving.value = p == Phase.LEAVING
+        phase.value = p
+    }
+
+    private suspend fun refusal(): LeaveError? {
+        val s = try {
+            snapshots.load(emptyMap())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "leave: snapshot unreadable", e)
+            return LeaveError.NO_GROUP
+        }
+        val ready = s as? GroupSnapshot.Ready
+        return when {
+            ready == null || ready.removed -> LeaveError.NO_GROUP
+            !SnapshotViews.canLeave(ready) -> LeaveError.SOLE_ADMIN
+            else -> null
         }
     }
 
     companion object {
         const val LEAVE_TIMEOUT_MS = 60_000L
+        private const val NO_GROUP_WAIT_MS = 5_000L
+        private const val TAG = "KinsightGroup"
 
         /**
-         * Returns at the first observed increase. A restarted service publishes a fresh counter from zero; a drop is
-         * not a session, but the next step up from it is.
+         * The first value is the baseline (taken right after LEFT_GROUP committed). Counts finished sessions from
+         * there: a drop (a restarted service counts from zero) is not a session, the next step up is. A session
+         * running at the baseline may have begun before the commit, so then two are needed.
          */
-        private suspend fun Flow<Int>.awaitIncrease() {
+        private suspend fun Flow<SessionProgress>.awaitSessionAfterNow() {
             var last: Int? = null
-            first { v ->
-                val up = last.let { it != null && v > it }
-                last = v
-                up
+            var needed = 1
+            var counted = 0
+            first { p ->
+                val prev = last
+                if (prev == null) {
+                    if (p.syncing) needed = 2
+                } else if (p.finished > prev) {
+                    counted += p.finished - prev
+                }
+                last = p.finished
+                counted >= needed
             }
         }
     }
@@ -225,9 +327,10 @@ class Pruner(
     private val groups: GroupStore,
     private val settings: SettingsStore,
     private val keys: suspend () -> DeviceKeys,
+    private val io: CoroutineDispatcher = Dispatchers.IO,
 ) {
     suspend fun prune() {
-        val group = groups.read() ?: return
+        val group = withContext(io) { groups.read() } ?: return
         val s = settings.current()
         val policy = SyncPolicy(
             self = keys().deviceId,

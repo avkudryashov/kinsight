@@ -5,6 +5,7 @@ import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.addMember
+import app.kinsight.core.model.grantAdminEntry
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.Heartbeat
 import app.kinsight.core.model.proto.StateEvent
@@ -13,6 +14,7 @@ import app.kinsight.core.model.removeMemberEntry
 import java.time.LocalDate
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -91,5 +93,18 @@ class SnapshotViewsTest {
         val limit = now + UsageReadModel.MAX_CLOCK_SKEW_MS
         assertEquals(limit, SnapshotViews.members(r, now).single { it.name == "Kid" }.lastSeenMs)
         assertEquals(limit, SnapshotViews.dashboard(r, today, now).children.single().updatedMs)
+    }
+
+    @Test
+    fun onlyTheSoleAdminOfOthersCannotLeave() {
+        assertFalse(SnapshotViews.canLeave(ready(momKeys)))
+        assertFalse(SnapshotViews.canLeave(SnapshotViews.groupState(ready(momKeys)) as GroupState.Ready))
+        assertTrue(SnapshotViews.canLeave(ready(kidKeys)))
+        assertTrue(SnapshotViews.canLeave(ready(momKeys, listOf(mom.grantAdminEntry(dadKeys.deviceId)))))
+        val alone = GroupSnapshot.Ready(
+            genesis.groupId, momKeys.deviceId, Membership.compute(genesis.groupId, listOf(genesis.entry))!!,
+            emptyList(), emptyList(), emptyList(), emptyList(), emptyMap(),
+        )
+        assertTrue(SnapshotViews.canLeave(alone))
     }
 }

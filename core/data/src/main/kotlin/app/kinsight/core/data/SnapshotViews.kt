@@ -47,6 +47,19 @@ object SnapshotViews {
         }
     }
 
+    /**
+     * Whether this device may leave (spec §9.5): not as the only admin while other members remain, or the group would
+     * be left without anyone to manage it. The group screen hides «Leave» then; GroupRepository refuses it as well.
+     */
+    fun canLeave(s: GroupSnapshot.Ready): Boolean {
+        val active = s.membership.active.values
+        val me = active.firstOrNull { it.id == s.self } ?: return false
+        return !(me.isAdmin && active.count { it.isAdmin } == 1 && active.size > 1)
+    }
+
+    fun canLeave(s: GroupState.Ready): Boolean =
+        !(s.self.isAdmin && s.members.count { it.isAdmin } == 1 && s.members.size > 1)
+
     fun members(s: GroupSnapshot.Ready, nowMs: Long = System.currentTimeMillis()): List<MemberView> =
         s.membership.active.values.map { view(s, it, nowMs) }
             .sortedWith(compareBy<MemberView>({ !it.isSelf }, { it.role != Role.PARENT }, { it.name }, { it.id }))
