@@ -51,6 +51,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.kinsight.core.data.AppCategory
 import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.AppUsage
+import app.kinsight.core.data.Categories
 import app.kinsight.core.data.DayTotal
 import app.kinsight.core.data.DetailRange
 import app.kinsight.core.data.DeviceDetail
@@ -324,12 +325,17 @@ fun AllAppsScreen(detail: DeviceDetail, onBack: () -> Unit, onOpenApp: ((String)
 private fun dateTime(ms: Long): String =
     DateUtils.formatDateTime(LocalContext.current, ms, DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH)
 
+/** An app's name; the summary's `~other` remainder bucket reads «Other apps». */
+@Composable
+internal fun appLabel(packageName: String, label: String): String =
+    if (packageName == Categories.REMAINDER_PACKAGE) stringResource(R.string.det_other_apps) else label
+
 @Composable
 private fun AppRow(app: AppUsage, onOpen: ((String) -> Unit)?) {
     val openLabel = stringResource(R.string.det_open_app)
     ListItem(
         leadingContent = { AppIcon(app.icon) },
-        headlineContent = { Text(app.label) },
+        headlineContent = { Text(appLabel(app.packageName, app.label)) },
         trailingContent = { Text(durationText(app.totalMs)) },
         modifier = Modifier.testTag("det_app_${app.packageName}")
             .then(if (onOpen != null) Modifier.clickable(onClickLabel = openLabel) { onOpen(app.packageName) } else Modifier),

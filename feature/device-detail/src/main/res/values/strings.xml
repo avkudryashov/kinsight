@@ -84,7 +84,9 @@
     <string name="app_category_yours">Chosen by you</string>
     <string name="app_change_category">Change category</string>
     <string name="app_category_title">Category of %1$s</string>
-    <string name="app_category_default">Default</string>
+    <string name="app_category_default_of">Default (%1$s)</string>
+    <string name="det_other_apps">Other apps</string>
+    <string name="app_hours_remainder">Other apps are counted differently by hour than by day, so they have no hourly chart.</string>
     <string name="app_category_save">Save</string>
     <string name="app_category_cancel">Cancel</string>
     <string name="app_hours_title">By hour</string>

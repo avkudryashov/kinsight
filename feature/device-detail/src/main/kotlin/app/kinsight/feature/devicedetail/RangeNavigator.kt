@@ -56,7 +56,9 @@ internal class RangeNavigator<T : RangedView>(
     private val _range = MutableStateFlow(
         (if (restoreFirst) restored() ?: initial else initial ?: restored()) ?: DetailRange.of(Period.WEEK, viewerToday(), weekFields),
     )
-    private var follows: Boolean = saved[KEY_FOLLOW] ?: (initial == null && !_range.value.end.isBefore(viewerToday()))
+    // A route that passes the range on screen (restoreFirst) follows today when that range contains it, like the detail.
+    private var follows: Boolean = saved[KEY_FOLLOW]
+        ?: ((restoreFirst || initial == null) && !_range.value.end.isBefore(viewerToday()))
 
     val range: StateFlow<DetailRange> = _range.asStateFlow()
 

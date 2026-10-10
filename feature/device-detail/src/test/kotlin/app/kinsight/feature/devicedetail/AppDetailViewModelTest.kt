@@ -45,14 +45,16 @@ class AppDetailViewModelTest {
         val overrides = MutableStateFlow<Map<String, AppCategory>>(emptyMap())
         val known = (0L..13).map { sat.minusDays(it) }.toSet()
 
-        override fun today(): LocalDate = sat
+        var viewerToday = sat
+
+        override fun today(): LocalDate = viewerToday
 
         override fun app(range: DetailRange): Flow<AppDetail?> = overrides.map { o ->
             val days = range.dates().map { d -> (d in known).let { DayTotal(d, if (it) 60_000 else 0, 0, hasData = it, known = it) } }
             AppDetail(
                 kid, pkg, range, "Game", null, o[pkg] ?: AppCategory.GAMES, o.containsKey(pkg), days, days.sumOf { it.totalMs },
                 hours = null, rank = 1, canChangeCategory = true,
-                canGoBack = known.any { it.isBefore(range.start) }, canGoForward = range.end.isBefore(sat), today = sat,
+                canGoBack = known.any { it.isBefore(range.start) }, canGoForward = range.end.isBefore(viewerToday), today = viewerToday, defaultCategory = AppCategory.GAMES,
             )
         }
 
@@ -101,6 +103,24 @@ class AppDetailViewModelTest {
         first.openDay(sat.minusDays(3))
         val again = vm(FakeSource(), week(sat), saved) // process death: the route passes its argument again
         assertEquals(DetailRange(Period.DAY, sat.minusDays(3), sat.minusDays(3)), again.range.value)
+    }
+
+    @Test
+    fun aRangeContainingTodayFollowsItAcrossAWeekBoundary() = runTest(dispatcher) {
+        val source = FakeSource()
+        val vm = vm(source, week(sat))
+        source.viewerToday = sat.plusDays(1) // Sunday: a new Sunday-first week
+        ticks.emit(Unit)
+        assertEquals(week(sat.plusDays(1)), vm.range.value)
+    }
+
+    @Test
+    fun aPastRangeStaysWhenTheDayChanges() = runTest(dispatcher) {
+        val source = FakeSource()
+        val vm = vm(source, week(sat.minusDays(7)))
+        source.viewerToday = sat.plusDays(1)
+        ticks.emit(Unit)
+        assertEquals(week(sat.minusDays(7)), vm.range.value)
     }
 
     @Test

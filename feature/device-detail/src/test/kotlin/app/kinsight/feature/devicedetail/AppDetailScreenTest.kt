@@ -24,6 +24,14 @@ import app.kinsight.core.data.Sharing
 import app.kinsight.core.designsystem.theme.KinsightTheme
 import app.kinsight.core.model.DeviceId
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import android.content.Context
+import android.text.format.DateFormat
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.semantics.SemanticsNode
+import androidx.compose.ui.semantics.SemanticsPropertiesAndroid
+import androidx.test.core.app.ApplicationProvider
+import java.util.Locale
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -45,11 +53,13 @@ class AppDetailScreenTest {
         hours: List<Long>? = null,
         category: AppCategory = AppCategory.GAMES,
         overridden: Boolean = false,
+        pkg: String = "com.example.game",
+        label: String = "Game",
     ): AppDetail {
         val days = range.dates().map { DayTotal(it, 10 * 60_000L, 0, known = true) }
         return AppDetail(
-            kid, "com.example.game", range, "Game", null, category, overridden, days, days.sumOf { it.totalMs }, hours, rank = 2,
-            canChangeCategory = canChange, canGoBack = true, canGoForward = false, today = today,
+            kid, pkg, range, label, null, category, overridden, days, days.sumOf { it.totalMs }, hours, rank = 2,
+            canChangeCategory = canChange, canGoBack = true, canGoForward = false, today = today, defaultCategory = AppCategory.GAMES,
         )
     }
 
@@ -60,6 +70,10 @@ class AppDetailScreenTest {
     }
 
     private val list get() = rule.onNodeWithTag("app_list")
+
+    @OptIn(ExperimentalComposeUiApi::class)
+    private fun SemanticsNode.tagsAreIds(): Boolean =
+        generateSequence(this) { it.parent }.any { it.config.getOrElse(SemanticsPropertiesAndroid.TestTagsAsResourceId) { false } }
 
     @Test
     fun showsLabelCategoryRankAndTotal() {
@@ -81,8 +95,11 @@ class AppDetailScreenTest {
         })
         list.performScrollToNode(hasTestTag("app_category"))
         rule.onNodeWithTag("app_category").performClick()
-        // Not overridden: the dialog starts on «Default», not on the catalog's category.
+        // Not overridden: the dialog starts on «Default», not on the catalog's category; it says what Default is.
         rule.onNodeWithTag("app_category_option_default").assertIsSelected()
+        rule.onNodeWithText("Default (Games)").assertExists()
+        // The dialog is its own window: its tags must be resource ids there too.
+        assertTrue(rule.onNodeWithTag("app_category_confirm").fetchSemanticsNode().tagsAreIds())
         rule.onNodeWithTag("app_category_option_VIDEO").performClick()
         rule.onNodeWithTag("app_category_confirm").performClick()
         assertEquals(AppCategory.VIDEO, chosen)
@@ -127,6 +144,9 @@ class AppDetailScreenTest {
         show(app(range = day, hours = List(24) { if (it == 9) 20 * 60_000L else 0L }))
         list.performScrollToNode(hasTestTag("app_hours"))
         rule.onNodeWithTag("app_chart").assertDoesNotExist()
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val nine = hourTime(9, Locale.getDefault(), DateFormat.is24HourFormat(context))
+        rule.onNode(hasContentDescription("Most time at $nine (20 min)")).assertExists()
     }
 
     @Test
@@ -142,6 +162,33 @@ class AppDetailScreenTest {
         show(app(range = DetailRange(Period.DAY, today, today), hours = null))
         list.performScrollToNode(hasTestTag("app_hours_not_arrived"))
         rule.onNodeWithText("Hourly data for this period has not arrived yet").assertExists()
+    }
+
+    @Test
+    fun theRemainderIsNamedOtherAppsAndHasNoHourBars() {
+        val day = DetailRange(Period.DAY, today, today)
+        show(app(range = day, hours = List(24) { 60_000L }, pkg = "~other", label = "~other", canChange = false))
+        rule.onNodeWithTag("app_label").assertTextEquals("Other apps")
+        rule.onNodeWithText("~other").assertDoesNotExist() // nor in the title
+        list.performScrollToNode(hasTestTag("app_hours_remainder"))
+        rule.onNodeWithTag("app_hours").assertDoesNotExist()
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun theRemainderIsNamedInRussian() {
+        show(app(pkg = "~other", label = "~other", canChange = false))
+        rule.onNodeWithTag("app_label").assertTextEquals("Другие приложения")
+    }
+
+    @Test
+    fun allAppsNamesTheRemainder() {
+        val detail = DeviceDetail(
+            kid, weekRange, weekRange.dates().map { DayTotal(it, 0, 0) }, 0, 0,
+            listOf(AppUsage("~other", "~other", null, 60_000)), emptyList(), Sharing.On,
+        )
+        rule.setContent { KinsightTheme(dynamicColor = false) { AllAppsScreen(detail, onBack = {}) } }
+        rule.onNodeWithText("Other apps").assertExists()
     }
 
     @Test

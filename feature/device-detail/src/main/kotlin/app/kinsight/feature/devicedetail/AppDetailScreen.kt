@@ -48,6 +48,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.kinsight.core.data.AppCategory
 import app.kinsight.core.data.AppDetail
 import app.kinsight.core.data.AppGraph
+import app.kinsight.core.data.Categories
 import app.kinsight.core.data.DetailRange
 import app.kinsight.core.data.Period
 import app.kinsight.core.designsystem.component.AppIcon
@@ -56,6 +57,7 @@ import app.kinsight.core.designsystem.component.EmptyState
 import app.kinsight.core.designsystem.component.PeriodHeader
 import app.kinsight.core.designsystem.component.StackedBarChart
 import app.kinsight.core.designsystem.component.categoryColor
+import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.durationText
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.usage.UsageSettings
@@ -96,7 +98,7 @@ fun AppDetailScreen(
     onOpenDay: (LocalDate) -> Unit = {},
     onCategory: (AppCategory?) -> Unit = {},
     detailRetentionDays: Int = UsageSettings().detailRetentionDays,
-) = Screen(app.label, onBack) { padding ->
+) = Screen(appLabel(app.packageName, app.label), onBack) { padding ->
     val today = app.today ?: LocalDate.now()
     val known = app.days.any { it.known }
     var choosing by rememberSaveable { mutableStateOf(false) }
@@ -153,6 +155,10 @@ fun AppDetailScreen(
                     // Without detail: past the viewer's detail retention it was pruned, otherwise it has not arrived yet.
                     val pruned = app.range.start.isBefore(today.minusDays(detailRetentionDays.toLong()))
                     when {
+                        // The remainder's hours hold other apps than its daily total (per-hour vs per-day limit): no bars.
+                        app.packageName == Categories.REMAINDER_PACKAGE -> item(key = "hours_remainder") {
+                            Text(stringResource(R.string.app_hours_remainder), Modifier.testTag("app_hours_remainder"))
+                        }
                         hours != null -> item(key = "hours") { AppHours(hours) }
                         pruned -> item(key = "hours_unavailable") {
                             Text(
@@ -173,8 +179,9 @@ fun AppDetailScreen(
     }
     if (choosing) {
         CategoryDialog(
-            label = app.label,
+            label = appLabel(app.packageName, app.label),
             current = app.category.takeIf { app.overridden },
+            default = app.defaultCategory,
             onDismiss = { choosing = false },
             onConfirm = {
                 choosing = false
@@ -189,7 +196,7 @@ fun AppDetailScreen(
 private fun Head(app: AppDetail) = Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
     AppIcon(app.icon, Modifier.size(56.dp))
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(app.label, style = MaterialTheme.typography.titleLarge, modifier = Modifier.testTag("app_label"))
+        Text(appLabel(app.packageName, app.label), style = MaterialTheme.typography.titleLarge, modifier = Modifier.testTag("app_label"))
         val name = categoryName(app.category)
         val chipDescription = stringResource(R.string.app_category_label, name)
         Surface(
@@ -206,16 +213,23 @@ private fun Head(app: AppDetail) = Row(verticalAlignment = Alignment.CenterVerti
     }
 }
 
-/** Single choice of [AppCategory] plus «Default» (null); starts on the parent's current choice, else «Default». */
+/** Single choice of [AppCategory] plus «Default ([default])» (null); starts on the parent's current choice, else «Default». */
 @Composable
-private fun CategoryDialog(label: String, current: AppCategory?, onDismiss: () -> Unit, onConfirm: (AppCategory?) -> Unit) {
+private fun CategoryDialog(
+    label: String,
+    current: AppCategory?,
+    default: AppCategory,
+    onDismiss: () -> Unit,
+    onConfirm: (AppCategory?) -> Unit,
+) {
     var selected by rememberSaveable { mutableStateOf(current) }
     AlertDialog(
         onDismissRequest = onDismiss,
+        modifier = Modifier.dialogTestTags(), // its own window: the root flag does not reach it
         title = { Text(stringResource(R.string.app_category_title, label)) },
         text = {
             Column(Modifier.selectableGroup().verticalScroll(rememberScrollState())) {
-                Option(stringResource(R.string.app_category_default), selected == null, "app_category_option_default") { selected = null }
+                Option(stringResource(R.string.app_category_default_of, categoryName(default)), selected == null, "app_category_option_default") { selected = null }
                 AppCategory.entries.forEach { c ->
                     Option(categoryName(c), selected == c, "app_category_option_${c.name}") { selected = c }
                 }

@@ -90,7 +90,9 @@
     <string name="app_category_yours">Выбрано вами</string>
     <string name="app_change_category">Изменить категорию</string>
     <string name="app_category_title">Категория приложения «%1$s»</string>
-    <string name="app_category_default">По умолчанию</string>
+    <string name="app_category_default_of">По умолчанию (%1$s)</string>
+    <string name="det_other_apps">Другие приложения</string>
+    <string name="app_hours_remainder">Другие приложения по часам считаются иначе, чем за день, поэтому графика по часам для них нет.</string>
     <string name="app_category_save">Сохранить</string>
     <string name="app_category_cancel">Отмена</string>
     <string name="app_hours_title">По часам</string>
