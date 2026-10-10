@@ -18,6 +18,16 @@
     <string name="set_sync_stopped">Sync is stopped. It stays stopped until you start it here.</string>
     <string name="set_stop">Stop sync</string>
     <string name="set_start">Start sync</string>
+    <string name="set_sync_now">Sync now</string>
+    <string name="set_sync_syncing">Syncing…</string>
+    <string name="set_sync_no_permission">Sync needs the Nearby devices permission. Allow it in the app settings.</string>
+    <string name="set_sync_bluetooth_off">Bluetooth is off. Turn it on to sync.</string>
+    <string name="set_sync_key_error">Key storage error. Sync cannot run on this phone.</string>
+    <string name="set_sync_radio_error">Bluetooth error. Sync will retry by itself.</string>
+    <string name="set_sync_peer_update">A family phone needs a Kinsight update.</string>
+    <string name="set_last_sync">Last sync: %1$s</string>
+    <string name="set_last_sync_now">Last sync: just now</string>
+    <string name="set_never_synced">No sync yet. Keep the phones close.</string>
     <string name="set_stop_title">Stop sync on this phone?</string>
     <string name="set_stop_body_child">Your family will see that sync was stopped and for how long. Nothing is hidden: counting goes on, and the data is sent when you start sync again.</string>
     <string name="set_stop_body_parent">This phone stops receiving your children\'s data until you start sync again.</string>

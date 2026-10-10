@@ -61,6 +61,8 @@ class SettingsViewModelTest {
 
         override fun requestStop() = call("stop")
 
+        override fun syncNow() = call("syncNow")
+
         /** Stands in for LocalReset: status and the running wipe live outside any view model. */
         override val resetStatus = MutableStateFlow<ResetStatus>(ResetStatus.Idle)
         lateinit var appScope: CoroutineScope
@@ -99,6 +101,13 @@ class SettingsViewModelTest {
         assertEquals(emptyList(), actions.calls)
         vm.startSync()
         assertEquals(listOf("startByUser"), actions.calls)
+    }
+
+    @Test
+    fun syncNowAsksTheService() = runTest {
+        val vm = SettingsViewModel(actions)
+        vm.syncNow()
+        assertEquals(listOf("syncNow"), actions.calls)
     }
 
     @Test

@@ -59,6 +59,9 @@ internal interface SettingsActions {
 
     fun requestStop()
 
+    /** «Sync now»: fast mode for a minute; honours a user's Stop (SyncControl). */
+    fun syncNow()
+
     /** LocalReset.status: app-wide, so it outlives this view model. */
     val resetStatus: Flow<ResetStatus>
 
@@ -91,6 +94,8 @@ private class RepositoryActions(
     override fun startByUser() = serviceRepo.start()
 
     override fun requestStop() = serviceRepo.stop()
+
+    override fun syncNow() = serviceRepo.syncNow()
 
     override val resetStatus = reset.status
 
@@ -145,6 +150,9 @@ class SettingsViewModel internal constructor(private val actions: SettingsAction
     fun stopSync() = actions.requestStop()
 
     fun startSync() = actions.startByUser()
+
+    /** «Sync now»: a minute of fast mode; it honours a user's Stop (SyncControl), so it never clears one. */
+    fun syncNow() = actions.syncNow()
 
     fun dismissError() {
         if (_error.value != null) _error.value = null else actions.clearResetFailure()

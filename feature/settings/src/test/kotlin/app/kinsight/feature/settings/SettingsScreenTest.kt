@@ -2,6 +2,7 @@ package app.kinsight.feature.settings
 
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -32,6 +33,10 @@ import org.robolectric.annotation.Config
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35])
 class SettingsScreenTest {
+    private companion object {
+        const val NOW = 1_760_000_000_000L
+    }
+
     @get:Rule
     val rule = createComposeRule()
     private val group = GroupId("dd".repeat(16))
@@ -48,15 +53,62 @@ class SettingsScreenTest {
         onReset: () -> Unit = {},
         onConsent: () -> Unit = {},
         onRetention: (Int, Int) -> Unit = { _, _ -> },
+        nowMs: Long = NOW,
     ) = rule.setContent {
         KinsightTheme(dynamicColor = false) {
             SettingsScreen(
                 ui, "0.4.0", onSharing = onSharing, onConsent = onConsent, onTransparency = {},
                 onStopSync = { calls += "stop" }, onStartSync = { calls += "start" },
                 onRetention = onRetention, onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {},
-                onResetIdentity = onReset,
+                onResetIdentity = onReset, onSyncNow = { calls += "syncNow" }, nowMs = nowMs,
             )
         }
+    }
+
+    // The sync section is the first section: its nodes exist without scrolling the list.
+    @Test
+    fun theSyncSectionTopsSettingsAndSyncsNow() {
+        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), Prefs(), running.copy(lastSyncMs = NOW - 5 * 60_000)))
+        rule.onNodeWithText("Sync on this phone").assertExists()
+        rule.onNodeWithText("Last sync: 5 minutes ago").assertExists()
+        rule.onNodeWithTag("set_stop").assertExists()
+        rule.onNodeWithTag("set_sync_now").performClick()
+        assertEquals(listOf("syncNow"), calls)
+    }
+
+    @Test
+    fun aSyncMomentsAgoOrSlightlyAheadOfTheClockReadsJustNow() {
+        // Emulator run 2026-10-10: «Last sync In 0 minutes» (the stamp a little ahead of the screen's clock).
+        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running.copy(lastSyncMs = NOW + 2_000)))
+        rule.onNodeWithText("Last sync: just now").assertExists()
+        rule.onNodeWithText("In ", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun justNowInRussian() {
+        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running.copy(lastSyncMs = NOW)))
+        rule.onNodeWithText("Последняя синхронизация: только что").assertExists()
+    }
+
+    @Test
+    fun theSyncSectionNamesAProblem() {
+        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running.copy(state = ServiceState.BLUETOOTH_OFF)))
+        rule.onNodeWithText("Bluetooth is off", substring = true).assertExists()
+    }
+
+    @Test
+    fun aParentsSyncSectionSaysItsOwnTimeIsNotShared() {
+        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running))
+        rule.onNodeWithTag("set_sync_section").assertExists()
+        rule.onNode(hasTestTag("set_sync_section") and hasAnyDescendant(hasText("is not shared", substring = true))).assertExists()
+    }
+
+    @Test
+    fun aStoppedSyncOffersStartInsteadOfSyncNow() {
+        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), stopped))
+        rule.onNodeWithTag("set_sync_now").assertDoesNotExist()
+        rule.onNodeWithTag("set_start").assertExists()
     }
 
     @Test

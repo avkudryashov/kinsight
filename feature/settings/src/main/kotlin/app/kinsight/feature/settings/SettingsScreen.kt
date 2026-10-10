@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -30,8 +31,11 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -48,9 +52,15 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.GroupState
 import app.kinsight.core.data.Role
+import app.kinsight.core.data.ServiceStatus
 import app.kinsight.core.data.SummaryMode
 import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.ErrorState
+import app.kinsight.core.designsystem.component.isJustNow
+import app.kinsight.core.designsystem.component.relativeTime
+import app.kinsight.core.transport.ble.ServiceState
+import app.kinsight.core.transport.ble.SyncProblem
+import kotlinx.coroutines.delay
 
 @Composable
 fun SettingsRoute(appVersion: String, onConsent: () -> Unit, onTransparency: () -> Unit, onBattery: () -> Unit, onDiagnostics: () -> Unit) {
@@ -60,9 +70,17 @@ fun SettingsRoute(appVersion: String, onConsent: () -> Unit, onTransparency: () 
         SettingsViewModel(g.group, g.settingsRepository, g.service, g.reset)
     }
     val ui by vm.ui.collectAsStateWithLifecycle()
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000)
+            now = System.currentTimeMillis()
+        }
+    }
     SettingsScreen(
         ui, appVersion, vm::setSharing, onConsent, onTransparency, vm::stopSync, vm::startSync, vm::setRetention,
         vm::setSummaryMode, vm::setNoContactHours, onBattery, onDiagnostics, vm::resetIdentity, vm::dismissError,
+        onSyncNow = vm::syncNow, nowMs = now,
     )
 }
 
@@ -90,6 +108,8 @@ fun SettingsScreen(
     onDiagnostics: () -> Unit,
     onResetIdentity: () -> Unit,
     onDismissError: () -> Unit = {},
+    onSyncNow: () -> Unit = {},
+    nowMs: Long = System.currentTimeMillis(), // the route passes a 30 s tick
 ) {
     val context = LocalContext.current
     val ready = ui.group as? GroupState.Ready
@@ -125,6 +145,25 @@ fun SettingsScreen(
                 ) { TextButton(onDismissError) { Text(stringResource(R.string.set_ok)) } }
             }
         }
+        // This phone's sync, moved here from Overview (user feedback 2026-10-10); Overview keeps a banner for problems.
+        item {
+            val s = ui.service
+            val stopped = s?.stoppedByUser == true
+            Column(Modifier.fillMaxWidth().testTag("set_sync_section"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.set_sync), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
+                Text(syncStateText(s))
+                if (!stopped) Text(lastSyncText(s?.lastSyncMs, nowMs))
+                if (stopped) {
+                    Button(onStartSync, Modifier.testTag("set_start")) { Text(stringResource(R.string.set_start)) }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onSyncNow, Modifier.testTag("set_sync_now")) { Text(stringResource(R.string.set_sync_now)) }
+                        OutlinedButton({ ask = Ask.STOP }, Modifier.testTag("set_stop")) { Text(stringResource(R.string.set_stop)) }
+                    }
+                }
+                if (role == Role.PARENT) Text(stringResource(R.string.set_not_shared), style = MaterialTheme.typography.bodyMedium)
+            }
+        }
         ready?.let { r ->
             item {
                 ListItem(
@@ -158,8 +197,7 @@ fun SettingsScreen(
                     },
                 )
             }
-            Role.PARENT -> item { ListItem(headlineContent = { Text(stringResource(R.string.set_not_shared)) }) }
-            null -> Unit
+            Role.PARENT, null -> Unit // a parent's «not shared» sentence is in the sync section
         }
         item {
             ListItem(
@@ -168,15 +206,6 @@ fun SettingsScreen(
                 modifier = Modifier.testTag("set_transparency"),
             )
             TextButton(onTransparency) { Text(stringResource(R.string.set_open)) }
-        }
-        section(R.string.set_sync) {
-            val stopped = ui.service?.stoppedByUser == true
-            Text(stringResource(if (stopped) R.string.set_sync_stopped else R.string.set_sync_running))
-            if (stopped) {
-                Button(onStartSync, Modifier.testTag("set_start")) { Text(stringResource(R.string.set_start)) }
-            } else {
-                OutlinedButton({ ask = Ask.STOP }, Modifier.testTag("set_stop")) { Text(stringResource(R.string.set_stop)) }
-            }
         }
         section(R.string.set_retention) {
             Text(stringResource(R.string.set_retention_detail))
@@ -267,6 +296,30 @@ private fun Confirm(title: String, body: String, confirm: String, tag: String, o
     },
     dismissButton = { TextButton(onDismiss, Modifier.testTag("${tag}_cancel")) { Text(stringResource(R.string.set_cancel)) } },
 )
+
+/** What the service is doing now; the user's Stop first, then what blocks the radio (as Overview's banner). */
+@Composable
+private fun syncStateText(s: ServiceStatus?): String = stringResource(
+    when {
+        s == null -> R.string.set_sync_running
+        s.stoppedByUser -> R.string.set_sync_stopped
+        s.missingPermissions.isNotEmpty() || s.state == ServiceState.NO_PERMISSION -> R.string.set_sync_no_permission
+        s.state == ServiceState.BLUETOOTH_OFF -> R.string.set_sync_bluetooth_off
+        s.state == ServiceState.STORAGE_ERROR -> R.string.set_sync_key_error
+        s.state == ServiceState.RADIO_ERROR -> R.string.set_sync_radio_error
+        s.syncing -> R.string.set_sync_syncing
+        s.problem == SyncProblem.PEER_NEEDS_UPDATE -> R.string.set_sync_peer_update
+        else -> R.string.set_sync_running
+    },
+)
+
+/** «Just now» for a stamp under a minute old or a little ahead of this phone's clock (emulator run 2026-10-10). */
+@Composable
+private fun lastSyncText(last: Long?, nowMs: Long): String = when {
+    last == null -> stringResource(R.string.set_never_synced)
+    isJustNow(last, nowMs) -> stringResource(R.string.set_last_sync_now)
+    else -> stringResource(R.string.set_last_sync, relativeTime(last, nowMs))
+}
 
 private fun Context.open(intent: Intent) {
     try {
