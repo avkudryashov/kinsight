@@ -116,7 +116,7 @@ data class DeviceUsage(
 )
 
 /**
- * Levels 1 and 2 of spec §9.3 for one [range] (every date of it in [days], oldest first), and the device's events of
+ * Levels 1 to 3 of spec §9.3 for one [range] (every date of it in [days], oldest first), and the device's events of
  * the range (newest first). [canGoBack]: a summary older than the range exists; [canGoForward]: the range ends before
  * the viewer's today.
  */
@@ -131,6 +131,10 @@ data class DeviceDetail(
     val sharing: Sharing,
     val canGoBack: Boolean = false,
     val canGoForward: Boolean = false,
+    /** Level 3: the range's time per category, largest first, zero omitted; sums to [totalMs]. */
+    val categories: List<CategoryTotal> = emptyList(),
+    /** Level 3: one stack per entry of [days] (same order); empty for a day with no time; each sums to its day total. */
+    val dayCategories: List<Map<AppCategory, Long>> = emptyList(),
 ) {
     val period: Period get() = range.period
 }

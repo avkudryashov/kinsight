@@ -12,6 +12,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import app.kinsight.core.model.MembershipLimits
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.io.File
@@ -62,6 +63,19 @@ class AppPrefs(private val store: DataStore<Preferences>) {
         store.edit { it[LAST_PRUNE] = date }
     }
 
+    /** The parent's own category choices per package (spec §9.3, stage 5a): local, never in the log, not synced. */
+    val categoryOverrides: Flow<Map<String, AppCategory>> = store.data.map { decodeOverrides(it[CATEGORY_OVERRIDES]) }.distinctUntilChanged()
+
+    /** [category] null clears the override. */
+    suspend fun setCategory(packageName: String, category: AppCategory?) {
+        require(packageName.isNotEmpty() && packageName.none { it == '=' || it == '\n' }) { "bad package name" }
+        store.edit {
+            val m = decodeOverrides(it[CATEGORY_OVERRIDES]).toMutableMap()
+            if (category == null) m.remove(packageName) else m[packageName] = category
+            if (m.isEmpty()) it.remove(CATEGORY_OVERRIDES) else it[CATEGORY_OVERRIDES] = encodeOverrides(m)
+        }
+    }
+
     suspend fun alertMarkers(): AlertMarkers = AlertMarkers.decode(store.data.first()[MARKERS])
 
     suspend fun setAlertMarkers(m: AlertMarkers) {
@@ -91,6 +105,17 @@ class AppPrefs(private val store: DataStore<Preferences>) {
         private val NO_CONTACT_HOURS = intPreferencesKey("no_contact_hours")
         private val LAST_PRUNE = stringPreferencesKey("last_prune_date")
         private val MARKERS = stringPreferencesKey("alert_markers")
+        private val CATEGORY_OVERRIDES = stringPreferencesKey("category_overrides")
+
+        /** One `package=CATEGORY` per line; a malformed line or an unknown category is skipped. */
+        private fun decodeOverrides(raw: String?): Map<String, AppCategory> = raw.orEmpty().lineSequence().mapNotNull { line ->
+            val pkg = line.substringBefore('=', "")
+            val cat = AppCategory.entries.firstOrNull { it.name == line.substringAfter('=', "") }
+            if (pkg.isEmpty() || cat == null) null else pkg to cat
+        }.toMap()
+
+        private fun encodeOverrides(m: Map<String, AppCategory>): String =
+            m.entries.sortedBy { it.key }.joinToString("\n") { "${it.key}=${it.value.name}" }
 
         /** [file] must end with ".preferences_pb"; a corrupt file starts over (only hints and markers live here). */
         fun create(file: File, scope: CoroutineScope): AppPrefs = AppPrefs(

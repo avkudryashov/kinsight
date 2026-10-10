@@ -129,7 +129,7 @@ class TestDevice(
         forget = reset::forgetGroup,
         leaveTimeoutMs = leaveTimeoutMs,
     )
-    val usage = UsageRepository(snapshots)
+    val usage = UsageRepository(snapshots, prefs)
 
     fun store() = RoomEntryStore(db, groups.read()!!.groupId)
 

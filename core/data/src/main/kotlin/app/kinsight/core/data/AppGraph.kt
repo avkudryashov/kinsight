@@ -69,7 +69,7 @@ class Graph internal constructor(app: Context) {
         sessions = SyncGraph.snapshot.map { SessionProgress(it.sync.finishedSessions, it.sync.syncing) },
         forget = reset::forgetGroup,
     )
-    val usage = UsageRepository(snapshots)
+    val usage = UsageRepository(snapshots, prefs)
     val service = ServiceRepository(SyncGraph.snapshot, transport, { BlePermissions.missing(app) }, sync)
     val pruner = Pruner(db, groups, settings, keys)
     val settingsRepository = SettingsRepository(settings, prefs, pipeline, pruner::prune)

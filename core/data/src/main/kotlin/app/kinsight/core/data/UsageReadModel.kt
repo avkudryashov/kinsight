@@ -9,8 +9,8 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 /**
- * Pure views over signed entries for the v1 screens. Only UsageSummary is read (levels 1 and 2 of spec §9.3);
- * UsageDetail is not: levels 3 and 4 must take a day's detail only when its seq is above the summary's seq of the
+ * Pure views over signed entries for the v1 screens. Only UsageSummary is read (levels 1 to 3 of spec §9.3);
+ * UsageDetail is not: level 4 (hours) must take a day's detail only when its seq is above the summary's seq of the
  * same date, never a detail older than the summary (stage 3b review).
  *
  * Zone rule: `today` is the viewer's (the parent's) local date. A summary is keyed by the local_date its child wrote
@@ -82,17 +82,48 @@ object UsageReadModel {
     /** Apps summed over [dates], largest first (ties by package name). */
     fun apps(byDate: Map<LocalDate, DecodedEntry>?, dates: List<LocalDate>, catalog: Map<String, AppCatalog>): List<AppUsage> {
         val totals = HashMap<String, Long>()
-        for (d in dates) {
-            val day = HashMap<String, Long>()
-            byDate?.get(d)?.body?.usage_summary?.apps?.forEach { day.merge(it.package_name, clampMs(it.foreground_ms), ::addClamped) }
-            day.forEach { (pkg, ms) -> totals.merge(pkg, ms, Long::plus) }
-        }
+        for (d in dates) dayApps(byDate, d).forEach { (pkg, ms) -> totals.merge(pkg, ms, Long::plus) }
         return totals.filterValues { it > 0 }.entries
             .sortedWith(compareByDescending<Map.Entry<String, Long>> { it.value }.thenBy { it.key })
             .map { (pkg, ms) ->
                 val c = catalog[pkg]
                 AppUsage(pkg, c?.label?.takeIf { it.isNotBlank() } ?: pkg, c?.icon_webp?.toByteArray()?.takeIf { it.isNotEmpty() }, ms)
             }
+    }
+
+    /** One day's apps, a package listed twice merged; each clamped to a day. */
+    private fun dayApps(byDate: Map<LocalDate, DecodedEntry>?, date: LocalDate): Map<String, Long> {
+        val day = HashMap<String, Long>()
+        byDate?.get(date)?.body?.usage_summary?.apps?.forEach { day.merge(it.package_name, clampMs(it.foreground_ms), ::addClamped) }
+        return day
+    }
+
+    /**
+     * Level 3 stack of [day] from its summary's app totals (spec §9.3, stage 5a), summing exactly to the day total: time
+     * no app accounts for (rounding, apps beyond the summary's list) goes to Other; apps claiming more than the day
+     * (untrusted peer) are scaled down to it, the rounding residue going to the largest category. Zero is omitted.
+     */
+    fun dayCategories(
+        byDate: Map<LocalDate, DecodedEntry>?,
+        day: DayTotal,
+        catalog: Map<String, AppCatalog>,
+        overrides: Map<String, AppCategory>,
+    ): Map<AppCategory, Long> {
+        if (!day.known || day.totalMs <= 0) return emptyMap()
+        val cats = java.util.EnumMap<AppCategory, Long>(AppCategory::class.java)
+        dayApps(byDate, day.date).forEach { (pkg, ms) ->
+            if (ms > 0) cats.merge(Categories.of(pkg, catalog[pkg]?.category, overrides), ms, Long::plus)
+        }
+        val sum = cats.values.sum()
+        val total = day.totalMs
+        if (sum <= total) {
+            if (sum < total) cats.merge(AppCategory.OTHER, total - sum, Long::plus)
+        } else {
+            for (e in cats.entries) e.setValue((e.value.toDouble() * total / sum).toLong())
+            val largest = cats.entries.maxBy { it.value }
+            largest.setValue(largest.value + total - cats.values.sum())
+        }
+        return cats.filterValues { it > 0 }
     }
 
     fun usage(
@@ -119,10 +150,14 @@ object UsageReadModel {
         today: LocalDate,
         departed: Boolean = false,
         zone: ZoneId = ZoneId.systemDefault(),
+        overrides: Map<String, AppCategory> = emptyMap(),
     ): DeviceDetail {
         val own = surfaced(member, byDate)
         val mine = events.filter { it.author == member.id }
         val days = days(own, range.dates(), today)
+        val dayCategories = days.map { dayCategories(own, it, catalog, overrides) }
+        val categoryTotals = java.util.EnumMap<AppCategory, Long>(AppCategory::class.java)
+        dayCategories.forEach { d -> d.forEach { (c, ms) -> categoryTotals.merge(c, ms, Long::plus) } }
         val start = range.start.atStartOfDay(zone).toInstant().toEpochMilli()
         val end = range.end.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
         return DeviceDetail(
@@ -136,6 +171,10 @@ object UsageReadModel {
             sharing = sharing(mine, departed),
             canGoBack = own?.keys?.any { it.isBefore(range.start) } == true,
             canGoForward = range.end.isBefore(today),
+            categories = categoryTotals.entries.filter { it.value > 0 }
+                .sortedWith(compareByDescending<Map.Entry<AppCategory, Long>> { it.value }.thenBy { it.key.ordinal })
+                .map { CategoryTotal(it.key, it.value) },
+            dayCategories = dayCategories,
         )
     }
 

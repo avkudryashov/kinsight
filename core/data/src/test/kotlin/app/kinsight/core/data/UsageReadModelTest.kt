@@ -305,6 +305,69 @@ class UsageReadModelTest {
         assertFalse(detail(week, member.copy(role = Role.PARENT)).canGoBack)
     }
 
+    private fun cat(pkg: String, category: Int) = AppCatalog(package_name = pkg, label = pkg, category = category)
+
+    @Test
+    fun categoriesComeFromTheDaysAppTotalsWithTheRestInOther() {
+        val roblox = "com.roblox.client" // catalog says undefined: the built-in table makes it a game
+        val tube = "com.google.android.youtube" // catalog says social (4): the app's own category wins over the table
+        val unknown = "com.example.unknown" // no catalog entry, not in the table
+        val by = byDate(
+            summary(today, 70, 0, roblox to 30L, tube to 20L, "~other" to 5L, unknown to 5L), // 10 min unattributed
+            summary(today.minusDays(1), 10, 0, roblox to 10L),
+            summary(today.minusDays(2), 0),
+        )
+        val catalog = mapOf(roblox to cat(roblox, -1), tube to cat(tube, 4))
+        val week = UsageReadModel.detail(member, by, catalog, emptyList(), range(Period.WEEK), today)
+        assertEquals(week.days.size, week.dayCategories.size)
+        val byDay = week.days.map { it.date }.zip(week.dayCategories).toMap()
+        assertEquals(
+            mapOf(AppCategory.GAMES to 30 * min, AppCategory.SOCIAL to 20 * min, AppCategory.OTHER to 20 * min),
+            byDay.getValue(today),
+        )
+        assertEquals(mapOf(AppCategory.GAMES to 10 * min), byDay.getValue(today.minusDays(1)))
+        assertEquals(emptyMap(), byDay.getValue(today.minusDays(2))) // known, zero
+        assertEquals(emptyMap(), byDay.getValue(today.minusDays(3))) // no summary
+        assertEquals(emptyMap(), byDay.getValue(today.plusDays(1))) // future
+        for ((d, cats) in week.days.zip(week.dayCategories)) assertEquals(d.totalMs, cats.values.sum(), "stack of ${d.date}")
+        assertEquals(
+            listOf(AppCategory.GAMES to 40 * min, AppCategory.SOCIAL to 20 * min, AppCategory.OTHER to 20 * min),
+            week.categories.map { it.category to it.totalMs },
+        )
+        assertEquals(week.totalMs, week.categories.sumOf { it.totalMs })
+    }
+
+    @Test
+    fun overridesRecategoriseAnApp() {
+        val tube = "com.google.android.youtube"
+        val by = byDate(summary(today, 20, 0, tube to 20L))
+        val catalog = mapOf(tube to cat(tube, 4))
+        val d = UsageReadModel.detail(
+            member, by, catalog, emptyList(), range(Period.DAY), today, overrides = mapOf(tube to AppCategory.VIDEO),
+        )
+        assertEquals(listOf(AppCategory.VIDEO to 20 * min), d.categories.map { it.category to it.totalMs })
+    }
+
+    @Test
+    fun appsAboveTheDayTotalAreScaledToTheStack() {
+        // Untrusted peer: apps claim 90 minutes of a 60-minute day; the stack still equals the day total.
+        val by = byDate(summary(today, 60, 0, "com.roblox.client" to 60L, "com.whatsapp" to 30L))
+        val d = UsageReadModel.detail(member, by, emptyMap(), emptyList(), range(Period.DAY), today)
+        val stack = d.dayCategories.single()
+        assertEquals(60 * min, stack.values.sum())
+        assertEquals(setOf(AppCategory.GAMES, AppCategory.SOCIAL), stack.keys)
+        assertEquals(40 * min, stack.getValue(AppCategory.GAMES))
+        assertEquals(20 * min, stack.getValue(AppCategory.SOCIAL))
+    }
+
+    @Test
+    fun aParentHasNoCategories() {
+        val by = byDate(summary(today, 20, 0, "com.whatsapp" to 20L))
+        val d = UsageReadModel.detail(member.copy(role = Role.PARENT), by, emptyMap(), emptyList(), range(Period.DAY), today)
+        assertTrue(d.categories.isEmpty())
+        assertEquals(listOf(emptyMap()), d.dayCategories)
+    }
+
     @Test
     fun canGoForwardUntilTheRangeReachesToday() {
         fun forward(r: DetailRange) = UsageReadModel.detail(member, null, emptyMap(), emptyList(), r, today).canGoForward

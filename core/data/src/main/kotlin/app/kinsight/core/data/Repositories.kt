@@ -270,6 +270,7 @@ class GroupRepository(
 
 class UsageRepository(
     private val snapshots: Snapshots,
+    private val prefs: AppPrefs,
     private val date: () -> LocalDate = LocalDate::now,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
@@ -280,8 +281,14 @@ class UsageRepository(
     /** The viewer's local date, the bound of forward navigation; screens anchor their first range on it. */
     fun today(): LocalDate = date()
 
-    fun detail(id: DeviceId, range: DetailRange): Flow<DeviceDetail?> = snapshots.snapshots.map { s ->
-        (s as? GroupSnapshot.Ready)?.let { SnapshotViews.detail(it, id, range, today(), clock()) }
+    /** The parent's local category choices (spec §9.3, stage 5a); never signed or synced. */
+    val categoryOverrides: Flow<Map<String, AppCategory>> = prefs.categoryOverrides
+
+    /** [category] null returns the app to its own (catalog or built-in) category. */
+    suspend fun setCategory(packageName: String, category: AppCategory?) = prefs.setCategory(packageName, category)
+
+    fun detail(id: DeviceId, range: DetailRange): Flow<DeviceDetail?> = combine(snapshots.snapshots, categoryOverrides) { s, o ->
+        (s as? GroupSnapshot.Ready)?.let { SnapshotViews.detail(it, id, range, today(), clock(), overrides = o) }
     }
 }
 

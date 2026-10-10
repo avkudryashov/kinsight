@@ -87,6 +87,7 @@ object SnapshotViews {
         today: LocalDate,
         nowMs: Long = System.currentTimeMillis(),
         zone: ZoneId = ZoneId.systemDefault(),
+        overrides: Map<String, AppCategory> = emptyMap(),
     ): DeviceDetail? {
         val departed = s.membership.departed[id]
         val member = s.membership.active[id] ?: departed?.member ?: return null
@@ -99,6 +100,7 @@ object SnapshotViews {
             today = today,
             departed = departed != null,
             zone = zone,
+            overrides = overrides,
         )
     }
 
