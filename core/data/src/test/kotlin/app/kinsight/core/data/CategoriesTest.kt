@@ -19,6 +19,24 @@ class CategoriesTest {
     }
 
     @Test
+    fun phoneRunPackagesHaveTheirTableCategory() {
+        // Pixel 8a / S23 run, 0.5.0: system gallery, camera, browser and messaging apps read as Other.
+        val table = mapOf(
+            "com.sec.android.gallery3d" to AppCategory.PHOTOS, "com.google.android.apps.photos" to AppCategory.PHOTOS,
+            "com.sec.android.app.camera" to AppCategory.PHOTOS, "com.google.android.GoogleCamera" to AppCategory.PHOTOS,
+            "com.google.android.apps.youtube.kids" to AppCategory.VIDEO,
+            "com.sec.android.app.sbrowser" to AppCategory.PRODUCTIVITY, "com.yandex.browser" to AppCategory.PRODUCTIVITY,
+            "com.google.android.apps.messaging" to AppCategory.SOCIAL, "com.samsung.android.messaging" to AppCategory.SOCIAL,
+        )
+        for ((pkg, cat) in table) {
+            assertEquals(cat, Categories.of(pkg, -1, emptyMap()), pkg)
+            assertEquals(cat, Categories.of(pkg, null, emptyMap()), pkg)
+        }
+        // Only for an undefined catalog category: a defined one still wins.
+        assertEquals(AppCategory.GAMES, Categories.of("com.sec.android.gallery3d", 0, emptyMap()))
+    }
+
+    @Test
     fun undefinedOrAbsentFallsBackToTheTableThenOther() {
         val table = mapOf(
             "com.whatsapp" to AppCategory.SOCIAL, "org.telegram.messenger" to AppCategory.SOCIAL,

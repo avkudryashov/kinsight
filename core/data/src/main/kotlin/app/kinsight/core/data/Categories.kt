@@ -38,7 +38,7 @@ object Categories {
             "com.whatsapp", "org.telegram.messenger", "com.instagram.android", "com.zhiliaoapp.musically",
             "com.ss.android.ugc.trill", "com.snapchat.android", "com.facebook.katana", "com.facebook.orca", "com.discord",
             "com.vkontakte.android", "ru.oneme.app", "com.twitter.android", "com.pinterest", "com.reddit.frontpage",
-            "com.viber.voip", "jp.naver.line.android",
+            "com.viber.voip", "jp.naver.line.android", "com.google.android.apps.messaging", "com.samsung.android.messaging",
         ).forEach { put(it, AppCategory.SOCIAL) }
         listOf(
             "com.google.android.youtube", "com.netflix.mediaclient", "tv.twitch.android.app",
@@ -54,14 +54,17 @@ object Categories {
             "com.android.chrome", "com.google.android.gm", "com.google.android.apps.docs",
             "com.google.android.apps.docs.editors.docs", "com.google.android.apps.docs.editors.sheets",
             "com.google.android.apps.classroom", "com.microsoft.office.word", "com.microsoft.teams", "org.mozilla.firefox",
-            "com.duolingo",
+            "com.duolingo", "com.sec.android.app.sbrowser", "com.yandex.browser",
         ).forEach { put(it, AppCategory.PRODUCTIVITY) }
         listOf(
             "com.roblox.client", "com.mojang.minecraftpe", "com.supercell.brawlstars", "com.supercell.clashroyale",
             "com.supercell.clashofclans", "com.kiloo.subwaysurf", "com.dts.freefireth", "com.activision.callofduty.shooter",
             "com.tencent.ig", "com.innersloth.spacemafia",
         ).forEach { put(it, AppCategory.GAMES) }
-        listOf("com.google.android.apps.photos").forEach { put(it, AppCategory.PHOTOS) }
+        listOf(
+            "com.google.android.apps.photos", "com.sec.android.gallery3d", "com.sec.android.app.camera",
+            "com.google.android.GoogleCamera",
+        ).forEach { put(it, AppCategory.PHOTOS) }
     }
 
     fun of(packageName: String, catalogCategory: Int?, overrides: Map<String, AppCategory>): AppCategory {
