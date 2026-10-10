@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.MembershipLimits
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -76,6 +77,31 @@ class AppPrefs(private val store: DataStore<Preferences>) {
         }
     }
 
+    /**
+     * The parent's daily limits (spec §9.7, stage 5b): local, never in the log, not synced; one per (child, target),
+     * ordered by id. Every stored rule is listed, a child's rules outlive the child's leaving: readers ignore rules of
+     * devices that are not children of the group (UsageRepository.thresholds).
+     */
+    val thresholds: Flow<List<ThresholdRule>> = store.data.map { decodeThresholds(it[THRESHOLDS]).values.toList() }.distinctUntilChanged()
+
+    /** Adds [rule] or replaces the rule of its (child, target); [rule] must be one [ThresholdRule.of] builds. */
+    suspend fun setThreshold(rule: ThresholdRule) {
+        require(rule.isValid) { "invalid threshold rule" }
+        store.edit {
+            val m = decodeThresholds(it[THRESHOLDS]).toMutableMap()
+            m[rule.id] = rule
+            it[THRESHOLDS] = encodeThresholds(m)
+        }
+    }
+
+    suspend fun removeThreshold(id: String) {
+        store.edit {
+            val m = decodeThresholds(it[THRESHOLDS]).toMutableMap()
+            if (m.remove(id) == null) return@edit
+            if (m.isEmpty()) it.remove(THRESHOLDS) else it[THRESHOLDS] = encodeThresholds(m)
+        }
+    }
+
     suspend fun alertMarkers(): AlertMarkers = AlertMarkers.decode(store.data.first()[MARKERS])
 
     suspend fun setAlertMarkers(m: AlertMarkers) {
@@ -106,6 +132,23 @@ class AppPrefs(private val store: DataStore<Preferences>) {
         private val LAST_PRUNE = stringPreferencesKey("last_prune_date")
         private val MARKERS = stringPreferencesKey("alert_markers")
         private val CATEGORY_OVERRIDES = stringPreferencesKey("category_overrides")
+        private val THRESHOLDS = stringPreferencesKey("threshold_rules")
+
+        /**
+         * One `<child hex>|<target key>|<limit ms>` per line (target keys as in [ThresholdRule.idOf]), keyed by id; a
+         * malformed line or one [ThresholdRule.of] refuses is skipped, a later line of the same (child, target) wins.
+         */
+        private fun decodeThresholds(raw: String?): Map<String, ThresholdRule> = raw.orEmpty().lineSequence().mapNotNull { line ->
+            val parts = line.split('|')
+            if (parts.size != 3) return@mapNotNull null
+            val child = parts[0].takeIf { h -> h.length == 32 && h.all { it in '0'..'9' || it in 'a'..'f' } }?.let(::DeviceId)
+            val target = ThresholdRule.targetOf(parts[1])
+            val limit = parts[2].toLongOrNull()
+            if (child == null || target == null || limit == null) null else ThresholdRule.of(child, target, limit)
+        }.associateBy { it.id }.toSortedMap()
+
+        private fun encodeThresholds(m: Map<String, ThresholdRule>): String =
+            m.values.sortedBy { it.id }.joinToString("\n") { "${it.child.hex}|${ThresholdRule.keyOf(it.target)}|${it.limitMs}" }
 
         /** One `package=CATEGORY` per line; a malformed line or an unknown category is skipped. */
         private fun decodeOverrides(raw: String?): Map<String, AppCategory> = raw.orEmpty().lineSequence().mapNotNull { line ->

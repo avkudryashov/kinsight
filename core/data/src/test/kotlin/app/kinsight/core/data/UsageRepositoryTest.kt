@@ -125,4 +125,24 @@ class UsageRepositoryTest {
         usage.detail(kidKeys.deviceId, week, sunFirst).firstWithin { d -> d != null && categories(d) == listOf(AppCategory.OTHER to 600_000L) }
         assertEquals(false, withTimeout(10_000) { usage.app(kidKeys.deviceId, game, week).first { it?.category == AppCategory.OTHER }!! }.overridden)
     }
+
+    @Test
+    fun thresholdsOfDevicesNotChildrenInTheGroupAreIgnoredNotDeleted() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val kidKeys = DeviceKeys.generate()
+        mom.pipeline.appendOwn { a -> listOf(a.addMember(kidKeys.sign.publicKey, kidKeys.dh.publicKey, "Kid", DeviceRole.CHILD)) }
+        val usage = UsageRepository(mom.snapshots, mom.prefs, date = { today })
+        val kidRule = ThresholdRule.of(kidKeys.deviceId, ThresholdTarget.Total, 3_600_000L)!!
+        val gone = ThresholdRule.of(DeviceKeys.generate().deviceId, ThresholdTarget.Total, 3_600_000L)!!
+        val self = (withTimeout(10_000) { mom.snapshots.snapshots.first { it is GroupSnapshot.Ready } } as GroupSnapshot.Ready).self
+        val parentRule = ThresholdRule.of(self, ThresholdTarget.Total, 3_600_000L)!!
+        usage.setThreshold(kidRule)
+        usage.setThreshold(gone)
+        usage.setThreshold(parentRule)
+        assertEquals(listOf(kidRule), withTimeout(10_000) { usage.thresholds.first { it.isNotEmpty() } })
+        assertEquals(setOf(kidRule, gone, parentRule), mom.prefs.thresholds.first().toSet())
+        usage.removeThreshold(kidRule.id)
+        assertEquals(setOf(gone, parentRule), mom.prefs.thresholds.first().toSet())
+        assertEquals(emptyList(), withTimeout(10_000) { usage.thresholds.first { it.isEmpty() } })
+    }
 }

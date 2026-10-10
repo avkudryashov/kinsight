@@ -293,6 +293,20 @@ class UsageRepository(
     suspend fun setCategory(packageName: String, category: AppCategory?) = prefs.setCategory(packageName, category)
 
     /**
+     * The parent's daily limits (spec §9.7, stage 5b) of devices that are children of the current group; rules of a
+     * device that left, was removed or is not a child are kept in [AppPrefs] but not listed. Empty without a group.
+     */
+    val thresholds: Flow<List<ThresholdRule>> = combine(snapshots.snapshots, prefs.thresholds) { s, rules ->
+        val ready = (s as? GroupSnapshot.Ready)?.takeUnless { it.removed } ?: return@combine emptyList()
+        rules.filter { ready.membership.active[it.child]?.isChild == true }
+    }.distinctUntilChanged()
+
+    /** Adds or replaces the rule of [rule]'s (child, target); build it with [ThresholdRule.of]. */
+    suspend fun setThreshold(rule: ThresholdRule) = prefs.setThreshold(rule)
+
+    suspend fun removeThreshold(id: String) = prefs.removeThreshold(id)
+
+    /**
      * [range] of device [id], reloaded on every log change; the device's UsageDetail entries of the range are read with
      * each snapshot for level 4 (an equal state is not re-emitted). [weekFields]: the same as the range's, it orders the
      * heatmap's weekday rows.

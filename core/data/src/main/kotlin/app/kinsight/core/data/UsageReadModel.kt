@@ -392,6 +392,26 @@ object UsageReadModel {
     }
 
     /**
+     * [member]'s today for the thresholds (spec §9.7, stage 5b): the summary of the child's own date ([childToday] with
+     * the same [today] and [nowMs]), categories as in [dayCategories] with the viewer's [overrides], apps as summed per
+     * day (each clamped). Null when [member] is not a CHILD or has no summary for that date yet: never yesterday's
+     * total read as today's.
+     */
+    fun todayUsage(
+        member: MemberView,
+        byDate: Map<LocalDate, DecodedEntry>?,
+        catalog: Map<String, AppCatalog>,
+        today: LocalDate,
+        overrides: Map<String, AppCategory>,
+        nowMs: Long?,
+    ): TodayUsage? {
+        val own = surfaced(member, byDate) ?: return null
+        val date = childToday(own, today, nowMs)
+        val day = days(own, listOf(date), date).single().takeIf { it.known } ?: return null
+        return TodayUsage(day.totalMs, dayCategories(own, day, catalog, overrides), dayApps(own, date).filterValues { it > 0 })
+    }
+
+    /**
      * The child's own date at [nowMs], from the zone of its latest summary (highest seq), when that is later than the
      * viewer's [today]: a child in a zone ahead of the parent can already be on the next day (Review Focus 3). Never
      * earlier than [today] and at most one day later (zone offsets span 26 h); an unparsable zone (untrusted peer), no
