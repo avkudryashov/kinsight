@@ -48,6 +48,7 @@ import app.kinsight.core.data.InviteState
 import app.kinsight.core.data.JoinState
 import app.kinsight.core.data.PairFailure
 import app.kinsight.core.data.Role
+import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.QrCode
 import app.kinsight.core.sync.pairing.Invite
 
@@ -108,6 +109,7 @@ fun InviteScreen(
             InviteQr(state.uri, state.expiresAtMs, nowMs)
             AlertDialog(
                 onDismissRequest = {}, // an explicit answer only: a stray tap outside neither adds nor refuses
+                modifier = Modifier.dialogTestTags(), // its own window: the root flag does not reach it
                 title = { Text(stringResource(R.string.inv_confirm_title, state.name, roleLabel(state.role))) },
                 text = {
                     if (confirming) {

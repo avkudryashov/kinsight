@@ -33,6 +33,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.ResetKind
 import app.kinsight.core.data.ResetStatus
+import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.ErrorState
 
 /** The key error root: a confirmed LocalReset.resetIdentity (new keys, everything local wiped), status app-wide. */
@@ -94,6 +95,7 @@ internal fun ResetIdentityDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
     var understood by rememberSaveable { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
+        modifier = Modifier.dialogTestTags(), // its own window: the root flag does not reach it
         title = { Text(stringResource(R.string.set_reset_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -120,6 +122,6 @@ internal fun ResetIdentityDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
             ) { Text(stringResource(R.string.set_reset_confirm)) }
         },
-        dismissButton = { TextButton(onDismiss) { Text(stringResource(R.string.set_cancel)) } },
+        dismissButton = { TextButton(onDismiss, Modifier.testTag("set_reset_cancel")) { Text(stringResource(R.string.set_cancel)) } },
     )
 }

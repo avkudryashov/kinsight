@@ -48,6 +48,7 @@ import app.kinsight.core.data.MemberView
 import app.kinsight.core.data.Role as MemberRole
 import app.kinsight.core.data.ServiceStatus
 import app.kinsight.core.data.Sharing
+import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.BarChart
 import app.kinsight.core.designsystem.component.EmptyState
 import app.kinsight.core.designsystem.component.durationText
@@ -177,6 +178,7 @@ private fun ChildTransparencyCard(
     if (ask) {
         AlertDialog(
             onDismissRequest = { ask = false },
+            modifier = Modifier.dialogTestTags(), // its own window: the root flag does not reach it
             title = { Text(stringResource(R.string.dash_pause_title)) },
             text = { Text(stringResource(R.string.dash_pause_body)) },
             confirmButton = {
@@ -185,7 +187,7 @@ private fun ChildTransparencyCard(
                     onPause()
                 }, Modifier.testTag("dash_pause_confirm")) { Text(stringResource(R.string.dash_pause)) }
             },
-            dismissButton = { TextButton({ ask = false }) { Text(stringResource(R.string.dash_cancel)) } },
+            dismissButton = { TextButton({ ask = false }, Modifier.testTag("dash_pause_cancel")) { Text(stringResource(R.string.dash_cancel)) } },
         )
     }
 }

@@ -49,6 +49,7 @@ import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.GroupState
 import app.kinsight.core.data.Role
 import app.kinsight.core.data.SummaryMode
+import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.ErrorState
 
 @Composable
@@ -255,6 +256,7 @@ fun SettingsScreen(
 @Composable
 private fun Confirm(title: String, body: String, confirm: String, tag: String, onConfirm: () -> Unit, onDismiss: () -> Unit) = AlertDialog(
     onDismissRequest = onDismiss,
+    modifier = Modifier.dialogTestTags(), // its own window: the root flag does not reach it
     title = { Text(title) },
     text = { Text(body) },
     confirmButton = {
@@ -263,7 +265,7 @@ private fun Confirm(title: String, body: String, confirm: String, tag: String, o
             onConfirm()
         }, Modifier.testTag(tag)) { Text(confirm) }
     },
-    dismissButton = { TextButton(onDismiss) { Text(stringResource(R.string.set_cancel)) } },
+    dismissButton = { TextButton(onDismiss, Modifier.testTag("${tag}_cancel")) { Text(stringResource(R.string.set_cancel)) } },
 )
 
 private fun Context.open(intent: Intent) {

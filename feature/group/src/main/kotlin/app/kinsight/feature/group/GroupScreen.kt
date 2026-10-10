@@ -52,6 +52,7 @@ import app.kinsight.core.data.GroupState
 import app.kinsight.core.data.LeaveError
 import app.kinsight.core.data.MemberView
 import app.kinsight.core.data.Role
+import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.EmptyState
 import app.kinsight.core.designsystem.component.ErrorState
 import app.kinsight.core.designsystem.component.relativeTime
@@ -124,6 +125,7 @@ internal fun GroupError.messageRes(): Int = when (this) {
 internal fun GroupErrorDialog(error: GroupError, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
+        modifier = Modifier.dialogTestTags(), // its own window: the root flag does not reach it
         title = { Text(stringResource(R.string.grp_err_title), color = MaterialTheme.colorScheme.error) },
         text = { Text(stringResource(error.messageRes()), color = MaterialTheme.colorScheme.onSurfaceVariant) },
         confirmButton = { TextButton(onDismiss, Modifier.testTag("grp_error_ok")) { Text(stringResource(R.string.grp_ok)) } },
@@ -215,6 +217,7 @@ fun GroupScreen(
         val destructive = action !is GroupAction.GrantAdmin
         AlertDialog(
             onDismissRequest = { pending = null },
+            modifier = Modifier.dialogTestTags(), // its own window: the root flag does not reach it
             title = { Text(title) },
             text = { Text(body) },
             confirmButton = {
@@ -231,7 +234,7 @@ fun GroupScreen(
                     colors = if (destructive) ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error) else ButtonDefaults.textButtonColors(),
                 ) { Text(confirmLabel) }
             },
-            dismissButton = { TextButton({ pending = null }) { Text(stringResource(R.string.grp_cancel)) } },
+            dismissButton = { TextButton({ pending = null }, Modifier.testTag("grp_cancel")) { Text(stringResource(R.string.grp_cancel)) } },
         )
     }
 }
