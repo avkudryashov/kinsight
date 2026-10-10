@@ -6,6 +6,7 @@ import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.proto.AppCatalog
 import app.kinsight.core.model.proto.StateEvent
 import java.time.LocalDate
+import java.time.ZoneId
 
 /**
  * Pure views over signed entries for the v1 screens. Only UsageSummary is read (levels 1 and 2 of spec §9.3);
@@ -21,10 +22,10 @@ import java.time.LocalDate
  * now. After clamping no period sum can overflow.
  *
  * Only CHILD members' usage is surfaced (Play Stalkerware ruling): for any other member [usage] and [detail] show no
- * data whatever summaries exist. Events and sharing come only from the member's own signed events.
+ * data whatever summaries exist. Events and sharing come only from the member's own signed events. [detail] lists every own event of the period,
+ * uncapped, so a flood of one kind cannot push an integrity event out of view; the screen bounds what it draws.
  */
 object UsageReadModel {
-    const val MAX_EVENTS = 20
     const val MAX_MS_PER_DAY = 86_400_000L
     const val MAX_UNLOCKS_PER_DAY = 10_000
     const val MAX_CLOCK_SKEW_MS = 5 * 60_000L
@@ -102,10 +103,13 @@ object UsageReadModel {
         today: LocalDate,
         period: Period,
         departed: Boolean = false,
+        zone: ZoneId = ZoneId.systemDefault(),
     ): DeviceDetail {
         val own = surfaced(member, byDate)
         val mine = events.filter { it.author == member.id }
         val days = days(own, today, period.days)
+        val start = days.first().date.atStartOfDay(zone).toInstant().toEpochMilli()
+        val end = today.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
         return DeviceDetail(
             member = member,
             period = period,
@@ -113,9 +117,19 @@ object UsageReadModel {
             totalMs = days.sumOf { it.totalMs },
             unlocks = days.sumOf { it.unlocks },
             apps = apps(own, days.map { it.date }, catalog),
-            events = mine.sortedByDescending { it.seq }.take(MAX_EVENTS),
+            events = mine.filter { inWindow(it, start, end) }.sortedByDescending { it.seq },
             sharing = sharing(mine, departed),
         )
+    }
+
+    /**
+     * Whether [e] belongs to the window [start, end) of the viewer's days: it was created in it, or its interval
+     * (from_ms to to_ms; to_ms missing or before from_ms reads as the instant from_ms) reaches into it.
+     */
+    private fun inWindow(e: EventView, start: Long, end: Long): Boolean {
+        if (e.createdMs in start until end) return true
+        if (e.fromMs <= 0) return false
+        return e.fromMs < end && maxOf(e.toMs, e.fromMs) >= start
     }
 
     private fun surfaced(member: MemberView, byDate: Map<LocalDate, DecodedEntry>?) = byDate.takeIf { member.role == Role.CHILD }

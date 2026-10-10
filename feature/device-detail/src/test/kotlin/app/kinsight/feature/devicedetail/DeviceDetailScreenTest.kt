@@ -130,4 +130,64 @@ class DeviceDetailScreenTest {
         show(detail.copy(days = days))
         rule.onNode(hasContentDescription("больше всего — суббота (1 ч)", substring = true)).assertExists()
     }
+
+    @Test
+    fun moreThanAHundredEventsShowTheLatestHundred() {
+        val many = (1L..130).map { event.copy(kind = StateEvent.Kind.DATA_GAP, seq = 200 - it) }
+        show(detail.copy(events = many))
+        val list = rule.onNodeWithTag("det_list")
+        list.performScrollToNode(hasText("Showing the latest 100 of 130"))
+        list.performScrollToNode(hasTestTag("det_event_101"))
+        rule.onNodeWithTag("det_event_71").assertDoesNotExist()
+    }
+
+    @Test
+    fun weekShowsTheChartButDayDoesNot() {
+        show(detail.copy(period = Period.DAY, days = detail.days.takeLast(1)))
+        rule.onNode(hasContentDescription("Average", substring = true)).assertDoesNotExist()
+        rule.onNodeWithText("1 h 30 min").assertExists()
+    }
+
+    @Test
+    fun weekChartIsThere() {
+        show(detail)
+        rule.onNode(hasContentDescription("Average", substring = true)).assertExists()
+    }
+
+    @Test
+    fun pausedSharingIsNoted() {
+        show(detail.copy(sharing = Sharing.Paused(1_000)))
+        rule.onNodeWithText("Sharing has been paused since", substring = true).assertExists()
+    }
+
+    @Test
+    fun missingOrReversedSpanHasNoDuration() {
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                Column {
+                    Text(eventText(event.copy(kind = StateEvent.Kind.BLUETOOTH_OFF, fromMs = 5_000, toMs = 0)))
+                    Text(eventText(event.copy(kind = StateEvent.Kind.SYNC_STOPPED, fromMs = 5_000, toMs = 1_000)))
+                }
+            }
+        }
+        rule.onNodeWithText("Bluetooth was off").assertExists()
+        rule.onNodeWithText("Sync was stopped").assertExists()
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun russianSpansTakeNa() {
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                Column {
+                    Text(eventText(event.copy(kind = StateEvent.Kind.BLUETOOTH_OFF)))
+                    Text(eventText(event.copy(kind = StateEvent.Kind.NEARBY_PERMISSION_OFF)))
+                    Text(eventText(event.copy(kind = StateEvent.Kind.NOTIFICATION_SHOWN)))
+                }
+            }
+        }
+        rule.onNodeWithText("Bluetooth был выключен на 1 ч").assertExists()
+        rule.onNodeWithText("Разрешение «Устройства поблизости» было выключено на 1 ч").assertExists()
+        rule.onNodeWithText("Уведомление синхронизации снова видно, было скрыто на 1 ч").assertExists()
+    }
 }

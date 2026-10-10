@@ -10,6 +10,8 @@ import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.model.proto.UsageSummary
 import okio.ByteString.Companion.toByteString
 import java.time.LocalDate
+import java.time.ZoneId
+import java.time.ZoneOffset
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -34,7 +36,12 @@ class UsageReadModelTest {
         )
     }
 
-    private fun event(kind: StateEvent.Kind) = kid.create { it.copy(state_event = StateEvent(kind = kind)) }
+    private val noonToday = today.atTime(12, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+
+    private fun event(kind: StateEvent.Kind, createdMs: Long = noonToday, fromMs: Long = 0, toMs: Long = 0) =
+        kid.create { it.copy(created_at_ms = createdMs, state_event = StateEvent(kind = kind, from_ms = fromMs, to_ms = toMs)) }
+
+    private fun utc(date: LocalDate, hour: Int = 12) = date.atTime(hour, 0).toInstant(ZoneOffset.UTC).toEpochMilli()
     private fun byDate(vararg e: DecodedEntry) = UsageReadModel.summaries(e.toList())[kidKeys.deviceId]
 
     @Test
@@ -101,7 +108,7 @@ class UsageReadModelTest {
         val week = UsageReadModel.detail(member, by, emptyMap(), events, today, Period.WEEK)
         assertEquals(90 * min, week.totalMs)
         assertEquals(10, week.unlocks)
-        assertEquals(UsageReadModel.MAX_EVENTS, week.events.size)
+        assertEquals(25, week.events.size)
         assertEquals(190 * min, UsageReadModel.detail(member, by, emptyMap(), events, today, Period.MONTH).totalMs)
     }
 
@@ -178,5 +185,32 @@ class UsageReadModelTest {
         assertEquals(0L, detail.totalMs)
         assertEquals(0, detail.unlocks)
         assertTrue(detail.apps.isEmpty())
+    }
+
+    @Test
+    fun manyGapsDoNotPushAnIntegrityEventOutOfTheWeek() {
+        val hidden = event(StateEvent.Kind.NOTIFICATION_HIDDEN, createdMs = utc(today.minusDays(5)), fromMs = utc(today.minusDays(5)))
+        val gaps = (1..30).map { event(StateEvent.Kind.DATA_GAP, createdMs = utc(today, 10), fromMs = utc(today, 9), toMs = utc(today, 10)) }
+        val events = UsageReadModel.events(listOf(hidden) + gaps)
+        val week = UsageReadModel.detail(member, null, emptyMap(), events, today, Period.WEEK, zone = ZoneOffset.UTC)
+        assertEquals(31, week.events.size)
+        assertEquals(StateEvent.Kind.NOTIFICATION_HIDDEN, week.events.last().kind)
+        assertEquals(week.events.map { it.seq }.sortedDescending(), week.events.map { it.seq })
+    }
+
+    @Test
+    fun eventsAreScopedToThePeriodWindow() {
+        val threeDaysAgo = event(StateEvent.Kind.BLUETOOTH_OFF, createdMs = utc(today.minusDays(3)), fromMs = utc(today.minusDays(3), 8), toMs = utc(today.minusDays(3), 9))
+        val tenDaysAgo = event(StateEvent.Kind.CLOCK_CHANGED, createdMs = utc(today.minusDays(10)))
+        val fortyDaysAgo = event(StateEvent.Kind.LEFT_GROUP, createdMs = utc(today.minusDays(40)))
+        // Stopped two days ago and reported on restart this morning: it reaches into today.
+        val stopped = event(StateEvent.Kind.SYNC_STOPPED, createdMs = utc(today, 8), fromMs = utc(today.minusDays(2)), toMs = utc(today, 8))
+        val events = UsageReadModel.events(listOf(threeDaysAgo, tenDaysAgo, fortyDaysAgo, stopped))
+        fun kinds(p: Period) = UsageReadModel.detail(member, null, emptyMap(), events, today, p, zone = ZoneOffset.UTC).events.map { it.kind }.toSet()
+        assertEquals(setOf(StateEvent.Kind.SYNC_STOPPED), kinds(Period.DAY))
+        assertEquals(setOf(StateEvent.Kind.SYNC_STOPPED, StateEvent.Kind.BLUETOOTH_OFF), kinds(Period.WEEK))
+        assertEquals(setOf(StateEvent.Kind.SYNC_STOPPED, StateEvent.Kind.BLUETOOTH_OFF, StateEvent.Kind.CLOCK_CHANGED), kinds(Period.MONTH))
+        // Sharing still reads every own event, not only the period's.
+        assertEquals(Sharing.Left, UsageReadModel.detail(member, null, emptyMap(), events, today, Period.DAY, zone = ZoneOffset.UTC).sharing)
     }
 }

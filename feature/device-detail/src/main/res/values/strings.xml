@@ -36,4 +36,11 @@
     <string name="det_ev_nearby_off">The Nearby devices permission was off for %1$s</string>
     <string name="det_ev_force_stopped">Kinsight was force-stopped for %1$s</string>
     <string name="det_ev_unknown">Unknown event</string>
+    <string name="det_events_capped">Showing the latest %1$d of %2$d</string>
+    <string name="det_ev_bluetooth_off_open">Bluetooth was off</string>
+    <string name="det_ev_gap_open">No data for a while</string>
+    <string name="det_ev_sync_stopped_open">Sync was stopped</string>
+    <string name="det_ev_notification_shown_open">Sync notification visible again</string>
+    <string name="det_ev_nearby_off_open">The Nearby devices permission was off</string>
+    <string name="det_ev_force_stopped_open">Kinsight was force-stopped</string>
 </resources>

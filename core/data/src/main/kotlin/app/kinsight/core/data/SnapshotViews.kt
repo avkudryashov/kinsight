@@ -4,6 +4,7 @@ import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.Member
 import java.time.LocalDate
+import java.time.ZoneId
 
 sealed interface GroupState {
     data object Loading : GroupState
@@ -79,7 +80,14 @@ object SnapshotViews {
     }
 
     /** Active or departed member [id]; null for an unknown device. */
-    fun detail(s: GroupSnapshot.Ready, id: DeviceId, period: Period, today: LocalDate, nowMs: Long = System.currentTimeMillis()): DeviceDetail? {
+    fun detail(
+        s: GroupSnapshot.Ready,
+        id: DeviceId,
+        period: Period,
+        today: LocalDate,
+        nowMs: Long = System.currentTimeMillis(),
+        zone: ZoneId = ZoneId.systemDefault(),
+    ): DeviceDetail? {
         val departed = s.membership.departed[id]
         val member = s.membership.active[id] ?: departed?.member ?: return null
         return UsageReadModel.detail(
@@ -90,6 +98,7 @@ object SnapshotViews {
             today = today,
             period = period,
             departed = departed != null,
+            zone = zone,
         )
     }
 

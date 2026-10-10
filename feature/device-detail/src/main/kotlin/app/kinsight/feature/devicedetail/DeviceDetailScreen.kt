@@ -56,6 +56,9 @@ import java.time.format.TextStyle
 
 private const val TOP_APPS = 5
 
+/** Events drawn at most; the period's list is uncapped in core/data, so the screen says how many it leaves out. */
+private const val MAX_EVENTS = 100
+
 @Composable
 fun DeviceDetailRoute(id: DeviceId, onAllApps: (Period) -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
@@ -156,11 +159,15 @@ fun DeviceDetailScreen(detail: DeviceDetail, onPeriod: (Period) -> Unit, onAllAp
             }
             item(key = "events_title") { SectionTitle(stringResource(R.string.det_events)) }
             if (detail.events.isEmpty()) item(key = "no_events") { Text(stringResource(R.string.det_no_events)) }
-            items(detail.events, key = { "ev:${it.author.hex}-${it.seq}" }) { e ->
+            items(detail.events.take(MAX_EVENTS), key = { "ev:${it.author.hex}-${it.seq}" }) { e ->
                 ListItem(
                     headlineContent = { Text(eventText(e)) },
                     supportingContent = { Text(dateTime(e.createdMs)) },
+                    modifier = Modifier.testTag("det_event_${e.seq}"),
                 )
+            }
+            if (detail.events.size > MAX_EVENTS) {
+                item(key = "events_more") { Text(stringResource(R.string.det_events_capped, MAX_EVENTS, detail.events.size)) }
             }
         }
     }
