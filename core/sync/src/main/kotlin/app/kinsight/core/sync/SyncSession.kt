@@ -49,6 +49,7 @@ class SyncSession(
     private val protocolVersion: Int = PROTOCOL_VERSION,
     private val idleTimeout: Duration = 30.seconds,
     private val sessionTimeout: Duration = 5.minutes,
+    private val lingerTimeout: Duration = LINGER,
     private val log: (String) -> Unit = {},
 ) {
     suspend fun run(channel: SecureChannel): SessionResult = try {
@@ -285,10 +286,36 @@ class SyncSession(
                     else -> throw ProtocolException("unexpected message")
                 }
             }
-            SessionResult.Completed(peer.id, received, sentBatches)
+            val completed = SessionResult.Completed(peer.id, received, sentBatches)
+            closingHandshake(ch, inbox)
+            completed
         } finally {
             reader.cancel()
             sender.cancel()
+        }
+    }
+
+    /**
+     * Keeps the link open until the peer has finished too. A transport may drop frames still in flight when a socket is
+     * closed (BLE L2CAP does), so the side that completes first must not hang up on the peer's last needed message (our
+     * Done or an ack). Each side, once complete, sends a second Done ("bye") and waits, bounded by [lingerTimeout], for
+     * the peer's bye or for the peer to hang up. A bye is only sent after completion, so whoever receives it knows the
+     * peer needs nothing more and may close. Symmetric: no roles, and two complete sides release each other within one
+     * round trip. A peer that predates the bye just closes, which ends our wait as well.
+     */
+    private suspend fun closingHandshake(ch: SecureChannel, inbox: Channel<SyncMessage>) {
+        try {
+            send(ch, SyncMessage(done = Done()))
+        } catch (e: IOException) {
+            return // the peer already hung up: it had everything it needed
+        } catch (e: CryptoException) {
+            return
+        }
+        withTimeoutOrNull(lingerTimeout) {
+            while (true) {
+                val m = inbox.receiveCatching().getOrNull() ?: break // hung up or the link failed
+                if (m.done != null) break
+            }
         }
     }
 
@@ -378,6 +405,8 @@ class SyncSession(
         /** Maximum batches sent but not yet acked by the peer. */
         const val SEND_WINDOW = 16
         private val REJECT_GRACE = 5.seconds
+        /** Upper bound of the closing handshake when the peer neither says bye nor hangs up. */
+        val LINGER = 5.seconds
         private const val PAGE = 200
         /** Byte budget of one EntryBatch; an entry above it is never sent (core/usage caps UsageDetail by it). */
         const val BATCH_BYTES = 60_000
