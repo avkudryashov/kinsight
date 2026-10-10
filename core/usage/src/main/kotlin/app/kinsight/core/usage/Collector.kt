@@ -34,19 +34,9 @@ class Collector(
             if (!granted) return CollectResult.NO_ACCESS
             val firstDay = Instant.ofEpochMilli(now.wallMs).atZone(zoneNow).toLocalDate().minusDays(FIRST_RUN_DAYS - 1)
             val from = firstDay.atStartOfDay(zoneNow).toInstant().toEpochMilli()
-            return aggregate(from, now.wallMs, StreamState.INITIAL, zoneNow, zoneNow, now, emptyList())
+            return aggregate(from, now.wallMs, StreamState.INITIAL, zoneNow, zoneNow, now, emptyList(), prev)
         }
-        if (!granted) {
-            if (prev.accessGranted != false) {
-                queue.commit(
-                    CollectBatch(
-                        events = listOf(event(StateEvent.Kind.USAGE_ACCESS_REVOKED, now.wallMs, now.wallMs)),
-                        state = prev.copy(accessGranted = false, accessLostMs = now.wallMs),
-                    ),
-                )
-            }
-            return CollectResult.NO_ACCESS
-        }
+        if (!granted) return revoked(prev, now)
         val events = mutableListOf<PendingEventRow>()
         if (prev.accessGranted == false) {
             events += event(StateEvent.Kind.USAGE_ACCESS_RESTORED, prev.accessLostMs ?: prev.cursorMs, now.wallMs)
@@ -66,7 +56,20 @@ class Collector(
             from = resume
             stream = StreamState.INITIAL
         }
-        return aggregate(from, until, stream, ZoneId.of(prev.zoneId), zoneNow, now, events)
+        return aggregate(from, until, stream, ZoneId.of(prev.zoneId), zoneNow, now, events, prev)
+    }
+
+    /** Access is gone: record USAGE_ACCESS_REVOKED on the "had it → lost it" transition and hold the cursor. */
+    private suspend fun revoked(prev: CollectorStateRow?, now: ClockSample): CollectResult {
+        if (prev != null && prev.accessGranted != false) {
+            queue.commit(
+                CollectBatch(
+                    events = listOf(event(StateEvent.Kind.USAGE_ACCESS_REVOKED, now.wallMs, now.wallMs)),
+                    state = prev.copy(accessGranted = false, accessLostMs = now.wallMs),
+                ),
+            )
+        }
+        return CollectResult.NO_ACCESS
     }
 
     private suspend fun aggregate(
@@ -77,8 +80,12 @@ class Collector(
         zoneNext: ZoneId,
         now: ClockSample,
         events: List<PendingEventRow>,
+        prev: CollectorStateRow?,
     ): CollectResult {
         val raw = if (until > from) source.read(from, until) else emptyList()
+        // Without access the system answers with no events, which looks like an idle period: a revoke during the
+        // read must not move the cursor over data that is still there.
+        if (!access.granted()) return revoked(prev, now)
         val agg = Aggregator.run(start, raw, from, until, zone, launchers.launchers())
         val hourSlots = agg.screenMs.keys + agg.unlocks.keys
         val dates = (hourSlots + agg.appMs.keys.map { it.slot }).map { it.date }.distinct().sorted()

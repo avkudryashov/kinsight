@@ -141,6 +141,34 @@ class CollectorTest {
     }
 
     @Test
+    fun accessRevokedDuringTheReadDoesNotCommitIt() = runTest {
+        collector.collect() // 10:00
+        source.events += listOf(s.resumed("10:10", MAPS), s.paused("10:40", MAPS))
+        source.duringRead = { access.granted = false } // the system now answers with no events
+        clock.advance(60 * MIN)
+        assertEquals(CollectResult.NO_ACCESS, collector.collect()) // 11:00
+        assertEquals(listOf(StateEvent.Kind.USAGE_ACCESS_REVOKED), kinds())
+        assertEquals(s.ms("10:00"), queue.state()!!.cursorMs)
+        assertEquals(s.ms("11:00"), queue.state()!!.accessLostMs)
+        assertEquals(0L, minutes("2026-10-09", 10))
+
+        source.duringRead = {}
+        access.granted = true
+        clock.advance(60 * MIN)
+        assertEquals(CollectResult.COLLECTED, collector.collect()) // 12:00: the held period is read again
+        assertEquals(s.ms("10:00") to s.ms("12:00"), source.reads.last())
+        assertEquals(30L, minutes("2026-10-09", 10))
+    }
+
+    @Test
+    fun firstRunRevokedDuringTheReadStoresNothing() = runTest {
+        source.duringRead = { access.granted = false }
+        assertEquals(CollectResult.NO_ACCESS, collector.collect())
+        assertNull(queue.state())
+        assertTrue(kinds().isEmpty())
+    }
+
+    @Test
     fun aZoneChangeAppliesFromTheNextRun() = runTest {
         collector.collect() // 10:00 Madrid
         source.events += listOf(s.resumed("10:00", MAPS), s.paused("10:30", MAPS))

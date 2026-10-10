@@ -6,8 +6,12 @@ class FakeSource : EventSource {
     val events = mutableListOf<UsageEvent>()
     val reads = mutableListOf<Pair<Long, Long>>()
 
+    /** Runs inside read(), e.g. to revoke usage access while the system is being queried. */
+    var duringRead: () -> Unit = {}
+
     override fun read(fromMs: Long, untilMs: Long): List<UsageEvent> {
         reads += fromMs to untilMs
+        duringRead()
         return events.filter { it.timeMs in fromMs until untilMs }
     }
 }
