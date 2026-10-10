@@ -43,4 +43,5 @@
     <string name="dash_open_details">Открыть подробности: %1$s</string>
     <string name="dash_no_group_title">Нет семейной группы</string>
     <string name="dash_no_group_body">Этот телефон не состоит в семейной группе.</string>
+    <string name="dash_update_notice">На одном из телефонов семьи нужно обновить Kinsight. После обновления вы снова будете получать с него данные.</string>
 </resources>

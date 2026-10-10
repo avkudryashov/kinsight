@@ -69,6 +69,7 @@ import app.kinsight.core.designsystem.component.isJustNow
 import app.kinsight.core.designsystem.component.relativeTime
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.transport.ble.ServiceState
+import app.kinsight.core.transport.ble.SyncProblem
 import kotlinx.coroutines.delay
 import java.time.format.TextStyle
 import kotlin.math.abs
@@ -161,6 +162,8 @@ fun DashboardScreen(
         ) {
             item { Text(stringResource(R.string.dash_title), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() }) }
             attention?.let { a -> item { AttentionBanner(a, onStart, onOpenSettings) } }
+            // Not the user's fault nor fixable here: a neutral note, never the error banner.
+            if (ui.service?.problem == SyncProblem.PEER_NEEDS_UPDATE) item { UpdateNotice() }
             if (child) {
                 item { ChildTransparencyRow(d.parents, d.selfUsage?.sharing ?: Sharing.Never, ui.sharingFailed, onPause, onResume, onConsent) }
                 d.selfUsage?.let { u -> item { DeviceCard(u, nowMs, noContactMs) { onOpenDevice(u.member.id) } } }
@@ -210,6 +213,19 @@ internal enum class SyncAttention {
             s.state == ServiceState.RADIO_ERROR -> RADIO_ERROR
             else -> null
         }
+    }
+}
+
+@Composable
+private fun UpdateNotice() {
+    Card(
+        Modifier.fillMaxWidth().testTag("dash_update_notice"),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
+    ) {
+        Text(stringResource(R.string.dash_update_notice), Modifier.padding(16.dp))
     }
 }
 

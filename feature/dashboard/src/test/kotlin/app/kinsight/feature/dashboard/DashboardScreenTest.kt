@@ -23,6 +23,7 @@ import app.kinsight.core.data.Sharing
 import app.kinsight.core.designsystem.theme.KinsightTheme
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.transport.ble.ServiceState
+import app.kinsight.core.transport.ble.SyncProblem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -185,6 +186,20 @@ class DashboardScreenTest {
         rule.onNodeWithTag("dash_start").performClick()
         rule.waitForIdle()
         assertTrue(started)
+    }
+
+    @Test
+    fun aPeerNeedingAnUpdateShowsANeutralNoticeNotABanner() {
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), emptyList()), running.copy(problem = SyncProblem.PEER_NEEDS_UPDATE), true))
+        rule.onNodeWithTag("dash_update_notice").assertExists()
+        rule.onNodeWithText("needs a Kinsight update", substring = true).assertExists()
+        rule.onNodeWithTag("dash_banner").assertDoesNotExist()
+    }
+
+    @Test
+    fun otherProblemsAndNoProblemShowNoUpdateNotice() {
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), emptyList()), running.copy(problem = SyncProblem.LINK_FAILED), true))
+        rule.onNodeWithTag("dash_update_notice").assertDoesNotExist()
     }
 
     @Test

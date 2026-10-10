@@ -43,4 +43,5 @@
     <string name="dash_open_details">Open details for %1$s</string>
     <string name="dash_no_group_title">No family group</string>
     <string name="dash_no_group_body">This phone is not in a family group.</string>
+    <string name="dash_update_notice">A family phone needs a Kinsight update. Sync with it resumes after the update.</string>
 </resources>
