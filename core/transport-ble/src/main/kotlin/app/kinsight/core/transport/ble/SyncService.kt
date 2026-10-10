@@ -98,6 +98,9 @@ class SyncService : Service() {
     private var scanProblem: RadioProblem? = null
     private var advertProblem: RadioProblem? = null
 
+    /** The problems [ServiceSnapshot.detail] names while RUNNING (serial dispatcher only). */
+    private var shownProblems: List<RadioProblem> = emptyList()
+
     // Main thread only.
     private var foreground = false
     private val mainHandler by lazy { android.os.Handler(mainLooper) }
@@ -597,16 +600,18 @@ class SyncService : Service() {
 
     private suspend fun showRunning() {
         val p = radioProblems()
-        show(ServiceState.RUNNING, RadioProblem.detailOf(p), p)
+        show(ServiceState.RUNNING, RadioProblem.detailOf(p))
+        shownProblems = p
     }
 
     /** While RUNNING, the typed problems (and the detail naming them, for diagnostics) are the standing radio failures. */
     private fun refreshRadioDetail() {
         if (snapshot.state != ServiceState.RUNNING) return
         val p = radioProblems()
-        if (snapshot.radioProblems == p) return
+        if (shownProblems == p) return
         val d = RadioProblem.detailOf(p)
-        snapshot = snapshot.copy(detail = d, radioProblems = p)
+        shownProblems = p
+        snapshot = snapshot.copy(detail = d)
         log("radio detail: ${d ?: "none"}")
         publish()
     }
@@ -633,14 +638,15 @@ class SyncService : Service() {
         }
     }
 
-    private suspend fun show(state: ServiceState, detail: String? = null, radioProblems: List<RadioProblem> = emptyList()) {
+    private suspend fun show(state: ServiceState, detail: String? = null) {
         if (snapshot.lastSyncWallMs == null) {
             quietly("read last sync") {
                 val last = SyncGraph.state(applicationContext).lastSyncMs()
                 snapshot = snapshot.copy(lastSyncWallMs = snapshot.lastSyncWallMs ?: last)
             }
         }
-        snapshot = snapshot.copy(state = state, detail = detail, radioProblems = radioProblems)
+        shownProblems = emptyList()
+        snapshot = snapshot.copy(state = state, detail = detail)
         log("state $state${detail?.let { ": $it" } ?: ""}")
         publish()
     }
