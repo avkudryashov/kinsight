@@ -298,12 +298,17 @@ class UsagePipelineTest {
         settings.setRetention(detailDays = 10, summaryDays = 30)
         val q = RoomUsageQueue(db)
         val sample = clock.sample()
+        val horizon = "2026-09-09" // today (2026-10-09) - summaryDays: the oldest day that is kept
+        val inside = clock.wallMs - 10 * 24 * 60 * MIN // an event well inside the 30-day horizon
         q.commit(
             CollectBatch(
-                usage = listOf(UsageDelta("2026-08-01", 9, MAPS, MIN, 60 * MIN)),
-                hours = listOf(HourDelta("2026-08-01", 9, MIN, 1, 60 * MIN)),
-                days = listOf(DayZone("2026-08-01", zone.id)),
-                events = listOf(PendingEventRow(kind = StateEvent.Kind.BLUETOOTH_OFF.value, fromMs = 1_000, toMs = 2_000)),
+                usage = listOf(UsageDelta("2026-08-01", 9, MAPS, MIN, 60 * MIN), UsageDelta(horizon, 9, MAPS, MIN, 60 * MIN)),
+                hours = listOf(HourDelta("2026-08-01", 9, MIN, 1, 60 * MIN), HourDelta(horizon, 9, MIN, 1, 60 * MIN)),
+                days = listOf(DayZone("2026-08-01", zone.id), DayZone(horizon, zone.id)),
+                events = listOf(
+                    PendingEventRow(kind = StateEvent.Kind.BLUETOOTH_OFF.value, fromMs = 1_000, toMs = 2_000),
+                    PendingEventRow(kind = StateEvent.Kind.BLUETOOTH_OFF.value, fromMs = inside, toMs = inside + MIN),
+                ),
                 state = CollectorStateRow(
                     cursorMs = sample.wallMs, zoneId = zone.id, screenOn = false, resumed = "", wallMs = sample.wallMs,
                     elapsedMs = sample.elapsedMs, bootCount = sample.bootCount, accessGranted = true, accessLostMs = null,
@@ -313,7 +318,19 @@ class UsagePipelineTest {
         pipeline(null).collectAndPublish()
         assertTrue(q.dayUsage("2026-08-01").apps.isEmpty())
         assertTrue(q.changedDays().none { it.date == "2026-08-01" })
-        assertTrue(q.pendingEvents().isEmpty())
+        assertEquals(listOf(inside), q.pendingEvents().map { it.fromMs })
+        assertEquals(listOf(MAPS), q.dayUsage(horizon).apps.map { it.packageName })
+        assertTrue(q.changedDays().any { it.date == horizon })
+    }
+
+    @Test
+    fun switchingOffWithAClosedGateSignsNothing() = runTest {
+        // Preflight C16 / fix round 1: a device that may not share only writes the setting, never SHARING_PAUSED.
+        settings.setSharing(true)
+        store.applyBatch(listOf(genesis.entry))
+        gated(PublishTarget(genesis.groupId, keys), allowed = false).setSharing(false)
+        assertFalse(settings.current().sharing)
+        assertTrue(own().isEmpty())
     }
 
     @Test

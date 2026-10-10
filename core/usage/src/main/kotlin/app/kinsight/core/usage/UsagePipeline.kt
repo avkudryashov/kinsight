@@ -44,13 +44,16 @@ class UsagePipeline(
 
     /**
      * Event first, then the setting: a failure in between repeats the event, but never leaves a pause unrecorded
-     * (and [reconcileSharing] repairs the setting at the next start). Turning on needs [ownUsage].
+     * (and [reconcileSharing] repairs the setting at the next start). Turning on needs [ownUsage]; without it,
+     * turning off just writes the setting and signs nothing.
      */
     suspend fun setSharing(on: Boolean): Unit = mutex.withLock {
         if (settings.current().sharing == on) return@withLock
         val t = target()
-        check(!on || ownUsage(t)) { "only a consenting child device shares its usage (spec §4.8)" }
-        val publisher = publisher(t)
+        val allowed = ownUsage(t)
+        check(!on || allowed) { "only a consenting child device shares its usage (spec §4.8)" }
+        // A device that may not share only writes the setting: it never signs SHARING_PAUSED (preflight C16).
+        val publisher = if (allowed) publisher(t) else null
         publisher?.recordSharingChange(on)
         settings.setSharing(on)
         if (on) publisher?.publish(settings.current(), force = true)
