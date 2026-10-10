@@ -2,11 +2,13 @@ package app.kinsight.core.sync
 
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
+import app.kinsight.core.model.proto.AppTotal
 import app.kinsight.core.model.proto.BatchAck
 import app.kinsight.core.model.proto.EntryBatch
 import app.kinsight.core.model.proto.Hello
 import app.kinsight.core.model.proto.Reject
 import app.kinsight.core.model.proto.SyncMessage
+import app.kinsight.core.model.proto.UsageSummary
 import app.kinsight.core.model.proto.VectorAnnounce
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -14,14 +16,59 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import okio.ByteString.Companion.toByteString
 import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 class SessionHardeningTest {
+    /**
+     * Frames b legitimately reads beyond what its inbox holds: hello, vector announce and the batch the main loop is
+     * applying (3), plus the frame the reader holds while suspended on a full inbox (1), plus margin.
+     */
+    private val FRAMES_OUTSIDE_INBOX = 10
+
+    @Test
+    fun sendWindowFitsInsideTheInbox() {
+        // Batches + acks in flight, plus control messages (hello, announce, done, offers, reject).
+        val controlMargin = 8
+        assertTrue(SyncSession.SEND_WINDOW * 2 + controlMargin < SyncSession.INBOX_CAPACITY)
+    }
+
+    @Test
+    fun largeTwoWayExchangeDoesNotDeadlockWithSlowApply() = runBlocking {
+        val (a, b) = buildGroup(2)
+        a.policy = a.policy.copy(summaryRetentionDays = 10_000)
+        b.policy = b.policy.copy(summaryRetentionDays = 10_000)
+        // About 2.5 KB per entry: ~200 batches of 60 KB each way, well over twice the inbox capacity.
+        suspend fun fat(n: Node, totalMs: Long) = n.store.applyBatch(
+            (0 until 5_000).map { i ->
+                n.author.create {
+                    it.copy(
+                        usage_summary = UsageSummary(
+                            local_date = TODAY.minusDays(i.toLong()).toString(),
+                            zone_id = "Europe/Madrid",
+                            total_ms = totalMs,
+                            apps = (0 until 100).map { j -> AppTotal(package_name = "com.example.app$j", foreground_ms = j.toLong()) },
+                        ),
+                    )
+                }
+            },
+        )
+        fat(a, 1)
+        fat(b, 2)
+        a.store = SlowApplyStore(a.store)
+        b.store = SlowApplyStore(b.store)
+        val (ra, rb) = withTimeout(60.seconds) { syncPair(a, b, capacity = 1) }
+        assertTrue((assertIs<SessionResult.Completed>(ra)).sentBatches > 130)
+        assertTrue((assertIs<SessionResult.Completed>(rb)).sentBatches > 130)
+    }
+
     @Test
     fun floodedInboxIsBoundedWhileABatchIsApplied() = runBlocking {
         val (a, b) = buildGroup(2)
@@ -41,9 +88,14 @@ class SessionHardeningTest {
             repeat(1_000) { ch.put(SyncMessage(ack = BatchAck())) } // the unbounded MemoryPipe never blocks us
             delay(500)
             val read = counted.frames
-            assertTrue(read <= SyncSession.INBOX_CAPACITY + 10, "b read $read frames while its main loop was blocked")
+            assertTrue(
+                read <= SyncSession.INBOX_CAPACITY + FRAMES_OUTSIDE_INBOX,
+                "b read $read frames while its main loop was blocked",
+            )
             gate.complete(Unit)
             session.cancel()
+            session.join()
+            assertTrue(session.isCancelled, "session did not tear down")
         }
     }
 
@@ -119,5 +171,13 @@ private class SlowCutStream(
             }
         }
         inner.write(bytes)
+    }
+}
+
+/** Applying a batch takes a moment, as with a real database: the main loop is the slow side. */
+private class SlowApplyStore(private val inner: EntryStore) : EntryStore by inner {
+    override suspend fun applyBatch(entries: List<DecodedEntry>, seen: Map<DeviceId, Set<Long>>) {
+        delay(2)
+        inner.applyBatch(entries, seen)
     }
 }

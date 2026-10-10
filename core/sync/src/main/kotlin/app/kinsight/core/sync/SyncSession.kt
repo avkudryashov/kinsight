@@ -22,6 +22,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import okio.ByteString
@@ -182,9 +183,11 @@ class SyncSession(
 
         val validator = EntryValidator(store.groupId, membership, policy)
         val sentTotal = CompletableDeferred<Int>()
+        // One permit per batch in flight: taken before a batch is sent, returned when the peer acks it.
+        val window = Semaphore(SEND_WINDOW)
         val sender = launch {
             try {
-                val n = sendData(ch, membership, peerVector, hello.wants_foreign_entries, peer.id)
+                val n = sendData(ch, membership, peerVector, hello.wants_foreign_entries, peer.id, window)
                 send(ch, SyncMessage(done = Done()))
                 sentTotal.complete(n)
             } catch (e: IOException) {
@@ -197,7 +200,10 @@ class SyncSession(
         // Dedicated reader: keeps draining the link while our sender is still pushing, so the peer's
         // acks and batches never back up behind us on a bounded transport.
         // Bounded: a peer that floods us suspends our reader (and, through the link, itself) instead of filling memory.
-        // Honest peers never fill it: acks are tiny and batches arrive at link speed, far slower than we apply them.
+        // Invariant: an honest peer has at most SEND_WINDOW batches unacked, so at most SEND_WINDOW batches (from it) and
+        // SEND_WINDOW acks (for ours) plus a few control messages are ever unread here; that is below INBOX_CAPACITY
+        // (checked in SessionHardeningTest), so our reader always keeps draining the link and our sends cannot stall
+        // behind a peer whose reader is blocked on a full inbox.
         val inbox = Channel<SyncMessage>(INBOX_CAPACITY)
         val reader = launch {
             try {
@@ -256,7 +262,15 @@ class SyncSession(
                         received += accepted.size
                         send(ch, SyncMessage(ack = BatchAck(vector = store.versionVector().toProto())))
                     }
-                    msg.ack != null -> acks++
+                    msg.ack != null -> {
+                        acks++
+                        // A stray extra ack from a misbehaving peer must not break the window.
+                        try {
+                            window.release()
+                        } catch (e: IllegalStateException) {
+                            log("surplus ack from ${peer.id.hex}")
+                        }
+                    }
                     msg.done != null -> {
                         peerDone = true
                         // Author completion: the peer has now sent every entry of its own log above our announced
@@ -284,6 +298,7 @@ class SyncSession(
         peerVector: VersionVector,
         peerWantsForeign: Boolean,
         peerId: DeviceId,
+        window: Semaphore,
     ): Int {
         if (!peerWantsForeign) return 0
         var batches = 0
@@ -292,6 +307,7 @@ class SyncSession(
 
         suspend fun flush() {
             if (pending.isEmpty()) return
+            window.acquire()
             send(ch, SyncMessage(batch = EntryBatch(entries = pending.toList())))
             batches++
             pending.clear()
@@ -358,6 +374,9 @@ class SyncSession(
 
         /** Messages buffered between the dedicated reader and the main loop. */
         const val INBOX_CAPACITY = 64
+
+        /** Maximum batches sent but not yet acked by the peer. */
+        const val SEND_WINDOW = 16
         private val REJECT_GRACE = 5.seconds
         private const val PAGE = 200
         /** Byte budget of one EntryBatch; an entry above it is never sent (core/usage caps UsageDetail by it). */
