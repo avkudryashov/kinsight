@@ -24,6 +24,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
@@ -73,6 +74,8 @@ class SyncEngine(
     private val policy: ConnectPolicy = ConnectPolicy(),
     private val log: (String) -> Unit = {},
     private val sessionTimeout: Duration = SESSION_TIMEOUT,
+    private val prepareTimeout: Duration = PREPARE_TIMEOUT,
+    private val connectTimeout: Duration = CONNECT_TIMEOUT,
 ) {
     private val _status = MutableStateFlow(SyncStatus())
     val status: StateFlow<SyncStatus> = _status.asStateFlow()
@@ -83,6 +86,18 @@ class SyncEngine(
     val advert: StateFlow<AdvertPayload?> = _advert.asStateFlow()
 
     private val gate = Mutex()
+    private val _busy = MutableStateFlow(false)
+
+    /** True while the session gate is held; false only after it is released (tests wait on it). */
+    internal val busy: StateFlow<Boolean> = _busy.asStateFlow()
+    private val gateFlag = Any()
+
+    private fun tryAcquire(): Boolean = synchronized(gateFlag) { gate.tryLock().also { if (it) _busy.value = true } }
+
+    private fun release() = synchronized(gateFlag) {
+        gate.unlock()
+        _busy.value = false
+    }
     private val prepareLock = Mutex()
     private var lastPrepareMono: Long? = null
 
@@ -117,26 +132,30 @@ class SyncEngine(
 
     /** An accepted L2CAP connection: the responder side if no other session runs, else it is closed at once. */
     fun onInbound(stream: ByteStream) {
-        if (!gate.tryLock()) {
+        if (!tryAcquire()) {
             log("inbound while another session runs: closed")
             stream.close()
             return
         }
         scope.launch {
-            val ctx = contextOrNull()
-            if (ctx == null) {
-                stream.close()
-                return@launch
+            guarded(initiatedTo = null) {
+                contextOrNull()?.let { ctx -> runSession(ctx, stream, initiator = false) }
             }
-            record(null, runSession(ctx, stream, initiator = false))
-        }.invokeOnCompletion { cause ->
-            if (cause != null) stream.close()
-            gate.unlock()
+        }.invokeOnCompletion {
+            stream.close() // idempotent; covers no group, a crash and a launch into a cancelled scope
+            release()
         }
     }
 
+    /** Recomputes our advert; never throws (a failing store keeps the previous advert and is logged). */
     suspend fun refreshAdvert() {
-        _advert.value = contextOrNull()?.let { advertFor(it) }
+        try {
+            _advert.value = contextOrNull()?.let { advertFor(it) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log("advert refresh failed: $e")
+        }
     }
 
     private suspend fun advertFor(ctx: SyncContext): AdvertPayload =
@@ -169,27 +188,74 @@ class SyncEngine(
     }
 
     private fun initiate(ctx: SyncContext, d: Decision.Connect) {
-        if (!gate.tryLock()) return // a session runs; the next batch tries again
+        if (!tryAcquire()) {
+            log("skip ${d.peer.value.take(12)}: busy") // a session runs; the next batch tries again
+            return
+        }
         scope.launch {
-            prepareIfDue()
-            val stream = try {
-                withTimeout(CONNECT_TIMEOUT) { link.connect(d.address) }
-            } catch (e: TimeoutCancellationException) {
-                log("connect to ${d.peer.value.take(12)} timed out")
-                null
+            guarded(initiatedTo = d.peer) {
+                prepareIfDue()
+                val stream = connectOrNull(d)
+                if (stream == null) {
+                    Outcome(SessionResult.Failed(IOException("connect failed")), authenticated = null)
+                } else {
+                    runSession(ctx, stream, initiator = true)
+                }
+            }
+        }.invokeOnCompletion { release() }
+    }
+
+    /**
+     * [BleLink.connect] within [connectTimeout]. A stream that arrives just as the timeout fires (the call returned,
+     * but the timeout won) is closed here: nobody else holds it.
+     */
+    private suspend fun connectOrNull(d: Decision.Connect): ByteStream? {
+        var connected: ByteStream? = null
+        return try {
+            withTimeout(connectTimeout) { link.connect(d.address).also { connected = it } }
+        } catch (e: TimeoutCancellationException) {
+            connected?.close()
+            log("connect to ${d.peer.value.take(12)} timed out")
+            null
+        } catch (e: CancellationException) {
+            connected?.close()
+            throw e
+        } catch (e: Exception) {
+            connected?.close()
+            log("connect to ${d.peer.value.take(12)} failed: $e")
+            null
+        }
+    }
+
+    /**
+     * Runs a session body and records its outcome; nothing but cancellation escapes (on Android an exception leaving
+     * the engine's scope would crash the process). A crash in the body counts as a failed session, and the status is
+     * reported exactly once even if recording itself fails. A null outcome (no group) records nothing.
+     */
+    private suspend fun guarded(initiatedTo: PeerKey?, body: suspend () -> Outcome?) {
+        var reported = false
+        try {
+            val outcome = try {
+                body()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                log("connect to ${d.peer.value.take(12)} failed: $e")
-                null
+                log("session ${initiatedTo?.value?.take(12) ?: "inbound"} crashed: $e")
+                Outcome(SessionResult.Failed(e), authenticated = null)
+            } ?: return
+            record(initiatedTo, outcome)
+            reported = true
+            refreshAdvert() // the vector changed: peers should see the new hash
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log("recording the session failed: $e")
+            if (!reported) {
+                _status.update {
+                    it.copy(syncing = false, finishedSessions = it.finishedSessions + 1, lastProblem = SyncProblem.LINK_FAILED)
+                }
             }
-            val outcome = if (stream == null) {
-                Outcome(SessionResult.Failed(IOException("connect failed")), authenticated = null)
-            } else {
-                runSession(ctx, stream, initiator = true)
-            }
-            record(d.peer, outcome)
-        }.invokeOnCompletion { gate.unlock() }
+        }
     }
 
     /** A session's result and the member its Noise static key proved, null when the handshake never finished. */
@@ -202,10 +268,10 @@ class SyncEngine(
      */
     private suspend fun runSession(ctx: SyncContext, stream: ByteStream, initiator: Boolean): Outcome {
         _status.update { it.copy(syncing = true) }
-        val prologue = SecureChannel.prologue(ctx.groupId)
         var authenticated: DeviceId? = null
         val result = try {
             withTimeout(sessionTimeout) {
+                val prologue = SecureChannel.prologue(ctx.groupId)
                 val channel = if (initiator) {
                     SecureChannel.initiate(stream, ctx.keys.dh, prologue)
                 } else {
@@ -240,7 +306,7 @@ class SyncEngine(
      * the proven one (or nothing was proven), it gets only a retry delay so the same address is not redialled at once,
      * never a block, which belongs to the proven peer.
      */
-    private suspend fun record(initiatedTo: PeerKey?, outcome: Outcome) {
+    private fun record(initiatedTo: PeerKey?, outcome: Outcome) {
         val result = outcome.result
         val now = monoClock()
         val proven = when (result) {
@@ -286,7 +352,6 @@ class SyncEngine(
                 lastProblem = problem,
             )
         }
-        refreshAdvert() // the vector changed: peers should see the new hash
     }
 
     private suspend fun prepareIfDue() = prepareLock.withLock {
@@ -295,7 +360,8 @@ class SyncEngine(
         if (last != null && now - last in 0 until PREPARE_MIN_INTERVAL_MS) return@withLock
         lastPrepareMono = now
         try {
-            prepare()
+            // Bounded: prepare runs while the session gate is held (and before a responder's sightings move on).
+            withTimeoutOrNull(prepareTimeout) { prepare() } ?: log("prepare timed out after $prepareTimeout")
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -316,5 +382,6 @@ class SyncEngine(
         val CONNECT_TIMEOUT = 30.seconds
         const val PREPARE_MIN_INTERVAL_MS = 60_000L
         val SESSION_TIMEOUT = 5.minutes
+        val PREPARE_TIMEOUT = 30.seconds
     }
 }

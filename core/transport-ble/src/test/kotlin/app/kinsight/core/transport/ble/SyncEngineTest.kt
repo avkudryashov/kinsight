@@ -7,13 +7,16 @@ import app.kinsight.core.model.proto.Hello
 import app.kinsight.core.model.proto.SyncMessage
 import app.kinsight.core.model.proto.VectorAnnounce
 import app.kinsight.core.sync.ByteStream
+import app.kinsight.core.sync.EntryStore
 import app.kinsight.core.sync.LinkFaults
 import app.kinsight.core.sync.MemoryPipe
 import app.kinsight.core.sync.PROTOCOL_VERSION
 import app.kinsight.core.sync.SecureChannel
 import app.kinsight.core.sync.TODAY
 import app.kinsight.core.sync.summary
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
@@ -23,6 +26,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -31,13 +36,22 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import okio.ByteString.Companion.toByteString
 
 class SyncEngineTest {
     private data class Addr(val name: String) : PeerAddress
 
-    private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    /** Exceptions that escaped an engine coroutine: on Android each of these would crash the process. */
+    private val uncaught = ConcurrentLinkedQueue<Throwable>()
+
+    private val scope = CoroutineScope(
+        Dispatchers.Default + SupervisorJob() + CoroutineExceptionHandler { _, e -> uncaught.add(e) },
+    )
+
+    /** Every engine's log, prefixed with its device name. */
+    private val logs = ConcurrentLinkedQueue<String>()
 
     @Volatile
     private var mono = 0L
@@ -67,19 +81,36 @@ class SyncEngineTest {
         group: TestGroup,
         d: TestDevice,
         sessionTimeout: Duration = SyncEngine.SESSION_TIMEOUT,
+        prepareTimeout: Duration = SyncEngine.PREPARE_TIMEOUT,
+        connectTimeout: Duration = SyncEngine.CONNECT_TIMEOUT,
+        store: EntryStore = d.store,
+        link: BleLink = this.link,
+        onLog: (String) -> Unit = {},
         prepare: suspend () -> Unit = {},
     ) = SyncEngine(
         scope = scope,
-        context = { SyncContext(group.groupId, group.discoveryKey, d.keys, d.store, d.policy()) },
+        context = { SyncContext(group.groupId, group.discoveryKey, d.keys, store, d.policy()) },
         link = link,
         prepare = prepare,
         monoClock = { mono },
         wallClock = { wall },
+        log = {
+            logs.add("${d.name}: $it")
+            onLog(it)
+        },
         sessionTimeout = sessionTimeout,
+        prepareTimeout = prepareTimeout,
+        connectTimeout = connectTimeout,
     )
 
     @AfterTest
-    fun cleanUp() = runBlocking<Unit> { scope.coroutineContext.job.cancelAndJoin() }
+    fun cleanUp() = runBlocking<Unit> {
+        scope.coroutineContext.job.cancelAndJoin()
+        assertTrue(uncaught.isEmpty(), "escaped engine coroutines: ${uncaught.toList()}")
+    }
+
+    private fun skipped(device: TestDevice, peer: TestDevice, reason: String) =
+        logs.contains("${device.name}: skip ${PeerKey.of(peer.keys.deviceId).value.take(12)}: $reason")
 
     /** Both engines see each other's current advert at [x] and [y] (the addresses rotate like RPAs). */
     private suspend fun seeEachOther(x: String, ex: SyncEngine, y: String, ey: SyncEngine) {
@@ -91,8 +122,9 @@ class SyncEngineTest {
         ey.onSightings(listOf(Sighting(Addr(x), ex.advert.value!!, rssi = -50)))
     }
 
+    /** Sessions reported finished and every gate released, so the next sighting is decided, not dropped as busy. */
     private suspend fun awaitFinished(total: Int, vararg es: SyncEngine) = withTimeout(15.seconds) {
-        while (es.sumOf { it.status.value.finishedSessions } < total) delay(20)
+        while (es.sumOf { it.status.value.finishedSessions } < total || es.any { it.busy.value }) delay(20)
     }
 
     @Test
@@ -136,9 +168,11 @@ class SyncEngineTest {
         d0.store.applyBatch(listOf(d0.author.summary(TODAY.minusDays(1).toString(), 7)))
         wall += DiscoveryTags.WINDOW_MS // new tags
         mono += 5 * 60_000
+        logs.clear()
         seeEachOther("d0-rpa2", e0, "d1-rpa2", e1) // new addresses
         delay(300)
         assertEquals(1, connects.get(), "cooldown must follow the device, not its address or tag")
+        assertTrue(skipped(d0, d1, "cooldown") && skipped(d1, d0, "cooldown"), "decided by the cooldown: $logs")
 
         mono += 6 * 60_000
         seeEachOther("d0-rpa3", e0, "d1-rpa3", e1)
@@ -159,9 +193,11 @@ class SyncEngineTest {
         awaitFinished(2, e0, e1)
         assertTrue(listOf(e0, e1).any { it.status.value.lastProblem == SyncProblem.LINK_FAILED })
 
+        logs.clear()
         seeEachOther("d0", e0, "d1", e1)
         delay(300)
         assertEquals(1, connects.get(), "retried inside the one-minute backoff")
+        assertTrue(skipped(d0, d1, "cooldown") || skipped(d1, d0, "cooldown"), "decided by the backoff: $logs")
 
         mono += 61_000
         seeEachOther("d0", e0, "d1", e1)
@@ -233,9 +269,11 @@ class SyncEngineTest {
         awaitFinished(2, e0, e2)
         assertEquals(SyncProblem.LINK_FAILED, e0.status.value.lastProblem)
 
+        logs.clear()
         e0.onSightings(listOf(Sighting(Addr("d2"), e2.advert.value!!, rssi = -50)))
         delay(300)
         assertEquals(1, connects.get(), "the failure backoff must hold for d2, the device the Noise handshake proved")
+        assertTrue(skipped(d0, d2, "cooldown"), "decided by d2's backoff: $logs")
     }
 
     @Test
@@ -273,5 +311,66 @@ class SyncEngineTest {
         awaitFinished(1, e1)
         assertEquals(SyncProblem.LINK_FAILED, e1.status.value.lastProblem)
         assertTrue(!e1.status.value.syncing)
+    }
+
+    @Test
+    fun anExceptionAfterTheSessionIsContainedAndReleasesTheGate() = runBlocking<Unit> {
+        val g = TestGroup.create(2)
+        val (d0, d1) = g.devices
+        d0.store.applyBatch(listOf(d0.author.summary(TODAY.toString(), 5)))
+        val broken = AtomicBoolean(false)
+        val failing = object : EntryStore by d1.store {
+            override suspend fun versionVector() = if (broken.get()) throw IllegalStateException("database closed") else d1.store.versionVector()
+        }
+        val e0 = engine(g, d0)
+        val e1 = engine(g, d1, store = failing, onLog = { if ("Completed(" in it) broken.set(true) })
+        seeEachOther("d0", e0, "d1", e1)
+        awaitFinished(2, e0, e1)
+        assertTrue(uncaught.isEmpty(), "escaped: ${uncaught.toList()}")
+        assertEquals(1, e1.status.value.finishedSessions)
+        assertTrue(!e1.status.value.syncing)
+        assertEquals(d0.store.versionVector(), d1.store.versionVector())
+    }
+
+    @Test
+    fun aHangingPrepareDoesNotHoldTheSession() = runBlocking<Unit> {
+        val g = TestGroup.create(2)
+        val (d0, d1) = g.devices
+        d0.store.applyBatch(listOf(d0.author.summary(TODAY.toString(), 5)))
+        val e0 = engine(g, d0, prepareTimeout = 200.milliseconds) { awaitCancellation() }
+        val e1 = engine(g, d1, prepareTimeout = 200.milliseconds) { awaitCancellation() }
+        seeEachOther("d0", e0, "d1", e1)
+        awaitFinished(2, e0, e1)
+        assertEquals(d0.store.versionVector(), d1.store.versionVector())
+        assertTrue(logs.any { it.endsWith("prepare timed out after 200ms") }, "$logs")
+    }
+
+    @Test
+    fun aStreamReturnedAfterTheConnectTimeoutFiredIsNeverLeaked() = runBlocking<Unit> {
+        val g = TestGroup.create(2)
+        val (d0, d1) = g.devices
+        d0.store.applyBatch(listOf(d0.author.summary(TODAY.toString(), 5)))
+        val (late, farEnd) = MemoryPipe.pair()
+        val slowLink = object : BleLink {
+            override suspend fun connect(address: PeerAddress): ByteStream {
+                Thread.sleep(600) // blocking, like a radio call that ignores cancellation: returns after the timeout fired
+                return late
+            }
+        }
+        // kotlinx 1.10.2 hands back a value the block returned without suspending again, even after its timeout fired,
+        // so the late stream is used (the silent far end then trips the session timeout); either way it gets closed.
+        val e0 = engine(g, d0, connectTimeout = 100.milliseconds, sessionTimeout = 300.milliseconds, link = slowLink)
+        val e1 = engine(g, d1)
+        while (true) { // a window in which d0 connects
+            e0.refreshAdvert()
+            e1.refreshAdvert()
+            if (e0.advert.value!!.deviceTagValue < e1.advert.value!!.deviceTagValue) break
+            wall += DiscoveryTags.WINDOW_MS
+        }
+        e0.onSightings(listOf(Sighting(Addr("d1"), e1.advert.value!!, rssi = -50)))
+        awaitFinished(1, e0)
+        assertEquals(SyncProblem.LINK_FAILED, e0.status.value.lastProblem)
+        // The far end sees the handshake's first message, then the close.
+        withTimeout(2.seconds) { assertFailsWith<IOException> { while (true) farEnd.readFully(1) } }
     }
 }
