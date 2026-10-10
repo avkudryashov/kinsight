@@ -53,6 +53,15 @@ class AlertsRunTest {
     ) = AlertInput(self, members, emptyList(), events, emptyList(), now, ZoneId.of("UTC"), 24, SummaryMode.OFF, markers, joined)
 
     private fun paused(seq: Long) = EventView(kid.id, seq, StateEvent.Kind.SHARING_PAUSED, 0, 0, seq * 1_000, 0)
+    private fun resumed(seq: Long) = EventView(kid.id, seq, StateEvent.Kind.SHARING_RESUMED, 0, 0, seq * 1_000, 0)
+
+    /** One pass over [events] from [markers]: posts, stores, returns the stored markers. */
+    private suspend fun pass(markers: AlertMarkers, events: List<EventView>, members: List<MemberView> = listOf(mom, kid)): AlertMarkers {
+        val i = input(members = members, markers = markers, events = events)
+        var stored = markers
+        AlertsRun.deliver(context, i, AlertPlanner.plan(i)) { stored = it }
+        return stored
+    }
 
     @Before
     fun allowNotifications() {
@@ -149,5 +158,43 @@ class AlertsRunTest {
             }
         }.awaitAll()
         assertEquals(1, maxInside)
+    }
+
+    @Test
+    fun aResumeCancelsThePausedNotification() = runBlocking<Unit> {
+        val afterPause = pass(AlertMarkers(initialized = true), listOf(paused(1)))
+        assertEquals(1, shadowOf(nm).allNotifications.size)
+        val afterResume = pass(afterPause, listOf(paused(1), resumed(2)))
+        assertTrue("the stale \"paused\" must go", shadowOf(nm).allNotifications.isEmpty())
+        assertEquals(2L, afterResume.notifiedSeq[kid.id])
+    }
+
+    @Test
+    fun pauseResumePauseLeavesExactlyOneCurrentNotification() = runBlocking<Unit> {
+        var m = pass(AlertMarkers(initialized = true), listOf(paused(1)))
+        m = pass(m, listOf(paused(1), resumed(2)))
+        pass(m, listOf(paused(1), resumed(2), paused(3)))
+        assertEquals(1, shadowOf(nm).allNotifications.size)
+        // All three in one pass: posted, cancelled, posted again.
+        nm.cancelAll()
+        pass(AlertMarkers(initialized = true), listOf(paused(1), resumed(2), paused(3)))
+        assertEquals(1, shadowOf(nm).allNotifications.size)
+    }
+
+    @Test
+    fun theResumeFindsThePauseByDeviceEvenAfterARename() = runBlocking<Unit> {
+        val m = pass(AlertMarkers(initialized = true), listOf(paused(1)))
+        pass(m, listOf(paused(1), resumed(2)), members = listOf(mom, kid.copy(name = "Kiddo")))
+        assertTrue(shadowOf(nm).allNotifications.isEmpty())
+    }
+
+    @Test
+    fun aResumeLeavesOtherKindsAndChildrenAlone() = runBlocking<Unit> {
+        val sis = DeviceId("dd".repeat(16))
+        AlertNotifier.post(context, Alert.Integrity("Kid", StateEvent.Kind.LEFT_GROUP, 1_000, kid.id))
+        AlertNotifier.post(context, Alert.Integrity("Sis", StateEvent.Kind.SHARING_PAUSED, 1_000, sis))
+        AlertNotifier.post(context, Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000, kid.id))
+        assertTrue(AlertNotifier.post(context, Alert.Resolved(kid.id, StateEvent.Kind.SHARING_PAUSED)))
+        assertEquals(2, shadowOf(nm).allNotifications.size)
     }
 }

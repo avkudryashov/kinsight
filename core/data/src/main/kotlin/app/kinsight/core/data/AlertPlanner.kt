@@ -11,6 +11,12 @@ sealed interface Alert {
     /** [id]: the child's device, so tapping the alert can open its detail screen; null when unknown. */
     data class Integrity(val device: String, val kind: StateEvent.Kind, val atMs: Long, val id: DeviceId? = null) : Alert
 
+    /**
+     * The child undid an open problem ([kind] is the open kind: SHARING_PAUSED or NOTIFICATION_HIDDEN, see
+     * AlertPlanner.CLOSERS): the app cancels that child's notification of [kind] instead of posting.
+     */
+    data class Resolved(val id: DeviceId, val kind: StateEvent.Kind) : Alert
+
     data class NoContact(val device: String, val sinceMs: Long) : Alert
 
     /** On a child's phone: someone new can see its data (transparency, §9.6). */
@@ -41,8 +47,9 @@ data class AlertPlan(val alerts: List<Alert>, val markers: AlertMarkers)
 
 /**
  * Pure alert planning, run hourly and after each session. A parent hears about its children only: integrity events
- * (each once, by seq; the first run marks history as seen), no contact for longer than N hours (once per loss) and a
- * daily (after [SUMMARY_HOUR]) or weekly (Sunday) summary. A child hears about every new parent.
+ * (each once, by seq; the first run marks history as seen) and their resolution (a resume after a pause, a shown
+ * after a hidden notification: once per closing event, by the same seq marker), no contact for longer than N hours
+ * (once per loss) and a daily (after [SUMMARY_HOUR]) or weekly (Sunday) summary. A child hears about every new parent.
  *
  * The summary is posted at most once per day and is a snapshot of that moment: usage synced later the same evening does
  * not re-post or update it (the dashboard shows the live figure). A child is left out of the summary on the day it
@@ -61,6 +68,16 @@ object AlertPlanner {
         StateEvent.Kind.DATA_GAP,
         StateEvent.Kind.CLOCK_CHANGED,
     )
+    /**
+     * Open problems the child can undo, by their closing kind. Their notification stays up until the closing event
+     * cancels it (Alert.Resolved). Interval kinds posted only after they end (SYNC_STOPPED, BLUETOOTH_OFF, ...) are
+     * not here.
+     */
+    val CLOSERS = mapOf(
+        StateEvent.Kind.SHARING_PAUSED to StateEvent.Kind.SHARING_RESUMED,
+        StateEvent.Kind.NOTIFICATION_HIDDEN to StateEvent.Kind.NOTIFICATION_SHOWN,
+    )
+    private val OPENERS = CLOSERS.entries.associate { it.value to it.key }
     const val SUMMARY_HOUR = 20
 
     fun plan(input: AlertInput): AlertPlan = if (input.self.role == Role.CHILD) child(input) else parent(input)
@@ -100,8 +117,15 @@ object AlertPlanner {
             val own = i.events.filter { it.author == child.id }
             val max = own.maxOfOrNull { it.seq } ?: 0L
             val mark = notified[child.id] ?: if (i.markers.initialized) 0L else max
-            own.filter { it.seq > mark && it.kind in INTEGRITY_KINDS }.sortedBy { it.seq }
-                .forEach { alerts += Alert.Integrity(child.name, it.kind, it.atMs, child.id) }
+            val sorted = own.sortedBy { it.seq }
+            for ((index, e) in sorted.withIndex()) {
+                if (e.seq <= mark) continue
+                if (e.kind in INTEGRITY_KINDS) alerts += Alert.Integrity(child.name, e.kind, e.atMs, child.id)
+                val open = OPENERS[e.kind] ?: continue
+                // Resolved only when the pair's latest earlier event is the open one: a repeated resume says nothing.
+                val before = sorted.subList(0, index).lastOrNull { it.kind == open || it.kind == e.kind }
+                if (before?.kind == open) alerts += Alert.Resolved(child.id, open)
+            }
             notified[child.id] = maxOf(mark, max)
         }
 

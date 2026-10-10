@@ -197,4 +197,70 @@ class AlertPlannerTest {
         assertEquals(listOf(Alert.NewParent("Dad")), viaMom.alerts)
         assertTrue(AlertPlanner.plan(input(self = kidSelf, members = members, markers = viaMom.markers, inviter = mom.id)).alerts.isEmpty())
     }
+
+    private val paused = StateEvent.Kind.SHARING_PAUSED
+    private val resumed = StateEvent.Kind.SHARING_RESUMED
+
+    @Test
+    fun pauseThenResumeIsReportedThenResolved() {
+        val first = AlertPlanner.plan(input(events = listOf(ev(kid, 1, paused))))
+        assertEquals(listOf(Alert.Integrity("Kid", paused, 1_000, kid.id)), first.alerts)
+        val events = listOf(ev(kid, 1, paused), ev(kid, 2, resumed))
+        val second = AlertPlanner.plan(input(events = events, markers = first.markers))
+        assertEquals(listOf(Alert.Resolved(kid.id, paused)), second.alerts)
+        assertTrue(AlertPlanner.plan(input(events = events, markers = second.markers)).alerts.isEmpty())
+    }
+
+    @Test
+    fun pauseAndResumeBetweenTwoRunsAreBothSaidInOrder() {
+        val plan = AlertPlanner.plan(input(events = listOf(ev(kid, 1, paused), ev(kid, 2, resumed))))
+        assertEquals(listOf(Alert.Integrity("Kid", paused, 1_000, kid.id), Alert.Resolved(kid.id, paused)), plan.alerts)
+    }
+
+    @Test
+    fun aPauseAfterAResumeIsAFreshAlert() {
+        val first = AlertPlanner.plan(input(events = listOf(ev(kid, 1, paused), ev(kid, 2, resumed))))
+        val events = listOf(ev(kid, 1, paused), ev(kid, 2, resumed), ev(kid, 3, paused))
+        val second = AlertPlanner.plan(input(events = events, markers = first.markers))
+        assertEquals(listOf(Alert.Integrity("Kid", paused, 3_000, kid.id)), second.alerts)
+        val all = AlertPlanner.plan(input(events = events))
+        assertEquals(
+            listOf(Alert.Integrity("Kid", paused, 1_000, kid.id), Alert.Resolved(kid.id, paused), Alert.Integrity("Kid", paused, 3_000, kid.id)),
+            all.alerts,
+        )
+    }
+
+    @Test
+    fun aResumeWithoutAPauseSaysNothing() {
+        assertTrue(AlertPlanner.plan(input(events = listOf(ev(kid, 1, resumed)))).alerts.isEmpty())
+        val twice = listOf(ev(kid, 1, paused), ev(kid, 2, resumed), ev(kid, 3, resumed))
+        assertEquals(1, AlertPlanner.plan(input(events = twice)).alerts.count { it is Alert.Resolved })
+        // An unrelated kind in between does not close the pause, nor open one.
+        val other = listOf(ev(kid, 1, StateEvent.Kind.NOTIFICATION_HIDDEN), ev(kid, 2, resumed))
+        assertTrue(AlertPlanner.plan(input(events = other)).alerts.none { it is Alert.Resolved })
+    }
+
+    @Test
+    fun hiddenThenShownIsResolved() {
+        val hidden = StateEvent.Kind.NOTIFICATION_HIDDEN
+        val first = AlertPlanner.plan(input(events = listOf(ev(kid, 1, hidden))))
+        val second = AlertPlanner.plan(input(events = listOf(ev(kid, 1, hidden), ev(kid, 2, StateEvent.Kind.NOTIFICATION_SHOWN)), markers = first.markers))
+        assertEquals(listOf(Alert.Resolved(kid.id, hidden)), second.alerts)
+    }
+
+    @Test
+    fun firstRunSaysNoResolved() {
+        val plan = AlertPlanner.plan(input(events = listOf(ev(kid, 1, paused), ev(kid, 2, resumed)), markers = AlertMarkers()))
+        assertTrue(plan.alerts.isEmpty())
+        assertEquals(2L, plan.markers.notifiedSeq[kid.id])
+    }
+
+    @Test
+    fun intervalKindsPostedAfterTheyEndAreNotResolved() {
+        val kinds = listOf(StateEvent.Kind.SYNC_STOPPED, StateEvent.Kind.BLUETOOTH_OFF, StateEvent.Kind.NEARBY_PERMISSION_OFF, StateEvent.Kind.APP_FORCE_STOPPED)
+        for (kind in kinds) {
+            val alerts = AlertPlanner.plan(input(events = listOf(ev(kid, 1, kind), ev(kid, 2, resumed), ev(kid, 3, StateEvent.Kind.NOTIFICATION_SHOWN)))).alerts
+            assertEquals(listOf<Alert>(Alert.Integrity("Kid", kind, 1_000, kid.id)), alerts, kind.name)
+        }
+    }
 }

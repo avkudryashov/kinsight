@@ -44,6 +44,7 @@ object AlertText {
                 context.getString(R.string.alert_new_parent, alert.name),
                 context.getString(R.string.alert_new_parent_body),
             )
+            is Alert.Resolved -> error("Resolved cancels a notification, it has no text")
             is Alert.Summary -> Content(
                 AlertChannels.SUMMARIES,
                 context.getString(if (alert.weekly) R.string.alert_summary_weekly else R.string.alert_summary_daily),

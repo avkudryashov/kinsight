@@ -23,9 +23,16 @@ object AlertNotifier {
             (android.os.Build.VERSION.SDK_INT < 33 ||
                 context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
 
-    /** False when nothing could be posted (see [canPost]): the caller then keeps the alert for a later run. */
+    /**
+     * False when nothing could be posted (see [canPost]): the caller then keeps the alert for a later run. A
+     * [Alert.Resolved] posts nothing: it cancels that child's open notification of its kind (no permission needed).
+     */
     @SuppressLint("MissingPermission") // canPost checks it right above the notify call
     fun post(context: Context, alert: Alert): Boolean {
+        if (alert is Alert.Resolved) {
+            NotificationManagerCompat.from(context).cancel(idOf(alert))
+            return true
+        }
         if (!canPost(context)) return false
         NotificationManagerCompat.from(context).notify(idOf(alert), build(context, alert))
         return true
@@ -67,13 +74,19 @@ object AlertNotifier {
         return PendingIntent.getActivity(context, idOf(alert), intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
 
-    /** One notification per child and kind of problem (a newer one replaces it); summaries share one id. */
+    /**
+     * One notification per child and kind of problem (a newer one replaces it); summaries share one id. An integrity
+     * id is keyed by the child's device (its name only when unknown), so a [Alert.Resolved] finds it after a rename.
+     */
     private fun idOf(alert: Alert): Int = when (alert) {
-        is Alert.Integrity -> ("i" + alert.device + alert.kind.name).hashCode()
+        is Alert.Integrity -> integrityId(alert.id?.hex ?: alert.device, alert.kind)
+        is Alert.Resolved -> integrityId(alert.id.hex, alert.kind)
         is Alert.NoContact -> ("c" + alert.device).hashCode()
         is Alert.NewParent -> ("p" + alert.name).hashCode()
         is Alert.Summary -> SUMMARY_ID
     }
+
+    private fun integrityId(child: String, kind: StateEvent.Kind): Int = ("i" + child + kind.name).hashCode()
 
     private const val SUMMARY_ID = 100
 }
