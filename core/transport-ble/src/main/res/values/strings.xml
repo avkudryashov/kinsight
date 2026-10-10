@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="kinsight_channel_service">Service</string>
+    <string name="kinsight_status_starting">Starting sync</string>
+    <string name="kinsight_status_storage_error">Key storage error: open Kinsight</string>
+    <string name="kinsight_status_no_permission">Allow Nearby devices to sync</string>
+    <string name="kinsight_status_bluetooth_off">Bluetooth is off: turn it on to sync</string>
+    <string name="kinsight_status_syncing">Syncing</string>
+    <string name="kinsight_status_peer_needs_update">A family device needs an app update</string>
+    <string name="kinsight_status_waiting">Waiting for family devices</string>
+    <string name="kinsight_last_sync">Last sync %1$s</string>
+    <string name="kinsight_never_synced">No sync yet</string>
+    <string name="kinsight_peers">Shares data with %1$s</string>
+    <string name="kinsight_action_stop">Stop</string>
+</resources>

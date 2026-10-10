@@ -52,11 +52,18 @@ internal class BleRadio(
     private val log: (String) -> Unit,
 ) {
     private val manager = context.getSystemService(BluetoothManager::class.java)
+
+    // Written on the service's dispatcher, read on binder threads (GATT callback) and by close().
+    @Volatile
     private var gattServer: BluetoothGattServer? = null
+
+    @Volatile
     private var l2cap: BluetoothServerSocket? = null
 
     @Volatile
     private var psm = -1
+
+    @Volatile
     private var advertising = false
 
     private val advertiseCallback = object : AdvertiseCallback() {

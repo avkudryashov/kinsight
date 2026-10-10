@@ -1,0 +1,473 @@
+package app.kinsight.core.transport.ble
+
+import android.annotation.SuppressLint
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.ServiceInfo
+import android.graphics.drawable.Icon
+import android.os.Build
+import android.os.IBinder
+import android.os.SystemClock
+import android.text.format.DateUtils
+import android.util.Log
+import app.kinsight.core.keystore.DeviceIdentity
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
+
+/**
+ * Foreground service of type connectedDevice (spec §8): advertising, GATT and L2CAP servers, the background scan and
+ * the sync engine. Started from the UI, on BOOT_COMPLETED and MY_PACKAGE_REPLACED (only when a group exists, the
+ * «Nearby devices» permissions are granted and the user has not stopped it). Without a group it stops itself; with a
+ * key storage or group file error, a missing permission or Bluetooth off it stays in the foreground, idle, and says so
+ * in the notification (no crash, so no START_STICKY restart loop).
+ *
+ * Play policy (docs/research/2026-10-10-play-policy.md): the notification has a Stop action (remembered across boots
+ * until the next start from the UI), a dismissed notification is posted again, and the snapshot reports whether
+ * notifications can be seen at all. The group-visible events for both are stage 4.
+ *
+ * All radio and snapshot state is touched only on one serial dispatcher; onDestroy hands its teardown to it as well.
+ */
+@SuppressLint("MissingPermission") // radio calls happen only after BlePermissions.missing() is empty
+class SyncService : Service() {
+    private val serial = Dispatchers.Default.limitedParallelism(1)
+    private val crashGuard = CoroutineExceptionHandler { _, e -> Log.e(TAG, "uncaught in the sync service", e) }
+
+    /** Parent of the engine scope too: an exception escaping any coroutine here is logged, never a process crash. */
+    private val scope = CoroutineScope(SupervisorJob() + serial + crashGuard)
+
+    // Serial dispatcher only.
+    private var radioScope: CoroutineScope? = null
+    private var radio: BleRadio? = null
+    private var engine: SyncEngine? = null
+    private var stopping = false
+    private var fastUntilMono = 0L
+    private var fastEnd: Job? = null
+    private val scanThrottle = ScanThrottle()
+    private var scanWanted: Boolean? = null
+    private var scanActive: Boolean? = null
+    private var scanRetry: Job? = null
+
+    // Main thread only.
+    private var foreground = false
+
+    @Volatile
+    private var snapshot = ServiceSnapshot(ServiceState.STARTING)
+
+    private val adapterReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1)) {
+                BluetoothAdapter.STATE_ON -> scope.launch { reconcile(fast = false) }
+                BluetoothAdapter.STATE_TURNING_OFF, BluetoothAdapter.STATE_OFF -> scope.launch {
+                    // Only a running radio goes to BLUETOOTH_OFF: a storage or permission problem stays on screen.
+                    if (!stopping && snapshot.state == ServiceState.RUNNING) bluetoothOff()
+                }
+            }
+        }
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(CHANNEL_ID, getString(R.string.kinsight_channel_service), NotificationManager.IMPORTANCE_LOW),
+        )
+        val filter = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
+        // A system broadcast still reaches a NOT_EXPORTED runtime receiver; nobody else can fake it.
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(adapterReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(adapterReceiver, filter)
+        }
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        try {
+            // Every command: a startForegroundService() must be answered, and it re-posts a dismissed notification.
+            startForeground(NOTIFICATION_ID, notification(snapshot), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+            foreground = true
+        } catch (e: Exception) {
+            // API 34+ needs a granted Bluetooth permission for this type; a background start is refused too.
+            Log.w(TAG, "cannot go foreground", e)
+            if (!foreground) {
+                stopSelf()
+                return START_NOT_STICKY
+            }
+        }
+        instance = this
+        when (intent?.action) {
+            ACTION_STOP -> {
+                scope.launch { stopByUser() }
+                return START_NOT_STICKY
+            }
+            ACTION_REPOST -> {
+                scope.launch { publish() }
+                return START_STICKY
+            }
+        }
+        val byUser = intent?.getBooleanExtra(EXTRA_BY_USER, false) == true
+        val fast = intent?.action == ACTION_SYNC_NOW
+        scope.launch { onStart(byUser, fast) }
+        return START_STICKY
+    }
+
+    override fun onDestroy() {
+        instance = null
+        scope.cancel() // first, so no coroutine of ours starts a new radio
+        runCatching { unregisterReceiver(adapterReceiver) }
+        val last = snapshot.lastSyncWallMs
+        // The radio belongs to the serial dispatcher: close it there, after whatever slice is running now.
+        CoroutineScope(serial + crashGuard).launch {
+            stopRadio()
+            SyncGraph.publish(ServiceSnapshot(ServiceState.STOPPED, lastSyncWallMs = last))
+        }
+        super.onDestroy()
+    }
+
+    /** Debug and UI: one minute of fast advertising and scanning without the cooldown (spec §8 «Быстрый режим»). */
+    fun syncNow(): String {
+        scope.launch { reconcile(fast = true) }
+        return "fast mode for ${FAST_MS / 1000} s"
+    }
+
+    private fun onRotationTick() {
+        scope.launch { engine?.refreshAdvert() }
+    }
+
+    /** A start from the UI clears the user's Stop; any other start (boot, update, adb) honours it. */
+    private suspend fun onStart(byUser: Boolean, fast: Boolean) {
+        val state = SyncGraph.state(applicationContext)
+        if (byUser) {
+            quietly("clear the stop flag") { state.setStoppedByUser(false) }
+        } else {
+            var stopped = false
+            quietly("read the stop flag") { stopped = state.stoppedByUser() }
+            if (stopped) {
+                log("stopped by the user: not starting")
+                stopping = true
+                return stopNow()
+            }
+        }
+        reconcile(fast)
+    }
+
+    private suspend fun stopByUser() {
+        stopping = true
+        stopRadio()
+        quietly("persist the stop flag") { SyncGraph.state(applicationContext).setStoppedByUser(true) }
+        log("stopped by the user")
+        stopNow()
+    }
+
+    private fun stopNow() {
+        stopRadio()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    private suspend fun reconcile(fast: Boolean) {
+        if (stopping) return
+        val c = applicationContext
+        val group = try {
+            SyncGraph.groups(c).read()
+        } catch (e: GroupStoreException) {
+            return problem(ServiceState.STORAGE_ERROR, e.message)
+        }
+        if (group == null) {
+            show(ServiceState.NO_GROUP)
+            stopping = true
+            return stopNow()
+        }
+        try {
+            DeviceIdentity.get(c)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return problem(ServiceState.STORAGE_ERROR, "${e::class.simpleName}: ${e.message}")
+        }
+        val missing = BlePermissions.missing(c)
+        if (missing.isNotEmpty()) return problem(ServiceState.NO_PERMISSION, missing.joinToString { it.substringAfterLast('.') })
+        val adapter = getSystemService(BluetoothManager::class.java).adapter
+        if (adapter == null || !adapter.isEnabled) return bluetoothOff()
+        if (!startRadio(adapter)) return
+        if (fast) goFast()
+    }
+
+    private suspend fun problem(state: ServiceState, detail: String?) {
+        stopRadio()
+        show(state, detail)
+    }
+
+    private suspend fun bluetoothOff() {
+        stopRadio()
+        quietly("bluetooth-off start") { SyncGraph.onBluetoothOff(applicationContext) }
+        show(ServiceState.BLUETOOTH_OFF)
+    }
+
+    /** True when the radio runs afterwards. */
+    private suspend fun startRadio(adapter: BluetoothAdapter): Boolean {
+        if (radio != null) {
+            show(ServiceState.RUNNING)
+            return true
+        }
+        val c = applicationContext
+        quietly("bluetooth-off event") { SyncGraph.onBluetoothOn(c) }
+        if (stopping) return false
+        val rs = CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext.job))
+        val e = SyncEngine(
+            scope = rs,
+            context = { SyncGraph.syncContext(c) },
+            link = BleConnector(c, ::log),
+            prepare = { SyncGraph.prepare(c) },
+            monoClock = SystemClock::elapsedRealtime,
+            log = ::log,
+        )
+        val r = BleRadio(c, adapter, ::log)
+        try {
+            r.openServers(rs) { stream -> e.onInbound(stream) }
+        } catch (ex: Exception) {
+            rs.cancel()
+            r.close()
+            show(ServiceState.BLUETOOTH_OFF, "cannot open servers: ${ex.message}")
+            return false
+        }
+        radio = r
+        engine = e
+        radioScope = rs
+        EngineHolder.engine = e
+        rs.launch { e.advert.filterNotNull().collect { r.advertise(it, fast = isFast()) } }
+        rs.launch { e.status.collect { onSyncStatus(it) } }
+        e.refreshAdvert()
+        if (radio !== r) return false // stopped while the advert was computed
+        requestScan(fast = false)
+        RotationReceiver.schedule(c)
+        refreshPeers()
+        show(ServiceState.RUNNING)
+        rs.launch { quietly("heartbeat") { SyncGraph.emitHeartbeatIfDue(c) } }
+        return true
+    }
+
+    /** Cancelling the scope and closing the radio always go together: the accept loop ends only on close(). */
+    private fun stopRadio() {
+        radioScope?.cancel()
+        radioScope = null
+        radio?.close()
+        radio = null
+        engine = null
+        EngineHolder.engine = null
+        scanWanted = null
+        scanActive = null
+        scanRetry = null
+        fastEnd = null
+        fastUntilMono = 0L
+        RotationReceiver.cancel(applicationContext)
+    }
+
+    private fun isFast() = SystemClock.elapsedRealtime() < fastUntilMono
+
+    /** Repeated requests only extend the window: no scan or advert restart while fast mode is already on. */
+    private fun goFast() {
+        val e = engine ?: return
+        val r = radio ?: return
+        val wasFast = isFast()
+        fastUntilMono = SystemClock.elapsedRealtime() + FAST_MS
+        e.setFast(fastUntilMono)
+        if (!wasFast) {
+            requestScan(fast = true)
+            e.advert.value?.let { r.advertise(it, fast = true) }
+        }
+        fastEnd?.cancel()
+        fastEnd = radioScope?.launch {
+            delay(FAST_MS)
+            requestScan(fast = false)
+            engine?.advert?.value?.let { radio?.advertise(it, fast = false) }
+        }
+    }
+
+    /** Asks for a scan mode; the start goes out now or, under the throttle, once a slot frees (latest wish wins). */
+    private fun requestScan(fast: Boolean) {
+        scanWanted = fast
+        if (scanRetry?.isActive == true) return
+        applyScan()
+    }
+
+    private fun applyScan() {
+        val r = radio ?: return
+        val want = scanWanted ?: return
+        if (scanActive == want) return
+        val now = SystemClock.elapsedRealtime()
+        val wait = scanThrottle.waitMs(now)
+        if (wait > 0) {
+            log("scan restart deferred ${wait}ms (throttle)")
+            scanRetry = radioScope?.launch {
+                delay(wait)
+                scanRetry = null
+                applyScan()
+            }
+            return
+        }
+        scanThrottle.record(now)
+        r.startScan(want)
+        scanActive = want
+    }
+
+    private suspend fun onSyncStatus(s: SyncStatus) {
+        val last = s.lastSyncWallMs
+        if (last != null && last != snapshot.lastSyncWallMs) quietly("last sync") { SyncGraph.state(applicationContext).setLastSyncMs(last) }
+        val sessionEnded = s.finishedSessions != snapshot.sync.finishedSessions
+        snapshot = snapshot.copy(sync = s, lastSyncWallMs = last ?: snapshot.lastSyncWallMs)
+        if (sessionEnded) refreshPeers() // a session may have brought membership changes
+        publish()
+    }
+
+    private suspend fun refreshPeers() {
+        quietly("peer names") {
+            val names = SyncGraph.peerNames(applicationContext)
+            snapshot = snapshot.copy(peers = names)
+        }
+    }
+
+    private suspend fun show(state: ServiceState, detail: String? = null) {
+        if (snapshot.lastSyncWallMs == null) {
+            quietly("read last sync") {
+                val last = SyncGraph.state(applicationContext).lastSyncMs()
+                snapshot = snapshot.copy(lastSyncWallMs = snapshot.lastSyncWallMs ?: last)
+            }
+        }
+        snapshot = snapshot.copy(state = state, detail = detail)
+        log("state $state${detail?.let { ": $it" } ?: ""}")
+        publish()
+    }
+
+    private fun publish() {
+        val nm = getSystemService(NotificationManager::class.java)
+        snapshot = snapshot.copy(
+            notificationsEnabled = nm.areNotificationsEnabled(),
+            channelImportance = nm.getNotificationChannel(CHANNEL_ID)?.importance,
+        )
+        SyncGraph.publish(snapshot)
+        if (!stopping) nm.notify(NOTIFICATION_ID, notification(snapshot))
+    }
+
+    private fun notification(s: ServiceSnapshot): Notification {
+        val line = StatusText.line(s)
+        val title = getString(
+            when (line.kind) {
+                StatusLine.Kind.STARTING -> R.string.kinsight_status_starting
+                StatusLine.Kind.STORAGE_ERROR -> R.string.kinsight_status_storage_error
+                StatusLine.Kind.NO_PERMISSION -> R.string.kinsight_status_no_permission
+                StatusLine.Kind.BLUETOOTH_OFF -> R.string.kinsight_status_bluetooth_off
+                StatusLine.Kind.SYNCING -> R.string.kinsight_status_syncing
+                StatusLine.Kind.PEER_NEEDS_UPDATE -> R.string.kinsight_status_peer_needs_update
+                StatusLine.Kind.WAITING -> R.string.kinsight_status_waiting
+            },
+        )
+        val lastSync = line.lastSyncWallMs?.let {
+            getString(R.string.kinsight_last_sync, DateUtils.formatDateTime(this, it, DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_SHOW_DATE))
+        } ?: getString(R.string.kinsight_never_synced)
+        val peers = s.peers.takeIf { it.isNotEmpty() }?.let { getString(R.string.kinsight_peers, it.joinToString(", ")) }
+        val open = packageManager.getLaunchIntentForPackage(packageName)
+            ?.let { PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE) }
+        val stop = Notification.Action.Builder(
+            Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
+            getString(R.string.kinsight_action_stop),
+            selfIntent(ACTION_STOP, REQUEST_STOP),
+        ).build()
+        return Notification.Builder(this, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+            .setContentTitle(title)
+            .setContentText(listOfNotNull(lastSync, peers).joinToString(" · "))
+            .setStyle(Notification.BigTextStyle().bigText(listOfNotNull(lastSync, peers).joinToString("\n")))
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setContentIntent(open)
+            .setDeleteIntent(selfIntent(ACTION_REPOST, REQUEST_REPOST)) // swiped away (API 34+): it comes back
+            .addAction(stop)
+            .build()
+    }
+
+    private fun selfIntent(action: String, request: Int): PendingIntent = PendingIntent.getService(
+        this,
+        request,
+        Intent(this, SyncService::class.java).setAction(action),
+        PendingIntent.FLAG_IMMUTABLE,
+    )
+
+    private suspend fun quietly(what: String, block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log("$what failed: $e")
+        }
+    }
+
+    private fun log(message: String) {
+        Log.i(TAG, message)
+    }
+
+    companion object {
+        const val ACTION_SYNC_NOW = "app.kinsight.SYNC_NOW"
+        const val ACTION_STOP = "app.kinsight.STOP_SYNC"
+        internal const val ACTION_REPOST = "app.kinsight.REPOST_NOTIFICATION"
+
+        /** The reason a start from the app's own screen passes: only it clears the user's Stop. */
+        const val REASON_UI = "ui"
+        private const val EXTRA_REASON = "reason"
+        private const val EXTRA_BY_USER = "by_user"
+        private const val TAG = "KinsightSync"
+        private const val CHANNEL_ID = "kinsight-service"
+        private const val NOTIFICATION_ID = 1
+        private const val REQUEST_STOP = 10
+        private const val REQUEST_REPOST = 11
+        private const val FAST_MS = 60_000L
+
+        @Volatile
+        var instance: SyncService? = null
+            private set
+
+        /**
+         * Safe from anywhere: without the «Nearby devices» permissions nothing starts (on API 34+ startForeground
+         * would throw), and a refused start (from the background) is logged, never thrown.
+         */
+        fun start(context: Context, reason: String, fast: Boolean = false) {
+            val missing = BlePermissions.missing(context)
+            if (missing.isNotEmpty()) {
+                Log.w(TAG, "not starting the sync service ($reason): missing ${missing.joinToString { it.substringAfterLast('.') }}")
+                return
+            }
+            val intent = Intent(context, SyncService::class.java)
+                .putExtra(EXTRA_REASON, reason)
+                .putExtra(EXTRA_BY_USER, reason == REASON_UI)
+            if (fast) intent.action = ACTION_SYNC_NOW
+            try {
+                context.startForegroundService(intent)
+            } catch (e: Exception) {
+                Log.w(TAG, "cannot start the sync service ($reason)", e)
+            }
+        }
+
+        internal fun rotationTick() {
+            instance?.onRotationTick()
+        }
+    }
+}

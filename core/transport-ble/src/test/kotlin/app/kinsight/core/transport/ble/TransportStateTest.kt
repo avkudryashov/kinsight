@@ -69,6 +69,26 @@ class TransportStateTest {
     }
 
     @Test
+    fun stoppedByUserIsKeptUntilCleared() = runBlocking {
+        assertFalse(state.stoppedByUser())
+        state.setStoppedByUser(true)
+        assertTrue(state.stoppedByUser())
+        state.setStoppedByUser(false)
+        assertFalse(state.stoppedByUser())
+    }
+
+    @Test
+    fun aCorruptFileReadsAsEmptyState() = runBlocking {
+        val file = File(dir, "corrupt.preferences_pb")
+        file.writeBytes(byteArrayOf(0x7f, 0x01, 0x02, 0x03, 0x04, 0x05))
+        val corrupt = TransportStateStore.create(file, scope)
+        assertNull(corrupt.lastSyncMs())
+        assertFalse(corrupt.stoppedByUser())
+        corrupt.setLastSyncMs(5)
+        assertEquals(5L, corrupt.lastSyncMs())
+    }
+
+    @Test
     fun heartbeatIsDueOnceADayOrOnAVersionChange() = runBlocking {
         val group = TestGroup.create(1)
         val d = group.devices[0]

@@ -31,12 +31,13 @@ internal class BleConnector(private val context: Context, private val log: (Stri
         val socket = device.createInsecureL2capChannel(psm)
         try {
             runClosingOnCancel(Dispatchers.IO.asExecutor(), onCancel = { runCatching { socket.close() } }) { socket.connect() }
+            val stream = socket.byteStream() // getInputStream/getOutputStream can throw too: the socket must not leak
+            log("l2cap connected, psm=$psm")
+            return stream
         } catch (e: Exception) {
             runCatching { socket.close() }
             throw e
         }
-        log("l2cap connected, psm=$psm")
-        return socket.byteStream()
     }
 
     private suspend fun readPsm(device: BluetoothDevice): Int = suspendCancellableCoroutine { cont ->
