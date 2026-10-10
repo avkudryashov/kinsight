@@ -1,5 +1,6 @@
 package app.kinsight.core.transport.ble
 
+import android.app.NotificationManager
 import android.content.Context
 import android.util.Log
 import androidx.datastore.preferences.preferencesDataStoreFile
@@ -50,6 +51,18 @@ object SyncGraph {
 
     internal fun publish(s: ServiceSnapshot) {
         _snapshot.value = s
+    }
+
+    /**
+     * [snapshot] with the notification fields read now: the user can block notifications or the channel at any
+     * moment without the service hearing of it. For screens that show the state (diagnostics).
+     */
+    fun snapshotNow(context: Context): ServiceSnapshot {
+        val nm = context.applicationContext.getSystemService(NotificationManager::class.java)
+        return _snapshot.value.copy(
+            notificationsEnabled = nm.areNotificationsEnabled(),
+            channelImportance = nm.getNotificationChannel(SyncService.CHANNEL_ID)?.importance,
+        )
     }
 
     /** From Application.onCreate: usage entries get signed once a group exists. */
@@ -112,12 +125,14 @@ object SyncGraph {
         emitHeartbeatIfDue(context)
     }
 
-    fun heartbeats(context: Context): Heartbeats {
+    /** Unserialised: callers go through [emitHeartbeatIfDue]. */
+    private fun heartbeats(context: Context): Heartbeats {
         val app = context.applicationContext
         return Heartbeats(state(app), appVersion(app), append = { build -> UsageGraph.pipeline(app).appendOwn(build = build) })
     }
 
-    fun bluetoothOff(context: Context): BluetoothOffTracker {
+    /** Unserialised: callers go through [onBluetoothOff] and [onBluetoothOn]. */
+    private fun bluetoothOff(context: Context): BluetoothOffTracker {
         val app = context.applicationContext
         return BluetoothOffTracker(state(app), record = { from, to ->
             UsageGraph.pipeline(app).queueEvent(StateEvent.Kind.BLUETOOTH_OFF, from, to)

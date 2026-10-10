@@ -31,6 +31,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Foreground service of type connectedDevice (spec §8): advertising, GATT and L2CAP servers, the background scan and
@@ -43,7 +45,10 @@ import kotlinx.coroutines.launch
  * until the next start from the UI), a dismissed notification is posted again, and the snapshot reports whether
  * notifications can be seen at all. The group-visible events for both are stage 4.
  *
- * All radio and snapshot state is touched only on one serial dispatcher; onDestroy hands its teardown to it as well.
+ * Concurrency: everything runs on one serial dispatcher, and every operation that can start or stop the radio
+ * (start command, Stop, adapter broadcasts, syncNow) holds [controlLock] for its whole run, suspension points
+ * included, so two of them never interleave (no second radio, no Stop racing a start). onDestroy tears the radio down
+ * synchronously; a coroutine that was mid-start when the service died sees [destroyed] and closes its own radio.
  */
 @SuppressLint("MissingPermission") // radio calls happen only after BlePermissions.missing() is empty
 class SyncService : Service() {
@@ -53,10 +58,23 @@ class SyncService : Service() {
     /** Parent of the engine scope too: an exception escaping any coroutine here is logged, never a process crash. */
     private val scope = CoroutineScope(SupervisorJob() + serial + crashGuard)
 
-    // Serial dispatcher only.
+    /** Not reentrant: taken only by the entry points (launch sites), never by the helpers they call. */
+    private val controlLock = Mutex()
+
+    // Written under controlLock on the serial dispatcher; volatile because onDestroy (main thread) tears them down.
+    @Volatile
     private var radioScope: CoroutineScope? = null
+
+    @Volatile
     private var radio: BleRadio? = null
+
+    @Volatile
     private var engine: SyncEngine? = null
+
+    @Volatile
+    private var destroyed = false
+
+    // Serial dispatcher only.
     private var stopping = false
     private var fastUntilMono = 0L
     private var fastEnd: Job? = null
@@ -74,10 +92,12 @@ class SyncService : Service() {
     private val adapterReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1)) {
-                BluetoothAdapter.STATE_ON -> scope.launch { reconcile(fast = false) }
+                BluetoothAdapter.STATE_ON -> scope.launch { controlLock.withLock { reconcile(fast = false) } }
                 BluetoothAdapter.STATE_TURNING_OFF, BluetoothAdapter.STATE_OFF -> scope.launch {
-                    // Only a running radio goes to BLUETOOTH_OFF: a storage or permission problem stays on screen.
-                    if (!stopping && snapshot.state == ServiceState.RUNNING) bluetoothOff()
+                    controlLock.withLock {
+                        // Only a running radio goes to BLUETOOTH_OFF: a storage or permission problem stays on screen.
+                        if (!stopping && snapshot.state == ServiceState.RUNNING) bluetoothOff()
+                    }
                 }
             }
         }
@@ -100,51 +120,60 @@ class SyncService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val fresh = !foreground
+        val action = intent?.action
+        if (action == ACTION_STOP) {
+            // Sent by startService from the notification: no startForeground owed, and none is wanted.
+            instance = this
+            scope.launch { controlLock.withLock { stopByUser(startId) } }
+            return START_NOT_STICKY
+        }
         try {
-            // Every command: a startForegroundService() must be answered, and it re-posts a dismissed notification.
+            // Every other command: a startForegroundService() must be answered, and it re-posts a dismissed notification.
             startForeground(NOTIFICATION_ID, notification(snapshot), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
             foreground = true
         } catch (e: Exception) {
             // API 34+ needs a granted Bluetooth permission for this type; a background start is refused too.
             Log.w(TAG, "cannot go foreground", e)
             if (!foreground) {
-                stopSelf()
+                stopSelf(startId)
                 return START_NOT_STICKY
             }
         }
         instance = this
-        when (intent?.action) {
-            ACTION_STOP -> {
-                scope.launch { stopByUser() }
-                return START_NOT_STICKY
-            }
-            ACTION_REPOST -> {
-                scope.launch { publish() }
-                return START_STICKY
-            }
+        if (action == ACTION_REPOST && !fresh) {
+            scope.launch { publish() }
+            return START_STICKY
         }
+        // A REPOST that reaches a fresh instance is an ordinary start (the stop flag is honoured).
         val byUser = intent?.getBooleanExtra(EXTRA_BY_USER, false) == true
-        val fast = intent?.action == ACTION_SYNC_NOW
-        scope.launch { onStart(byUser, fast) }
+        val fast = action == ACTION_SYNC_NOW
+        scope.launch { controlLock.withLock { onStart(byUser, fast, startId) } }
         return START_STICKY
     }
 
     override fun onDestroy() {
+        destroyed = true
         instance = null
-        scope.cancel() // first, so no coroutine of ours starts a new radio
+        scope.cancel()
         runCatching { unregisterReceiver(adapterReceiver) }
-        val last = snapshot.lastSyncWallMs
-        // The radio belongs to the serial dispatcher: close it there, after whatever slice is running now.
-        CoroutineScope(serial + crashGuard).launch {
-            stopRadio()
-            SyncGraph.publish(ServiceSnapshot(ServiceState.STOPPED, lastSyncWallMs = last))
-        }
+        // Synchronous, so nothing of this instance outlives it and nothing of a next instance gets torn down.
+        val r = radio
+        val e = engine
+        radioScope?.cancel()
+        r?.close()
+        radioScope = null
+        radio = null
+        engine = null
+        if (e != null && EngineHolder.engine === e) EngineHolder.engine = null
+        if (r != null) RotationReceiver.cancel(applicationContext)
+        SyncGraph.publish(ServiceSnapshot(ServiceState.STOPPED, lastSyncWallMs = snapshot.lastSyncWallMs))
         super.onDestroy()
     }
 
     /** Debug and UI: one minute of fast advertising and scanning without the cooldown (spec §8 «Быстрый режим»). */
     fun syncNow(): String {
-        scope.launch { reconcile(fast = true) }
+        scope.launch { controlLock.withLock { reconcile(fast = true) } }
         return "fast mode for ${FAST_MS / 1000} s"
     }
 
@@ -152,39 +181,55 @@ class SyncService : Service() {
         scope.launch { engine?.refreshAdvert() }
     }
 
-    /** A start from the UI clears the user's Stop; any other start (boot, update, adb) honours it. */
-    private suspend fun onStart(byUser: Boolean, fast: Boolean) {
+    /** A start from the UI clears the user's Stop; any other start (boot, update, adb) honours it. Under the lock. */
+    private suspend fun onStart(byUser: Boolean, fast: Boolean, startId: Int) {
         val state = SyncGraph.state(applicationContext)
         if (byUser) {
+            stopping = false // a Stop that ran just before this start left the service alive for it
             quietly("clear the stop flag") { state.setStoppedByUser(false) }
         } else {
             var stopped = false
             quietly("read the stop flag") { stopped = state.stoppedByUser() }
             if (stopped) {
                 log("stopped by the user: not starting")
-                stopping = true
-                return stopNow()
+                return stopNow(startId)
             }
         }
-        reconcile(fast)
+        reconcile(fast, startId)
     }
 
-    private suspend fun stopByUser() {
-        stopping = true
+    /** Under the lock. A start command newer than [startId] keeps the service (its own onStart decides). */
+    private suspend fun stopByUser(startId: Int) {
         stopRadio()
         quietly("persist the stop flag") { SyncGraph.state(applicationContext).setStoppedByUser(true) }
         log("stopped by the user")
-        stopNow()
+        stopNow(startId)
     }
 
-    private fun stopNow() {
+    /**
+     * Stops the radio and the service unless a newer start command arrived ([startId], null = stop regardless). When
+     * the service really stops, the system removes the foreground notification with it.
+     */
+    private fun stopNow(startId: Int? = null) {
         stopRadio()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        stopping = true
+        val stopped = if (startId == null) {
+            stopSelf()
+            true
+        } else {
+            stopSelfResult(startId)
+        }
+        if (stopped) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            stopping = false
+            log("stop skipped: a newer start is queued")
+        }
     }
 
-    private suspend fun reconcile(fast: Boolean) {
-        if (stopping) return
+    /** Under the lock. */
+    private suspend fun reconcile(fast: Boolean, startId: Int? = null) {
+        if (stopping || destroyed) return
         val c = applicationContext
         val group = try {
             SyncGraph.groups(c).read()
@@ -193,8 +238,7 @@ class SyncService : Service() {
         }
         if (group == null) {
             show(ServiceState.NO_GROUP)
-            stopping = true
-            return stopNow()
+            return stopNow(startId)
         }
         try {
             DeviceIdentity.get(c)
@@ -216,13 +260,13 @@ class SyncService : Service() {
         show(state, detail)
     }
 
-    private suspend fun bluetoothOff() {
+    private suspend fun bluetoothOff(detail: String? = null) {
         stopRadio()
         quietly("bluetooth-off start") { SyncGraph.onBluetoothOff(applicationContext) }
-        show(ServiceState.BLUETOOTH_OFF)
+        show(ServiceState.BLUETOOTH_OFF, detail)
     }
 
-    /** True when the radio runs afterwards. */
+    /** Under the lock. True when the radio runs afterwards. */
     private suspend fun startRadio(adapter: BluetoothAdapter): Boolean {
         if (radio != null) {
             show(ServiceState.RUNNING)
@@ -230,7 +274,7 @@ class SyncService : Service() {
         }
         val c = applicationContext
         quietly("bluetooth-off event") { SyncGraph.onBluetoothOn(c) }
-        if (stopping) return false
+        if (stopping || destroyed) return false
         val rs = CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext.job))
         val e = SyncEngine(
             scope = rs,
@@ -246,17 +290,21 @@ class SyncService : Service() {
         } catch (ex: Exception) {
             rs.cancel()
             r.close()
-            show(ServiceState.BLUETOOTH_OFF, "cannot open servers: ${ex.message}")
+            log("cannot open servers: $ex")
+            // Bluetooth going off under us is the usual cause: then it is the ordinary off path (tracker included).
+            bluetoothOff(if (adapter.isEnabled) "cannot open servers: ${ex.message}" else null)
             return false
         }
         radio = r
         engine = e
         radioScope = rs
         EngineHolder.engine = e
+        // Pairs with onDestroy: it sets destroyed before reading radio, we wrote radio before reading destroyed.
+        if (destroyed) return abandon(r, rs, e)
         rs.launch { e.advert.filterNotNull().collect { r.advertise(it, fast = isFast()) } }
         rs.launch { e.status.collect { onSyncStatus(it) } }
         e.refreshAdvert()
-        if (radio !== r) return false // stopped while the advert was computed
+        if (radio !== r || destroyed) return abandon(r, rs, e) // torn down while the advert was computed
         requestScan(fast = false)
         RotationReceiver.schedule(c)
         refreshPeers()
@@ -265,20 +313,35 @@ class SyncService : Service() {
         return true
     }
 
+    /** Closes a radio this coroutine opened but no longer owns (close() is idempotent). */
+    private fun abandon(r: BleRadio, rs: CoroutineScope, e: SyncEngine): Boolean {
+        rs.cancel()
+        r.close()
+        if (EngineHolder.engine === e) EngineHolder.engine = null
+        if (radio === r) {
+            radio = null
+            engine = null
+            radioScope = null
+        }
+        return false
+    }
+
     /** Cancelling the scope and closing the radio always go together: the accept loop ends only on close(). */
     private fun stopRadio() {
+        val r = radio
+        val e = engine
         radioScope?.cancel()
         radioScope = null
-        radio?.close()
+        r?.close()
         radio = null
         engine = null
-        EngineHolder.engine = null
+        if (e != null && EngineHolder.engine === e) EngineHolder.engine = null
         scanWanted = null
         scanActive = null
         scanRetry = null
         fastEnd = null
         fastUntilMono = 0L
-        RotationReceiver.cancel(applicationContext)
+        if (r != null) RotationReceiver.cancel(applicationContext)
     }
 
     private fun isFast() = SystemClock.elapsedRealtime() < fastUntilMono
@@ -357,7 +420,9 @@ class SyncService : Service() {
         publish()
     }
 
+    /** Never after onDestroy or once stopping: a late notify would leave an orphan notification behind. */
     private fun publish() {
+        if (destroyed) return
         val nm = getSystemService(NotificationManager::class.java)
         snapshot = snapshot.copy(
             notificationsEnabled = nm.areNotificationsEnabled(),
@@ -429,13 +494,13 @@ class SyncService : Service() {
         const val ACTION_SYNC_NOW = "app.kinsight.SYNC_NOW"
         const val ACTION_STOP = "app.kinsight.STOP_SYNC"
         internal const val ACTION_REPOST = "app.kinsight.REPOST_NOTIFICATION"
+        internal const val CHANNEL_ID = "kinsight-service"
 
         /** The reason a start from the app's own screen passes: only it clears the user's Stop. */
         const val REASON_UI = "ui"
         private const val EXTRA_REASON = "reason"
         private const val EXTRA_BY_USER = "by_user"
         private const val TAG = "KinsightSync"
-        private const val CHANNEL_ID = "kinsight-service"
         private const val NOTIFICATION_ID = 1
         private const val REQUEST_STOP = 10
         private const val REQUEST_REPOST = 11

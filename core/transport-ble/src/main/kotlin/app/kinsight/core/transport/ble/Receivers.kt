@@ -24,14 +24,14 @@ class BootReceiver : BroadcastReceiver() {
         val action = intent.action ?: return
         if (action != Intent.ACTION_BOOT_COMPLETED && action != Intent.ACTION_MY_PACKAGE_REPLACED) return
         val app = context.applicationContext
-        if (!SyncGraph.groups(app).exists()) return
-        if (BlePermissions.missing(app).isNotEmpty()) {
-            Log.i(TAG, "$action: no Nearby devices permission, not starting")
-            return
-        }
         val pending = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
+                if (!SyncGraph.groups(app).exists()) return@launch // file system: off the main thread
+                if (BlePermissions.missing(app).isNotEmpty()) {
+                    Log.i(TAG, "$action: no Nearby devices permission, not starting")
+                    return@launch
+                }
                 val stopped = try {
                     withTimeout(READ_TIMEOUT) { SyncGraph.state(app).stoppedByUser() }
                 } catch (e: Exception) {
