@@ -85,24 +85,25 @@ private const val MAX_EVENTS = 100
 private val SWIPE_THRESHOLD = 72.dp
 
 /**
- * [onAllApps] opens the full list of the range on screen; [onOpenApp] (a package name) opens one app, its rows are
- * clickable only when it is given.
+ * [onAllApps] opens the full list of the range on screen; [onOpenApp] (a package name and the range on screen) opens
+ * one app on the same period, its rows are clickable only when it is given.
  */
 @Composable
 fun DeviceDetailRoute(
     id: DeviceId,
     onAllApps: (DetailRange) -> Unit,
     onBack: () -> Unit,
-    onOpenApp: ((String) -> Unit)? = null,
+    onOpenApp: ((String, DetailRange) -> Unit)? = null,
 ) {
     val graph = AppGraph.get(LocalContext.current)
     val vm: DeviceDetailViewModel = viewModel(key = "detail-${id.hex}") { DeviceDetailViewModel(graph.usage, id, createSavedStateHandle()) }
     val detail by vm.detail.collectAsStateWithLifecycle()
     val settings by graph.settingsRepository.usageSettings.collectAsStateWithLifecycle(initialValue = UsageSettings())
-    detail?.let {
+    detail?.let { d ->
         DeviceDetailScreen(
-            it, vm::select, onAllApps, onBack,
-            onPrevious = vm::back, onNext = vm::forward, onOpenDay = vm::openDay, onOpenApp = onOpenApp,
+            d, vm::select, onAllApps, onBack,
+            onPrevious = vm::back, onNext = vm::forward, onOpenDay = vm::openDay,
+            onOpenApp = onOpenApp?.let { open -> { pkg: String -> open(pkg, d.range) } },
             detailRetentionDays = settings.detailRetentionDays,
         )
     } ?: Loading()
