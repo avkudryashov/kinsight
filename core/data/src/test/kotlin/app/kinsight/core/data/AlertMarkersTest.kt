@@ -17,6 +17,13 @@ class AlertMarkersTest {
     }
 
     @Test
+    fun initializedFlagRoundTripsAndOldTextIsNot() {
+        val m = AlertMarkers(mapOf(a to 5L), initialized = true)
+        assertEquals(m, AlertMarkers.decode(m.encode()))
+        assertEquals(false, AlertMarkers.decode("n:${a.hex}=5").initialized)
+    }
+
+    @Test
     fun garbageDecodesToDefaults() {
         assertEquals(AlertMarkers(), AlertMarkers.decode(null))
         assertEquals(AlertMarkers(), AlertMarkers.decode("n:zz=1\nc:nothex\nweird"))

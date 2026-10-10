@@ -28,11 +28,13 @@ class AlertPlannerTest {
         members: List<MemberView> = listOf(mom, dad, kid),
         events: List<EventView> = emptyList(),
         now: Long = at(10, 12),
-        markers: AlertMarkers = AlertMarkers(notifiedSeq = mapOf(kid.id to 0L), knownParents = setOf(mom.id)),
+        markers: AlertMarkers = AlertMarkers(knownParents = setOf(mom.id), initialized = true),
         mode: SummaryMode = SummaryMode.DAILY,
         children: List<DeviceUsage> = listOf(usage(kid, 2 * h)),
         departed: List<MemberView> = emptyList(),
-    ) = AlertInput(self, members, departed, events, children, now, zone, 24, mode, markers)
+    joined: Map<DeviceId, Long> = emptyMap(),
+    inviter: DeviceId? = null,
+) = AlertInput(self, members, departed, events, children, now, zone, 24, mode, markers, joined, inviter)
 
     @Test
     fun firstRunMarksHistoryAsSeen() {
@@ -99,5 +101,65 @@ class AlertPlannerTest {
         assertTrue(first.alerts.isEmpty())
         val withDad = AlertPlanner.plan(input(self = kidSelf, members = listOf(kidSelf, mom.copy(isSelf = false), dad), markers = first.markers))
         assertEquals(listOf(Alert.NewParent("Dad")), withDad.alerts)
+    }
+
+    @Test
+    fun laterChildWithoutMarkerIsReportedFromZero() {
+        val plan = AlertPlanner.plan(input(events = listOf(ev(kid, 1, StateEvent.Kind.SHARING_PAUSED))))
+        assertEquals(listOf(Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000)), plan.alerts)
+        assertEquals(1L, plan.markers.notifiedSeq[kid.id])
+    }
+
+    @Test
+    fun childWithoutEventsThenFirstEventAlerts() {
+        val first = AlertPlanner.plan(input(markers = AlertMarkers()))
+        assertTrue(first.alerts.isEmpty())
+        assertEquals(0L, first.markers.notifiedSeq[kid.id])
+        val next = AlertPlanner.plan(input(events = listOf(ev(kid, 1, StateEvent.Kind.SYNC_STOPPED)), markers = first.markers))
+        assertEquals(1, next.alerts.size)
+    }
+
+    @Test
+    fun intervalEventsReportTheirStart() {
+        val e = EventView(kid.id, 1, StateEvent.Kind.NOTIFICATION_HIDDEN, 5_000, 0, 9_000, 0)
+        assertEquals(listOf(Alert.Integrity("Kid", StateEvent.Kind.NOTIFICATION_HIDDEN, 5_000)), AlertPlanner.plan(input(events = listOf(e))).alerts)
+    }
+
+    @Test
+    fun everyNonRecoveryKindAlerts() {
+        val back = listOf("_RESTORED", "_RESUMED", "_SHOWN")
+        for (kind in StateEvent.Kind.entries) {
+            val expected = kind != StateEvent.Kind.KIND_UNSPECIFIED && back.none { kind.name.endsWith(it) }
+            assertEquals(expected, kind in AlertPlanner.INTEGRITY_KINDS, kind.name)
+            val alerts = AlertPlanner.plan(input(events = listOf(ev(kid, 1, kind)))).alerts
+            assertEquals(expected, alerts.isNotEmpty(), kind.name)
+        }
+    }
+
+    @Test
+    fun noContactBoundaryAndNeverSeen() {
+        val now = at(10, 12)
+        fun plan(seen: Long?, joined: Map<DeviceId, Long> = emptyMap()) =
+            AlertPlanner.plan(input(members = listOf(mom, kid.copy(lastSeenMs = seen)), now = now, joined = joined)).alerts.filterIsInstance<Alert.NoContact>()
+        assertTrue(plan(now - 24 * h).isEmpty())
+        assertEquals(1, plan(now - 24 * h - 1).size)
+        assertTrue(plan(null).isEmpty())
+        assertEquals(listOf(Alert.NoContact("Kid", now - 30 * h)), plan(null, mapOf(kid.id to now - 30 * h)))
+        assertTrue(plan(null, mapOf(kid.id to now - 2 * h)).isEmpty())
+    }
+
+    @Test
+    fun weeklySummaryOnDstEndSunday() {
+        val sunday = AlertPlanner.plan(input(now = at(25, 21), mode = SummaryMode.WEEKLY))
+        assertEquals(1, sunday.alerts.filterIsInstance<Alert.Summary>().size)
+    }
+
+    @Test
+    fun childBaselineIsTheInvitingAdminOnly() {
+        val kidSelf = kid.copy(isSelf = true)
+        val members = listOf(kidSelf, mom.copy(isSelf = false), dad)
+        val viaMom = AlertPlanner.plan(input(self = kidSelf, members = members, markers = AlertMarkers(), inviter = mom.id))
+        assertEquals(listOf(Alert.NewParent("Dad")), viaMom.alerts)
+        assertTrue(AlertPlanner.plan(input(self = kidSelf, members = members, markers = viaMom.markers, inviter = mom.id)).alerts.isEmpty())
     }
 }
