@@ -2,8 +2,10 @@ package app.kinsight
 
 import app.kinsight.core.keystore.KeySelection
 import app.kinsight.core.keystore.KeyStorageException
+import app.kinsight.core.transport.ble.ServiceSnapshot
+import java.time.Instant
 
-/** Plain-text key diagnostics (technical, English only; replaced by the settings screen in stage 4). */
+/** Plain-text key and transport diagnostics (technical, English only; replaced by the settings screen in stage 4). */
 object DiagnosticsReport {
     fun format(selection: Result<KeySelection>, device: String): String = buildString {
         appendLine("Kinsight diagnostics")
@@ -26,4 +28,34 @@ object DiagnosticsReport {
             },
         )
     }
+
+    /**
+     * The sync service as the screen sees it. [snapshot] should come from SyncGraph.snapshotNow, so the notification
+     * fields are read now (Play policy: a hidden notification is the user's open choice, and this screen shows it).
+     */
+    fun transport(snapshot: ServiceSnapshot, group: String?, missingPermissions: List<String>): String = buildString {
+        appendLine("Sync service: ${snapshot.state}${snapshot.detail?.let { " ($it)" } ?: ""}")
+        appendLine("Group: ${group ?: "none (pairing arrives in stage 4)"}")
+        if (missingPermissions.isNotEmpty()) {
+            appendLine("Missing permissions: ${missingPermissions.joinToString { it.substringAfterLast('.') }}")
+        }
+        appendLine("Notifications: ${notifications(snapshot)}")
+        appendLine("Peers: ${snapshot.peers.takeIf { it.isNotEmpty() }?.joinToString() ?: "none"}")
+        val last = snapshot.sync.lastSyncWallMs ?: snapshot.lastSyncWallMs
+        appendLine("Last sync: ${last?.let { Instant.ofEpochMilli(it).toString() } ?: "never"}")
+        snapshot.sync.lastProblem?.let { appendLine("Last problem: $it") }
+    }
+
+    private fun notifications(s: ServiceSnapshot): String = when (s.notificationsEnabled) {
+        null -> "unknown"
+        false -> "DISABLED for the app"
+        true -> when (val importance = s.channelImportance) {
+            null -> "enabled, channel not created yet"
+            IMPORTANCE_NONE -> "enabled, channel BLOCKED"
+            else -> "enabled, channel importance $importance"
+        }
+    }
+
+    /** NotificationManager.IMPORTANCE_NONE: the user turned the channel off. */
+    private const val IMPORTANCE_NONE = 0
 }

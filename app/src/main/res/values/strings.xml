@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name" translatable="false">Kinsight</string>
+    <!-- Stage 3 diagnostics screen: technical, English only, replaced in stage 4. -->
+    <string name="diagnostics_loading" translatable="false">Selecting key backend...</string>
+    <string name="diagnostics_sync_now" translatable="false">Sync now</string>
+    <string name="diagnostics_refresh" translatable="false">Refresh</string>
 </resources>

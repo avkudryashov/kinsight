@@ -15,4 +15,6 @@ android {
 dependencies {
     implementation(project(":core:keystore"))
     implementation(project(":core:usage"))
+    implementation(project(":core:transport-ble"))
+    implementation(libs.coroutines.core)
 }

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Debug builds only. Pairing arrives in stage 4; until then adb (whose shell holds DUMP) seeds a test group and
+         starts the service directly, as the spike did. Release builds have neither entry point. -->
+    <application>
+        <receiver
+            android:name="app.kinsight.debug.DebugGroupReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+
+        <service
+            android:name="app.kinsight.core.transport.ble.SyncService"
+            android:exported="true"
+            android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+    </application>
+</manifest>
