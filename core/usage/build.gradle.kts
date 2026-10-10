@@ -14,4 +14,5 @@ android {
 dependencies {
     api(project(":core:database"))
     implementation(libs.coroutines.core)
+    implementation(libs.datastore.preferences)
 }
