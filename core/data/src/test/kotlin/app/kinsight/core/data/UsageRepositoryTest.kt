@@ -145,4 +145,12 @@ class UsageRepositoryTest {
         assertEquals(setOf(gone, parentRule), mom.prefs.thresholds.first().toSet())
         assertEquals(emptyList(), withTimeout(10_000) { usage.thresholds.first { it.isEmpty() } })
     }
+
+    @Test
+    fun onlyAParentOfAGroupMaySetThresholds() = runBlocking<Unit> {
+        val usage = UsageRepository(mom.snapshots, mom.prefs, date = { today })
+        assertEquals(false, withTimeout(10_000) { usage.viewerIsParent.first() }, "no group yet")
+        mom.group.createGroup("Mom")
+        assertEquals(true, withTimeout(10_000) { usage.viewerIsParent.first { it } })
+    }
 }

@@ -301,6 +301,12 @@ class UsageRepository(
         rules.filter { ready.membership.active[it.child]?.isChild == true }
     }.distinctUntilChanged()
 
+    /** Whether this phone is a parent of the current group: only a parent sets thresholds (hidden on a child's phone). */
+    val viewerIsParent: Flow<Boolean> = snapshots.snapshots.map { s ->
+        val ready = (s as? GroupSnapshot.Ready)?.takeUnless { it.removed }
+        ready?.membership?.active?.get(ready.self)?.isChild == false
+    }.distinctUntilChanged()
+
     /** Adds or replaces the rule of [rule]'s (child, target); build it with [ThresholdRule.of]. */
     suspend fun setThreshold(rule: ThresholdRule) = prefs.setThreshold(rule)
 
