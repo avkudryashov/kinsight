@@ -123,6 +123,18 @@ class AggregatorTest {
     }
 
     @Test
+    fun anAppStaysForegroundWhileAnyOfItsActivitiesIsResumed() {
+        val a = run(
+            listOf(
+                s.resumed("10:00", MAPS), s.resumed("10:05", MAPS, "$MAPS.Settings"),
+                s.paused("10:10", MAPS), s.paused("10:25", MAPS, "$MAPS.Settings"),
+            ),
+        )
+        assertEquals(mapOf(app(10, MAPS) to 25 * MIN), a.appMs)
+        assertEquals(mapOf(slot(10) to 25 * MIN), a.screenMs)
+    }
+
+    @Test
     fun shutdownAndStartupResetTheStream() {
         val a = run(listOf(s.resumed("10:00", MAPS), s.shutdown("10:10"), s.startup("10:20")), until = s.ms("11:00"))
         assertEquals(mapOf(app(10, MAPS) to 10 * MIN), a.appMs)

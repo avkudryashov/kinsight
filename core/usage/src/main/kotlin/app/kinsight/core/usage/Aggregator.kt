@@ -2,6 +2,7 @@ package app.kinsight.core.usage
 
 import java.time.ZoneId
 
+/** One resumed activity; two instances of the same class are merged (the event stream carries no instance id). */
 data class ActivityKey(val packageName: String, val className: String)
 
 /** What the event stream says at a moment: is the screen interactive, which activities are resumed. */
