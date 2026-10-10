@@ -33,9 +33,18 @@ private const val HOUR_LABEL_STEP = 6
  * Day-of-week by hour grid on Canvas (spec §9.8): [cells] are 7 rows (days in the caller's order, named by
  * [rowLabels]) of 24 hours. Intensity follows the value from the empty surface tone to the primary colour, so it reads
  * as lightness, not hue; TalkBack reads [summary] instead of the grid. Rows grow with the label font (up to 200 %).
+ * [hourLabels] name the hour ticks 0, 6, 12 and 18 in the caller's locale format ("12 AM" … or "0" …); by default
+ * they are the bare 24-hour numbers.
  */
 @Composable
-fun Heatmap(cells: Array<LongArray>, rowLabels: List<String>, summary: String, modifier: Modifier = Modifier) {
+fun Heatmap(
+    cells: Array<LongArray>,
+    rowLabels: List<String>,
+    summary: String,
+    modifier: Modifier = Modifier,
+    hourLabels: List<String>? = null,
+) {
+    val ticks = heatHourLabels(hourLabels)
     val grid = heatCells(cells)
     val max = grid.maxOf { row -> row.max() }
     val names = chartLabels(rowLabels, DAYS)
@@ -75,12 +84,16 @@ fun Heatmap(cells: Array<LongArray>, rowLabels: List<String>, summary: String, m
         }
         Row(Modifier.fillMaxWidth()) {
             Spacer(Modifier.width(labelWidth))
-            for (h in 0 until HOURS step HOUR_LABEL_STEP) {
-                Text("$h", Modifier.weight(1f), color = labelColor, style = style, maxLines = 1, softWrap = false)
+            ticks.forEach { label ->
+                Text(label, Modifier.weight(1f), color = labelColor, style = style, maxLines = 1, softWrap = false)
             }
         }
     }
 }
+
+/** The hour axis ticks (every [HOUR_LABEL_STEP] hours): [labels] padded with blanks or trimmed, else "0", "6", "12", "18". */
+internal fun heatHourLabels(labels: List<String>?): List<String> =
+    labels?.let { chartLabels(it, HOURS / HOUR_LABEL_STEP) } ?: (0 until HOURS step HOUR_LABEL_STEP).map { "$it" }
 
 /** [cells] padded or trimmed to 7 rows of 24 hours, negative values as zero. */
 internal fun heatCells(cells: Array<LongArray>): Array<LongArray> =

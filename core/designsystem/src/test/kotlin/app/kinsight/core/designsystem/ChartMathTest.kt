@@ -5,6 +5,7 @@ import app.kinsight.core.designsystem.component.CATEGORY_COLOR_COUNT
 import app.kinsight.core.designsystem.component.categoryPalette
 import app.kinsight.core.designsystem.component.contrastRatio
 import app.kinsight.core.designsystem.component.heatCells
+import app.kinsight.core.designsystem.component.heatHourLabels
 import app.kinsight.core.designsystem.component.heatIntensity
 import app.kinsight.core.designsystem.component.labelShown
 import app.kinsight.core.designsystem.component.paletteIndex
@@ -85,5 +86,14 @@ class ChartMathTest {
         assertTrue(labelShown(i = 9, anchor = 6, step = 3))
         assertFalse(labelShown(i = 7, anchor = 6, step = 3))
         assertTrue(labelShown(i = 4, anchor = 2, step = 1))
+    }
+
+    @Test
+    fun heatmapHourAxisTakesTheCallersLabels() {
+        assertEquals(listOf("0", "6", "12", "18"), heatHourLabels(null))
+        assertEquals(listOf("12 AM", "6 AM", "12 PM", "6 PM"), heatHourLabels(listOf("12 AM", "6 AM", "12 PM", "6 PM")))
+        // Too few or too many: padded with blanks or trimmed to the four ticks.
+        assertEquals(listOf("a", "", "", ""), heatHourLabels(listOf("a")))
+        assertEquals(listOf("a", "b", "c", "d"), heatHourLabels(listOf("a", "b", "c", "d", "e")))
     }
 }
