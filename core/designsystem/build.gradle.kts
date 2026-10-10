@@ -9,4 +9,5 @@ android {
 
 dependencies {
     implementation(libs.zxing.core)
+    implementation(libs.compose.material.icons.core)
 }
