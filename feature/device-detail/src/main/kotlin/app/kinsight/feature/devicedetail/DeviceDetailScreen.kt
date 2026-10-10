@@ -114,8 +114,8 @@ fun DeviceDetailRoute(
 @Composable
 fun AllAppsRoute(id: DeviceId, range: DetailRange, onBack: () -> Unit, onOpenApp: ((String) -> Unit)? = null) {
     val graph = AppGraph.get(LocalContext.current)
-    val apps = remember(id, range) { graph.usage.apps(id, range) }
-    val list by apps.collectAsStateWithLifecycle(initialValue = null)
+    val vm: AllAppsViewModel = viewModel(key = "all-apps-${id.hex}-${range.period}-${range.start}") { AllAppsViewModel(graph.usage, id, range) }
+    val list by vm.list.collectAsStateWithLifecycle()
     list?.let { AllAppsScreen(it, onBack, onOpenApp) } ?: Loading()
 }
 
