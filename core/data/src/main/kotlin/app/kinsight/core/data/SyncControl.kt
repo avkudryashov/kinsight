@@ -30,11 +30,18 @@ interface SyncControl {
 
     /** The app came to the front: a running service posts its notification again if it can be seen now. */
     fun refreshNotification() {}
+
+    /**
+     * One fast-mode window without a UI start (IntegrityFastSync), on the same lane as [start] and [stopAndWait], so it
+     * is ordered against a wipe's stop; [allowed] is read on that lane right before the start. True when a start or a
+     * fast window went out (false: refused, no group, or nothing could start).
+     */
+    suspend fun requestFast(allowed: () -> Boolean = { true }): Boolean = false
 }
 
 /**
  * The group-file check is file I/O, so starts run on a serial IO lane (preflight C20, fix round 1); [stopAndWait]
- * goes through the same lane, so a start queued before it can never land after the stop.
+ * and [requestFast] go through the same lane, so a start queued before the stop can never land after it.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ServiceSyncControl(context: Context) : SyncControl {
@@ -53,6 +60,9 @@ class ServiceSyncControl(context: Context) : SyncControl {
     override fun requestStop() = SyncService.requestStop(app)
 
     override fun refreshNotification() = SyncService.refreshNotification()
+
+    override suspend fun requestFast(allowed: () -> Boolean): Boolean =
+        withContext(lane) { allowed() && SyncGraph.groups(app).exists() && SyncService.requestFast(app) }
 
     override suspend fun stopAndWait() {
         withContext(lane) { SyncService.stop(app) }

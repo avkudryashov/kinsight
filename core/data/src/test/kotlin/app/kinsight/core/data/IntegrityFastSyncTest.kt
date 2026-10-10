@@ -1,6 +1,7 @@
 package app.kinsight.core.data
 
 import app.kinsight.core.model.proto.StateEvent
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -24,12 +25,47 @@ class IntegrityFastSyncTest {
     fun secondWithinTwoMinutesDoesNotStartAgain() = runBlocking<Unit> {
         fast.onOwnStateEvent(StateEvent.Kind.SHARING_PAUSED)
         now += 119_999
-        assertFalse(fast.onOwnStateEvent(StateEvent.Kind.SHARING_RESUMED))
         assertFalse(fast.onOwnStateEvent(StateEvent.Kind.SHARING_PAUSED))
+        assertFalse(fast.onOwnStateEvent(StateEvent.Kind.USAGE_ACCESS_REVOKED))
         assertEquals(1, starts)
         now += 1 // two minutes after the first start
+        assertTrue(fast.onOwnStateEvent(StateEvent.Kind.SHARING_PAUSED))
+        assertEquals(2, starts)
+    }
+
+    @Test
+    fun aCloserOfTheLastFastStartBypassesTheIntervalOnce() = runBlocking<Unit> {
+        assertTrue(fast.onOwnStateEvent(StateEvent.Kind.SHARING_PAUSED))
+        now += 90_000 // a resume 90 s after the pause must not leave the parent's "paused" notification standing
         assertTrue(fast.onOwnStateEvent(StateEvent.Kind.SHARING_RESUMED))
         assertEquals(2, starts)
+        now += 10_000 // a second resume within two minutes: the interval holds again
+        assertFalse(fast.onOwnStateEvent(StateEvent.Kind.SHARING_RESUMED))
+        assertFalse(fast.onOwnStateEvent(StateEvent.Kind.SHARING_PAUSED))
+        assertEquals(2, starts)
+    }
+
+    @Test
+    fun aCloserOfAnotherOpenerKeepsTheInterval() = runBlocking<Unit> {
+        assertTrue(fast.onOwnStateEvent(StateEvent.Kind.SHARING_PAUSED))
+        now += 30_000
+        assertFalse(fast.onOwnStateEvent(StateEvent.Kind.NOTIFICATION_SHOWN))
+        assertFalse(fast.onOwnStateEvent(StateEvent.Kind.NOTIFICATION_HIDDEN))
+        now += 30_000
+        assertTrue(fast.onOwnStateEvent(StateEvent.Kind.SHARING_RESUMED))
+        assertEquals(2, starts)
+    }
+
+    @Test
+    fun theStartGoesThroughTheSyncControlUnlessAWipeRuns() = runBlocking<Unit> {
+        val sync = FakeSyncControl()
+        val reset = MutableStateFlow<ResetStatus>(ResetStatus.Running(ResetKind.FORGET_GROUP))
+        val start = IntegrityFastSync.startThrough(sync, reset)
+        assertFalse(start())
+        assertEquals(listOf("requestFast:refused"), sync.calls.toList())
+        reset.value = ResetStatus.Idle
+        assertTrue(start())
+        assertEquals(listOf("requestFast:refused", "requestFast"), sync.calls.toList())
     }
 
     @Test

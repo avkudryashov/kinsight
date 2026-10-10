@@ -47,6 +47,11 @@ class FakeSyncControl : SyncControl {
     override fun startByUser() { calls += "startByUser" }
     override fun requestStop() { calls += "requestStop" }
     override suspend fun stopAndWait() { calls += "stop" }
+    override suspend fun requestFast(allowed: () -> Boolean): Boolean {
+        val ok = allowed()
+        calls += if (ok) "requestFast" else "requestFast:refused"
+        return ok
+    }
 }
 
 private object NoEvents : EventSource {
