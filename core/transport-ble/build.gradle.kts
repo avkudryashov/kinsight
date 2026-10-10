@@ -9,5 +9,6 @@ android {
 dependencies {
     api(project(":core:sync"))
     implementation(libs.coroutines.core)
+    implementation(libs.datastore.preferences)
     testImplementation(project(":core:testing"))
 }
