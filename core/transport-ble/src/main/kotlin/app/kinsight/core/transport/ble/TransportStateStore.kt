@@ -19,11 +19,8 @@ import java.io.File
 
 data class HeartbeatMark(val atMs: Long, val version: String)
 
-/**
- * ForceStopCheck's memory: [baselineMs] is the newest exit at the very first check (older ones are never reported),
- * [seen] the exits already handled, by identity, so a clock change can neither hide nor repeat one.
- */
-data class ForceStopMarks(val baselineMs: Long, val seen: Set<AppExit>)
+/** ForceStopCheck's memory: the exits already handled, by identity, so a clock change can neither hide nor repeat one. */
+data class ForceStopMarks(val seen: Set<AppExit>)
 
 /** Small local transport state that must survive a process restart (DataStore, never synchronised). */
 class TransportStateStore(private val store: DataStore<Preferences>) {
@@ -100,16 +97,12 @@ class TransportStateStore(private val store: DataStore<Preferences>) {
 
     /** What ForceStopCheck already knows of the system's exit records; null before the first check. */
     suspend fun forceStopMarks(): ForceStopMarks? {
-        val p = store.data.first()
-        val baseline = p[FORCE_STOP_BASELINE] ?: return null
-        return ForceStopMarks(baseline, decodeExits(p[FORCE_STOP_SEEN]))
+        val seen = store.data.first()[FORCE_STOP_SEEN] ?: return null // absent until the first check
+        return ForceStopMarks(decodeExits(seen))
     }
 
     suspend fun setForceStopMarks(marks: ForceStopMarks) {
-        store.edit {
-            it[FORCE_STOP_BASELINE] = marks.baselineMs
-            it[FORCE_STOP_SEEN] = encodeExits(marks.seen)
-        }
+        store.edit { it[FORCE_STOP_SEEN] = encodeExits(marks.seen) }
     }
 
     /** Wall time of the last completed direct session per peer («last seen», stage 4). */
@@ -128,15 +121,13 @@ class TransportStateStore(private val store: DataStore<Preferences>) {
 
     /**
      * A wiped group or identity: everything here belonged to the old group, except the force-stop marks. Those
-     * describe this device's exit history, and a wiped baseline would swallow the first force stop after the next
+     * describe this device's exit history, and a wiped seen set would swallow the first force stop after the next
      * join (fix round 1).
      */
     suspend fun clear() {
         store.edit {
-            val baseline = it[FORCE_STOP_BASELINE]
             val seen = it[FORCE_STOP_SEEN]
             it.clear()
-            if (baseline != null) it[FORCE_STOP_BASELINE] = baseline
             if (seen != null) it[FORCE_STOP_SEEN] = seen
         }
     }
@@ -152,7 +143,6 @@ class TransportStateStore(private val store: DataStore<Preferences>) {
         private val NOTIFICATION_HIDDEN_SINCE = longPreferencesKey("notification_hidden_since_ms")
         private val PEER_SEEN = stringPreferencesKey("peer_seen")
         private val NEARBY_OFF_SINCE = longPreferencesKey("nearby_off_since_ms")
-        private val FORCE_STOP_BASELINE = longPreferencesKey("force_stop_baseline_ms")
         private val FORCE_STOP_SEEN = stringPreferencesKey("force_stop_seen")
 
         /** "hex=ms;hex=ms"; malformed parts are skipped (the file is a cache). */

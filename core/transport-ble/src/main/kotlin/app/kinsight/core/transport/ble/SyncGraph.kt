@@ -92,13 +92,30 @@ object SyncGraph {
         Membership.compute(t.groupId, RoomEntryStore(KinsightDatabaseFactory.shared(context), t.groupId).membershipEntries())
 
     /**
-     * For the integrity trackers: when the own-usage gate opened (the consent time), null while it is closed. The same
-     * rule queueEvent applies ([ownUsageAllowed]); reads Room and DataStore only, never the pipeline.
+     * For the integrity trackers: the own-usage gate by the rule queueEvent applies ([ownUsageAllowed]). Closed only
+     * when that is certain (no group file, not an active consenting CHILD); an unreadable group file or identity is
+     * [GateState.Unknown], so a passing failure never clears an open interval. Reads Room and DataStore, never the
+     * pipeline.
      */
-    private suspend fun gateOpenSince(context: Context): Long? {
-        val t = target(context) ?: return null
+    private suspend fun gateState(context: Context): GateState {
+        val group = try {
+            groups(context).read()
+        } catch (e: GroupStoreException) {
+            Log.w(TAG, "group file unreadable for the integrity gate", e)
+            return GateState.Unknown
+        } ?: return GateState.Closed
+        val keys = try {
+            DeviceIdentity.get(context).keys
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "no identity for the integrity gate", e)
+            return GateState.Unknown
+        }
+        val t = PublishTarget(group.groupId, keys)
         val settings = UsageGraph.settings(context).current()
-        return settings.consentAtMs.takeIf { ownUsageAllowed(membership(context, t), t.keys.deviceId, settings) }
+        val consent = settings.consentAtMs
+        return if (consent != null && ownUsageAllowed(membership(context, t), keys.deviceId, settings)) GateState.Open(consent) else GateState.Closed
     }
 
     /** The one GroupStore of the process (its read cache must see every write), in noBackupFilesDir. */
@@ -146,11 +163,17 @@ object SyncGraph {
         )
     }
 
-    /** Before a session: fresh own usage (spec §7, force), the daily Heartbeat, the notification check. Never inside the pipeline lock. */
+    /** Before a session: fresh own usage (spec §7, force), the daily Heartbeat, the notification check, a refused stop interval. Never inside the pipeline lock. */
     suspend fun prepare(context: Context) {
         UsageGraph.pipeline(context).collectAndPublish(force = true)
         emitHeartbeatIfDue(context)
         onNotificationVisibility(context, notificationVisibleNow(context))
+        retryStopInterval(context)
+    }
+
+    /** A SYNC_STOPPED that was refused at the start from the app: tried again before every session (fix round 2). */
+    suspend fun retryStopInterval(context: Context) = stateLock.withLock {
+        if (groups(context).exists()) StopTracker(state(context), recorder(context), gate(context)).retryPending()
     }
 
     /** Unserialised: callers go through [emitHeartbeatIfDue]. */
@@ -187,7 +210,7 @@ object SyncGraph {
 
     private fun gate(context: Context): GateOpenSince {
         val app = context.applicationContext
-        return { gateOpenSince(app) }
+        return { gateState(app) }
     }
 
     /** Stop from the notification or the app (SyncService.stopByUser); without a group only the flag is kept. */

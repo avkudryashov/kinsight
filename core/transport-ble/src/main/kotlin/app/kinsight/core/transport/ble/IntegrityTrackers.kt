@@ -2,16 +2,26 @@ package app.kinsight.core.transport.ble
 
 import android.app.ApplicationExitInfo
 import app.kinsight.core.model.proto.StateEvent
+import kotlin.math.abs
 
 /** Queues one integrity event (UsagePipeline.queueEvent); false when it was dropped (the own-usage gate refused). */
 typealias EventRecorder = suspend (kind: StateEvent.Kind, fromMs: Long, toMs: Long) -> Boolean
 
 /**
- * When the own-usage gate opened (the consent time of an active CHILD); null while it is closed (no group, a parent,
- * no consent). While it is closed the trackers record nothing and keep no «since»: an interval starts no earlier than
- * the consent, and a state that still holds after consent is reported fresh (fix round 1).
+ * The own-usage gate as the trackers see it. [Open]: an active CHILD that consented at [Open.sinceMs]. [Closed]: for
+ * certain no reporting (no group, a parent, no consent); the trackers record nothing and keep no «since», so an
+ * interval starts no earlier than the consent and a state that still holds after it is reported fresh. [Unknown]: the
+ * group file or the identity could not be read just now; the trackers change nothing and wait for the next check.
  */
-typealias GateOpenSince = suspend () -> Long?
+sealed interface GateState {
+    data class Open(val sinceMs: Long) : GateState
+
+    data object Closed : GateState
+
+    data object Unknown : GateState
+}
+
+typealias GateOpenSince = suspend () -> GateState
 
 /**
  * «Stop» (notification or app) and the next start from the app: one SYNC_STOPPED(from = stop, to = start), recorded
@@ -26,17 +36,40 @@ class StopTracker(
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     suspend fun onUserStop() {
-        state.markStoppedByUser(atMs = if (gate() != null) clock() else null)
+        // Unknown keeps the time too: a start under a closed gate drops it, an open one reports it.
+        state.markStoppedByUser(atMs = if (gate() != GateState.Closed) clock() else null)
     }
 
     suspend fun onUserStart() {
         val stopped = state.stoppedByUser()
         val since = state.stoppedAtMs()
-        val open = gate()
-        // Stopped before the gate opened (no since kept then): the interval the family sees starts at the consent.
-        val from = if (open == null) null else since ?: open.takeIf { stopped }
-        if (from == null) return state.clearStop()
-        state.setStoppedByUser(false)
+        when (val g = gate()) {
+            GateState.Closed -> state.clearStop()
+            GateState.Unknown -> state.setStoppedByUser(false) // the interval waits for retryPending
+            is GateState.Open -> {
+                // Stopped before the gate opened (no since kept then): the interval the family sees starts at consent.
+                val from = since ?: g.sinceMs.takeIf { stopped } ?: return state.clearStop()
+                state.setStoppedByUser(false)
+                report(from)
+            }
+        }
+    }
+
+    /**
+     * A stop interval whose SYNC_STOPPED was refused or failed while sync runs again (fix round 2): retried at every
+     * session preparation, not only at the next start from the app. Never while the user's Stop holds.
+     */
+    suspend fun retryPending() {
+        if (state.stoppedByUser()) return
+        val since = state.stoppedAtMs() ?: return
+        when (gate()) {
+            GateState.Closed -> state.setStoppedAtMs(null)
+            GateState.Unknown -> Unit
+            is GateState.Open -> report(since)
+        }
+    }
+
+    private suspend fun report(from: Long) {
         if (record(StateEvent.Kind.SYNC_STOPPED, from, maxOf(from, clock()))) state.setStoppedAtMs(null)
     }
 }
@@ -54,9 +87,13 @@ class NotificationWatch(
 ) {
     suspend fun onVisibility(visible: Boolean) {
         val since = state.notificationHiddenSinceMs()
-        if (gate() == null) {
-            if (since != null) state.setNotificationHiddenSinceMs(null)
-            return
+        when (gate()) {
+            GateState.Unknown -> return
+            GateState.Closed -> {
+                if (since != null) state.setNotificationHiddenSinceMs(null)
+                return
+            }
+            is GateState.Open -> Unit
         }
         if (!visible && since == null) {
             val now = clock()
@@ -79,9 +116,13 @@ class NearbyWatch(
 ) {
     suspend fun onPermission(granted: Boolean) {
         val since = state.nearbyOffSinceMs()
-        if (gate() == null) {
-            if (since != null) state.setNearbyOffSinceMs(null)
-            return
+        when (gate()) {
+            GateState.Unknown -> return
+            GateState.Closed -> {
+                if (since != null) state.setNearbyOffSinceMs(null)
+                return
+            }
+            is GateState.Open -> Unit
         }
         if (!granted && since == null) {
             state.setNearbyOffSinceMs(clock())
@@ -96,11 +137,11 @@ data class AppExit(val timestampMs: Long, val pid: Int)
 
 /**
  * Force stops (stage 3c §15 row): the system keeps them in ApplicationExitInfo (REASON_USER_REQUESTED). At every
- * process start, with or without a group, each exit not seen before and newer than the first baseline becomes
- * APP_FORCE_STOPPED(from = stop, to = now) while the gate is open; with the gate closed it is only marked as seen
- * (stops before joining or consenting are not the family's business). The first check ever only sets the baseline.
- * Identity, never the wall clock, decides what is new, so setting the clock forward or back hides nothing. An exit
- * whose event was refused stays unseen and is tried again at the next start.
+ * process start, with or without a group, each exit not seen before becomes APP_FORCE_STOPPED(from = stop, to = now)
+ * while the gate is open; with the gate closed it is only marked as seen (stops before joining or consenting are not
+ * the family's business). The first check ever only marks what the system lists then. Identity alone, never the wall
+ * clock, decides what is new, so setting the clock forward or back hides nothing. An exit whose event was refused, or
+ * met an [GateState.Unknown] gate, stays unseen and is tried again at the next start.
  */
 class ForceStopCheck(
     private val state: TransportStateStore,
@@ -110,31 +151,35 @@ class ForceStopCheck(
 ) {
     suspend fun onStart(stops: List<AppExit>) {
         val kept = stops.sortedByDescending { it.timestampMs }.take(MAX_SEEN).toSet()
-        val marks = state.forceStopMarks()
-        if (marks == null) {
-            state.setForceStopMarks(ForceStopMarks(stops.maxOfOrNull { it.timestampMs } ?: Long.MIN_VALUE, kept))
-            return
-        }
-        val fresh = stops.filter { it !in marks.seen && it.timestampMs > marks.baselineMs }.sortedBy { it.timestampMs }
-        val refused = mutableSetOf<AppExit>()
-        if (fresh.isNotEmpty() && gate() != null) {
-            val now = clock()
-            fresh.forEach { if (!record(StateEvent.Kind.APP_FORCE_STOPPED, it.timestampMs, maxOf(it.timestampMs, now))) refused += it }
+        val marks = state.forceStopMarks() ?: return state.setForceStopMarks(ForceStopMarks(kept))
+        val fresh = stops.filter { it !in marks.seen }.sortedBy { it.timestampMs }
+        val unreported = mutableSetOf<AppExit>()
+        if (fresh.isNotEmpty()) {
+            when (gate()) {
+                GateState.Closed -> Unit
+                GateState.Unknown -> unreported += fresh
+                is GateState.Open -> {
+                    val now = clock()
+                    fresh.forEach {
+                        if (!record(StateEvent.Kind.APP_FORCE_STOPPED, it.timestampMs, maxOf(it.timestampMs, now))) unreported += it
+                    }
+                }
+            }
         }
         // The system's own list only loses its oldest records, so what it no longer lists can never come back.
-        state.setForceStopMarks(marks.copy(seen = kept - refused))
+        state.setForceStopMarks(ForceStopMarks(kept - unreported))
     }
 
     companion object {
-        /** More user-requested exits than the system usually keeps for one app. */
+        /** More user-requested exits than the system keeps for one app (an older one beyond it would be reported again). */
         const val MAX_SEEN = 32
 
-        /** API 31–33 report an app update as REASON_USER_REQUESTED too; an exit this close to the update is one. */
+        /** API 31–33 report an app update as REASON_USER_REQUESTED too; an exit this close to the update (either side) is one. */
         const val UPDATE_WINDOW_MS = 60_000L
 
         /** Pure: whether an exit record is the user's force stop (API 34+ has REASON_PACKAGE_UPDATED for updates). */
         fun isUserForceStop(reason: Int, timestampMs: Long, sdkInt: Int, lastUpdateMs: Long): Boolean =
             reason == ApplicationExitInfo.REASON_USER_REQUESTED &&
-                !(sdkInt <= 33 && lastUpdateMs >= timestampMs - UPDATE_WINDOW_MS)
+                !(sdkInt <= 33 && abs(timestampMs - lastUpdateMs) <= UPDATE_WINDOW_MS)
     }
 }

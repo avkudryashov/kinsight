@@ -25,6 +25,8 @@ class IntegrityTrackersTest {
 
     /** When the own-usage gate opened (consent); null while it is closed and queueEvent drops everything. */
     private var openSince: Long? = 0L
+    /** A transient failure to tell (the group file or the identity unreadable): the trackers must change nothing. */
+    private var unknown = false
     private var accept = true
     private val recorded = mutableListOf<Triple<StateEvent.Kind, Long, Long>>()
     private val record: suspend (StateEvent.Kind, Long, Long) -> Boolean = { k, f, t ->
@@ -32,7 +34,9 @@ class IntegrityTrackersTest {
         if (ok) recorded += Triple(k, f, t)
         ok
     }
-    private val gate: suspend () -> Long? = { openSince }
+    private val gate: suspend () -> GateState = {
+        if (unknown) GateState.Unknown else openSince?.let { GateState.Open(it) } ?: GateState.Closed
+    }
     private val stops = StopTracker(state, record, gate, clock = { now })
     private val watch = NotificationWatch(state, record, gate, clock = { now })
     private val nearby = NearbyWatch(state, record, gate, clock = { now })
@@ -156,6 +160,8 @@ class IntegrityTrackersTest {
         assertFalse(ForceStopCheck.isUserForceStop(user, 1_000_000L, sdkInt = 31, lastUpdateMs = 1_005_000L))
         assertTrue(ForceStopCheck.isUserForceStop(user, 1_000_000L, sdkInt = 33, lastUpdateMs = 900_000L))
         assertTrue(ForceStopCheck.isUserForceStop(user, 1_000_000L, sdkInt = 34, lastUpdateMs = 990_000L))
+        // Fix round 2: an update long after a force stop does not hide it.
+        assertTrue(ForceStopCheck.isUserForceStop(user, 1_000_000L, sdkInt = 33, lastUpdateMs = 5_000_000L))
         assertFalse(ForceStopCheck.isUserForceStop(ApplicationExitInfo.REASON_CRASH, 1_000_000L, sdkInt = 34, lastUpdateMs = 0L))
     }
 
@@ -231,5 +237,67 @@ class IntegrityTrackersTest {
             listOf(StateEvent.Kind.NOTIFICATION_HIDDEN, StateEvent.Kind.APP_FORCE_STOPPED),
             recorded.map { it.first },
         )
+    }
+
+    // Fix round 2.
+
+    @Test
+    fun anExitOlderThanTheFirstCheckButUnseenIsReported() = runBlocking<Unit> {
+        check.onStart(listOf(AppExit(900_000L, 1)))
+        check.onStart(listOf(AppExit(900_000L, 1), AppExit(400_000L, 2))) // identity only: no timestamp baseline
+        assertEquals(listOf(400_000L), recorded.map { it.second })
+    }
+
+    @Test
+    fun anUnknownGateKeepsEveryOpenInterval() = runBlocking<Unit> {
+        watch.onVisibility(false)
+        nearby.onPermission(false)
+        check.onStart(emptyList())
+        unknown = true
+        now += 10_000
+        watch.onVisibility(true)
+        nearby.onPermission(true)
+        check.onStart(listOf(AppExit(1_005_000L, 3)))
+        assertEquals(1_000_000L, state.notificationHiddenSinceMs())
+        assertEquals(1_000_000L, state.nearbyOffSinceMs())
+        unknown = false
+        now += 10_000
+        watch.onVisibility(true)
+        nearby.onPermission(true)
+        check.onStart(listOf(AppExit(1_005_000L, 3)))
+        assertEquals(
+            listOf(
+                StateEvent.Kind.NOTIFICATION_HIDDEN,
+                StateEvent.Kind.NOTIFICATION_SHOWN,
+                StateEvent.Kind.NEARBY_PERMISSION_OFF,
+                StateEvent.Kind.APP_FORCE_STOPPED,
+            ),
+            recorded.map { it.first },
+        )
+    }
+
+    @Test
+    fun anUnknownGateAtStopStillKeepsTheStopTime() = runBlocking<Unit> {
+        unknown = true
+        stops.onUserStop()
+        unknown = false
+        now += 5_000
+        stops.onUserStart()
+        assertEquals(listOf(Triple(StateEvent.Kind.SYNC_STOPPED, 1_000_000L, 1_005_000L)), recorded)
+    }
+
+    @Test
+    fun aRefusedStopIntervalIsRetriedByThePeriodicCheck() = runBlocking<Unit> {
+        stops.onUserStop()
+        accept = false
+        now += 5_000
+        stops.onUserStart()
+        assertFalse(state.stoppedByUser())
+        accept = true
+        now += 5_000
+        stops.retryPending()
+        stops.retryPending() // nothing left
+        assertEquals(listOf(Triple(StateEvent.Kind.SYNC_STOPPED, 1_000_000L, 1_010_000L)), recorded)
+        assertNull(state.stoppedAtMs())
     }
 }
