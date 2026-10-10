@@ -22,7 +22,7 @@
     <string name="set_sync_syncing">Синхронизация…</string>
     <string name="set_sync_no_permission">Для синхронизации нужно разрешение «Устройства поблизости». Разрешите его в настройках приложения.</string>
     <string name="set_sync_bluetooth_off">Bluetooth выключен. Включите его для синхронизации.</string>
-    <string name="set_sync_key_error">Ошибка хранилища ключей. Синхронизация на этом телефоне не работает.</string>
+    <string name="set_sync_key_error">Ошибка хранилища ключей: синхронизация на этом телефоне не работает. Ниже, в разделе «Это устройство», откройте «Диагностику» или нажмите «Сбросить идентичность и подключить заново».</string>
     <string name="set_sync_radio_error">Ошибка Bluetooth. Синхронизация повторится сама.</string>
     <string name="set_sync_peer_update">На одном из телефонов семьи нужно обновить Kinsight.</string>
     <string name="set_last_sync">Последняя синхронизация: %1$s</string>

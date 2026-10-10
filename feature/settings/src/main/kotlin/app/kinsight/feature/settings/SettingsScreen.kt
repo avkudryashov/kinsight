@@ -8,8 +8,8 @@ import android.provider.Settings
 import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -156,7 +156,8 @@ fun SettingsScreen(
                 if (stopped) {
                     Button(onStartSync, Modifier.testTag("set_start")) { Text(stringResource(R.string.set_start)) }
                 } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Wraps at 360 dp or with large fonts instead of squeezing the labels.
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onSyncNow, Modifier.testTag("set_sync_now")) { Text(stringResource(R.string.set_sync_now)) }
                         OutlinedButton({ ask = Ask.STOP }, Modifier.testTag("set_stop")) { Text(stringResource(R.string.set_stop)) }
                     }
