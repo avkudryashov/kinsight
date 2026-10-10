@@ -142,6 +142,20 @@ class AggregatorTest {
     }
 
     @Test
+    fun startupWithoutShutdownCreditsNothingBeforeIt() {
+        // A crash or hard reboot: no SHUTDOWN, so the device-off time before STARTUP must not go to MAPS.
+        val a = run(
+            listOf(
+                s.resumed("10:00", MAPS), s.startup("12:00"),
+                s.screenOn("12:01"), s.resumed("12:05", CHAT), s.screenOff("12:20"),
+            ),
+            until = s.ms("13:00"),
+        )
+        assertEquals(mapOf(app(12, CHAT) to 15 * MIN), a.appMs)
+        assertEquals(mapOf(slot(12) to 15 * MIN), a.screenMs)
+    }
+
+    @Test
     fun eventsOutsideTheWindowAreIgnoredAndOrderIsRestored() {
         val a = run(
             listOf(s.paused("10:40", MAPS), s.resumed("10:10", MAPS), s.resumed("09:00", CHAT), s.paused("12:00", CHAT)),

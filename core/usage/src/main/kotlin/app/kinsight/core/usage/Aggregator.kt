@@ -20,7 +20,15 @@ data class Aggregation(
     val screenMs: Map<HourSlot, Long>,
     val unlocks: Map<HourSlot, Int>,
     val end: StreamState,
-)
+) {
+    /** This run followed by [next] over the adjacent window: counts add up, the end state is [next]'s. */
+    operator fun plus(next: Aggregation) = Aggregation(
+        appMs = (appMs.keys + next.appMs.keys).associateWith { (appMs[it] ?: 0L) + (next.appMs[it] ?: 0L) },
+        screenMs = (screenMs.keys + next.screenMs.keys).associateWith { (screenMs[it] ?: 0L) + (next.screenMs[it] ?: 0L) },
+        unlocks = (unlocks.keys + next.unlocks.keys).associateWith { (unlocks[it] ?: 0) + (next.unlocks[it] ?: 0) },
+        end = next.end,
+    )
+}
 
 /**
  * Pure: events → foreground time per app and local hour, screen time (union) per hour, unlocks per hour (spec §7).
@@ -54,7 +62,8 @@ object Aggregator {
 
         var t = fromMs
         for (e in events.filter { it.timeMs in fromMs until untilMs }.sortedBy { it.timeMs }) {
-            credit(t, e.timeMs)
+            // Before a STARTUP the device was off; after a crash there is no SHUTDOWN to say so, so never credit it.
+            if (e.type != EventType.STARTUP) credit(t, e.timeMs)
             t = e.timeMs
             when (e.type) {
                 EventType.RESUMED -> resumed += ActivityKey(e.packageName, e.className)
