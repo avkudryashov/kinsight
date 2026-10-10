@@ -73,6 +73,7 @@
     <string name="det_hours_summary">Most time at %1$s (%2$s)</string>
     <string name="det_hours_none">No screen time by hour</string>
     <string name="det_unlocks_by_hour">Unlocks by hour</string>
+    <string name="det_unlocks_by_hour_average">Unlocks by hour, average</string>
     <string name="det_unlocks_summary">Most unlocks at %1$s (%2$d)</string>
     <string name="det_unlocks_none">No unlocks by hour</string>
     <string name="det_open_app">Open app details</string>

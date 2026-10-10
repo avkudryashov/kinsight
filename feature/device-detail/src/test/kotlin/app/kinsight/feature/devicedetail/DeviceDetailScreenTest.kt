@@ -372,6 +372,16 @@ class DeviceDetailScreenTest {
     }
 
     @Test
+    fun weekHeatmapShowsAverageUnlocksByHour() {
+        val cells = Array(7) { LongArray(24) { h -> if (h == 15) 30 * 60_000L else 0 } }
+        val unlocks = IntArray(24) { h -> if (h == 8) 3 else 0 }
+        show(detail.copy(heatmap = Heatmap(cells, unlocks, coveredDays = 3, rangeDays = 7), today = today))
+        list.performScrollToNode(hasTestTag("det_heatmap_unlocks"))
+        rule.onNodeWithText("Unlocks by hour, average").assertExists()
+        rule.onNode(hasContentDescription("Most unlocks at", substring = true)).assertExists()
+    }
+
+    @Test
     @Config(qualifiers = "ru")
     fun heatmapCoverageInRussian() {
         val cells = Array(7) { LongArray(24) }

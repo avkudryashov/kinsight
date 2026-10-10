@@ -459,6 +459,17 @@ private fun HeatmapSection(heatmap: Heatmap) {
             pluralStringResource(R.plurals.det_heatmap_coverage, heatmap.rangeDays, heatmap.coveredDays, heatmap.rangeDays),
             style = MaterialTheme.typography.bodySmall,
         )
+        // As on a DAY: unlocks per clock hour, here the mean over the covered days.
+        val names = (0..23).map { hourLabel(it, locale, is24) }
+        val labels = names.mapIndexed { h, n -> if (h % 6 == 0) n else "" }
+        val unlocks = (0..23).map { heatmap.unlocks.getOrElse(it) { 0 }.coerceAtLeast(0) }
+        val most = unlocks.indices.maxByOrNull { unlocks[it] }?.takeIf { unlocks[it] > 0 }
+        val unlockSummary = most?.let { stringResource(R.string.det_unlocks_summary, hourTime(it, locale, is24), unlocks[it]) }
+            ?: stringResource(R.string.det_unlocks_none)
+        Text(stringResource(R.string.det_unlocks_by_hour_average), style = MaterialTheme.typography.labelLarge)
+        Box(Modifier.testTag("det_heatmap_unlocks")) {
+            BarChart(unlocks.map { it.toLong() }, labels, unlockSummary, highlightLast = false, labelAnchor = 0)
+        }
     }
 }
 
