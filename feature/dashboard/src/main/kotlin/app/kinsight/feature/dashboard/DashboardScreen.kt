@@ -289,6 +289,7 @@ private fun status(u: DeviceUsage, nowMs: Long, noContactMs: Long): String = whe
         val updated = u.updatedMs
         when {
             !u.member.isSelf && seen != null && nowMs - seen > noContactMs -> stringResource(R.string.dash_card_not_seen, relativeTime(seen, nowMs))
+            updated != null && isJustNow(updated, nowMs) -> stringResource(R.string.dash_card_updated_now)
             updated != null -> stringResource(R.string.dash_card_updated, relativeTime(updated, nowMs))
             else -> stringResource(R.string.dash_card_no_data)
         }

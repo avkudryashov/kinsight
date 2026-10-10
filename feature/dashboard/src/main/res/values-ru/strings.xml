@@ -42,6 +42,7 @@
     <string name="dash_card_left">Устройство вышло из группы</string>
     <string name="dash_card_not_seen">Нет связи. Последний контакт: %1$s</string>
     <string name="dash_card_updated">Обновлено %1$s</string>
+    <string name="dash_card_updated_now">Обновлено только что</string>
     <string name="dash_card_no_data">Данных пока нет</string>
     <string name="dash_left">Вы вышли из группы. Данные больше не передаются.</string>
     <string name="dash_sharing_failed">Не удалось изменить обмен. Попробуйте ещё раз.</string>

@@ -169,6 +169,27 @@ class DashboardScreenTest {
     }
 
     @Test
+    fun aCardUpdatedMomentsAgoReadsJustNow() {
+        // Emulator run 2 (0.4.1): «Updated 0 minutes ago» next to «Last sync: just now».
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30).copy(updatedMs = now - 20_000)), emptyList()), running, true))
+        rule.onNodeWithText("Updated just now").assertExists()
+        rule.onNodeWithText("0 minutes", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun aCardUpdatedEarlierReadsInThePast() {
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30).copy(updatedMs = now - 5 * 60_000)), emptyList()), running, true))
+        rule.onNodeWithText("Updated 5 minutes ago").assertExists()
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun aCardUpdatedMomentsAgoReadsJustNowInRussian() {
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), emptyList()), running, true))
+        rule.onNodeWithText("Обновлено только что").assertExists()
+    }
+
+    @Test
     fun cancellingThePauseDialogDoesNotPause() {
         var paused = false
         show(childUi(Sharing.On), onPause = { paused = true })
