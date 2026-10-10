@@ -1,10 +1,13 @@
 package app.kinsight.core.data
 
+import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.Member
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.temporal.WeekFields
+import java.util.Locale
 
 sealed interface GroupState {
     data object Loading : GroupState
@@ -88,6 +91,8 @@ object SnapshotViews {
         nowMs: Long = System.currentTimeMillis(),
         zone: ZoneId = ZoneId.systemDefault(),
         overrides: Map<String, AppCategory> = emptyMap(),
+        details: List<DecodedEntry> = emptyList(),
+        weekFields: WeekFields = WeekFields.of(Locale.getDefault()),
     ): DeviceDetail? {
         val departed = s.membership.departed[id]
         val member = s.membership.active[id] ?: departed?.member ?: return null
@@ -101,6 +106,8 @@ object SnapshotViews {
             departed = departed != null,
             zone = zone,
             overrides = overrides,
+            details = UsageReadModel.details(details)[id],
+            weekFields = weekFields,
         )
     }
 

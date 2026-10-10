@@ -28,6 +28,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -38,11 +39,14 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalDate
+import java.time.temporal.WeekFields
+import java.util.Locale
 
 /** The sync engine's session progress: finished sessions (any outcome; from zero after a service restart), one running. */
 data class SessionProgress(val finished: Int, val syncing: Boolean)
@@ -287,9 +291,18 @@ class UsageRepository(
     /** [category] null returns the app to its own (catalog or built-in) category. */
     suspend fun setCategory(packageName: String, category: AppCategory?) = prefs.setCategory(packageName, category)
 
-    fun detail(id: DeviceId, range: DetailRange): Flow<DeviceDetail?> = combine(snapshots.snapshots, categoryOverrides) { s, o ->
-        (s as? GroupSnapshot.Ready)?.let { SnapshotViews.detail(it, id, range, today(), clock(), overrides = o) }
-    }
+    /**
+     * [range] of device [id], reloaded on every log change; the device's UsageDetail entries of the range are read with
+     * each snapshot for level 4. [weekFields]: the same as the range's, it orders the heatmap's weekday rows.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun detail(id: DeviceId, range: DetailRange, weekFields: WeekFields = WeekFields.of(Locale.getDefault())): Flow<DeviceDetail?> =
+        combine(snapshots.snapshots, categoryOverrides) { s, o -> s to o }.mapLatest { (s, o) ->
+            (s as? GroupSnapshot.Ready)?.let {
+                val details = snapshots.details(it.groupId, id, range)
+                SnapshotViews.detail(it, id, range, today(), clock(), overrides = o, details = details, weekFields = weekFields)
+            }
+        }
 }
 
 data class ServiceStatus(

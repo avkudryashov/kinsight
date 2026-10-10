@@ -70,6 +70,11 @@ class Snapshots(
         combine(db.entriesChanged(), version, transport.peerSeenFlow) { _, _, seen -> seen }
             .mapLatest { seen -> load(seen) }
 
+    /** [author]'s UsageDetail entries for [range] (level 4); read on demand, the snapshot itself carries none. */
+    suspend fun details(groupId: GroupId, author: DeviceId, range: DetailRange): List<DecodedEntry> = withContext(io) {
+        RoomEntryStore(db, groupId).details(author, range.start, range.end)
+    }
+
     suspend fun load(peerSeen: Map<DeviceId, Long>): GroupSnapshot = withContext(io) {
         val self = try {
             keys().deviceId

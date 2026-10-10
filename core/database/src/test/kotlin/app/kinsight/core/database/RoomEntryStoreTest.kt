@@ -3,10 +3,12 @@ package app.kinsight.core.database
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
+import app.kinsight.core.sync.detail
 import app.kinsight.core.sync.summary
 import kotlinx.coroutines.test.runTest
 import java.io.File
 import java.nio.file.Files
+import java.time.LocalDate
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -85,5 +87,20 @@ class RoomEntryStoreTest {
         assertEquals(3L, store.versionVector()[keys.deviceId])
         store.completeAuthor(keys.deviceId, 4)
         assertEquals(5L, store.versionVector()[keys.deviceId])
+    }
+
+    @Test
+    fun detailsReadsOneAuthorsDatesInRange() = runTest {
+        val store = open()
+        val other = EntryAuthor(genesis.groupId, DeviceKeys.generate(), lastSeq = 0)
+        store.applyBatch(
+            listOf(
+                genesis.entry,
+                author.detail("2026-09-30"), author.detail("2026-10-01"), author.summary("2026-10-02", 1),
+                author.detail("2026-10-07"), author.detail("2026-10-08"), other.detail("2026-10-03"),
+            ),
+        )
+        val got = store.details(keys.deviceId, LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 7))
+        assertEquals(listOf("2026-10-01", "2026-10-07"), got.map { it.body.usage_detail!!.local_date })
     }
 }

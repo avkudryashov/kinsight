@@ -1,0 +1,67 @@
+package app.kinsight.core.data
+
+import app.kinsight.core.model.DeviceKeys
+import app.kinsight.core.model.EntryAuthor
+import app.kinsight.core.model.addMember
+import app.kinsight.core.model.proto.AppTotal
+import app.kinsight.core.model.proto.DeviceRole
+import app.kinsight.core.model.proto.HourBucket
+import app.kinsight.core.model.proto.UsageDetail
+import app.kinsight.core.model.proto.UsageSummary
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.temporal.WeekFields
+import kotlin.test.AfterTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+
+class UsageRepositoryTest {
+    private val mom = TestDevice()
+    private val today = LocalDate.of(2026, 10, 10)
+    private val sunFirst = WeekFields.of(DayOfWeek.SUNDAY, 1)
+
+    @AfterTest
+    fun cleanUp() = mom.close()
+
+    private suspend fun Flow<DeviceDetail?>.firstWithin(p: (DeviceDetail?) -> Boolean): DeviceDetail =
+        withTimeout(10_000) { first(p)!! }
+
+    @Test
+    fun detailFlowCarriesTheStoredUsageDetails() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val kidKeys = DeviceKeys.generate()
+        mom.pipeline.appendOwn { a -> listOf(a.addMember(kidKeys.sign.publicKey, kidKeys.dh.publicKey, "Kid", DeviceRole.CHILD)) }
+        val kid = EntryAuthor(mom.groups.read()!!.groupId, kidKeys, lastSeq = 0)
+        val monday = LocalDate.of(2026, 10, 5)
+        fun day(date: LocalDate, hour: Int) = listOf(
+            kid.create { it.copy(usage_summary = UsageSummary(local_date = date.toString(), zone_id = "UTC", total_ms = 600_000)) },
+            kid.create {
+                it.copy(
+                    usage_detail = UsageDetail(
+                        local_date = date.toString(), zone_id = "UTC",
+                        hours = listOf(HourBucket(hour = hour, apps = listOf(AppTotal("com.example.game", 600_000)), unlocks = 2)),
+                    ),
+                )
+            },
+        )
+        // A detail outside the requested range must not leak in.
+        mom.store().applyBatch(day(monday, 9) + day(today, 15) + day(LocalDate.of(2026, 9, 30), 7))
+        val usage = UsageRepository(mom.snapshots, mom.prefs, date = { today })
+
+        val dayRange = DetailRange.of(Period.DAY, today, sunFirst)
+        val hours = assertNotNull(usage.detail(kidKeys.deviceId, dayRange).firstWithin { it?.hours != null }.hours)
+        assertEquals(600_000L, hours[15].totalMs)
+
+        val week = DetailRange.of(Period.WEEK, today, sunFirst) // Sun 4 to Sat 10 Oct
+        val map = assertNotNull(usage.detail(kidKeys.deviceId, week, sunFirst).firstWithin { it?.heatmap != null }.heatmap)
+        assertEquals(2, map.coveredDays)
+        assertEquals(600_000L, map.cells[1][9]) // Monday is the second row, Sunday first
+        assertEquals(600_000L, map.cells[6][15])
+        assertEquals(0L, map.cells[3].sum())
+    }
+}

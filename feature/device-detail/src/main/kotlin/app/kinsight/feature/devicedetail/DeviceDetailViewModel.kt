@@ -26,7 +26,7 @@ class DeviceDetailViewModel(
 ) : ViewModel() {
     private val range = MutableStateFlow(rangeOf(initial))
 
-    val detail: StateFlow<DeviceDetail?> = range.flatMapLatest { usage.detail(id, it) }
+    val detail: StateFlow<DeviceDetail?> = range.flatMapLatest { usage.detail(id, it, weekFields) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     fun select(p: Period) {

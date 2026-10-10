@@ -8,6 +8,7 @@ import app.kinsight.core.model.GroupId
 import app.kinsight.core.sync.EntryStore
 import app.kinsight.core.sync.SyncPolicy
 import app.kinsight.core.sync.VersionVector
+import java.time.LocalDate
 
 /** The local author's last used seq and Lamport value (spec §7, «Состояние автора»). */
 data class AuthorState(val lastSeq: Long, val lastLamport: Long)
@@ -65,6 +66,11 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
 
     /** Live UsageSummary entries of every author (the v1 screens read only these, spec §9.3). */
     suspend fun summaries(): List<DecodedEntry> = entryDao.bytesBySupersedeKey("/sum/%").map(DecodedEntry::decode).filter { it.kind == EntryKind.USAGE_SUMMARY }
+
+    /** Live UsageDetail entries of [author] for local dates [from] to [to] inclusive (level 4, spec §9.3). */
+    suspend fun details(author: DeviceId, from: LocalDate, to: LocalDate): List<DecodedEntry> =
+        entryDao.bytesBySupersedeKeyRange("${author.hex}/det/$from", "${author.hex}/det/$to")
+            .map(DecodedEntry::decode).filter { it.kind == EntryKind.USAGE_DETAIL && it.author == author }
 
     suspend fun catalog(): List<DecodedEntry> = entryDao.bytesBySupersedeKey("/app/%").map(DecodedEntry::decode).filter { it.kind == EntryKind.APP_CATALOG }
 
