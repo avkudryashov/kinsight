@@ -10,11 +10,13 @@ import app.kinsight.core.model.removeMemberEntry
 import app.kinsight.core.sync.pairing.Invite
 import app.kinsight.core.transport.ble.PairingRadioException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlin.test.AfterTest
@@ -34,12 +36,20 @@ class PairingCoordinatorTest {
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var momClock = mom.now
 
-    private fun coordinator(d: TestDevice, clock: () -> Long = { d.now }) = PairingCoordinator(
+    private fun coordinator(d: TestDevice, sync: SyncControl = d.sync, clock: () -> Long = { d.now }) = PairingCoordinator(
         link = air, db = d.db, groups = d.groups, keys = d.keyProvider, pipeline = d.pipeline, settings = d.settings,
-        reset = d.reset, sync = d.sync, snapshots = d.snapshots, clock = clock,
+        reset = d.reset, sync = sync, snapshots = d.snapshots, clock = clock,
     )
 
-    private val momPairing = coordinator(mom) { momClock }
+    /** A service that refuses the «sync now» nudge (start), as a dead or restricted service would. */
+    private class NudgeFails(private val d: SyncControl) : SyncControl by d {
+        override fun start(fast: Boolean) = throw IllegalStateException("service refused")
+    }
+
+    private suspend fun ownSharingEvents(d: TestDevice) =
+        d.store().stateEvents().count { it.author == d.keys.deviceId && it.body.state_event!!.kind in SHARING }
+
+    private val momPairing = coordinator(mom, clock = { momClock })
     private val kidPairing = coordinator(kid)
     private val kid2Pairing = coordinator(kid2)
 
@@ -251,5 +261,125 @@ class PairingCoordinatorTest {
         assertEquals(0, air.hosting())
         assertEquals(0, adds(mom))
         assertFalse(kid.groups.exists())
+    }
+
+    // Fix round 1.
+
+    @Test
+    fun childWithoutConsentDoesNotShare() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val (invite, qr) = openInvite(Role.CHILD)
+        val join = kidPairing.join(scope, qr, "Kid", consent = false)
+        invite.state.awaitFirst { it is InviteState.Confirm }
+        invite.confirm()
+        assertEquals(JoinState.Joined, join.state.awaitFirst { it is JoinState.Joined || it is JoinState.Failed })
+        assertFalse(kid.settings.current().sharing)
+        assertNull(kid.settings.current().consentAtMs)
+        assertEquals(0, ownSharingEvents(kid))
+    }
+
+    @Test
+    fun aStoredGroupIsJoinedEvenWhenTheNudgeFails() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val (invite, qr) = openInvite()
+        val join = coordinator(kid, sync = NudgeFails(kid.sync)).join(scope, qr, "Kid", consent = true)
+        invite.state.awaitFirst { it is InviteState.Confirm }
+        invite.confirm()
+        assertEquals(JoinState.Joined, join.state.awaitFirst { it is JoinState.Joined || it is JoinState.Failed })
+        assertTrue(kid.groups.exists())
+        assertTrue(kid.settings.current().sharing)
+    }
+
+    @Test
+    fun anInterruptedConsentIsAppliedAtStart() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val (invite, qr) = openInvite()
+        val join = kidPairing.join(scope, qr, "Kid", consent = false)
+        invite.state.awaitFirst { it is InviteState.Confirm }
+        invite.confirm()
+        join.state.awaitFirst { it is JoinState.Joined }
+        // The state a crash between the consent record and turning sharing on leaves behind.
+        kid.settings.recordConsent(kid.now)
+        kidPairing.finishInterruptedJoin()
+        assertTrue(kid.settings.current().sharing)
+        assertEquals(1, ownSharingEvents(kid))
+        // A child who paused afterwards stays paused.
+        kid.pipeline.setSharing(false)
+        kidPairing.finishInterruptedJoin()
+        assertFalse(kid.settings.current().sharing)
+    }
+
+    @Test
+    fun noConsentOrNoGroupRepairsNothing() = runBlocking<Unit> {
+        kidPairing.finishInterruptedJoin() // no group
+        assertFalse(kid.groups.exists())
+        mom.group.createGroup("Mom")
+        momPairing.finishInterruptedJoin() // a parent admin, no consent
+        mom.settings.recordConsent(mom.now)
+        momPairing.finishInterruptedJoin() // a parent never shares, consent or not
+        assertFalse(mom.settings.current().sharing)
+        assertEquals(0, ownSharingEvents(mom))
+    }
+
+    @Test
+    fun theEndOfTheScreenScopeClosesTheInvite() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val screen = CoroutineScope(Dispatchers.Default + Job())
+        val session = momPairing.invite(screen, Role.CHILD, "Mom")
+        session.state.awaitFirst { it is InviteState.Showing }
+        assertNotNull(momPairing.currentInviteUri.value)
+        screen.cancel()
+        withTimeout(5_000) { momPairing.currentInviteUri.first { it == null } }
+        assertEquals(0, air.hosting())
+    }
+
+    @Test
+    fun aFinishedSessionLeavesNothingRunning() = runBlocking<Unit> {
+        val failed = CoroutineScope(Dispatchers.Default + Job())
+        kidPairing.invite(failed, Role.CHILD, "Kid").state.awaitFirst { it is InviteState.Failed }
+        withTimeout(5_000) { while (failed.coroutineContext.job.children.any()) kotlinx.coroutines.delay(10) }
+
+        mom.group.createGroup("Mom")
+        val added = CoroutineScope(Dispatchers.Default + Job())
+        val invite = momPairing.invite(added, Role.CHILD, "Mom")
+        val qr = Invite.parse(assertIs<InviteState.Showing>(invite.state.awaitFirst { it is InviteState.Showing }).uri)
+        kidPairing.join(scope, qr, "Kid", consent = false)
+        invite.state.awaitFirst { it is InviteState.Confirm }
+        invite.confirm()
+        invite.state.awaitFirst { it is InviteState.Added }
+        withTimeout(10_000) { while (added.coroutineContext.job.children.any()) kotlinx.coroutines.delay(10) }
+    }
+
+    @Test
+    fun addedIsShownEvenWhenTheAdminsNudgeFails() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val pairing = coordinator(mom, sync = NudgeFails(mom.sync), clock = { momClock })
+        val invite = pairing.invite(scope, Role.CHILD, "Mom")
+        val qr = Invite.parse(assertIs<InviteState.Showing>(invite.state.awaitFirst { it is InviteState.Showing }).uri)
+        val join = kidPairing.join(scope, qr, "Kid", consent = false)
+        invite.state.awaitFirst { it is InviteState.Confirm }
+        invite.confirm()
+        assertEquals(JoinState.Joined, join.state.awaitFirst { it is JoinState.Joined || it is JoinState.Failed })
+        assertEquals(InviteState.Added("Kid"), invite.state.awaitFirst { it is InviteState.Added || it is InviteState.Failed })
+        assertNull(pairing.currentInviteUri.value)
+    }
+
+    @Test
+    fun aGroupMadeWhileWaitingWinsOverTheJoin() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val (invite, qr) = openInvite()
+        val join = kidPairing.join(scope, qr, "Kid", consent = true)
+        invite.state.awaitFirst { it is InviteState.Confirm }
+        join.state.awaitFirst { it is JoinState.Waiting }
+        kid.group.createGroup("Kid's own group")
+        val own = kid.groups.read()!!.groupId
+        invite.confirm()
+        assertEquals(JoinState.Failed(PairFailure.ALREADY_IN_GROUP), join.state.awaitFirst { it is JoinState.Failed || it is JoinState.Joined })
+        assertEquals(own, kid.groups.read()!!.groupId)
+        assertNull(kid.settings.current().consentAtMs)
+    }
+
+    private companion object {
+        val SHARING = setOf(StateEvent.Kind.SHARING_PAUSED, StateEvent.Kind.SHARING_RESUMED)
     }
 }

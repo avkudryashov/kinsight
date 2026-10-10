@@ -1,5 +1,6 @@
 package app.kinsight.core.data
 
+import android.util.Log
 import app.kinsight.core.crypto.CryptoException
 import app.kinsight.core.database.KinsightDatabase
 import app.kinsight.core.database.RoomEntryStore
@@ -11,6 +12,7 @@ import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.addMember
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.PairReject
+import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.sync.ByteStream
 import app.kinsight.core.sync.pairing.GuestResult
 import app.kinsight.core.sync.pairing.HostDecision
@@ -41,6 +43,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration
@@ -134,6 +138,29 @@ class PairingCoordinator(
     fun join(scope: CoroutineScope, invite: Invite, deviceName: String, consent: Boolean): JoinSession =
         JoinSession(scope, invite, deviceName, consent)
 
+    /** One join stores its welcome at a time; the second finds the first one's group and refuses. */
+    private val commitLock = Mutex()
+
+    /**
+     * For app start, next to UsagePipeline.reconcileSharing: a join (or the consent screen) records the child's consent
+     * before the group file and turns sharing on after it; a crash in between leaves a consenting CHILD with sharing
+     * off and no own SHARING_* signed. That state has no other cause (a child who pauses signs SHARING_PAUSED; sharing
+     * that was never on cannot be turned off), so sharing is turned on as the child agreed. Parents, devices without
+     * consent and devices without a group are left alone.
+     */
+    suspend fun finishInterruptedJoin() {
+        val group = withContext(io) { groups.read() } ?: return
+        val s = settings.current()
+        if (s.consentAtMs == null || s.sharing) return
+        val self = keys().deviceId
+        val store = RoomEntryStore(db, group.groupId)
+        val membership = Membership.compute(group.groupId, store.membershipEntries()) ?: return
+        if (membership.active[self]?.isChild != true) return
+        if (store.stateEvents().any { it.author == self && it.body.state_event?.kind in SHARING_KINDS }) return
+        Log.i(TAG, "finishing an interrupted join: sharing on as consented")
+        pipeline.setSharing(true)
+    }
+
     /**
      * One open invite. Guests are served one at a time (a second one while the first is being handled is hung up on
      * and may retry). The token belongs to the first joiner the admin accepts (the host also binds its X25519 key);
@@ -165,7 +192,13 @@ class PairingCoordinator(
         @Volatile private var bound: DeviceId? = null
 
         init {
-            scope.launch { open() }
+            scope.launch {
+                try {
+                    open()
+                } finally {
+                    shutdown() // also when the screen's scope ends without close(): the radio and the URI go
+                }
+            }
         }
 
         fun confirm() {
@@ -234,6 +267,7 @@ class PairingCoordinator(
             delay(Invite.LIFETIME_MS)
             synchronized(lock) { move(InviteState.Expired) }
             shutdown() // a guest still waiting for the admin is refused EXPIRED
+            sessionJob.complete() // that refusal may still finish; nothing new starts
         }
 
         /** Called on the link's accept thread: never blocks. */
@@ -248,10 +282,14 @@ class PairingCoordinator(
                         is HostOutcome.Welcomed -> {
                             // Preflight C7: everything done before Added is published.
                             shutdown()
-                            snapshots.invalidate()
-                            sync.start(fast = true)
+                            try {
+                                snapshots.invalidate()
+                                sync.start(fast = true)
+                            } catch (e: Exception) {
+                                Log.w(TAG, "after adding ${outcome.joiner.id}: $e") // the AddMember is stored: still Added
+                            }
                             synchronized(lock) { move(InviteState.Added(outcome.joiner.displayName)) }
-                            sessionJob.cancel()
+                            sessionJob.cancel() // ends open()'s timer; this coroutine is the last one
                         }
                         is HostOutcome.Rejected -> backToShowing()
                     }
@@ -328,9 +366,11 @@ class PairingCoordinator(
             }
         }
 
+        /** Only from open(), which ends right after: the session's job completes with it. */
         private fun fail(reason: PairFailure) {
             synchronized(lock) { move(InviteState.Failed(reason)) }
             shutdown()
+            sessionJob.complete()
         }
 
         private fun shutdown() {
@@ -372,8 +412,7 @@ class PairingCoordinator(
                     is GuestResult.Joined -> {
                         _state.value = JoinState.Saving
                         // The admin has added us: a half-stored welcome would be worse than finishing.
-                        withContext(NonCancellable) { commit(result) }
-                        _state.value = JoinState.Joined
+                        _state.value = withContext(NonCancellable) { save(result) }
                     }
                 }
             } catch (e: CancellationException) {
@@ -393,19 +432,43 @@ class PairingCoordinator(
             }
         }
 
-        /** A fresh database (no stale cursor, markers or entries: stage 3b review), then the group, then sharing. */
-        private suspend fun commit(r: GuestResult.Joined) {
+        /** [commit], and a failure after which the group file is in place still reads as joined (it is). */
+        private suspend fun save(r: GuestResult.Joined): JoinState = try {
+            commit(r)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val stored = runCatching { withContext(io) { groups.read() }?.groupId == invite.groupId }.getOrDefault(false)
+            if (!stored) throw e
+            Log.w(TAG, "joined, but finishing failed: $e")
+            JoinState.Joined
+        }
+
+        /**
+         * Under [commitLock], refusing when a group appeared meanwhile (another join, or «create group»): a fresh database
+         * (no stale cursor, markers or entries: stage 3b review), the membership, the child's consent (before the group
+         * file, so [finishInterruptedJoin] can finish it after a crash), the group file, then sharing and a fast sync.
+         * Steps after the group file are best effort: the device is in the group whatever they do.
+         */
+        private suspend fun commit(r: GuestResult.Joined): JoinState = commitLock.withLock {
+            if (withContext(io) { groups.exists() }) return@withLock JoinState.Failed(PairFailure.ALREADY_IN_GROUP)
             reset.forgetGroup()
             RoomEntryStore(db, invite.groupId).applyBatch(r.membership)
+            val share = consent && invite.role == DeviceRole.CHILD
+            if (share) settings.recordConsent(clock())
             withContext(io) { groups.write(GroupConfig(invite.groupId, r.discoveryKey)) }
-            if (consent && invite.role == DeviceRole.CHILD) {
-                settings.recordConsent(clock())
-                pipeline.setSharing(true)
-            } else {
-                pipeline.reconcileSharing()
+            try {
+                if (share) pipeline.setSharing(true) else pipeline.reconcileSharing()
+            } catch (e: Exception) {
+                Log.w(TAG, "joined, sharing not settled: $e") // finishInterruptedJoin / reconcileSharing at the next start
             }
-            snapshots.invalidate()
-            sync.start(fast = true)
+            try {
+                snapshots.invalidate()
+                sync.start(fast = true)
+            } catch (e: Exception) {
+                Log.w(TAG, "joined, no fast sync: $e")
+            }
+            JoinState.Joined
         }
 
         private fun fail(reason: PairFailure) {
@@ -413,6 +476,9 @@ class PairingCoordinator(
         }
     }
 }
+
+private const val TAG = "KinsightPairing"
+private val SHARING_KINDS = setOf(StateEvent.Kind.SHARING_PAUSED, StateEvent.Kind.SHARING_RESUMED)
 
 /** An invite on the air: its QR text and when its token stops being accepted. */
 private class Opened(val uri: String, val expiresAtMs: Long)
