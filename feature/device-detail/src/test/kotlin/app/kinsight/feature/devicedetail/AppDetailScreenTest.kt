@@ -130,10 +130,18 @@ class AppDetailScreenTest {
     }
 
     @Test
-    fun aDayWithoutUsableDetailSaysHoursAreUnavailable() {
-        show(app(range = DetailRange(Period.DAY, today, today), hours = null))
+    fun aDayPastRetentionSaysHoursAreUnavailable() {
+        val old = today.minusDays(40)
+        show(app(range = DetailRange(Period.DAY, old, old), hours = null))
         list.performScrollToNode(hasTestTag("app_hours_unavailable"))
         rule.onNodeWithText("Hourly data for this period is not available (it is kept for 30 days)").assertExists()
+    }
+
+    @Test
+    fun aRecentDayWithoutDetailSaysHoursHaveNotArrived() {
+        show(app(range = DetailRange(Period.DAY, today, today), hours = null))
+        list.performScrollToNode(hasTestTag("app_hours_not_arrived"))
+        rule.onNodeWithText("Hourly data for this period has not arrived yet").assertExists()
     }
 
     @Test

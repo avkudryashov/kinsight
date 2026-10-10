@@ -150,14 +150,18 @@ fun AppDetailScreen(
                 if (app.period == Period.DAY) {
                     item(key = "hours_title") { SectionTitle(stringResource(R.string.app_hours_title)) }
                     val hours = app.hours
-                    if (hours != null) {
-                        item(key = "hours") { AppHours(hours) }
-                    } else {
-                        item(key = "hours_unavailable") {
+                    // Without detail: past the viewer's detail retention it was pruned, otherwise it has not arrived yet.
+                    val pruned = app.range.start.isBefore(today.minusDays(detailRetentionDays.toLong()))
+                    when {
+                        hours != null -> item(key = "hours") { AppHours(hours) }
+                        pruned -> item(key = "hours_unavailable") {
                             Text(
                                 pluralStringResource(R.plurals.det_hours_unavailable, detailRetentionDays, detailRetentionDays),
                                 Modifier.testTag("app_hours_unavailable"),
                             )
+                        }
+                        else -> item(key = "hours_not_arrived") {
+                            Text(stringResource(R.string.det_hours_not_arrived), Modifier.testTag("app_hours_not_arrived"))
                         }
                     }
                 } else if (app.totalMs > 0) {
