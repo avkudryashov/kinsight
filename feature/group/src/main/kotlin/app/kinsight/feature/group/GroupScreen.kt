@@ -55,6 +55,7 @@ import app.kinsight.core.data.Role
 import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.EmptyState
 import app.kinsight.core.designsystem.component.ErrorState
+import app.kinsight.core.designsystem.component.isJustNow
 import app.kinsight.core.designsystem.component.relativeTime
 import app.kinsight.core.model.DeviceId
 import kotlinx.coroutines.delay
@@ -247,7 +248,9 @@ private fun MemberRow(m: MemberView, self: MemberView, nowMs: Long, onAction: (G
     val seen = if (m.isSelf) {
         stringResource(R.string.grp_this_phone)
     } else {
-        m.lastSeenMs?.let { stringResource(R.string.grp_seen, relativeTime(it, nowMs)) } ?: stringResource(R.string.grp_not_seen)
+        m.lastSeenMs?.let {
+            if (isJustNow(it, nowMs)) stringResource(R.string.grp_seen_now) else stringResource(R.string.grp_seen, relativeTime(it, nowMs))
+        } ?: stringResource(R.string.grp_not_seen)
     }
     val role = roleText(m.role) + if (m.isAdmin) " · " + stringResource(R.string.grp_admin) else ""
     ListItem(

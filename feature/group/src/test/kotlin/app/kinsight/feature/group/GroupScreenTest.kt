@@ -9,6 +9,8 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -61,6 +63,29 @@ class GroupScreenTest {
                 onLeave = onLeave,
             )
         }
+    }
+
+    @Test
+    fun memberSeenUnderAMinuteSaysJustNow() {
+        val now = 10_000_000L
+        show(mom, listOf(mom, dad.copy(lastSeenMs = now - 30_000), kid.copy(lastSeenMs = now + 5_000)), nowMs = now)
+        rule.onAllNodesWithText("seen just now", substring = true).assertCountEquals(2)
+        rule.onAllNodesWithText("0 minutes", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun russianMemberSeenUnderAMinuteSaysTolkoChto() {
+        val now = 10_000_000L
+        show(mom, listOf(mom, dad.copy(lastSeenMs = now - 30_000)), nowMs = now)
+        rule.onNodeWithText("на связи только что", substring = true).assertExists()
+    }
+
+    @Test
+    fun memberSeenLongAgoStaysRelative() {
+        val now = 10_000_000L
+        show(mom, listOf(mom, dad.copy(lastSeenMs = now - 5 * 60_000)), nowMs = now)
+        rule.onNodeWithText("seen 5 minutes ago", substring = true).assertExists()
     }
 
     @Test

@@ -7,6 +7,7 @@
     <string name="grp_this_phone">this phone</string>
     <string name="grp_not_seen">not seen yet</string>
     <string name="grp_seen">seen %1$s</string>
+    <string name="grp_seen_now">seen just now</string>
     <string name="grp_invite_child">Invite a child\'s phone</string>
     <string name="grp_invite_parent">Invite a parent\'s phone</string>
     <string name="grp_second_admin">Make another parent an admin. If this phone is lost, an admin is needed to invite phones again; without one the family has to create a new group.</string>

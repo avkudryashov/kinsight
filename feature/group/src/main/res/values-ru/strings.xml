@@ -7,6 +7,7 @@
     <string name="grp_this_phone">этот телефон</string>
     <string name="grp_not_seen">ещё не был на связи</string>
     <string name="grp_seen">на связи %1$s</string>
+    <string name="grp_seen_now">на связи только что</string>
     <string name="grp_invite_child">Пригласить телефон ребёнка</string>
     <string name="grp_invite_parent">Пригласить телефон родителя</string>
     <string name="grp_second_admin">Назначьте администратором второго родителя. Если этот телефон потеряется, без администратора нельзя будет приглашать телефоны, и семье придётся создавать новую группу.</string>
