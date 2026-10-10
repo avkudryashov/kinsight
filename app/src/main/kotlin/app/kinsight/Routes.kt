@@ -20,6 +20,9 @@ import kotlinx.serialization.Serializable
  */
 @Serializable data class AppDest(val id: String, val packageName: String, val period: String, val start: String, val end: String)
 
+/** The daily limits of child [id] (spec §9.7, stage 5b), a parent's phone only. */
+@Serializable data class ThresholdsDest(val id: String)
+
 @Serializable data class InviteDest(val role: String)
 
 @Serializable object TransparencyDest
