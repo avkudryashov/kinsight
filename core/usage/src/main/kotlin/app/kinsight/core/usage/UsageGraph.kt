@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.preferencesDataStoreFile
 import app.kinsight.core.database.KinsightDatabaseFactory
 import app.kinsight.core.database.RoomUsageQueue
+import app.kinsight.core.model.proto.StateEvent
 
 /**
  * Process-wide wiring (no Hilt in v1): one database, one settings DataStore, one pipeline lock.
@@ -21,6 +22,13 @@ object UsageGraph {
 
     @Volatile
     var ownUsageGate: suspend (PublishTarget?) -> Boolean = { false }
+
+    /**
+     * Hears the pipeline's own StateEvents (UsagePipeline.onOwnStateEvent), set by the app at process start
+     * (IntegrityFastSync.install, core/data). Runs inside the pipeline lock: it must only hand the kind off.
+     */
+    @Volatile
+    var ownStateEventListener: (StateEvent.Kind) -> Unit = {}
 
     @Volatile
     private var override: UsagePipeline? = null
@@ -63,6 +71,7 @@ object UsageGraph {
             apps = PackageAppInfoSource(pm),
             target = { targetProvider() },
             ownUsage = { ownUsageGate(it) },
+            onOwnStateEvent = { ownStateEventListener(it) },
         )
     }
 }

@@ -35,7 +35,9 @@ data class PublishReport(
 /**
  * Turns the local queue into signed entries when sharing is on (spec §5 «Переключатели», §7). Every entry is stored
  * through [RoomEntryStore.appendOwn] together with the queue bookkeeping it settles, and the EntryAuthor is rebuilt
- * from the stored author state on every call, so a failure never burns or repeats a seq.
+ * from the stored author state on every call, so a failure never burns or repeats a seq. [onStateEvent] hears every
+ * StateEvent once it is stored (UsagePipeline's own-integrity signal); it runs inside the pipeline lock, so it must
+ * not block or call the pipeline.
  */
 class Publisher(
     private val queue: RoomUsageQueue,
@@ -45,6 +47,7 @@ class Publisher(
     private val clock: () -> Long,
     private val today: () -> LocalDate,
     private val detailLimitBytes: Int = MAX_DETAIL_ENTRY_BYTES,
+    private val onStateEvent: (StateEvent.Kind) -> Unit = {},
 ) {
     suspend fun publish(settings: UsageSettings, force: Boolean): PublishReport {
         if (!settings.sharing) return PublishReport.NONE
@@ -52,8 +55,10 @@ class Publisher(
 
         var events = 0
         for (row in queue.pendingEvents()) {
-            val e = author.create { it.copy(state_event = row.toStateEvent()) }
+            val event = row.toStateEvent()
+            val e = author.create { it.copy(state_event = event) }
             store.appendOwn(listOf(e)) { queue.deleteEvent(row.id) }
+            onStateEvent(event.kind)
             events++
         }
 
@@ -128,6 +133,7 @@ class Publisher(
         val kind = if (sharing) StateEvent.Kind.SHARING_RESUMED else StateEvent.Kind.SHARING_PAUSED
         val e = newAuthor().create { it.copy(state_event = StateEvent(kind = kind, from_ms = now, to_ms = now)) }
         store.appendOwn(listOf(e))
+        onStateEvent(kind)
     }
 
     private suspend fun newAuthor(): EntryAuthor {

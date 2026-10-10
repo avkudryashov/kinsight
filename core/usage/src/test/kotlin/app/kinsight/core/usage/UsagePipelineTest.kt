@@ -72,6 +72,20 @@ class UsagePipelineTest {
         ownUsage = { allowed },
     )
 
+    private val signals = mutableListOf<StateEvent.Kind>()
+
+    private fun signalling(target: PublishTarget?, allowed: Boolean = true) = UsagePipeline(
+        db = db,
+        collector = Collector(RoomUsageQueue(db), source, FakeAccess(), clock, FakeLaunchers()),
+        settings = settings,
+        apps = FakeApps(),
+        target = { target },
+        clock = { clock.wallMs },
+        today = { LocalDate.ofInstant(Instant.ofEpochMilli(clock.wallMs), zone) },
+        ownUsage = { allowed },
+        onOwnStateEvent = { signals += it },
+    )
+
     private suspend fun signOwn(kind: StateEvent.Kind, p: UsagePipeline) {
         p.appendOwn { author -> listOf(author.create { it.copy(state_event = StateEvent(kind = kind)) }) }
     }
@@ -196,6 +210,56 @@ class UsagePipelineTest {
         })
         assertEquals(1L, store.authorState(keys.deviceId).lastSeq)
         assertEquals(listOf(genesis.entry), store.membershipEntries())
+    }
+
+    @Test
+    fun signedSharingChangesAreSignalled() = runTest {
+        store.applyBatch(listOf(genesis.entry))
+        val p = signalling(PublishTarget(genesis.groupId, keys))
+        p.setSharing(true)
+        p.setSharing(false)
+        assertEquals(listOf(StateEvent.Kind.SHARING_RESUMED, StateEvent.Kind.SHARING_PAUSED), signals)
+    }
+
+    @Test
+    fun queuedEventIsSignalledWhileSharingAndAgainWhenSigned() = runTest {
+        store.applyBatch(listOf(genesis.entry))
+        val p = signalling(PublishTarget(genesis.groupId, keys))
+        p.setSharing(true)
+        signals.clear()
+        // Now-ish times: collectAndPublish prunes queued events older than the retention.
+        assertTrue(p.queueEvent(StateEvent.Kind.BLUETOOTH_OFF, fromMs = clock.wallMs - MIN, toMs = clock.wallMs))
+        assertEquals(listOf(StateEvent.Kind.BLUETOOTH_OFF), signals) // queued: the next session signs and sends it
+        p.collectAndPublish(force = true)
+        assertEquals(listOf(StateEvent.Kind.BLUETOOTH_OFF, StateEvent.Kind.BLUETOOTH_OFF), signals)
+    }
+
+    @Test
+    fun eventQueuedWhilePausedIsSignalledOnlyWhenSigned() = runTest {
+        store.applyBatch(listOf(genesis.entry))
+        val p = signalling(PublishTarget(genesis.groupId, keys))
+        assertTrue(p.queueEvent(StateEvent.Kind.BLUETOOTH_OFF, fromMs = 1_000, toMs = 2_000))
+        assertTrue(signals.isEmpty()) // sharing is off: nothing would be signed before a session
+        p.setSharing(true)
+        assertEquals(listOf(StateEvent.Kind.SHARING_RESUMED, StateEvent.Kind.BLUETOOTH_OFF), signals)
+    }
+
+    @Test
+    fun refusedEventIsNotSignalled() = runTest {
+        store.applyBatch(listOf(genesis.entry))
+        val p = signalling(PublishTarget(genesis.groupId, keys), allowed = false)
+        assertFalse(p.queueEvent(StateEvent.Kind.BLUETOOTH_OFF, fromMs = 1_000, toMs = 2_000))
+        assertTrue(signals.isEmpty())
+    }
+
+    @Test
+    fun appendOwnSignalsStateEventsOnly() = runTest {
+        store.applyBatch(listOf(genesis.entry))
+        val p = signalling(PublishTarget(genesis.groupId, keys))
+        p.appendOwn { author -> listOf(author.create { it.copy(heartbeat = Heartbeat(app_version = "t", protocol_version = 1)) }) }
+        assertTrue(signals.isEmpty())
+        signOwn(StateEvent.Kind.LEFT_GROUP, p)
+        assertEquals(listOf(StateEvent.Kind.LEFT_GROUP), signals)
     }
 
     @Test

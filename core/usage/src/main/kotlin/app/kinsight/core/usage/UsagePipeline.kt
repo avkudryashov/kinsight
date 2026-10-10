@@ -20,6 +20,10 @@ data class RunReport(val collect: CollectResult, val publish: PublishReport?)
  * reconcile, membership ops, wipes through [exclusive]). Everything takes the same [Mutex], so two EntryAuthors
  * never race on appendOwn. [ownUsage] says whether this device may read and publish its own usage at all: in the app
  * only a consenting CHILD (spec §4.8, [ownUsageAllowed]); tests default to true.
+ *
+ * [onOwnStateEvent] hears every own StateEvent this pipeline signs, and every event [queueEvent] accepts while
+ * sharing is on (the next session signs it first: SyncGraph.prepare), so the app can bring a parent in range the
+ * news at once (IntegrityFastSync, core/data). It runs inside the pipeline lock: it must not block or call back.
  */
 class UsagePipeline(
     private val db: KinsightDatabase,
@@ -30,6 +34,7 @@ class UsagePipeline(
     private val clock: () -> Long = System::currentTimeMillis,
     private val today: () -> LocalDate = LocalDate::now,
     private val ownUsage: suspend (PublishTarget?) -> Boolean = { true },
+    private val onOwnStateEvent: (StateEvent.Kind) -> Unit = {},
 ) {
     private val mutex = Mutex()
     private val queue = RoomUsageQueue(db)
@@ -104,6 +109,7 @@ class UsagePipeline(
         val observed = store.observedLamport()
         val entries = build(EntryAuthor(t.groupId, t.keys, state.lastSeq, clock, state.lastLamport) { observed })
         if (entries.isNotEmpty()) store.appendOwn(entries)
+        entries.forEach { e -> e.body.state_event?.let { onOwnStateEvent(it.kind) } }
         true
     }
 
@@ -114,6 +120,7 @@ class UsagePipeline(
     suspend fun queueEvent(kind: StateEvent.Kind, fromMs: Long, toMs: Long): Boolean = mutex.withLock {
         if (!ownUsage(target())) return@withLock false
         queue.addEvent(PendingEventRow(kind = kind.value, fromMs = fromMs, toMs = toMs))
+        if (settings.current().sharing) onOwnStateEvent(kind)
         true
     }
 
@@ -131,7 +138,7 @@ class UsagePipeline(
     }
 
     private fun publisher(t: PublishTarget?): Publisher? =
-        t?.let { Publisher(queue, RoomEntryStore(db, it.groupId), it.keys, apps, clock, today) }
+        t?.let { Publisher(queue, RoomEntryStore(db, it.groupId), it.keys, apps, clock, today, onStateEvent = onOwnStateEvent) }
 
     private companion object {
         const val DAY_MS = 86_400_000L
