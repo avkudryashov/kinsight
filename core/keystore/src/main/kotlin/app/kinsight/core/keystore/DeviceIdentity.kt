@@ -19,4 +19,13 @@ object DeviceIdentity {
 
     /** Throws KeyStorageException. */
     suspend fun get(context: Context): KeySelection = cache(context).get()
+
+    /**
+     * Blocking; never on the main thread. A new identity on the next get(): run inside the usage pipeline lock and
+     * only after the group data is wiped (core/data LocalReset). Throws KeyStorageException.
+     */
+    fun resetBlocking(context: Context) {
+        val app = context.applicationContext
+        cache(app).reset { DeviceKeyProvider.reset(app) }
+    }
 }

@@ -78,4 +78,33 @@ class SelectionCacheTest {
         assertSame(good, cache.get())
         assertEquals(1, calls.get())
     }
+
+    @Test
+    fun resetDropsTheCachedSelection() = runBlocking<Unit> {
+        val calls = AtomicInteger()
+        val cache = SelectionCache({
+            calls.incrementAndGet()
+            selection()
+        })
+        val a = cache.get()
+        var wiped = false
+        cache.reset { wiped = true }
+        val b = cache.get()
+        assertTrue(wiped)
+        assertEquals(2, calls.get())
+        assertFalse(a === b)
+    }
+
+    @Test
+    fun failedWipeStillDropsTheCache() = runBlocking<Unit> {
+        val calls = AtomicInteger()
+        val cache = SelectionCache({
+            calls.incrementAndGet()
+            selection()
+        })
+        cache.get()
+        assertFailsWith<IllegalStateException> { cache.reset { error("boom") } }
+        cache.get()
+        assertEquals(2, calls.get())
+    }
 }

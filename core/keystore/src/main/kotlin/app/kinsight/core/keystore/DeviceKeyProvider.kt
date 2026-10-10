@@ -13,6 +13,10 @@ object DeviceKeyProvider {
     fun select(context: Context): KeySelection =
         selector(context.applicationContext, context.noBackupFilesDir, aliasPrefix = "").select()
 
+    /** Blocking: deletes the identity of this app (both backends) and marks the next select() a first run. */
+    fun reset(context: Context) =
+        selector(context.applicationContext, context.noBackupFilesDir, aliasPrefix = "").reset()
+
     /** [aliasPrefix] and [dir] let instrumented tests run without touching the app's real identity. */
     internal fun selector(context: Context, dir: File, aliasPrefix: String) = KeyBackendSelector(
         choice = FileChoiceStore(File(dir, CHOICE_FILE)),

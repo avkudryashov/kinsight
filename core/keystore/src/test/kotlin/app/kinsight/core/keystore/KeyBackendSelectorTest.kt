@@ -415,4 +415,34 @@ class KeyBackendSelectorTest {
         assertEquals(0, keystore.createCalls)
         assertEquals(0, software.createCalls)
     }
+
+    @Test
+    fun resetGivesANewIdentityOnTheNextSelect() {
+        val first = selector.select()
+        selector.reset()
+        assertTrue(choice.pending)
+        assertNull(keystore.stored)
+        assertNull(software.stored)
+        val second = selector.select()
+        assertTrue(second.firstRun)
+        assertFalse(first.keys.deviceId == second.keys.deviceId)
+    }
+
+    @Test
+    fun resetRecoversFromKeysWithoutAChoice() {
+        keystore.stored = DeviceKeys.generate() // the lost-choice error of §6.2
+        assertFailsWith<KeyStorageException> { selector.select() }
+        selector.reset()
+        assertTrue(selector.select().firstRun)
+    }
+
+    @Test
+    fun failedResetIsAKeyStorageErrorAndStillLeadsToAFirstRun() {
+        selector.select()
+        keystore.deleteError = IllegalStateException("keystore busy")
+        assertFailsWith<KeyStorageException> { selector.reset() }
+        assertTrue(choice.pending) // written before any delete
+        keystore.deleteError = null
+        assertTrue(selector.select().firstRun) // PENDING: an interrupted first run, keys are created anew
+    }
 }

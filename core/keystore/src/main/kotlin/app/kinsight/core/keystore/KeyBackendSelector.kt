@@ -43,6 +43,28 @@ class KeyBackendSelector(
         }
     }
 
+    /**
+     * Spec §6.2 «сбросить идентичность и пересопрячь»: forgets the device identity under the same locks as [select].
+     * PENDING is written before anything is deleted, so an interruption leaves an interrupted first run (fresh keys
+     * on the next select), never keys without a choice. Callers also drop their cached KeySelection (SelectionCache).
+     */
+    fun reset(): Unit = synchronized(LOCK) {
+        choice.exclusive {
+            choice.writePending()
+            for (backend in listOf(keystore, software)) {
+                try {
+                    backend.delete()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: KeyStorageException) {
+                    throw e
+                } catch (e: Exception) {
+                    throw KeyStorageException("cannot delete ${backend.kind.name} keys", e)
+                }
+            }
+        }
+    }
+
     private fun load(saved: BackendChoice): KeySelection {
         val keys = try {
             backend(saved.kind).load()

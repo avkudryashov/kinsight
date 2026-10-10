@@ -21,5 +21,11 @@ class SelectionCache(
     /** Blocking; never on the main thread. */
     fun getBlocking(): KeySelection = cached ?: synchronized(lock) { cached ?: select().also { cached = it } }
 
+    /** Drops the cached selection, then runs [wipe]; no select() can run in between (both hold [lock]). */
+    fun reset(wipe: () -> Unit): Unit = synchronized(lock) {
+        cached = null
+        wipe()
+    }
+
     suspend fun get(): KeySelection = cached ?: withContext(io) { getBlocking() }
 }
