@@ -1,6 +1,5 @@
 package app.kinsight.core.sync
 
-import app.kinsight.core.crypto.Primitives
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.proto.VectorItem
 import okio.ByteString.Companion.toByteString
@@ -8,9 +7,14 @@ import okio.ByteString.Companion.toByteString
 class VersionVector(val entries: Map<DeviceId, Long>) {
     operator fun get(id: DeviceId): Long = entries[id] ?: 0L
 
-    fun shortHash(): ByteArray {
-        val canonical = entries.toSortedMap().entries.joinToString(";") { "${it.key.hex}:${it.value}" }
-        return Primitives.sha256(canonical.encodeToByteArray()).copyOf(4)
+    /** Authors by DeviceId order, each as its 16 bytes plus its seq (8 B big-endian): input of the advert vector tag. */
+    fun canonicalBytes(): ByteArray {
+        val out = java.io.ByteArrayOutputStream(entries.size * 24)
+        for ((id, seq) in entries.toSortedMap()) {
+            out.write(id.bytes())
+            for (i in 7 downTo 0) out.write((seq ushr (8 * i)).toInt() and 0xff)
+        }
+        return out.toByteArray()
     }
 
     fun toProto(): List<VectorItem> =

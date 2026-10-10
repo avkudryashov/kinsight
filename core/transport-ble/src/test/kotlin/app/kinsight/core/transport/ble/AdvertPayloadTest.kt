@@ -35,7 +35,7 @@ class AdvertPayloadTest {
         val w = DiscoveryTags.window(now)
         assertContentEquals(DiscoveryTags.groupTag(key, w), p.groupTag)
         assertContentEquals(DiscoveryTags.deviceTag(key, self.bytes(), w), p.deviceTag)
-        assertContentEquals(byteArrayOf(9, 9, 9, 9), p.vectorHash)
+        assertContentEquals(DiscoveryTags.vectorTag(key, w, byteArrayOf(9, 9, 9, 9)), p.vectorTag)
     }
 
     @Test

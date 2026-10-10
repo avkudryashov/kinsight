@@ -20,10 +20,12 @@ class ConnectPolicyTest {
     private val policy = ConnectPolicy()
     private val minute = 60_000L
 
-    private fun hash(v: Int) = ByteBuffer.allocate(4).putInt(v).array()
+    /** Stands for a canonical vector: the policy only feeds it to the HMAC. */
+    private fun vector(v: Int) = ByteBuffer.allocate(4).putInt(v).array()
 
-    private fun advert(id: DeviceId, h: Int, k: ByteArray = key) = AdvertPayload.build(k, id, hash(h), now)
+    private fun advert(id: DeviceId, v: Int, k: ByteArray = key, at: Long = now) = AdvertPayload.build(k, id, vector(v), at)
 
+    /** [selfV]: our vector, from which [self] was built. */
     private fun decide(
         self: AdvertPayload,
         selfId: DeviceId,
@@ -31,11 +33,19 @@ class ConnectPolicyTest {
         peerId: DeviceId?,
         mono: Long = 0,
         fast: Boolean = false,
+        selfV: ByteArray = vectorOf(self),
     ): Decision = policy.decide(
         Sighting(Addr, peer, rssi = -60),
         peerId?.let(PeerKey::of) ?: PeerKey.ofTag(peer.deviceTag),
-        peerId, self, selfId, key, now, mono, fast,
+        peerId, self, selfV, selfId, key, now, mono, fast,
     )
+
+    /** The vector behind one of our test adverts (the tests build them from vector(1..9) in the current window). */
+    private fun vectorOf(self: AdvertPayload): ByteArray {
+        val w = DiscoveryTags.window(now)
+        return (0..99).map(::vector).firstOrNull { DiscoveryTags.vectorTag(key, w, it).contentEquals(self.vectorTag) }
+            ?: error("unknown test vector")
+    }
 
     private fun assertActs(d: Decision) = assertTrue(d !is Decision.Ignore, "expected an action, got $d")
 
@@ -51,8 +61,54 @@ class ConnectPolicyTest {
     }
 
     @Test
-    fun sameVectorHashIsIgnored() {
+    fun sameVectorIsIgnored() {
         assertEquals(Decision.Ignore("in sync"), decide(advert(a, 7), a, advert(b, 7), b))
+    }
+
+    @Test
+    fun sameVectorAdvertisedInTheNeighbouringWindowIsInSync() {
+        val w = DiscoveryTags.window(now)
+        val late = advert(b, 7, at = (w - 1) * DiscoveryTags.WINDOW_MS)
+        val early = advert(b, 7, at = (w + 1) * DiscoveryTags.WINDOW_MS)
+        assertEquals(Decision.Ignore("in sync"), decide(advert(a, 7), a, late, b))
+        assertEquals(Decision.Ignore("in sync"), decide(advert(a, 7), a, early, b))
+        assertActs(decide(advert(a, 8), a, late, b))
+    }
+
+    @Test
+    fun theVectorFieldOfOneVectorDiffersBetweenWindows() {
+        val w = DiscoveryTags.window(now)
+        val here = advert(b, 7)
+        val next = advert(b, 7, at = (w + 1) * DiscoveryTags.WINDOW_MS)
+        assertTrue(!here.vectorTag.contentEquals(next.vectorTag))
+    }
+
+    @Test
+    fun fastModeConnectsEvenWithTheLargerTag() {
+        val sa = advert(a, 1)
+        val sb = advert(b, 2)
+        val aFirst = if (sa.deviceTagValue != sb.deviceTagValue) sa.deviceTagValue < sb.deviceTagValue else a < b
+        val (big, small) = if (aFirst) (sb to b) to (sa to a) else (sa to a) to (sb to b)
+        assertIs<Decision.Prepare>(decide(big.first, big.second, small.first, small.second))
+        assertIs<Decision.Connect>(decide(big.first, big.second, small.first, small.second, fast = true))
+    }
+
+    @Test
+    fun fastModeConnectsOnAnUnresolvedTagTie() {
+        val group = DiscoveryTags.groupTag(key, DiscoveryTags.window(now))
+        val w = DiscoveryTags.window(now)
+        val tag = byteArrayOf(0x12, 0x34)
+        val self = AdvertPayload(group, tag, DiscoveryTags.vectorTag(key, w, vector(1)))
+        val peer = AdvertPayload(group, tag, DiscoveryTags.vectorTag(key, w, vector(2)))
+        assertEquals(Decision.Ignore("tag tie"), decide(self, a, peer, null))
+        assertIs<Decision.Connect>(decide(self, a, peer, null, fast = true))
+    }
+
+    @Test
+    fun fastModeStillSkipsInSyncAndBlockedPeers() {
+        assertEquals(Decision.Ignore("in sync"), decide(advert(a, 7), a, advert(b, 7), b, fast = true))
+        policy.onBlocked(PeerKey.of(b), nowMono = 0)
+        assertEquals(Decision.Ignore("blocked"), decide(advert(a, 1), a, advert(b, 2), b, fast = true))
     }
 
     @Test
@@ -73,10 +129,11 @@ class ConnectPolicyTest {
 
     @Test
     fun equalTagsFallBackToDeviceIdOrder() {
-        val group = DiscoveryTags.groupTag(key, DiscoveryTags.window(now))
+        val w = DiscoveryTags.window(now)
+        val group = DiscoveryTags.groupTag(key, w)
         val tag = byteArrayOf(0x12, 0x34)
-        val sa = AdvertPayload(group, tag, hash(1))
-        val sb = AdvertPayload(group, tag, hash(2))
+        val sa = AdvertPayload(group, tag, DiscoveryTags.vectorTag(key, w, vector(1)))
+        val sb = AdvertPayload(group, tag, DiscoveryTags.vectorTag(key, w, vector(2)))
         val (low, high) = if (a < b) a to b else b to a
         val (lowAdv, highAdv) = if (a < b) sa to sb else sb to sa
         assertIs<Decision.Connect>(decide(lowAdv, low, highAdv, high))

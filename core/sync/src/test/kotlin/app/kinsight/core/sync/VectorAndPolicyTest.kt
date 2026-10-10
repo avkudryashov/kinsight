@@ -14,16 +14,22 @@ class VectorAndPolicyTest {
     private val author = EntryAuthor(genesis.groupId, keys, lastSeq = 1)
 
     @Test
-    fun vectorShortHashIsStableAndOrderFree() {
+    fun vectorCanonicalBytesAreSortedIdsWithBigEndianSeqs() {
         val a = DeviceKeys.generate().deviceId
         val b = DeviceKeys.generate().deviceId
         val v1 = VersionVector(linkedMapOf(a to 1L, b to 2L))
         val v2 = VersionVector(linkedMapOf(b to 2L, a to 1L))
-        assertEquals(4, v1.shortHash().size)
-        assertTrue(v1.shortHash().contentEquals(v2.shortHash()))
-        assertFalse(v1.shortHash().contentEquals(VersionVector(mapOf(a to 1L)).shortHash()))
+        assertEquals(2 * 24, v1.canonicalBytes().size)
+        assertTrue(v1.canonicalBytes().contentEquals(v2.canonicalBytes()))
+        assertFalse(v1.canonicalBytes().contentEquals(VersionVector(mapOf(a to 1L)).canonicalBytes()))
+        val (low, high) = if (a < b) a to b else b to a
+        val expected = low.bytes() + longBytes(v1[low]) + high.bytes() + longBytes(v1[high])
+        assertTrue(expected.contentEquals(v1.canonicalBytes()))
+        assertEquals(0, VersionVector.EMPTY.canonicalBytes().size)
         assertEquals(v1, VersionVector.fromProto(v1.toProto()))
     }
+
+    private fun longBytes(v: Long) = java.nio.ByteBuffer.allocate(8).putLong(v).array()
 
     @Test
     fun policyExpiryAndVisibility() {

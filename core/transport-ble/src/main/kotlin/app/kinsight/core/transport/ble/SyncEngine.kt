@@ -125,7 +125,7 @@ class SyncEngine(
         sightings.trySend(batch)
     }
 
-    /** Fast mode (spec §8 «Быстрый режим»): until [untilMono] the cooldown is skipped (a block is not). */
+    /** Fast mode (spec §8 «Быстрый режим»): until [untilMono] we connect past the cooldown and the tag order (not a block). */
     fun setFast(untilMono: Long) {
         fastUntilMono = untilMono
     }
@@ -157,12 +157,13 @@ class SyncEngine(
         }
     }
 
-    private suspend fun advertFor(ctx: SyncContext): AdvertPayload =
-        AdvertPayload.build(ctx.discoveryKey, ctx.keys.deviceId, ctx.store.versionVector().shortHash(), wallClock())
+    private suspend fun advertFor(ctx: SyncContext, vector: ByteArray? = null): AdvertPayload =
+        AdvertPayload.build(ctx.discoveryKey, ctx.keys.deviceId, vector ?: ctx.store.versionVector().canonicalBytes(), wallClock())
 
     private suspend fun handle(batch: List<Sighting>) {
         val ctx = contextOrNull() ?: return
-        val self = advertFor(ctx).also { _advert.value = it }
+        val vector = ctx.store.versionVector().canonicalBytes()
+        val self = advertFor(ctx, vector).also { _advert.value = it }
         val members = Membership.compute(ctx.groupId, ctx.store.membershipEntries())?.active?.keys ?: return
         val resolver = PeerResolver(ctx.discoveryKey, members)
         val nowWall = wallClock()
@@ -178,7 +179,7 @@ class SyncEngine(
         }
         for ((key, pair) in best) {
             val (s, id) = pair
-            when (val d = policy.decide(s, key, id, self, ctx.keys.deviceId, ctx.discoveryKey, nowWall, nowMono, fast)) {
+            when (val d = policy.decide(s, key, id, self, vector, ctx.keys.deviceId, ctx.discoveryKey, nowWall, nowMono, fast)) {
                 is Decision.Ignore -> log("skip ${key.value.take(12)}: ${d.reason}")
                 is Decision.Prepare -> prepareIfDue()
                 is Decision.Connect -> initiate(ctx, d)

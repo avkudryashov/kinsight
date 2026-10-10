@@ -28,9 +28,13 @@ sealed interface Decision {
 }
 
 /**
- * Whether a sighting leads to a session (spec §8): our group, not us, different vector hashes, not blocked, not in
- * cooldown (fast mode skips the cooldown, never a block); then the smaller advertised device tag connects. Equal tags:
- * the smaller DeviceId connects when the peer is resolved, otherwise nobody until the next window.
+ * Whether a sighting leads to a session (spec §8): our group, not us, different vectors, not blocked, not in
+ * cooldown; then the smaller advertised device tag connects. Equal tags: the smaller DeviceId connects when the peer
+ * is resolved, otherwise nobody until the next window. The vector check compares the peer's vector tag with ours
+ * computed for the window its group tag matched (a peer still or already in the neighbouring window stays comparable).
+ * Fast mode («Sync now») skips the cooldown and the tag order and always connects (a block or an equal vector still
+ * stops it): the peer is usually not in fast mode and would sit out its own cooldown, while a responder never checks
+ * one. Two fast initiators meet the busy gate and the failure backoff.
  * Times: nowWall for tag windows, nowMono (elapsedRealtime) for cooldowns.
  */
 class ConnectPolicy(
@@ -47,17 +51,22 @@ class ConnectPolicy(
         peer: PeerKey,
         peerId: DeviceId?,
         self: AdvertPayload,
+        selfVector: ByteArray,
         selfId: DeviceId,
         discoveryKey: ByteArray,
         nowWall: Long,
         nowMono: Long,
         fast: Boolean,
     ): Decision {
-        if (!DiscoveryTags.matchesGroup(discoveryKey, s.payload.groupTag, nowWall)) return Decision.Ignore("other group")
+        val window = DiscoveryTags.matchingWindow(discoveryKey, s.payload.groupTag, nowWall)
+            ?: return Decision.Ignore("other group")
         if (peerId == selfId) return Decision.Ignore("self")
-        if (s.payload.vectorHash.contentEquals(self.vectorHash)) return Decision.Ignore("in sync")
+        if (s.payload.vectorTag.contentEquals(DiscoveryTags.vectorTag(discoveryKey, window, selfVector))) {
+            return Decision.Ignore("in sync")
+        }
         if (isBlocked(peer, nowMono)) return Decision.Ignore("blocked")
-        if (!fast && (retryAt[peer] ?: Long.MIN_VALUE) > nowMono) return Decision.Ignore("cooldown")
+        if (fast) return Decision.Connect(peer, s.address)
+        if ((retryAt[peer] ?: Long.MIN_VALUE) > nowMono) return Decision.Ignore("cooldown")
         val ours = self.deviceTagValue
         val theirs = s.payload.deviceTagValue
         val weConnect = when {

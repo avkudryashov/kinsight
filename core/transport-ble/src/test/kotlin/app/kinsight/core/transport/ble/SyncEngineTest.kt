@@ -143,7 +143,7 @@ class SyncEngineTest {
         assertEquals(d0.store.versionVector(), d1.store.versionVector())
         assertTrue(prepared.get() in 1..2, "prepared ${prepared.get()} times")
         assertTrue(e0.status.value.lastSyncWallMs == wall && e1.status.value.lastSyncWallMs == wall)
-        assertEquals(e0.advert.value!!.vectorHash.toList(), e1.advert.value!!.vectorHash.toList()) // adverts refreshed
+        assertEquals(e0.advert.value!!.vectorTag.toList(), e1.advert.value!!.vectorTag.toList()) // adverts refreshed
     }
 
     @Test
