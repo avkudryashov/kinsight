@@ -78,8 +78,17 @@ internal fun openAppSettings(context: Context) {
     startFirst(context, appDetails(context))
 }
 
+/**
+ * Candidates in order: Kinsight's own App info page first (the all-apps battery list is no use to the user: found on
+ * a Pixel 8a, Android 17), the all-apps list only when App info cannot be resolved.
+ */
+internal fun batterySettingsIntents(packageName: String): List<Intent> = listOf(
+    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:$packageName".toUri()),
+    Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+)
+
 internal fun openBatterySettings(context: Context) {
-    startFirst(context, Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS), appDetails(context))
+    startFirst(context, *batterySettingsIntents(context.packageName).toTypedArray())
 }
 
 internal fun openUsageAccessSettings(context: Context) {

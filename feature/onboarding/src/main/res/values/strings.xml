@@ -51,7 +51,7 @@
     <string name="onb_battery_oneplus">Settings → Battery → Battery optimisation → Kinsight → Don\'t optimise. Also: Settings → Apps → Kinsight → Battery → Allow background activity.</string>
     <string name="onb_battery_oppo">Settings → Battery → More settings → Optimise battery use → Kinsight → Don\'t optimise. Also allow background activity for Kinsight.</string>
     <string name="onb_battery_vivo">Settings → Battery → Background power consumption management → Kinsight → Allow.</string>
-    <string name="onb_battery_other">Open the battery settings for Kinsight and allow it to run in the background without restrictions. The exact path depends on the phone maker.</string>
+    <string name="onb_battery_other">Open Settings → Apps → Kinsight → App info → App battery usage → Unrestricted. The exact path depends on the phone maker.</string>
     <string name="onb_done_title">All set</string>
     <string name="onb_done_body_parent">Next: invite your child\'s phone from the Group tab.</string>
     <string name="onb_done_body_child">This phone is in your family group.</string>
