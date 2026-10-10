@@ -22,6 +22,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.kinsight.core.data.AppCategory
+import app.kinsight.core.data.AppList
 import app.kinsight.core.data.AppUsage
 import app.kinsight.core.data.CategoryTotal
 import app.kinsight.core.data.Heatmap
@@ -119,7 +120,7 @@ class DeviceDetailScreenTest {
 
     @Test
     fun allAppsListsEveryApp() {
-        rule.setContent { KinsightTheme(dynamicColor = false) { AllAppsScreen(detail.copy(today = today), onBack = {}) } }
+        rule.setContent { KinsightTheme(dynamicColor = false) { AllAppsScreen(AppList(detail.member, detail.range, detail.apps, today), onBack = {}) } }
         rule.onNodeWithTag("det_apps").performScrollToNode(hasText("App 7"))
         rule.onNodeWithText("Kid: all apps, Oct 4", substring = true).assertExists()
     }

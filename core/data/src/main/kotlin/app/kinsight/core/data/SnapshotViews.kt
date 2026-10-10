@@ -112,6 +112,19 @@ object SnapshotViews {
         )
     }
 
+    /** The «All apps» list of [id] over [range] (UsageReadModel.appList); null for a device that is not a member. */
+    fun apps(s: GroupSnapshot.Ready, id: DeviceId, range: DetailRange, today: LocalDate, nowMs: Long = System.currentTimeMillis()): AppList? {
+        val member = s.membership.active[id] ?: s.membership.departed[id]?.member ?: return null
+        return UsageReadModel.appList(
+            member = view(s, member, nowMs),
+            byDate = UsageReadModel.summaries(s.summaries)[id],
+            catalog = UsageReadModel.catalogOf(s.catalog, id),
+            range = range,
+            today = today,
+            nowMs = nowMs,
+        )
+    }
+
     /**
      * App [packageName] of active or departed member [id] over [range]; null for an unknown device. Only a parent
      * viewer may change its category.

@@ -13,6 +13,7 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.kinsight.core.data.AppCategory
 import app.kinsight.core.data.AppDetail
+import app.kinsight.core.data.AppList
 import app.kinsight.core.data.AppUsage
 import app.kinsight.core.data.DayTotal
 import app.kinsight.core.data.DetailRange
@@ -187,7 +188,7 @@ class AppDetailScreenTest {
             kid, weekRange, weekRange.dates().map { DayTotal(it, 0, 0) }, 0, 0,
             listOf(AppUsage("~other", "~other", null, 60_000)), emptyList(), Sharing.On,
         )
-        rule.setContent { KinsightTheme(dynamicColor = false) { AllAppsScreen(detail, onBack = {}) } }
+        rule.setContent { KinsightTheme(dynamicColor = false) { AllAppsScreen(AppList(detail.member, detail.range, detail.apps, null), onBack = {}) } }
         rule.onNodeWithText("Other apps").assertExists()
     }
 
@@ -198,7 +199,7 @@ class AppDetailScreenTest {
             listOf(AppUsage("com.example.game", "Game", null, 60_000)), emptyList(), Sharing.On,
         )
         var opened: String? = null
-        rule.setContent { KinsightTheme(dynamicColor = false) { AllAppsScreen(detail, onBack = {}, onOpenApp = { opened = it }) } }
+        rule.setContent { KinsightTheme(dynamicColor = false) { AllAppsScreen(AppList(detail.member, detail.range, detail.apps, null), onBack = {}, onOpenApp = { opened = it }) } }
         rule.onNodeWithTag("det_app_com.example.game").performClick()
         assertEquals("com.example.game", opened)
     }

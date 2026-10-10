@@ -306,6 +306,11 @@ class UsageRepository(
             }
         }.distinctUntilChanged()
 
+    /** Every app of device [id] over [range] (the «All apps» screen), reloaded on every log change; no UsageDetail read. */
+    fun apps(id: DeviceId, range: DetailRange): Flow<AppList?> = snapshots.snapshots.map { s ->
+        (s as? GroupSnapshot.Ready)?.let { SnapshotViews.apps(it, id, range, today(), clock()) }
+    }.distinctUntilChanged()
+
     /** App [packageName] of device [id] over [range], reloaded on every log or category change (the app screen); an equal state is not re-emitted. */
     @OptIn(ExperimentalCoroutinesApi::class)
     fun app(id: DeviceId, packageName: String, range: DetailRange): Flow<AppDetail?> =

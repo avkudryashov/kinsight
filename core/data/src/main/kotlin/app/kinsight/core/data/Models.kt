@@ -189,6 +189,12 @@ data class DeviceDetail(
 }
 
 /**
+ * Every app of a child over [range], largest first (the «All apps» screen): what [DeviceDetail.apps] holds for the same
+ * range, without the detail's UsageDetail query, categories or heatmap. [today]: the child's today, as in the detail.
+ */
+data class AppList(val member: MemberView, val range: DetailRange, val apps: List<AppUsage>, val today: LocalDate?)
+
+/**
  * What a screen with period navigation reads to move its range: [days] of [range] (a day is known when it has a
  * summary), [canGoBack] while an older summary exists, [today] the child's today (null: the viewer's).
  */

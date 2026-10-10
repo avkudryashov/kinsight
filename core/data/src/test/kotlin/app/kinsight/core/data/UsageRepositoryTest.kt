@@ -66,6 +66,34 @@ class UsageRepositoryTest {
     }
 
     @Test
+    fun appsFlowListsTheRangesAppsLikeTheDetail() = runBlocking<Unit> {
+        // The «All apps» screen reads this lighter flow (final fix F6): no UsageDetail query, no heatmap.
+        mom.group.createGroup("Mom")
+        val kidKeys = DeviceKeys.generate()
+        mom.pipeline.appendOwn { a -> listOf(a.addMember(kidKeys.sign.publicKey, kidKeys.dh.publicKey, "Kid", DeviceRole.CHILD)) }
+        val kid = EntryAuthor(mom.groups.read()!!.groupId, kidKeys, lastSeq = 0)
+        fun day(date: LocalDate, vararg apps: Pair<String, Long>) = kid.create {
+            it.copy(
+                usage_summary = UsageSummary(
+                    local_date = date.toString(), zone_id = "UTC", total_ms = apps.sumOf { a -> a.second },
+                    apps = apps.map { (p, ms) -> AppTotal(p, ms) },
+                ),
+            )
+        }
+        mom.store().applyBatch(
+            listOf(day(today, "a" to 60_000L, "b" to 120_000L), day(today.minusDays(1), "a" to 120_000L), day(today.minusDays(9), "c" to 1L)),
+        )
+        val usage = UsageRepository(mom.snapshots, mom.prefs, date = { today })
+        val week = DetailRange.of(Period.WEEK, today, sunFirst)
+        val list = withTimeout(10_000) { usage.apps(kidKeys.deviceId, week).first { it != null }!! }
+        assertEquals(listOf("a" to 180_000L, "b" to 120_000L), list.apps.map { it.packageName to it.totalMs })
+        assertEquals("Kid", list.member.name)
+        assertEquals(week, list.range)
+        assertEquals(today, list.today)
+        assertEquals(usage.detail(kidKeys.deviceId, week, sunFirst).firstWithin { it != null }.apps, list.apps)
+    }
+
+    @Test
     fun aCategoryOverrideReEmitsTheDetailAndTheApp() = runBlocking<Unit> {
         mom.group.createGroup("Mom")
         val kidKeys = DeviceKeys.generate()

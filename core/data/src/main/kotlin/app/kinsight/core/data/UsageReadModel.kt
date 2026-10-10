@@ -279,6 +279,22 @@ object UsageReadModel {
         )
     }
 
+    /** [detail]'s app list alone (the «All apps» screen): the same days, bounds and apps, nothing else computed. */
+    fun appList(
+        member: MemberView,
+        byDate: Map<LocalDate, DecodedEntry>?,
+        catalog: Map<String, AppCatalog>,
+        range: DetailRange,
+        today: LocalDate,
+        nowMs: Long? = null,
+    ): AppList {
+        val own = surfaced(member, byDate)
+        @Suppress("NAME_SHADOWING")
+        val today = childToday(own, today, nowMs)
+        val known = days(own, range.dates(), today).filter { it.known }.map { it.date }
+        return AppList(member, range, apps(own, known, catalog), today)
+    }
+
     /**
      * One app [packageName] of [member] over [range] (the app screen, spec §9.3, stage 5a), from the same summaries,
      * details and bounds as [detail]: per-day time from each date's summary (clamped to a day), the DAY's clock hours

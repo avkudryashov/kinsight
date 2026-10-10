@@ -44,12 +44,12 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.kinsight.core.data.AppCategory
 import app.kinsight.core.data.AppGraph
+import app.kinsight.core.data.AppList
 import app.kinsight.core.data.AppUsage
 import app.kinsight.core.data.Categories
 import app.kinsight.core.data.DayTotal
@@ -110,14 +110,13 @@ fun DeviceDetailRoute(
     } ?: Loading()
 }
 
+/** The full list of [range]: the light app list flow (UsageRepository.apps), not a whole detail per log change. */
 @Composable
 fun AllAppsRoute(id: DeviceId, range: DetailRange, onBack: () -> Unit, onOpenApp: ((String) -> Unit)? = null) {
     val graph = AppGraph.get(LocalContext.current)
-    val vm: DeviceDetailViewModel = viewModel(key = "apps-${id.hex}-${range.period}-${range.start}") {
-        DeviceDetailViewModel(graph.usage, id, SavedStateHandle(), initial = range)
-    }
-    val detail by vm.detail.collectAsStateWithLifecycle()
-    detail?.let { AllAppsScreen(it, onBack, onOpenApp) } ?: Loading()
+    val apps = remember(id, range) { graph.usage.apps(id, range) }
+    val list by apps.collectAsStateWithLifecycle(initialValue = null)
+    list?.let { AllAppsScreen(it, onBack, onOpenApp) } ?: Loading()
 }
 
 @Composable
@@ -313,11 +312,11 @@ private fun Modifier.swipeSteps(canBack: Boolean, canForward: Boolean, onBack: (
 
 /** [onOpenApp] (a package name) makes the rows open one app, as on the detail screen. */
 @Composable
-fun AllAppsScreen(detail: DeviceDetail, onBack: () -> Unit, onOpenApp: ((String) -> Unit)? = null) =
-    Screen(stringResource(R.string.det_all_apps_title, detail.member.name, rangeTitle(detail.range, detail.today ?: LocalDate.now())), onBack) { padding ->
+fun AllAppsScreen(list: AppList, onBack: () -> Unit, onOpenApp: ((String) -> Unit)? = null) =
+    Screen(stringResource(R.string.det_all_apps_title, list.member.name, rangeTitle(list.range, list.today ?: LocalDate.now())), onBack) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("det_apps"), contentPadding = PaddingValues(16.dp)) {
-            if (detail.apps.isEmpty()) item { Text(stringResource(R.string.det_no_apps)) }
-            items(detail.apps, key = { it.packageName }) { AppRow(it, onOpenApp) }
+            if (list.apps.isEmpty()) item { Text(stringResource(R.string.det_no_apps)) }
+            items(list.apps, key = { it.packageName }) { AppRow(it, onOpenApp) }
         }
     }
 
