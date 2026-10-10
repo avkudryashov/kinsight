@@ -1,1 +1,29 @@
-<manifest />
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- AppWidget providers must be exported: the launcher (AppWidget host) binds and updates them. -->
+        <receiver
+            android:name=".KinsightWidgetReceiver"
+            android:exported="true"
+            android:label="@string/wid_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/kinsight_widget_info" />
+        </receiver>
+
+        <!-- Day change: protected system broadcasts only, so the receiver stays private. -->
+        <receiver
+            android:name=".WidgetDayReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>
