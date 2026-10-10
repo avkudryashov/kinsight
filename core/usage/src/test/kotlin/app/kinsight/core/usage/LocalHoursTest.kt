@@ -78,4 +78,77 @@ class LocalHoursTest {
         )
         assertEquals(30 * MIN, LocalHours.lengthMs(HourSlot(LocalDate.of(2026, 10, 4), 2), lordHowe))
     }
+
+    /** Reference: every minute of [from, until) credited to the local hour that minute starts in. */
+    private fun minuteByMinute(from: Long, until: Long, zone: ZoneId): Map<HourSlot, Long> {
+        val sums = HashMap<HourSlot, Long>()
+        var m = from
+        while (m < until) {
+            val local = Instant.ofEpochMilli(m).atZone(zone)
+            sums.merge(HourSlot(local.toLocalDate(), local.hour), MIN, Long::plus)
+            m += MIN
+        }
+        return sums
+    }
+
+    private fun splitBySlot(from: Long, until: Long, zone: ZoneId): Map<HourSlot, Long> {
+        val sums = HashMap<HourSlot, Long>()
+        LocalHours.split(from, until, zone) { slot, ms -> sums.merge(slot, ms, Long::plus) }
+        return sums
+    }
+
+    @Test
+    @Timeout(value = 10, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+    fun splitMatchesMinuteByMinuteAroundEveryTransition() {
+        val zones = listOf("Europe/Madrid", "Australia/Lord_Howe", "Pacific/Chatham", "Antarctica/Troll", "America/New_York")
+        val end = Instant.parse("2028-01-01T00:00:00Z")
+        var windows = 0
+        for (id in zones) {
+            val zone = ZoneId.of(id)
+            var transition = zone.rules.nextTransition(Instant.parse("2026-01-01T00:00:00Z"))
+            while (transition != null && transition.instant < end) {
+                val at = transition.instant.toEpochMilli()
+                for (k in 0..12) {
+                    val from = at - k * 15 * MIN
+                    val until = from + 4 * HOUR_MS
+                    assertEquals(minuteByMinute(from, until, zone), splitBySlot(from, until, zone), "$id from ${Instant.ofEpochMilli(from)}")
+                    windows++
+                }
+                transition = zone.rules.nextTransition(transition.instant)
+            }
+        }
+        assertEquals(true, windows >= 5 * 4 * 13, "windows checked: $windows")
+    }
+
+    private val chatham = ZoneId.of("Pacific/Chatham") // +12:45 standard, +13:45 summer, shifts at 02:45/03:45 local
+
+    @Test
+    @Timeout(value = 5, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+    fun chathamSpringForwardSkipsQuarterPastTwoToQuarterToFour() {
+        // 2026-09-27 02:45 +12:45 (= 14:00Z) becomes 03:45 +13:45. 13:00Z-13:15Z = 01:45-02:00, 13:15Z-14:00Z = 02:00-02:45,
+        // 14:00Z-14:15Z = 03:45-04:00, 14:15Z-15:15Z = 04:00-05:00, 15:15Z-16:00Z = 05:00-05:45.
+        val from = Instant.parse("2026-09-26T13:00:00Z").toEpochMilli()
+        assertEquals(
+            mapOf(1 to 15 * MIN, 2 to 45 * MIN, 3 to 15 * MIN, 4 to 60 * MIN, 5 to 45 * MIN),
+            hours(from, from + 3 * HOUR_MS, chatham),
+        )
+    }
+
+    @Test
+    @Timeout(value = 5, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+    fun chathamFallBackRepeatsQuarterToThreeToQuarterToFour() {
+        // 2026-04-05 03:45 +13:45 (= 14:00Z) becomes 02:45 +12:45. 13:00Z-13:15Z = 02:45-03:00, 13:15Z-14:00Z = 03:00-03:45,
+        // 14:00Z-14:15Z = 02:45-03:00 again, 14:15Z-15:15Z = 03:00-04:00, 15:15Z-16:00Z = 04:00-04:45.
+        val from = Instant.parse("2026-04-04T13:00:00Z").toEpochMilli()
+        assertEquals(mapOf(2 to 30 * MIN, 3 to 105 * MIN, 4 to 45 * MIN), hours(from, from + 3 * HOUR_MS, chatham))
+    }
+
+    @Test
+    @Timeout(value = 5, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+    fun trollTwoHourFallBackRepeatsHoursOneAndTwo() {
+        // 2026-10-25 03:00 +02:00 (= 01:00Z) becomes 01:00 +00:00. 00:00Z-01:00Z = 02:00-03:00 (+02),
+        // 01:00Z-02:00Z = 01:00-02:00 (+00), 02:00Z-03:00Z = 02:00-03:00 (+00).
+        val from = Instant.parse("2026-10-25T00:00:00Z").toEpochMilli()
+        assertEquals(mapOf(1 to 60 * MIN, 2 to 120 * MIN), hours(from, from + 3 * HOUR_MS, ZoneId.of("Antarctica/Troll")))
+    }
 }

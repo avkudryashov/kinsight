@@ -21,9 +21,12 @@ object LocalHours {
         while (a < untilMs) {
             val local = Instant.ofEpochMilli(a).atZone(zone)
             // The next boundary lives on the local timeline: truncating the zoned time keeps the current offset and
-            // breaks on 30-minute DST shifts. A boundary that is itself repeated resolves to its later occurrence.
+            // breaks on non-hour DST shifts. An offset transition also ends the piece, because the local hour can
+            // jump back or forward there (Chatham, Troll). A boundary that is itself repeated resolves to its later
+            // occurrence.
             val boundary = local.toLocalDateTime().truncatedTo(ChronoUnit.HOURS).plusHours(1).atZone(zone)
             var next = boundary.toInstant().toEpochMilli()
+            zone.rules.nextTransition(Instant.ofEpochMilli(a))?.let { next = minOf(next, it.instant.toEpochMilli()) }
             if (next <= a) next = boundary.withLaterOffsetAtOverlap().toInstant().toEpochMilli()
             check(next > a) { "no progress splitting at $a in $zone" }
             val b = minOf(next, untilMs)
