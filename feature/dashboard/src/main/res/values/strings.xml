@@ -26,7 +26,8 @@
     <string name="dash_radio_error">Bluetooth error. Sync will retry by itself.</string>
     <string name="dash_syncing">Syncing…</string>
     <string name="dash_peer_update">A family phone needs a Kinsight update.</string>
-    <string name="dash_synced">Last sync %1$s</string>
+    <string name="dash_synced">Last sync: %1$s</string>
+    <string name="dash_synced_now">Last sync: just now</string>
     <string name="dash_never_synced">No sync yet. Keep the phones close.</string>
     <string name="dash_empty_title">No children yet</string>
     <string name="dash_empty_body">Invite your child\'s phone from the Group tab.</string>

@@ -114,6 +114,27 @@ class DashboardScreenTest {
     }
 
     @Test
+    fun aSyncMomentsAgoOrSlightlyAheadOfTheClockReadsJustNow() {
+        // Emulator run 2026-10-10: «Last sync In 0 minutes» (the stamp a little ahead of the screen's clock).
+        show(DashboardUi(DashboardState(mom, null, emptyList(), emptyList()), running.copy(lastSyncMs = now + 2_000), true))
+        rule.onNodeWithText("Last sync: just now").assertExists()
+        rule.onNodeWithText("In ", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun anOlderSyncReadsInThePast() {
+        show(DashboardUi(DashboardState(mom, null, emptyList(), emptyList()), running.copy(lastSyncMs = now - 5 * 60_000), true))
+        rule.onNodeWithText("Last sync: 5 minutes ago").assertExists()
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun justNowInRussian() {
+        show(DashboardUi(DashboardState(mom, null, emptyList(), emptyList()), running.copy(lastSyncMs = now), true))
+        rule.onNodeWithText("Последняя синхронизация: только что").assertExists()
+    }
+
+    @Test
     fun aDayWithoutDataReadsAsNoDataNotZero() {
         val empty = DayTotal(today, 0, 0)
         val u = usage(kid, 0, 60).copy(today = empty, week = (6 downTo 0).map { DayTotal(today.minusDays(it.toLong()), 0, 0) }, updatedMs = null)

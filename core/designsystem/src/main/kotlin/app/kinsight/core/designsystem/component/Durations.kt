@@ -20,6 +20,12 @@ fun formatDuration(resources: Resources, ms: Long): String {
 @Composable
 fun durationText(ms: Long): String = formatDuration(LocalResources.current, ms)
 
+/**
+ * A past moment under a minute old, or one slightly ahead of this clock (a peer's or the service's stamp): «just now»
+ * rather than DateUtils' «In 0 minutes».
+ */
+fun isJustNow(ms: Long, nowMs: Long): Boolean = nowMs - ms < 60_000
+
 /** "5 minutes ago", "yesterday" in the system locale (DateUtils). */
 @Composable
 fun relativeTime(ms: Long, nowMs: Long): String =

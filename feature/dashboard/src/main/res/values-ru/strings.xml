@@ -27,6 +27,7 @@
     <string name="dash_syncing">Синхронизация…</string>
     <string name="dash_peer_update">На одном из телефонов семьи нужно обновить Kinsight.</string>
     <string name="dash_synced">Последняя синхронизация: %1$s</string>
+    <string name="dash_synced_now">Последняя синхронизация: только что</string>
     <string name="dash_never_synced">Синхронизаций ещё не было. Держите телефоны рядом.</string>
     <string name="dash_empty_title">Детей пока нет</string>
     <string name="dash_empty_body">Пригласите телефон ребёнка на вкладке «Группа».</string>

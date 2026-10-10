@@ -52,6 +52,7 @@ import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.BarChart
 import app.kinsight.core.designsystem.component.EmptyState
 import app.kinsight.core.designsystem.component.durationText
+import app.kinsight.core.designsystem.component.isJustNow
 import app.kinsight.core.designsystem.component.relativeTime
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.transport.ble.ServiceState
@@ -221,6 +222,7 @@ private fun ThisPhoneCard(s: ServiceStatus?, nowMs: Long, onStart: () -> Unit, o
                 s.state == ServiceState.RADIO_ERROR -> stringResource(R.string.dash_radio_error)
                 s.syncing -> stringResource(R.string.dash_syncing)
                 s.problem == SyncProblem.PEER_NEEDS_UPDATE -> stringResource(R.string.dash_peer_update)
+                last != null && isJustNow(last, nowMs) -> stringResource(R.string.dash_synced_now)
                 last != null -> stringResource(R.string.dash_synced, relativeTime(last, nowMs))
                 else -> stringResource(R.string.dash_never_synced)
             }
