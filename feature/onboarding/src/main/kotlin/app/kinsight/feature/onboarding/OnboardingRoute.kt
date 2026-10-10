@@ -132,6 +132,7 @@ fun OnboardingRoute(
         val g = AppGraph.get(context)
         OnboardingViewModel(g.prefs, GraphOnboardingGroup(g), Build.MODEL, createSavedStateHandle())
     }
+    LaunchedEffect(Unit) { requestScannerModule(context.applicationContext) }
     // A deep link (system camera or adb) arrives at any time: apply it once, then the app forgets it.
     LaunchedEffect(initialInvite) {
         if (initialInvite != null) {
