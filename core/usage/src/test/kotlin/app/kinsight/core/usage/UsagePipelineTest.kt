@@ -7,6 +7,7 @@ import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.GroupGenesis
+import app.kinsight.core.model.proto.Heartbeat
 import app.kinsight.core.model.proto.StateEvent
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -26,6 +27,7 @@ import java.time.ZoneId
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -142,5 +144,53 @@ class UsagePipelineTest {
         assertEquals(StateEvent.Kind.SHARING_RESUMED, own()[0].stateKind())
         assertEquals(30 * MIN, own()[1].body.usage_summary!!.total_ms)
         assertEquals(4L, store.versionVector()[keys.deviceId])
+    }
+
+    @Test
+    fun ownEntriesShareTheSeqLineWithUsage() = runTest {
+        store.applyBatch(listOf(genesis.entry))
+        val p = pipeline(PublishTarget(genesis.groupId, keys))
+        p.setSharing(true) // seq 2: SHARING_RESUMED
+        assertTrue(p.appendOwn { author -> listOf(author.create { it.copy(heartbeat = Heartbeat(app_version = "t", protocol_version = 1)) }) })
+        source.events += listOf(s.resumed("09:00", MAPS), s.paused("09:30", MAPS))
+        p.collectAndPublish(force = true)
+        val mine = own().sortedBy { it.seq }
+        assertEquals((2L..mine.last().seq).toList(), mine.map { it.seq }) // no gap, no repeat
+        assertEquals(EntryKind.HEARTBEAT, mine[1].kind)
+        assertEquals(mine.last().seq, store.authorState(keys.deviceId).lastSeq)
+    }
+
+    @Test
+    fun appendOwnWithoutAGroupDoesNothing() = runTest {
+        assertFalse(pipeline(null).appendOwn { error("must not be called without a group") })
+    }
+
+    @Test
+    fun appendOwnWithAnExplicitTargetStoresTheGenesis() = runTest {
+        val target = PublishTarget(genesis.groupId, keys)
+        assertTrue(pipeline(null).appendOwn(target) { author ->
+            check(author.lastSeq == 0L)
+            listOf(genesis.entry)
+        })
+        assertEquals(1L, store.authorState(keys.deviceId).lastSeq)
+        assertEquals(listOf(genesis.entry), store.membershipEntries())
+    }
+
+    @Test
+    fun queuedEventIsPublishedWithTheOthers() = runTest {
+        store.applyBatch(listOf(genesis.entry))
+        val p = pipeline(PublishTarget(genesis.groupId, keys))
+        p.queueEvent(StateEvent.Kind.BLUETOOTH_OFF, fromMs = 1_000, toMs = 2_000)
+        p.setSharing(true)
+        val off = own().single { it.stateKind() == StateEvent.Kind.BLUETOOTH_OFF }.body.state_event!!
+        assertEquals(1_000L to 2_000L, off.from_ms to off.to_ms)
+        assertTrue(RoomUsageQueue(db).pendingEvents().isEmpty())
+    }
+
+    @Test
+    fun currentSettingsReadsTheStore() = runTest {
+        settings.setRetention(detailDays = 30, summaryDays = 200)
+        val current = pipeline(null).currentSettings()
+        assertEquals(30 to 200, current.detailRetentionDays to current.summaryRetentionDays)
     }
 }

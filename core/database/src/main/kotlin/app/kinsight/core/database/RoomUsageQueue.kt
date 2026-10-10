@@ -58,6 +58,9 @@ class RoomUsageQueue(private val db: KinsightDatabase) {
 
     suspend fun deleteEvent(id: Long) = dao.deleteEvent(id)
 
+    /** An integrity event that does not come from a collector run (stage 3c: BLUETOOTH_OFF). */
+    suspend fun addEvent(row: PendingEventRow) = dao.insertEvent(row.copy(id = 0))
+
     suspend fun lastUsagePublishMs(): Long? = dao.lastUsagePublish()
 
     suspend fun setLastUsagePublishMs(ms: Long) = dao.setPublishState(PublishStateRow(lastUsagePublishMs = ms))
