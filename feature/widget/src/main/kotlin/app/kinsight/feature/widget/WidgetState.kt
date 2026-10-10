@@ -4,6 +4,15 @@ import app.kinsight.core.data.DashboardState
 import app.kinsight.core.data.DeviceUsage
 import app.kinsight.core.data.Role
 import app.kinsight.core.data.Sharing
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flatMapLatest
 
 /** What the home-screen widget shows (spec §9.7, stage 5b), independent of Glance so it is tested on the JVM. */
 sealed interface WidgetState {
@@ -85,3 +94,27 @@ object WidgetStates {
         }
     }
 }
+
+/** One drawing of the widget: what to show and the clock its times are read against. */
+data class WidgetFrame(val state: WidgetState, val nowMs: Long)
+
+/**
+ * The widget's frames for a live Glance session: each [refresh] (KinsightWidget.update, before updateAll) starts a
+ * fresh [dashboard] read, so a new day or a wipe is seen even when the log did not change; a data or setting change
+ * within the session is shown as it comes. A failing read is the empty state, never stale children.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+internal fun widgetFrames(
+    refresh: Flow<Long>,
+    dashboard: () -> Flow<DashboardState?>,
+    noContactHours: Flow<Int>,
+    clock: () -> Long,
+    onError: (Throwable) -> Unit = {},
+): Flow<WidgetFrame> = refresh.flatMapLatest {
+    combine(flow { emitAll(dashboard()) }, noContactHours) { d, h -> val now = clock(); WidgetFrame(WidgetStates.of(d, h, now), now) }
+        .catch { e ->
+            if (e is CancellationException) throw e
+            onError(e)
+            emit(WidgetFrame(WidgetState.Empty, clock()))
+        }
+}.distinctUntilChanged()

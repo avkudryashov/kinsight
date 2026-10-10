@@ -4,9 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.text.format.DateUtils
 import android.util.Log
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -29,10 +29,12 @@ import androidx.glance.background
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
+import androidx.glance.layout.Spacer
+import androidx.glance.layout.height
+import androidx.glance.layout.width
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.padding
-import androidx.glance.material3.ColorProviders
 import androidx.glance.semantics.contentDescription
 import androidx.glance.semantics.semantics
 import androidx.glance.semantics.testTag
@@ -40,9 +42,18 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import app.kinsight.core.data.AppGraph
+import app.kinsight.core.data.Prefs
+import app.kinsight.core.data.ResetStatus
 import app.kinsight.core.designsystem.component.formatDuration
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import java.time.Instant
 import java.time.ZoneId
 
@@ -54,13 +65,17 @@ import java.time.ZoneId
 class KinsightWidget : GlanceAppWidget() {
     override val sizeMode: SizeMode = SizeMode.Responsive(setOf(COMPACT, LIST))
 
+    /**
+     * The data is read inside the composition: a live session only recomposes on updateAll, so a state read once here
+     * would stay on screen. The first frame is read before the content, so the widget never draws a placeholder.
+     */
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val state = load(context)
-        val nowMs = System.currentTimeMillis()
+        val frames = frames(context)
+        val initial = frames.first()
         provideContent {
-            GlanceTheme(colors = ColorProviders(light = dynamicLightColorScheme(context), dark = dynamicDarkColorScheme(context))) {
-                WidgetContent(state, nowMs, links)
-            }
+            val frame by frames.collectAsState(initial)
+            // Plain GlanceTheme: the system's dynamic colours (API 31+), light and dark, follow wallpaper changes live.
+            GlanceTheme { WidgetContent(frame.state, frame.nowMs, links) }
         }
     }
 
@@ -77,8 +92,12 @@ class KinsightWidget : GlanceAppWidget() {
         @Volatile
         var links: WidgetLinks = WidgetLinks()
 
+        /** Bumped by [update]: a live session re-reads the data and the clock (a new day, a wipe). */
+        private val refresh = MutableStateFlow(0L)
+
         /** Redraws every placed widget; nothing to do without one. Never throws: a widget must not fail its caller. */
         suspend fun update(context: Context) {
+            refresh.update { it + 1 }
             try {
                 KinsightWidget().updateAll(context)
             } catch (e: CancellationException) {
@@ -88,16 +107,18 @@ class KinsightWidget : GlanceAppWidget() {
             }
         }
 
-        /** No group, a reset, a removed device or any read failure is the empty state, never stale children. */
-        internal suspend fun load(context: Context): WidgetState = try {
-            val g = AppGraph.get(context)
-            WidgetStates.of(g.usage.dashboard.first(), g.prefs.current().noContactHours, System.currentTimeMillis())
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.w(TAG, "widget state failed", e)
-            WidgetState.Empty
-        }
+        /** A local wipe (reset, leave) has just ended, done or failed: the widget must drop the group now. */
+        fun wipeEnded(previous: ResetStatus, current: ResetStatus): Boolean =
+            previous is ResetStatus.Running && current !is ResetStatus.Running
+
+        private fun frames(context: Context): Flow<WidgetFrame> = widgetFrames(
+            refresh = refresh,
+            dashboard = { AppGraph.get(context).usage.dashboard },
+            noContactHours = flow { emitAll(AppGraph.get(context).prefs.prefs.map { it.noContactHours }) }
+                .catch { emit(Prefs().noContactHours) },
+            clock = System::currentTimeMillis,
+            onError = { Log.w(TAG, "widget state failed", it) },
+        )
     }
 }
 
@@ -173,7 +194,7 @@ private fun ChildLine(row: ChildRow, nowMs: Long, links: WidgetLinks, compact: B
     val total = todayText(context, row.hasData, row.todayMs)
     val status = statusText(context, row.status, nowMs)
     Row(
-        modifier = GlanceModifier.fillMaxWidth().padding(vertical = if (compact) 0.dp else 4.dp)
+        modifier = GlanceModifier.fillMaxWidth().padding(vertical = if (compact) 0.dp else 2.dp)
             .clickable(actionStartActivity(links.openDevice(context, row.id)))
             .semantics {
                 contentDescription = context.getString(R.string.wid_child_spoken, row.name, total, status)
@@ -181,6 +202,9 @@ private fun ChildLine(row: ChildRow, nowMs: Long, links: WidgetLinks, compact: B
             },
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // Glance has no heightIn: a zero-width 48 dp spacer makes the row's touch target at least 48 dp (spec §9.8)
+        // and lets it grow with the font scale.
+        Spacer(GlanceModifier.width(0.dp).height(MIN_TOUCH))
         Column(GlanceModifier.defaultWeight()) {
             Text(row.name, style = TextStyle(color = GlanceTheme.colors.onSurface, fontWeight = FontWeight.Medium, fontSize = 14.sp), maxLines = 1)
             Text(status, style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 12.sp), maxLines = 1)
@@ -188,6 +212,8 @@ private fun ChildLine(row: ChildRow, nowMs: Long, links: WidgetLinks, compact: B
         Text(total, style = TextStyle(color = GlanceTheme.colors.onSurface, fontWeight = FontWeight.Bold, fontSize = 16.sp), maxLines = 1)
     }
 }
+
+private val MIN_TOUCH = 48.dp
 
 @Composable
 private fun Line(text: String, tag: String, bold: Boolean = false) {

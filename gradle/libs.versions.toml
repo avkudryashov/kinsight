@@ -73,7 +73,6 @@ junit4 = { module = "junit:junit", version.ref = "junit4" }
 junit-vintage = { module = "org.junit.vintage:junit-vintage-engine" }
 androidx-test-core = { module = "androidx.test:core", version.ref = "androidx-test-core" }
 glance-appwidget = { module = "androidx.glance:glance-appwidget", version.ref = "glance" }
-glance-material3 = { module = "androidx.glance:glance-material3", version.ref = "glance" }
 glance-appwidget-testing = { module = "androidx.glance:glance-appwidget-testing", version.ref = "glance" }
 
 [plugins]
