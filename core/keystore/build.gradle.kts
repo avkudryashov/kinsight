@@ -8,4 +8,5 @@ android {
 
 dependencies {
     api(project(":core:model"))
+    implementation(libs.coroutines.core)
 }

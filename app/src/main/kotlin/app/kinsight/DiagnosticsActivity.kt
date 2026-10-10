@@ -8,7 +8,7 @@ import android.util.Log
 import android.view.WindowInsets
 import android.widget.ScrollView
 import android.widget.TextView
-import app.kinsight.core.keystore.DeviceKeyProvider
+import app.kinsight.core.keystore.DeviceIdentity
 
 /** Stage 3a diagnostic screen: which key backend this device uses and whether it passes the self-test. */
 class DiagnosticsActivity : Activity() {
@@ -31,7 +31,7 @@ class DiagnosticsActivity : Activity() {
         setContentView(root)
         Thread {
             val selection = try {
-                Result.success(DeviceKeyProvider.select(applicationContext))
+                Result.success(DeviceIdentity.getBlocking(applicationContext))
             } catch (e: Exception) {
                 Result.failure(e)
             }

@@ -39,8 +39,15 @@ private class FakeBackend(
     @Volatile var createCalls = 0
     var deleteCalls = 0
 
+    /** The next [createFailures] create() calls fail as if the Keystore hiccuped. */
+    var createFailures = 0
+
     override fun create(): DeviceKeys {
         createCalls++
+        if (createFailures > 0) {
+            createFailures--
+            throw KeyStorageException("transient keystore failure")
+        }
         createError?.let { throw it }
         return keysFactory().also { stored = it }
     }
@@ -131,7 +138,18 @@ class KeyBackendSelectorTest {
         assertEquals(KeyBackendKind.SOFTWARE, s.kind)
         assertTrue("no curve25519" in s.fallbackReason!!, s.fallbackReason)
         assertEquals(KeyBackendKind.SOFTWARE, choice.value!!.kind)
-        assertEquals(1, keystore.deleteCalls)
+        assertEquals(2, keystore.createCalls) // one retry before the fallback
+        assertEquals(2, keystore.deleteCalls) // before the retry and before the fallback
+    }
+
+    @Test
+    fun transientKeystoreFailureIsRetriedOnce() {
+        keystore.createFailures = 1
+        val s = selector.select()
+        assertEquals(KeyBackendKind.KEYSTORE, s.kind)
+        assertEquals(2, keystore.createCalls)
+        assertEquals(0, software.createCalls)
+        assertEquals(BackendChoice(KeyBackendKind.KEYSTORE, null), choice.value)
     }
 
     @Test

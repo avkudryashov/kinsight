@@ -74,12 +74,11 @@ class KeyBackendSelector(
 
     private fun firstRun(): KeySelection {
         choice.writePending()
-        val attempt: Result<Pair<DeviceKeys, SelfTestResult>> = try {
-            Result.success(keystore.create().let { it to KeySelfTest.run(it) })
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Result.failure(e)
+        var attempt = tryKeystore()
+        if (attempt.getOrNull()?.second?.passed != true) {
+            // One retry: a transient Keystore failure right after boot must not cost the device its TEE keys for good.
+            deleteQuietly(keystore)
+            attempt = tryKeystore()
         }
         val created = attempt.getOrNull()
         if (created != null && created.second.passed) {
@@ -99,18 +98,30 @@ class KeyBackendSelector(
         } else {
             "keystore unavailable: ${describe(attempt.exceptionOrNull()!!)}"
         }
-        try {
-            keystore.delete()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            // Leftover Keystore entries are never loaded: the persisted choice will be SOFTWARE.
-        }
+        // Leftover Keystore entries are never loaded: the persisted choice will be SOFTWARE.
+        deleteQuietly(keystore)
         val keys = software.create()
         val test = KeySelfTest.run(keys)
         if (!test.passed) throw KeyStorageException("software keys failed self-test: ${test.detail}")
         choice.write(BackendChoice(KeyBackendKind.SOFTWARE, reason))
         return KeySelection(KeyBackendKind.SOFTWARE, keys, test, firstRun = true, fallbackReason = reason)
+    }
+
+    private fun tryKeystore(): Result<Pair<DeviceKeys, SelfTestResult>> = try {
+        Result.success(keystore.create().let { it to KeySelfTest.run(it) })
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+
+    private fun deleteQuietly(backend: KeyBackend) {
+        try {
+            backend.delete()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
     }
 
     private fun backend(kind: KeyBackendKind) = if (kind == KeyBackendKind.KEYSTORE) keystore else software
