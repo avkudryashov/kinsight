@@ -8,6 +8,8 @@ import app.kinsight.core.transport.ble.BlePermissions
 import app.kinsight.core.transport.ble.SyncGraph
 import app.kinsight.core.usage.UsageGraph
 import app.kinsight.core.usage.UsageWork
+import app.kinsight.feature.widget.KinsightWidget
+import app.kinsight.feature.widget.WidgetLinks
 import app.kinsight.notifications.AlertChannels
 import app.kinsight.notifications.AlertsWork
 import kotlinx.coroutines.CancellationException
@@ -32,6 +34,7 @@ open class KinsightApplication : Application() {
         UsageWork.schedule(this)
         AlertChannels.ensure(this)
         AlertsWork.schedule(this)
+        KinsightWidget.links = WidgetLinks(open = MainActivity::open, openDevice = MainActivity::openDevice)
         SyncGraph.onSessionFinished = { AlertsWork.runSoon(it) }
         SyncGraph.onboardingDone = { AppGraph.get(it).prefs.current().onboardingDone }
         UsageAccessWatcher.register(this)

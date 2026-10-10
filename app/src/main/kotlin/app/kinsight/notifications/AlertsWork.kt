@@ -18,6 +18,7 @@ import app.kinsight.core.data.GroupSnapshot
 import app.kinsight.core.data.Role
 import app.kinsight.core.transport.ble.BlePermissions
 import app.kinsight.core.transport.ble.SyncGraph
+import app.kinsight.feature.widget.KinsightWidget
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -94,6 +95,7 @@ object AlertsRun {
 class AlertsWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result = try {
         AlertsRun.run(applicationContext)
+        KinsightWidget.update(applicationContext) // stage 5b: the widget follows each alert run
         Result.success()
     } catch (e: CancellationException) {
         throw e

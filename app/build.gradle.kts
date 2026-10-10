@@ -27,6 +27,7 @@ dependencies {
     implementation(project(":feature:dashboard"))
     implementation(project(":feature:device-detail"))
     implementation(project(":feature:settings"))
+    implementation(project(":feature:widget"))
     implementation(libs.coroutines.core)
     implementation(libs.activity.compose)
     implementation(libs.navigation.compose)

@@ -8,7 +8,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import app.kinsight.core.data.AppGraph
 import app.kinsight.core.designsystem.theme.KinsightTheme
+import app.kinsight.feature.widget.KinsightWidget
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 
 /** The only screen activity (edge-to-edge, spec §9.8); also the target of `kinsight://pair/...` links (Decisions). */
 class MainActivity : ComponentActivity() {
@@ -55,6 +57,13 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         AppGraph.get(this).sync.refreshNotification()
+    }
+
+    /** Leaving the app after a reset, a leave or a pause: the widget shows it now, not at the next hourly run. */
+    override fun onStop() {
+        super.onStop()
+        val app = applicationContext
+        AppGraph.get(app).scope.launch { KinsightWidget.update(app) }
     }
 
     /**
