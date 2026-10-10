@@ -20,9 +20,7 @@ import android.content.Context
 import android.os.ParcelUuid
 import app.kinsight.core.sync.ByteStream
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.IOException
 
@@ -53,6 +51,8 @@ internal class BleRadio(
     private val log: (String) -> Unit,
     /** An advertising failure that stands (text), or null once advertising works; called on any thread. */
     private val onAdvertProblem: (String?) -> Unit = {},
+    /** The L2CAP listener died and could not be reopened (text): the owner restarts the radio; any thread. */
+    private val onListenerLost: (String) -> Unit = {},
 ) {
     private val manager = context.getSystemService(BluetoothManager::class.java)
 
@@ -132,31 +132,41 @@ internal class BleRadio(
 
     /**
      * The insecure L2CAP listener first (its PSM goes into the characteristic), then the GATT service. Throws if
-     * either cannot be opened; the caller then calls [close].
+     * either cannot be opened; the caller then calls [close]. A listener whose accept() fails later is closed and
+     * reopened (launchResilientAcceptLoop: 1 s, 5 s, 30 s, 2 min, a new PSM served from the same characteristic); if
+     * that keeps failing, onListenerLost tells the owner, which restarts the radio as a whole.
      */
     fun openServers(scope: CoroutineScope, onInbound: (ByteStream) -> Unit) {
         this.scope = scope
         val server = adapter.listenUsingInsecureL2capChannel()
         l2cap = server
         psm = server.psm
-        scope.launch(Dispatchers.IO) {
-            while (isActive) {
-                val socket = try {
-                    server.accept()
-                } catch (e: Exception) {
-                    log("l2cap accept ended: $e") // close() of the listener lands here
-                    break
+        scope.launchResilientAcceptLoop(
+            first = server,
+            accept = { it.accept() },
+            reopen = {
+                // The GATT characteristic is answered from [psm] on every read: the new value is live at once.
+                adapter.listenUsingInsecureL2capChannel().also {
+                    l2cap = it
+                    psm = it.psm
+                    if (closed) runCatching { it.close() } // close() sets closed before it reads l2cap
+                    log("l2cap listener open, psm=${it.psm}")
                 }
+            },
+            isClosed = { closed },
+            onSocket = { socket ->
                 val stream = try {
                     socket.byteStream()
                 } catch (e: Exception) {
                     runCatching { socket.close() }
-                    log("inbound socket unusable: $e")
-                    continue
+                    throw e
                 }
                 onInbound(stream)
-            }
-        }
+            },
+            discard = { socket -> socket.close() },
+            onGiveUp = onListenerLost,
+            log = log,
+        )
         val gatt = manager.openGattServer(context, gattCallback) ?: throw IOException("openGattServer returned null")
         gattServer = gatt
         val service = BluetoothGattService(BleIds.SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)

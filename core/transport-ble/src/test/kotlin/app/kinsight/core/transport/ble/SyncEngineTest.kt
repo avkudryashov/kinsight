@@ -87,6 +87,7 @@ class SyncEngineTest {
         store: EntryStore = d.store,
         link: BleLink = this.link,
         onLog: (String) -> Unit = {},
+        onLinkExhausted: () -> Unit = {},
         prepare: suspend () -> Unit = {},
     ) = SyncEngine(
         scope = scope,
@@ -102,6 +103,7 @@ class SyncEngineTest {
         sessionTimeout = sessionTimeout,
         prepareTimeout = prepareTimeout,
         connectTimeout = connectTimeout,
+        onLinkExhausted = onLinkExhausted,
     )
 
     @AfterTest
@@ -205,6 +207,30 @@ class SyncEngineTest {
         awaitFinished(4, e0, e1)
         assertEquals(2, connects.get())
         assertEquals(d0.store.versionVector(), d1.store.versionVector())
+    }
+
+    @Test
+    fun tenNoResourcesDialsInARowAskForOneRadioRestart() = runBlocking<Unit> {
+        val g = TestGroup.create(2)
+        val (d0, d1) = g.devices
+        d0.store.applyBatch(listOf(d0.author.summary(TODAY.toString(), 5)))
+        val restarts = AtomicInteger()
+        val stuck = object : BleLink {
+            override suspend fun connect(address: PeerAddress): ByteStream {
+                connects.incrementAndGet()
+                throw IOException("android.bluetooth.BluetoothSocketException: No resources Available")
+            }
+        }
+        val e0 = engine(g, d0, link = stuck, onLinkExhausted = { restarts.incrementAndGet() })
+        val e1 = engine(g, d1, link = stuck, onLinkExhausted = { restarts.incrementAndGet() })
+        repeat(LinkExhaustion.THRESHOLD) { round ->
+            assertEquals(0, restarts.get(), "restart asked after $round dials")
+            seeEachOther("d0", e0, "d1", e1)
+            awaitFinished(round + 1, e0, e1) // the smaller tag dials, the other prepares
+            mono += 61_000 // past the failure backoff
+        }
+        assertEquals(LinkExhaustion.THRESHOLD, connects.get())
+        assertEquals(1, restarts.get())
     }
 
     @Test

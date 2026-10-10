@@ -323,6 +323,7 @@ class SyncService : Service() {
         quietly("bluetooth-off event") { SyncGraph.onBluetoothOn(c) }
         if (stopping || destroyed) return false
         val rs = CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext.job))
+        lateinit var r: BleRadio
         val e = SyncEngine(
             scope = rs,
             context = { SyncGraph.syncContext(c) },
@@ -330,15 +331,21 @@ class SyncService : Service() {
             prepare = { SyncGraph.prepare(c) },
             monoClock = SystemClock::elapsedRealtime,
             log = ::log,
+            onLinkExhausted = { restartRadio({ r }, "dials keep failing without radio resources") },
         )
-        lateinit var r: BleRadio
-        r = BleRadio(c, adapter, ::log) { problem ->
-            scope.launch {
-                if (radio !== r) return@launch // a callback of a radio already torn down
-                advertProblem = problem
-                refreshRadioDetail()
-            }
-        }
+        r = BleRadio(
+            c,
+            adapter,
+            ::log,
+            onAdvertProblem = { problem ->
+                scope.launch {
+                    if (radio !== r) return@launch // a callback of a radio already torn down
+                    advertProblem = problem
+                    refreshRadioDetail()
+                }
+            },
+            onListenerLost = { why -> listenerLost(r, why) },
+        )
         try {
             r.openServers(rs) { stream -> e.onInbound(stream) }
         } catch (ex: Exception) {
@@ -374,6 +381,37 @@ class SyncService : Service() {
         show(ServiceState.RUNNING, radioDetail())
         rs.launch { quietly("heartbeat") { SyncGraph.emitHeartbeatIfDue(c) } }
         return true
+    }
+
+    /**
+     * Our own side is stuck (LinkExhaustion): close the radio and open it again at once, under the lock, unless it was
+     * already replaced or stopped. The fast window is kept (goFast again if it still runs).
+     */
+    private fun restartRadio(which: () -> BleRadio, why: String) {
+        scope.launch {
+            controlLock.withLock {
+                val r = which()
+                if (radio !== r || stopping || destroyed) return@withLock
+                log("radio restart: $why")
+                val wasFast = isFast()
+                stopRadio()
+                reconcile(fast = wasFast)
+            }
+        }
+    }
+
+    /**
+     * The L2CAP listener died and the radio could not reopen it (1 s, 5 s, 30 s, 2 min): RADIO_ERROR, and the whole
+     * radio is started again on [RadioRetrySchedule], like a radio that would not open.
+     */
+    private fun listenerLost(r: BleRadio, why: String) {
+        scope.launch {
+            controlLock.withLock {
+                if (radio !== r || stopping || destroyed) return@withLock
+                problem(ServiceState.RADIO_ERROR, why)
+                scheduleRadioRetry()
+            }
+        }
     }
 
     /** Closes a radio this coroutine opened but no longer owns (close() is idempotent). */

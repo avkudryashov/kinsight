@@ -1,5 +1,6 @@
 package app.kinsight.core.transport.ble
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -11,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.coroutines.CoroutineContext
 
 /**
  * Closes [resource] as soon as this scope is cancelled (or the returned job is). A completion handler would not do:
@@ -26,23 +28,71 @@ internal fun CoroutineScope.closeOnCancel(resource: AutoCloseable): Job = launch
 }
 
 /**
- * The blocking accept loop of an L2CAP listener, on Dispatchers.IO. It ends when [accept] throws (closing the listener
- * does that). Each socket goes to [onSocket]; one that arrives after close, or that [onSocket] fails on, is [discard]ed.
+ * The blocking accept loop of an L2CAP listener, on [context] (Dispatchers.IO). Each socket goes to [onSocket]; one
+ * that arrives after close, or that [onSocket] fails on, is [discard]ed. The loop ends quietly when [isClosed] (closing
+ * the listener makes accept() throw).
+ *
+ * An accept() that fails while not closed (emulator run 2026-10-10: «read failed, socket might closed or timeout»
+ * under a connection storm, after which every dial met «No resources Available») does not end the loop: the dead
+ * listener is closed and [reopen] opens a new one (a new PSM: [reopen] publishes it) after [delaysMs] (1 s, 5 s, 30 s,
+ * 2 min; reset by the next socket). When the last delay's attempt fails too, [onGiveUp] gets the cause once and the
+ * loop ends; the owner then restarts the radio as a whole. One log line per failure and one per outcome, never one per
+ * attempt.
  */
-internal fun <S> CoroutineScope.launchAcceptLoop(
-    accept: () -> S,
+internal fun <L : AutoCloseable, S> CoroutineScope.launchResilientAcceptLoop(
+    first: L,
+    accept: (L) -> S,
+    reopen: () -> L,
     isClosed: () -> Boolean,
     onSocket: (S) -> Unit,
     discard: (S) -> Unit,
+    onGiveUp: (String) -> Unit,
     log: (String) -> Unit,
-): Job = launch(Dispatchers.IO) {
+    what: String = "l2cap",
+    delaysMs: List<Long> = LISTENER_REOPEN_DELAYS_MS,
+    context: CoroutineContext = Dispatchers.IO,
+): Job = launch(context) {
+    var listener = first
+    var failures = 0 // consecutive, reset by a socket
     while (isActive) {
         val socket = try {
-            accept()
+            accept(listener)
         } catch (e: Exception) {
-            log("pairing accept ended: $e") // close() of the listener lands here
-            break
+            if (isClosed() || !isActive) {
+                log("$what accept ended: $e") // close() of the listener lands here
+                break
+            }
+            runCatching { listener.close() }
+            var cause: Exception = e
+            log("$what accept failed: $e; reopening the listener")
+            var next: L? = null
+            while (next == null) {
+                val wait = delaysMs.getOrNull(failures)
+                if (wait == null) {
+                    log("$what listener cannot be reopened after ${delaysMs.size} attempts: $cause")
+                    onGiveUp("$what listener failed: $cause")
+                    return@launch
+                }
+                failures++
+                delay(wait)
+                if (isClosed()) return@launch
+                next = try {
+                    reopen()
+                } catch (oe: Exception) {
+                    if (oe is CancellationException) throw oe
+                    cause = oe
+                    null
+                }
+            }
+            if (isClosed()) {
+                runCatching { next.close() }
+                return@launch
+            }
+            log("$what listener reopened (attempt $failures)")
+            listener = next
+            continue
         }
+        failures = 0
         if (isClosed()) {
             runCatching { discard(socket) }
             break
@@ -51,10 +101,13 @@ internal fun <S> CoroutineScope.launchAcceptLoop(
             onSocket(socket)
         } catch (e: Exception) {
             runCatching { discard(socket) }
-            log("pairing inbound unusable: $e")
+            log("$what inbound unusable: $e")
         }
     }
 }
+
+/** 1 s, 5 s, 30 s, 2 min: then the owner restarts the whole radio (RadioRetrySchedule). */
+internal val LISTENER_REOPEN_DELAYS_MS = listOf(1_000L, 5_000L, 30_000L, 120_000L)
 
 /**
  * The standing problem of a pairing host, for the invite screen: a refused GATT service (guests cannot read the PSM)

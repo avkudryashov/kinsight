@@ -77,7 +77,11 @@ class SyncEngine(
     private val sessionTimeout: Duration = SESSION_TIMEOUT,
     private val prepareTimeout: Duration = PREPARE_TIMEOUT,
     private val connectTimeout: Duration = CONNECT_TIMEOUT,
+    /** [LinkExhaustion.THRESHOLD] dials in a row failed with «No resources»: the owner restarts the radio. */
+    private val onLinkExhausted: () -> Unit = {},
 ) {
+    private val exhaustion = LinkExhaustion()
+
     private val _status = MutableStateFlow(SyncStatus())
     val status: StateFlow<SyncStatus> = _status.asStateFlow()
 
@@ -213,15 +217,20 @@ class SyncEngine(
     private suspend fun connectOrNull(d: Decision.Connect): ByteStream? {
         var connected: ByteStream? = null
         return try {
-            withTimeout(connectTimeout) { link.connect(d.address).also { connected = it } }
+            withTimeout(connectTimeout) { link.connect(d.address).also { connected = it } }.also { exhaustion.onSuccess() }
         } catch (e: TimeoutCancellationException) {
             connected?.close()
+            exhaustion.onFailure(e)
             log("connect to ${d.peer.value.take(12)} timed out")
             null
         } catch (e: Exception) {
             connected?.close()
             ensureOwnCancellation()
             log("connect to ${d.peer.value.take(12)} failed: $e")
+            if (exhaustion.onFailure(e)) {
+                log("${LinkExhaustion.THRESHOLD} dials in a row without radio resources: asking for a radio restart")
+                onLinkExhausted()
+            }
             null
         }
     }

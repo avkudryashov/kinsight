@@ -42,7 +42,16 @@ class PairingHostSupportTest {
     fun cancellingTheScopeClosesTheHostAndEndsTheBlockedAcceptLoop() = runBlocking<Unit> {
         val scope = CoroutineScope(Job() + Dispatchers.IO)
         val listener = BlockingListener()
-        scope.launchAcceptLoop(listener::accept, isClosed = { false }, onSocket = {}, discard = {}, log = {})
+        scope.launchResilientAcceptLoop(
+            first = listener,
+            accept = { it.accept() },
+            reopen = { error("a closed listener is not reopened") },
+            isClosed = { listener.closes.get() > 0 },
+            onSocket = {},
+            discard = {},
+            onGiveUp = {},
+            log = {},
+        )
         scope.closeOnCancel(listener)
 
         scope.cancel()
@@ -82,9 +91,13 @@ class PairingHostSupportTest {
         val queue = java.util.concurrent.LinkedBlockingQueue<Int>(listOf(1, 2, 3))
         val delivered = mutableListOf<Int>()
         val discarded = mutableListOf<Int>()
-        val loop = scope.launchAcceptLoop(
-            accept = { queue.poll() ?: throw IOException("closed") },
-            isClosed = { false },
+        val done = java.util.concurrent.atomic.AtomicBoolean(false)
+        val loop = scope.launchResilientAcceptLoop(
+            first = AutoCloseable {},
+            accept = { queue.poll() ?: run { done.set(true); throw IOException("closed") } },
+            reopen = { error("a closed listener is not reopened") },
+            isClosed = done::get,
+            onGiveUp = {},
             onSocket = { if (it == 2) throw IllegalStateException("unusable") else synchronized(delivered) { delivered += it } },
             discard = { synchronized(discarded) { discarded += it } },
             log = {},
@@ -101,8 +114,11 @@ class PairingHostSupportTest {
         val scope = CoroutineScope(Job() + Dispatchers.IO)
         val delivered = mutableListOf<Int>()
         val discarded = mutableListOf<Int>()
-        val loop = scope.launchAcceptLoop(
+        val loop = scope.launchResilientAcceptLoop(
+            first = AutoCloseable {},
             accept = { 7 },
+            reopen = { error("a closed listener is not reopened") },
+            onGiveUp = {},
             isClosed = { true },
             onSocket = { delivered += it },
             discard = { discarded += it },

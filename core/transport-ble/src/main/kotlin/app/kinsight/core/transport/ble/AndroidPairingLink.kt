@@ -163,12 +163,23 @@ class AndroidPairingLink(
             server = listener
             ensureOpen()
             psm = listener.psm
-            scope.launchAcceptLoop(
-                accept = listener::accept,
+            scope.launchResilientAcceptLoop(
+                first = listener,
+                accept = { it.accept() },
+                reopen = {
+                    // A new PSM: the guest reads it over GATT on every dial. close() sees either field write.
+                    adapter.listenUsingInsecureL2capChannel().also {
+                        server = it
+                        psm = it.psm
+                        if (closed.get()) runCatching { it.close() }
+                    }
+                },
                 isClosed = closed::get,
                 onSocket = { socket -> onInbound(socket.byteStream()) },
                 discard = { socket -> socket.close() },
+                onGiveUp = { ads.serviceProblem(it) },
                 log = log,
+                what = "pairing",
             )
 
             val gattServer = manager.openGattServer(app, gattCallback) ?: throw IOException("openGattServer returned null")
