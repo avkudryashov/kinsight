@@ -8,9 +8,12 @@ import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.proto.StateEvent
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
@@ -97,5 +100,47 @@ class UsagePipelineTest {
         val summary = own().single { it.kind == EntryKind.USAGE_SUMMARY }
         assertEquals(7L, summary.seq)
         assertEquals(40 * MIN, summary.body.usage_summary!!.total_ms)
+    }
+
+    @Test
+    fun sharingWaitsForARunningCollection(): Unit = runBlocking {
+        store.applyBatch(listOf(genesis.entry))
+        source.events += listOf(s.resumed("09:00", MAPS), s.paused("09:30", MAPS))
+        val target = PublishTarget(genesis.groupId, keys)
+        val inside = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var calls = 0
+        val p = UsagePipeline(
+            db = db,
+            collector = Collector(RoomUsageQueue(db), source, FakeAccess(), clock, FakeLaunchers()),
+            settings = settings,
+            apps = FakeApps(),
+            target = {
+                // The first call comes from collectAndPublish, between collecting and publishing: hold it there.
+                if (calls++ == 0) {
+                    inside.complete(Unit)
+                    release.await()
+                }
+                target
+            },
+            clock = { clock.wallMs },
+            today = { LocalDate.ofInstant(Instant.ofEpochMilli(clock.wallMs), zone) },
+        )
+        val run = async(Dispatchers.IO) { p.collectAndPublish(force = true) }
+        inside.await()
+        val flip = async(Dispatchers.IO) { p.setSharing(true) }
+        delay(300)
+        assertTrue(flip.isActive, "setSharing must wait for the pipeline lock")
+        assertTrue(own().isEmpty())
+
+        release.complete(Unit)
+        assertEquals(PublishReport.NONE, run.await().publish) // sharing was still off when it published
+        flip.await()
+        // One deterministic order: the collection, then RESUMED and the backlog. Nothing lost or doubled.
+        assertEquals(true, settings.current().sharing)
+        assertEquals(listOf(2L, 3L, 4L), own().map { it.seq })
+        assertEquals(StateEvent.Kind.SHARING_RESUMED, own()[0].stateKind())
+        assertEquals(30 * MIN, own()[1].body.usage_summary!!.total_ms)
+        assertEquals(4L, store.versionVector()[keys.deviceId])
     }
 }
