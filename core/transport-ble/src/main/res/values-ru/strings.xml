@@ -11,7 +11,8 @@
     <string name="kinsight_status_waiting">Ожидание устройств семьи</string>
     <string name="kinsight_last_sync">Последняя синхронизация %1$s</string>
     <string name="kinsight_never_synced">Синхронизаций ещё не было</string>
-    <string name="kinsight_peers">Обмен данными с: %1$s</string>
+    <string name="kinsight_peers">Синхронизация с: %1$s</string>
+    <string name="kinsight_sharing_paused">Обмен на паузе: новое экранное время не передаётся</string>
     <string name="kinsight_shared_with">Ваше экранное время видят: %1$s</string>
     <string name="kinsight_action_stop">Остановить</string>
 </resources>

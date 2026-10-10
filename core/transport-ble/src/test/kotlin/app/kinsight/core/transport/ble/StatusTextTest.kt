@@ -38,6 +38,19 @@ class StatusTextTest {
     }
 
     @Test
+    fun aPausedChildSaysSoAndAParentNeverDoes() {
+        val child = ServiceSnapshot(ServiceState.RUNNING, peers = listOf("Mom"), peersAreParents = true)
+        assertEquals(StatusText.PeerLine.VISIBLE_TO, StatusText.peerLine(child))
+        assertEquals(false, StatusText.showsPause(child))
+        assertEquals(true, StatusText.showsPause(child.copy(sharingPaused = true)))
+        // A parent shares nothing: it syncs with the others, and has no pause to tell.
+        val parent = ServiceSnapshot(ServiceState.RUNNING, peers = listOf("Kid"), peersAreParents = false, sharingPaused = true)
+        assertEquals(StatusText.PeerLine.SYNCS_WITH, StatusText.peerLine(parent))
+        assertEquals(false, StatusText.showsPause(parent))
+        assertEquals(null, StatusText.peerLine(parent.copy(peers = emptyList())))
+    }
+
+    @Test
     fun lastSyncFallsBackToThePersistedValue() {
         assertEquals(5L, StatusText.line(ServiceSnapshot(ServiceState.RUNNING, lastSyncWallMs = 5)).lastSyncWallMs)
         assertEquals(9L, StatusText.line(ServiceSnapshot(ServiceState.RUNNING, sync = SyncStatus(lastSyncWallMs = 9), lastSyncWallMs = 5)).lastSyncWallMs)

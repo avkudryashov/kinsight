@@ -20,6 +20,7 @@ import android.os.SystemClock
 import android.text.format.DateUtils
 import android.util.Log
 import app.kinsight.core.keystore.DeviceIdentity
+import app.kinsight.core.usage.UsageGraph
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -28,7 +29,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -121,6 +125,17 @@ class SyncService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        // A child's pause shows in the notification at once (the switch lives in the usage settings, not here).
+        scope.launch {
+            UsageGraph.settings(applicationContext).settings
+                .map { !it.sharing && it.consentAtMs != null }
+                .distinctUntilChanged()
+                .catch { e -> log("sharing state unavailable: $e") }
+                .collect { paused ->
+                    snapshot = snapshot.copy(sharingPaused = paused)
+                    if (snapshot.state != ServiceState.STARTING) publish()
+                }
+        }
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL_ID, getString(R.string.kinsight_channel_service), NotificationManager.IMPORTANCE_LOW),
         )
@@ -649,9 +664,11 @@ class SyncService : Service() {
         val lastSync = line.lastSyncWallMs?.let {
             getString(R.string.kinsight_last_sync, DateUtils.formatDateTime(this, it, DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_SHOW_DATE))
         } ?: getString(R.string.kinsight_never_synced)
-        val peers = s.peers.takeIf { it.isNotEmpty() }?.let {
-            getString(if (s.peersAreParents) R.string.kinsight_shared_with else R.string.kinsight_peers, it.joinToString(", "))
+        val peers = StatusText.peerLine(s)?.let {
+            val res = if (it == StatusText.PeerLine.VISIBLE_TO) R.string.kinsight_shared_with else R.string.kinsight_peers
+            getString(res, s.peers.joinToString(", "))
         }
+        val paused = if (StatusText.showsPause(s)) getString(R.string.kinsight_sharing_paused) else null
         val open = packageManager.getLaunchIntentForPackage(packageName)
             ?.let { PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE) }
         val stop = Notification.Action.Builder(
@@ -662,8 +679,8 @@ class SyncService : Service() {
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setContentTitle(title)
-            .setContentText(listOfNotNull(lastSync, peers).joinToString(" · "))
-            .setStyle(Notification.BigTextStyle().bigText(listOfNotNull(lastSync, peers).joinToString("\n")))
+            .setContentText(listOfNotNull(paused, lastSync, peers).joinToString(" · "))
+            .setStyle(Notification.BigTextStyle().bigText(listOfNotNull(paused, lastSync, peers).joinToString("\n")))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(open)

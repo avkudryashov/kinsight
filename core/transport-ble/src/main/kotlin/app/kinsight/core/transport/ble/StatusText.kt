@@ -21,6 +21,8 @@ data class ServiceSnapshot(
     val peersAreParents: Boolean = false,
     val notificationsEnabled: Boolean? = null,
     val channelImportance: Int? = null,
+    /** This device consented and its sharing switch is off (only a child's notification tells it). */
+    val sharingPaused: Boolean = false,
 )
 
 /** The notification's peer line: names, and whether they are the parents who see this child's data. */
@@ -56,6 +58,18 @@ object StatusText {
         val child = members.firstOrNull { it.id == self }?.isChild == true
         return members.filter { it.id != self && (!child || !it.isChild) }.map { it.displayName }.sorted()
     }
+
+    /** How the notification names the peers: a child's parents see its data; anyone else just syncs with them. */
+    enum class PeerLine { VISIBLE_TO, SYNCS_WITH }
+
+    fun peerLine(s: ServiceSnapshot): PeerLine? = when {
+        s.peers.isEmpty() -> null
+        s.peersAreParents -> PeerLine.VISIBLE_TO
+        else -> PeerLine.SYNCS_WITH
+    }
+
+    /** A child whose sharing is paused says so in its notification (nothing new reaches the parents meanwhile). */
+    fun showsPause(s: ServiceSnapshot): Boolean = s.peersAreParents && s.sharingPaused
 
     /** Whether the user can see the sync notification; null before the service has posted it once. */
     fun notificationVisible(s: ServiceSnapshot): Boolean? = when (s.notificationsEnabled) {
