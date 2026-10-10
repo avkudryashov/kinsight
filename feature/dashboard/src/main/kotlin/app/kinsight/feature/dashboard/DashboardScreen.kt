@@ -1,6 +1,7 @@
 package app.kinsight.feature.dashboard
 
 import android.text.format.DateUtils
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -27,11 +29,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -39,7 +45,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.DeviceUsage
 import app.kinsight.core.data.MemberView
-import app.kinsight.core.data.Role
+import app.kinsight.core.data.Role as MemberRole
 import app.kinsight.core.data.ServiceStatus
 import app.kinsight.core.data.Sharing
 import app.kinsight.core.designsystem.component.BarChart
@@ -91,16 +97,22 @@ fun DashboardScreen(
 ) {
     val d = ui.dashboard
     if (d == null) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { if (!ui.loaded) CircularProgressIndicator() }
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            if (!ui.loaded) {
+                CircularProgressIndicator()
+            } else {
+                EmptyState(stringResource(R.string.dash_no_group_title), stringResource(R.string.dash_no_group_body))
+            }
+        }
         return
     }
-    val child = d.self.role == Role.CHILD
+    val child = d.self.role == MemberRole.CHILD
     val noContactMs = ui.noContactHours * HOUR_MS
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text(stringResource(R.string.dash_title), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() }) }
         item {
             if (child) {
-                ChildTransparencyCard(d.parents, d.selfUsage?.sharing ?: Sharing.Never, onPause, onResume, onConsent)
+                ChildTransparencyCard(d.parents, d.selfUsage?.sharing ?: Sharing.Never, ui.sharingFailed, onPause, onResume, onConsent)
             } else {
                 ParentTransparencyCard(d.parents)
             }
@@ -121,7 +133,14 @@ private fun dateTime(ms: Long): String =
     DateUtils.formatDateTime(LocalContext.current, ms, DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH)
 
 @Composable
-private fun ChildTransparencyCard(parents: List<MemberView>, sharing: Sharing, onPause: () -> Unit, onResume: () -> Unit, onConsent: () -> Unit) {
+private fun ChildTransparencyCard(
+    parents: List<MemberView>,
+    sharing: Sharing,
+    failed: Boolean,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
+    onConsent: () -> Unit,
+) {
     var ask by remember { mutableStateOf(false) }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -144,7 +163,14 @@ private fun ChildTransparencyCard(parents: List<MemberView>, sharing: Sharing, o
                     Text(stringResource(R.string.dash_not_sharing))
                     Button(onConsent, Modifier.testTag("dash_consent")) { Text(stringResource(R.string.dash_turn_on)) }
                 }
-                Sharing.Left -> Unit
+                Sharing.Left -> Text(stringResource(R.string.dash_left))
+            }
+            if (failed) {
+                Text(
+                    stringResource(R.string.dash_sharing_failed),
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                )
             }
         }
     }
@@ -220,7 +246,8 @@ private fun DeviceCard(u: DeviceUsage, nowMs: Long, noContactMs: Long, onClick: 
             busiest.date.dayOfWeek.getDisplayName(TextStyle.FULL, locale),
         )
     }
-    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+    val label = stringResource(R.string.dash_open_details, u.member.name)
+    Card(Modifier.fillMaxWidth().clip(CardDefaults.shape).clickable(onClickLabel = label, role = Role.Button, onClick = onClick)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(u.member.name, style = MaterialTheme.typography.titleMedium)
             if (u.today.hasData) {

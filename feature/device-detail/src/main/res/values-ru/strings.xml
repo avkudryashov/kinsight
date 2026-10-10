@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="det_back">Назад</string>
+    <string name="det_day">День</string>
+    <string name="det_week">Неделя</string>
+    <string name="det_month">Месяц</string>
+    <plurals name="det_unlocks">
+        <item quantity="one">%d разблокировка</item>
+        <item quantity="few">%d разблокировки</item>
+        <item quantity="many">%d разблокировок</item>
+        <item quantity="other">%d разблокировки</item>
+    </plurals>
+    <string name="det_no_data_title">За этот период данных нет</string>
+    <string name="det_no_data_body">Этот телефон ещё не прислал экранное время за эти дни.</string>
+    <string name="det_top_apps">Приложения</string>
+    <string name="det_no_apps">За этот период времени в приложениях нет.</string>
+    <string name="det_all_apps">Все приложения (%1$d)</string>
+    <string name="det_all_apps_title">%1$s: все приложения, %2$s</string>
+    <string name="det_events">События</string>
+    <string name="det_no_events">Событий нет.</string>
+    <string name="det_chart_summary">В среднем %1$s в день, больше всего — %2$s (%3$s)</string>
+    <string name="det_paused_note">Обмен на паузе с %1$s. Время за паузу придёт после её снятия.</string>
+    <string name="det_never_note">Этот телефон не делится экранным временем.</string>
+    <string name="det_left_note">Этот телефон вышел из группы. Показаны только полученные ранее данные.</string>
+    <string name="det_parent_not_shared">Kinsight передаёт только экранное время детей, поэтому для этого телефона показаны только события.</string>
+    <string name="det_ev_paused">Обмен поставлен на паузу</string>
+    <string name="det_ev_resumed">Пауза обмена снята</string>
+    <string name="det_ev_access_off">Доступ к истории использования выключен</string>
+    <string name="det_ev_access_on">Доступ к истории использования включён</string>
+    <string name="det_ev_clock_forward">Часы переведены вперёд на %1$s</string>
+    <string name="det_ev_clock_back">Часы переведены назад на %1$s</string>
+    <string name="det_ev_bluetooth_off">Bluetooth был выключен %1$s</string>
+    <string name="det_ev_gap">Нет данных за %1$s</string>
+    <string name="det_ev_left">Телефон вышел из группы</string>
+    <string name="det_ev_sync_stopped">Синхронизация была остановлена на %1$s</string>
+    <string name="det_ev_notification_hidden">Уведомление синхронизации скрыто</string>
+    <string name="det_ev_notification_shown">Уведомление синхронизации снова видно, было скрыто %1$s</string>
+    <string name="det_ev_nearby_off">Разрешение «Устройства поблизости» было выключено %1$s</string>
+    <string name="det_ev_force_stopped">Kinsight был принудительно остановлен на %1$s</string>
+    <string name="det_ev_unknown">Неизвестное событие</string>
+</resources>

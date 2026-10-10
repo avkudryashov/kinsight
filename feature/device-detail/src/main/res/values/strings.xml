@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="det_back">Back</string>
+    <string name="det_day">Day</string>
+    <string name="det_week">Week</string>
+    <string name="det_month">Month</string>
+    <plurals name="det_unlocks">
+        <item quantity="one">%d unlock</item>
+        <item quantity="other">%d unlocks</item>
+    </plurals>
+    <string name="det_no_data_title">No data for this period</string>
+    <string name="det_no_data_body">This phone has not sent any screen time for these days yet.</string>
+    <string name="det_top_apps">Top apps</string>
+    <string name="det_no_apps">No app time in this period.</string>
+    <string name="det_all_apps">All apps (%1$d)</string>
+    <string name="det_all_apps_title">%1$s: all apps, %2$s</string>
+    <string name="det_events">Events</string>
+    <string name="det_no_events">No events.</string>
+    <string name="det_chart_summary">Average %1$s a day, most on %2$s (%3$s)</string>
+    <string name="det_paused_note">Sharing has been paused since %1$s. Time during the pause arrives after it is resumed.</string>
+    <string name="det_never_note">This phone does not share its screen time.</string>
+    <string name="det_left_note">This phone left the group. Only data received earlier is shown.</string>
+    <string name="det_parent_not_shared">Kinsight shares only children\'s screen time, so this phone shows only its events.</string>
+    <string name="det_ev_paused">Sharing paused</string>
+    <string name="det_ev_resumed">Sharing resumed</string>
+    <string name="det_ev_access_off">Usage access turned off</string>
+    <string name="det_ev_access_on">Usage access turned on</string>
+    <string name="det_ev_clock_forward">Clock moved forward by %1$s</string>
+    <string name="det_ev_clock_back">Clock moved back by %1$s</string>
+    <string name="det_ev_bluetooth_off">Bluetooth was off for %1$s</string>
+    <string name="det_ev_gap">No data for %1$s</string>
+    <string name="det_ev_left">Left the group</string>
+    <string name="det_ev_sync_stopped">Sync was stopped for %1$s</string>
+    <string name="det_ev_notification_hidden">Sync notification hidden</string>
+    <string name="det_ev_notification_shown">Sync notification visible again after %1$s</string>
+    <string name="det_ev_nearby_off">The Nearby devices permission was off for %1$s</string>
+    <string name="det_ev_force_stopped">Kinsight was force-stopped for %1$s</string>
+    <string name="det_ev_unknown">Unknown event</string>
+</resources>

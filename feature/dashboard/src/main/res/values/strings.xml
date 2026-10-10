@@ -42,4 +42,9 @@
     <string name="dash_card_not_seen">No contact. Last seen %1$s</string>
     <string name="dash_card_updated">Updated %1$s</string>
     <string name="dash_card_no_data">No data yet</string>
+    <string name="dash_left">You left the group. Nothing is shared any more.</string>
+    <string name="dash_sharing_failed">Couldn\'t change sharing. Try again.</string>
+    <string name="dash_open_details">Open details for %1$s</string>
+    <string name="dash_no_group_title">No family group</string>
+    <string name="dash_no_group_body">This phone is not in a family group.</string>
 </resources>
