@@ -222,6 +222,17 @@ class DashboardScreenTest {
     }
 
     @Test
+    fun pullToRefreshDoesNothingWhileSyncIsStopped() {
+        // The user's Stop holds: a pull would only spin; the banner's Start is the way back.
+        var synced = 0
+        val stopped = running.copy(state = ServiceState.STOPPED, stoppedByUser = true)
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), emptyList()), stopped, true), onSyncNow = { synced++ })
+        rule.onNodeWithTag("dash_list").performTouchInput { swipeDown(startY = top + 10f, endY = bottom, durationMillis = 600) }
+        rule.waitForIdle()
+        assertEquals(0, synced)
+    }
+
+    @Test
     fun stoppedSyncOffersStart() {
         var started = false
         show(DashboardUi(DashboardState(mom, null, emptyList(), emptyList()), running.copy(stoppedByUser = true), true), onStart = { started = true })

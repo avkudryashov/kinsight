@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -136,23 +137,21 @@ fun DashboardScreen(
             refreshing = false
         }
     }
-    PullToRefreshBox(
-        isRefreshing = refreshing,
-        onRefresh = {
-            refreshing = true
-            onSyncNow()
-        },
-        modifier = Modifier.fillMaxSize(),
-    ) {
+    // While the user's Stop holds, «Sync now» does nothing (the start honours the Stop): no pull, no action; the banner's
+    // Start is the way back.
+    val canSync = attention != SyncAttention.STOPPED
+    val list: @Composable BoxScope.() -> Unit = {
         LazyColumn(
             // Pull to refresh is a gesture only: TalkBack and switch users get the same «Sync now» as an action.
             Modifier.fillMaxSize().testTag("dash_list").semantics {
-                customActions = listOf(
-                    CustomAccessibilityAction(syncNowLabel) {
-                        onSyncNow()
-                        true
-                    },
-                )
+                if (canSync) {
+                    customActions = listOf(
+                        CustomAccessibilityAction(syncNowLabel) {
+                            onSyncNow()
+                            true
+                        },
+                    )
+                }
             },
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -172,6 +171,19 @@ fun DashboardScreen(
                 items(d.children, key = { it.member.id.hex }) { u -> DeviceCard(u, nowMs, noContactMs) { onOpenDevice(u.member.id) } }
             }
         }
+    }
+    if (canSync) {
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = {
+                refreshing = true
+                onSyncNow()
+            },
+            modifier = Modifier.fillMaxSize(),
+            content = list,
+        )
+    } else {
+        Box(Modifier.fillMaxSize(), content = list)
     }
 }
 
