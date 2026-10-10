@@ -177,7 +177,7 @@ class AndroidPairingLink(
                 isClosed = closed::get,
                 onSocket = { socket -> onInbound(socket.byteStream()) },
                 discard = { socket -> socket.close() },
-                onGiveUp = { ads.serviceProblem(RadioProblem(RadioProblem.Kind.PAIRING_LISTENER_FAILED, cause = it)) },
+                onGiveUp = { ads.serviceProblem(RadioProblem(RadioProblem.Kind.PAIRING_LISTENER_FAILED, cause = it.removePrefix("pairing listener failed: "))) },
                 log = log,
                 what = "pairing",
             )
