@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name" translatable="false">Kinsight</string>
-    <!-- Stage 3 diagnostics screen: technical, English only, replaced in stage 4. -->
+    <!-- Diagnostics (from Settings): technical, English only. -->
     <string name="diagnostics_loading" translatable="false">Selecting key backend...</string>
     <string name="diagnostics_sync_now" translatable="false">Sync now</string>
     <string name="diagnostics_refresh" translatable="false">Refresh</string>
@@ -25,4 +25,14 @@
     <string name="alert_new_parent_body">A new parent joined your family group. Settings → Who sees my data shows everyone.</string>
     <string name="alert_summary_daily">Screen time today</string>
     <string name="alert_summary_weekly">Screen time this week</string>
+    <string name="nav_overview">Overview</string>
+    <string name="nav_group">Group</string>
+    <string name="nav_settings">Settings</string>
+    <string name="app_already_in_group">This phone is already in a family group. To join another one, leave the current group first.</string>
+    <string name="app_leaving">Leaving the group: telling your family…</string>
+    <string name="app_resetting">Clearing this phone\'s Kinsight data…</string>
+    <string name="app_reset_failed_title">Could not clear the data</string>
+    <string name="app_reset_failed_body">Kinsight stopped part way while clearing this phone\'s data (%1$s). Try again. If it keeps failing, clear the app\'s storage in Android settings.</string>
+    <string name="app_reset_retry">Try again</string>
+    <string name="app_reset_dismiss">Not now</string>
 </resources>

@@ -20,4 +20,14 @@
     <string name="alert_new_parent_body">В вашу семейную группу вступил новый родитель. Все, кто видит данные, перечислены в Настройки → Кто видит мои данные.</string>
     <string name="alert_summary_daily">Экранное время за сегодня</string>
     <string name="alert_summary_weekly">Экранное время за неделю</string>
+    <string name="nav_overview">Обзор</string>
+    <string name="nav_group">Группа</string>
+    <string name="nav_settings">Настройки</string>
+    <string name="app_already_in_group">Этот телефон уже в семейной группе. Чтобы вступить в другую, сначала выйдите из текущей.</string>
+    <string name="app_leaving">Выход из группы: сообщаем семье…</string>
+    <string name="app_resetting">Удаляем данные Kinsight на этом телефоне…</string>
+    <string name="app_reset_failed_title">Не удалось удалить данные</string>
+    <string name="app_reset_failed_body">Kinsight остановился на полпути, удаляя данные этого телефона (%1$s). Попробуйте ещё раз. Если ошибка повторяется, очистите хранилище приложения в настройках Android.</string>
+    <string name="app_reset_retry">Повторить</string>
+    <string name="app_reset_dismiss">Не сейчас</string>
 </resources>

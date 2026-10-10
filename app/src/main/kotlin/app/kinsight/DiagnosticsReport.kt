@@ -3,9 +3,10 @@ package app.kinsight
 import app.kinsight.core.keystore.KeySelection
 import app.kinsight.core.keystore.KeyStorageException
 import app.kinsight.core.transport.ble.ServiceSnapshot
+import app.kinsight.core.transport.ble.StatusText
 import java.time.Instant
 
-/** Plain-text key and transport diagnostics (technical, English only; replaced by the settings screen in stage 4). */
+/** Plain-text key and transport diagnostics (technical, English only), shown by DiagnosticsActivity from Settings. */
 object DiagnosticsReport {
     fun format(selection: Result<KeySelection>, device: String): String = buildString {
         appendLine("Kinsight diagnostics")
@@ -35,7 +36,7 @@ object DiagnosticsReport {
      */
     fun transport(snapshot: ServiceSnapshot, group: String?, missingPermissions: List<String>): String = buildString {
         appendLine("Sync service: ${snapshot.state}${snapshot.detail?.let { " ($it)" } ?: ""}")
-        appendLine("Group: ${group ?: "none (pairing arrives in stage 4)"}")
+        appendLine("Group: ${group ?: "none"}")
         if (missingPermissions.isNotEmpty()) {
             appendLine("Missing permissions: ${missingPermissions.joinToString { it.substringAfterLast('.') }}")
         }
@@ -46,16 +47,10 @@ object DiagnosticsReport {
         snapshot.sync.lastProblem?.let { appendLine("Last problem: $it") }
     }
 
-    private fun notifications(s: ServiceSnapshot): String = when (s.notificationsEnabled) {
+    /** Visible or not as the service and the integrity events decide (StatusText, preflight C18), with the detail. */
+    private fun notifications(s: ServiceSnapshot): String = when (StatusText.notificationVisible(s)) {
         null -> "unknown"
-        false -> "DISABLED for the app"
-        true -> when (val importance = s.channelImportance) {
-            null -> "enabled, channel not created yet"
-            IMPORTANCE_NONE -> "enabled, channel BLOCKED"
-            else -> "enabled, channel importance $importance"
-        }
+        false -> if (s.notificationsEnabled == false) "DISABLED for the app" else "enabled, channel BLOCKED"
+        true -> s.channelImportance?.let { "enabled, channel importance $it" } ?: "enabled, channel not created yet"
     }
-
-    /** NotificationManager.IMPORTANCE_NONE: the user turned the channel off. */
-    private const val IMPORTANCE_NONE = 0
 }

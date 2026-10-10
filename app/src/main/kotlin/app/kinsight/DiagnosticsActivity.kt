@@ -1,8 +1,6 @@
 package app.kinsight
 
-import android.Manifest
 import android.app.Activity
-import android.content.pm.PackageManager
 import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
@@ -19,9 +17,8 @@ import app.kinsight.core.transport.ble.SyncGraph
 import app.kinsight.core.transport.ble.SyncService
 
 /**
- * Stage 3 diagnostic screen (technical, English only; replaced in stage 4): key backend, sync service state, and the
- * UI start of the service (spec §8 «Запуск из интерфейса») with a «Sync now» button for the fast mode. Every start
- * from here passes SyncService.REASON_UI, so it also clears a Stop the user pressed in the notification.
+ * Diagnostics (technical, English only), opened from Settings: key backend, sync service state, «Sync now» (fast mode,
+ * honours the user's Stop). It never starts the service by itself.
  */
 class DiagnosticsActivity : Activity() {
     private lateinit var output: TextView
@@ -60,14 +57,6 @@ class DiagnosticsActivity : Activity() {
             insets
         }
         setContentView(root)
-        // A configuration change is not a new start from the UI.
-        if (savedInstanceState != null) return
-        val missing = wantedPermissions().filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
-        if (missing.isNotEmpty()) {
-            requestPermissions(missing.toTypedArray(), REQUEST_PERMISSIONS) // the start follows in the result
-        } else {
-            startSync(fast = false)
-        }
     }
 
     override fun onResume() {
@@ -75,30 +64,10 @@ class DiagnosticsActivity : Activity() {
         refresh() // also after the user changed permissions or notification settings elsewhere
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode != REQUEST_PERMISSIONS) return
-        startSync(fast = false) // SyncService.start itself refuses without the «Nearby devices» permissions
-        refresh()
-    }
-
-    /** «Nearby devices» for the radio, and (API 33+) notifications so the user can see and stop the service. */
-    private fun wantedPermissions(): List<String> =
-        if (Build.VERSION.SDK_INT >= 33) BlePermissions.REQUIRED + Manifest.permission.POST_NOTIFICATIONS else BlePermissions.REQUIRED
-
-    /**
-     * No group (stage 4 pairing) means nothing to run: do not flash a notification for a service that stops at once.
-     * The group check reads the file system, so it runs off the main thread (like [refresh]).
-     */
+    /** «Sync now» from diagnostics honours the user's Stop (stage 4): only the Start button clears it. */
     private fun startSync(fast: Boolean) {
         val app = applicationContext
-        Thread {
-            try {
-                if (SyncGraph.groups(app).exists()) SyncService.start(app, SyncService.REASON_UI, fast)
-            } catch (e: Exception) {
-                Log.w(TAG, "cannot start sync", e)
-            }
-        }.start()
+        Thread { if (SyncGraph.groups(app).exists()) SyncService.start(app, SyncService.REASON_APP_OPEN, fast) }.start()
     }
 
     private fun refresh() {
@@ -124,6 +93,5 @@ class DiagnosticsActivity : Activity() {
 
     private companion object {
         const val TAG = "Kinsight"
-        const val REQUEST_PERMISSIONS = 1
     }
 }

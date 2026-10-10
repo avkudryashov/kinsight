@@ -1,25 +1,57 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- ML Kit's code scanner (onboarding) merges INTERNET for its own telemetry. Kinsight tells its users that nothing
+         goes to the internet; the scanner itself runs in Google Play services and needs no network from this app. -->
+    <uses-permission
+        android:name="android.permission.INTERNET"
+        tools:node="remove" />
 
     <!-- Do NOT declare android:process on any component: select() takes an in-process lock plus a cross-process
          file lock, but the key stores (Keystore and the software file) are designed and tested for a single
          process only. -->
+    <!-- Predictive back and the per-app language list are API 33+; older phones ignore them (tools:targetApi). -->
     <application
         android:name=".KinsightApplication"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
+        android:enableOnBackInvokedCallback="true"
         android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
+        android:localeConfig="@xml/locales_config"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.DeviceDefault.DayNight">
+        android:theme="@style/Theme.Kinsight"
+        tools:targetApi="33">
+
+        <!-- Google Play monitoring flag (research §1.4), in every variant. Only the meta-data form: the platform
+             android-36 has no android:isMonitoringTool attribute (checked 2026-10-10); add it with compileSdk 37. -->
+        <meta-data
+            android:name="isMonitoringTool"
+            android:value="child_monitoring" />
 
         <activity
-            android:name=".DiagnosticsActivity"
-            android:exported="true">
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Invitations (spec §6.4): the QR content opens the app from the system camera as well. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="kinsight" android:host="pair" />
+            </intent-filter>
         </activity>
+
+        <activity
+            android:name=".DiagnosticsActivity"
+            android:exported="false" />
     </application>
 </manifest>
