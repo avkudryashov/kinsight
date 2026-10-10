@@ -7,14 +7,21 @@ import app.kinsight.core.sync.SyncPolicy
 import app.kinsight.core.sync.TODAY
 import app.kinsight.core.sync.detail
 import app.kinsight.core.sync.summary
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import java.io.File
 import java.nio.file.Files
+import java.time.LocalDate
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 
 class RoomAuthorStateTest {
     private val dir = Files.createTempDirectory("kinsight-author").toFile()
@@ -100,5 +107,32 @@ class RoomAuthorStateTest {
         val store = open()
         assertEquals(AuthorState(2, old.lamport), store.authorState(keys.deviceId))
         assertEquals(3L, author(store).summary("2026-10-09", 1).seq)
+    }
+
+    @Test
+    fun twoStaleAuthorsRacingLeaveOneWinnerAndNoGap(): Unit = runBlocking {
+        val store = open()
+        store.applyBatch(listOf(genesis.entry))
+        repeat(20) { round ->
+            // Both authors start from the same state, so both claim the same next seq.
+            val a = author(store)
+            val b = author(store)
+            val gate = CompletableDeferred<Unit>()
+            val results = listOf(a, b).mapIndexed { i, who ->
+                async(Dispatchers.IO) {
+                    gate.await()
+                    val date = LocalDate.of(2026, 1, 1).plusDays(2L * round + i).toString() // no supersede
+                    runCatching { store.appendOwn(listOf(who.summary(date, 1))) }
+                }
+            }
+            gate.complete(Unit)
+            val outcomes = results.awaitAll()
+            assertEquals(1, outcomes.count { it.isSuccess }, "round $round")
+            assertIs<IllegalStateException>(outcomes.single { it.isFailure }.exceptionOrNull())
+        }
+        val seqs = store.liveEntries().filter { it.author == keys.deviceId }.map { it.seq }
+        assertEquals((1L..21L).toList(), seqs.sorted())
+        assertEquals(21L, store.versionVector()[keys.deviceId])
+        assertEquals(21L, store.authorState(keys.deviceId).lastSeq)
     }
 }
