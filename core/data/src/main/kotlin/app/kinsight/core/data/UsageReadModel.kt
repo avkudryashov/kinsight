@@ -6,6 +6,8 @@ import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.proto.AppCatalog
 import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.model.proto.UsageDetail
+import app.kinsight.core.usage.HourSlot
+import app.kinsight.core.usage.LocalHours
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -61,8 +63,11 @@ object UsageReadModel {
     /**
      * 24 clock hours of [detail] (spec §7: hours are the child's local clock hours). A missing hour is 0, buckets of the
      * same hour are summed (the publisher writes one bucket per hour; the repeated hour of a fall-back day can hold two
-     * hours, a skipped spring-forward hour has none); a bucket outside 0..23 is dropped. Untrusted peer: each slot,
-     * however many buckets claim it, is scaled down to [MAX_MS_PER_HOUR_SLOT] and holds at most [MAX_UNLOCKS_PER_DAY] unlocks.
+     * hours, a skipped spring-forward hour has none); a bucket outside 0..23 is dropped. Each slot holds at most the
+     * real length of that clock hour in the detail's zone ([slotLengths]: 1 h, 2 h for the repeated fall-back hour, 0 for
+     * the skipped one); apps in the foreground together (split screen, picture in picture) can claim more, and the slot's
+     * categories are then scaled down by one factor. Untrusted peer: each slot, however many buckets claim it, also stays
+     * within [MAX_MS_PER_HOUR_SLOT] and holds at most [MAX_UNLOCKS_PER_DAY] unlocks.
      */
     fun hours(detail: UsageDetail, catalog: Map<String, AppCatalog>, overrides: Map<String, AppCategory>): List<HourTotal> {
         val cats = Array(24) { java.util.EnumMap<AppCategory, Long>(AppCategory::class.java) }
@@ -80,7 +85,9 @@ object UsageReadModel {
             bucket.forEach { (c, ms) -> cats[h].merge(c, ms, Long::plus) }
             unlocks[h] = (unlocks[h] + b.unlocks.coerceIn(0, MAX_UNLOCKS_PER_DAY)).coerceAtMost(MAX_UNLOCKS_PER_DAY)
         }
+        val lengths = slotLengths(detail)
         return (0..23).map { h ->
+            fitDown(cats[h], lengths[h])
             val byCategory = cats[h].filterValues { it > 0 }
             HourTotal(h, byCategory.values.sum(), unlocks[h], byCategory)
         }
@@ -118,6 +125,17 @@ object UsageReadModel {
         val cells = Array(7) { row -> LongArray(24) { h -> if (perWeekday[row] == 0) 0L else sums[row][h] / perWeekday[row] } }
         val unlocks = IntArray(24) { h -> Math.round(unlockSums[h].toDouble() / covered).toInt() }
         return Heatmap(cells, unlocks, covered, past.size, weekFields.firstDayOfWeek)
+    }
+
+    /**
+     * The real length of each clock hour 0..23 of [detail]'s local date in its zone (LocalHours.lengthMs), within
+     * [MAX_MS_PER_HOUR_SLOT]; every hour [MAX_MS_PER_HOUR_SLOT] when the date or the zone does not parse (untrusted peer).
+     */
+    private fun slotLengths(detail: UsageDetail): LongArray {
+        val date = runCatching { LocalDate.parse(detail.local_date) }.getOrNull()
+        val zone = runCatching { ZoneId.of(detail.zone_id) }.getOrNull()
+        if (date == null || zone == null) return LongArray(24) { MAX_MS_PER_HOUR_SLOT }
+        return LongArray(24) { h -> LocalHours.lengthMs(HourSlot(date, h), zone).coerceIn(0L, MAX_MS_PER_HOUR_SLOT) }
     }
 
     /** Scales [cats] down so it sums to at most [cap] (≥ 0), the rounding residue going to the largest entry. */
@@ -298,7 +316,7 @@ object UsageReadModel {
     /**
      * One app [packageName] of [member] over [range] (the app screen, spec §9.3, stage 5a), from the same summaries,
      * details and bounds as [detail]: per-day time from each date's summary (clamped to a day), the DAY's clock hours
-     * from a usable UsageDetail (each slot capped at [MAX_MS_PER_HOUR_SLOT]), the place in [apps] of the range.
+     * from a usable UsageDetail (each slot cut to the hour's real length, as in [hours]), the place in [apps] of the range.
      * [viewerIsParent]: only a parent may change a category (a child's own phone never offers it), never of `~other`.
      */
     fun app(
@@ -351,15 +369,26 @@ object UsageReadModel {
         )
     }
 
-    /** 24 clock hours of one app in [detail]; buckets of the same hour summed, each slot capped (untrusted peer). */
+    /**
+     * 24 clock hours of one app in [detail]; buckets of the same hour summed. As in [hours], a slot whose apps together
+     * claim more than the hour's real length ([slotLengths]) is scaled down, the app keeping its share of the hour.
+     */
     private fun appHours(detail: UsageDetail, packageName: String): List<Long> {
         val slots = LongArray(24)
+        val totals = LongArray(24)
         for (b in detail.hours) {
             if (b.hour !in 0..23) continue
-            val ms = b.apps.filter { it.package_name == packageName }.sumOf { it.foreground_ms.coerceIn(0L, MAX_MS_PER_HOUR_SLOT) }
-            slots[b.hour] = (slots[b.hour] + ms).coerceAtMost(MAX_MS_PER_HOUR_SLOT)
+            for (a in b.apps) {
+                val ms = a.foreground_ms.coerceIn(0L, MAX_MS_PER_HOUR_SLOT)
+                totals[b.hour] = (totals[b.hour] + ms).coerceAtMost(Long.MAX_VALUE / 2)
+                if (a.package_name == packageName) slots[b.hour] += ms
+            }
         }
-        return slots.toList()
+        val lengths = slotLengths(detail)
+        return (0..23).map { h ->
+            val ms = slots[h].coerceAtMost(totals[h])
+            if (totals[h] <= lengths[h]) ms else (ms.toDouble() * lengths[h] / totals[h]).toLong()
+        }
     }
 
     /**

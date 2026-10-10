@@ -187,6 +187,64 @@ class HoursTest {
     }
 
     @Test
+    fun overlappingAppsOfANormalHourFillAtMostThatHour() {
+        // Phones, 0.5.0: navigation and a messenger both in the foreground (split screen, picture in picture) made 12 PM
+        // read 1 h 30 min. The slot is cut to the hour's real length, each category scaled by the same factor.
+        val day = DetailRange.of(Period.DAY, today, monFirst)
+        val d = detailOf(day, monFirst, summary(today, 90), detail(today, Triple(12, game, 50L), Triple(12, chat, 40L), Triple(13, game, 30L)))
+        val hours = assertNotNull(d.hours)
+        assertEquals(60 * min, hours[12].totalMs)
+        assertEquals(mapOf(AppCategory.GAMES to 2_000_000L, AppCategory.SOCIAL to 1_600_000L), hours[12].byCategory)
+        assertEquals(30 * min, hours[13].totalMs)
+    }
+
+    @Test
+    fun fallBackHourIsCutAtItsTwoRealHours() {
+        val dst = LocalDate.of(2026, 10, 25)
+        val day = DetailRange.of(Period.DAY, dst, monFirst)
+        val bucket = HourBucket(hour = 2, apps = listOf(AppTotal(game, 100 * min), AppTotal(chat, 50 * min)))
+        val (sums, dets) = split(listOf(summary(dst, 150), detail(dst, listOf(bucket, HourBucket(hour = 3, apps = listOf(AppTotal(game, 90 * min)))))))
+        val hours = assertNotNull(
+            UsageReadModel.detail(member, sums, catalog, emptyList(), day, today = dst, details = dets, weekFields = monFirst).hours,
+        )
+        assertEquals(120 * min, hours[2].totalMs)
+        assertEquals(mapOf(AppCategory.GAMES to 80 * min, AppCategory.SOCIAL to 40 * min), hours[2].byCategory)
+        assertEquals(60 * min, hours[3].totalMs) // the hour after the repeated one is an ordinary hour
+    }
+
+    @Test
+    fun aSkippedSpringForwardHourHoldsNothingWhateverItClaims() {
+        val dst = LocalDate.of(2026, 3, 29)
+        val day = DetailRange.of(Period.DAY, dst, monFirst)
+        val (sums, dets) = split(listOf(summary(dst, 40), detail(dst, Triple(1, game, 20L), Triple(2, game, 20L), unlocks = mapOf(2 to 1))))
+        val hours = assertNotNull(
+            UsageReadModel.detail(member, sums, catalog, emptyList(), day, today = dst, details = dets, weekFields = monFirst).hours,
+        )
+        assertEquals(0L, hours[2].totalMs)
+        assertEquals(emptyMap(), hours[2].byCategory)
+        assertEquals(20 * min, hours[1].totalMs)
+    }
+
+    @Test
+    fun heatmapCellsAreCutAtTheHourToo() {
+        val week = DetailRange.of(Period.WEEK, today, monFirst)
+        val map = assertNotNull(detailOf(week, monFirst, summary(today, 90), detail(today, Triple(12, game, 50L), Triple(12, chat, 40L))).heatmap)
+        assertEquals(60 * min, map.cells[5][12]) // Saturday 10 Oct, Monday-first
+    }
+
+    @Test
+    fun anUnknownZoneKeepsTheTwoHourCeiling() {
+        // Untrusted peer: without a usable zone the hour's length is unknown, so the old ceiling of two hours holds.
+        val day = DetailRange.of(Period.DAY, today, monFirst)
+        val sum = summary(today, 120) // the detail must be newer than the summary to be used
+        val odd = kid.create {
+            it.copy(usage_detail = UsageDetail(local_date = today.toString(), zone_id = "Mars/Olympus", hours = listOf(HourBucket(hour = 9, apps = listOf(AppTotal(game, 300 * min))))))
+        }
+        val hours = assertNotNull(detailOf(day, monFirst, sum, odd).hours)
+        assertEquals(UsageReadModel.MAX_MS_PER_HOUR_SLOT, hours[9].totalMs)
+    }
+
+    @Test
     fun springForwardDayHasAnEmptySkippedHour() {
         // 29 Mar 2026, Europe/Madrid: clock hour 2 does not exist; the child writes no bucket for it.
         val dst = LocalDate.of(2026, 3, 29)

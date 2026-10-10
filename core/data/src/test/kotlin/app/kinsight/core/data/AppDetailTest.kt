@@ -156,7 +156,14 @@ class AppDetailTest {
     @Test
     fun hoursOfAnUntrustedDetailAreCappedPerSlot() {
         val a = app(game, range(Period.DAY), summary(today, 60, game to 30L), detail(today, Triple(9, game, 500L), Triple(9, game, 500L)))
-        assertEquals(UsageReadModel.MAX_MS_PER_HOUR_SLOT, assertNotNull(a.hours)[9])
+        assertEquals(60 * min, assertNotNull(a.hours)[9]) // an ordinary clock hour holds one real hour
+    }
+
+    @Test
+    fun anAppsHourIsScaledWithItsOverfullSlot() {
+        // 12 PM claims 50 + 40 min: the slot is cut to 60 min and the game keeps its 50/90 share of it.
+        val a = app(game, range(Period.DAY), summary(today, 90, game to 50L, chat to 40L), detail(today, Triple(12, game, 50L), Triple(12, chat, 40L)))
+        assertEquals(2_000_000L, assertNotNull(a.hours)[12])
     }
 
     @Test
