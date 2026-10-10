@@ -15,6 +15,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.compose.foundation.layout.Column
+import app.kinsight.core.designsystem.component.BarChart
 import app.kinsight.core.designsystem.component.CategoryLegend
 import app.kinsight.core.designsystem.component.Heatmap
 import app.kinsight.core.designsystem.component.PeriodHeader
@@ -153,5 +155,36 @@ class DetailChartsTest {
         }
         rule.onNodeWithText("Games").assertExists()
         rule.onNodeWithText("Video").assertExists()
+    }
+
+    @Test
+    fun aLimitLineIsReadWithTheSummary() {
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                Column {
+                    StackedBarChart(
+                        stacks = listOf(listOf(1L), listOf(2L)),
+                        colors = colors,
+                        labels = listOf("M", "T"),
+                        summary = "Week",
+                        limit = 3L,
+                        limitLabel = "Limit 3 h",
+                    )
+                    StackedBarChart(
+                        stacks = listOf(listOf(1L)),
+                        colors = colors,
+                        labels = listOf("M"),
+                        summary = "Clickable",
+                        onBarClick = {},
+                        limit = 3L,
+                        limitLabel = "Limit 1 h",
+                    )
+                    BarChart(listOf(1L, 2L), listOf("M", "T"), summary = "Bars", limit = 2L, limitLabel = "Limit 2 h")
+                }
+            }
+        }
+        rule.onNodeWithContentDescription("Week. Limit 3 h").assertExists()
+        rule.onNodeWithContentDescription("Clickable. Limit 1 h").assertExists()
+        rule.onNodeWithContentDescription("Bars. Limit 2 h").assertExists()
     }
 }

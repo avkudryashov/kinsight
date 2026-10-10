@@ -10,6 +10,9 @@ import app.kinsight.core.designsystem.component.heatCells
 import app.kinsight.core.designsystem.component.heatHourLabels
 import app.kinsight.core.designsystem.component.heatIntensity
 import app.kinsight.core.designsystem.component.labelShown
+import app.kinsight.core.designsystem.component.limitFraction
+import app.kinsight.core.designsystem.component.limitSummary
+import app.kinsight.core.designsystem.component.scaleMax
 import app.kinsight.core.designsystem.component.labelSpacing
 import app.kinsight.core.designsystem.component.labelStep
 import app.kinsight.core.designsystem.component.spacedStep
@@ -141,5 +144,32 @@ class ChartMathTest {
         assertEquals(1, labelSpacing(listOf("M", "T", "W")))
         assertEquals(1, labelSpacing(listOf("M")))
         assertEquals(3, spacedStep(3, 1))
+    }
+
+    @Test
+    fun aLimitRaisesTheScaleSoItsLineIsAlwaysOnTheChart() {
+        assertEquals(100L, scaleMax(100L, null))
+        assertEquals(100L, scaleMax(100L, 60L))
+        assertEquals(180L, scaleMax(100L, 180L), "a limit above every bar sets the top")
+        assertEquals(1L, scaleMax(0L, null))
+        assertEquals(1L, scaleMax(0L, 0L))
+        assertEquals(50L, scaleMax(0L, 50L))
+    }
+
+    @Test
+    fun limitLineSitsAtItsShareOfTheScale() {
+        assertEquals(null, limitFraction(null, 100L))
+        assertEquals(null, limitFraction(0L, 100L))
+        assertEquals(null, limitFraction(-5L, 100L))
+        assertEquals(0.5f, limitFraction(50L, 100L))
+        assertEquals(1f, limitFraction(100L, 100L))
+        assertEquals(1f, limitFraction(150L, 100L), "never above the chart")
+    }
+
+    @Test
+    fun theSummaryNamesTheLimit() {
+        assertEquals("Average 3 h", limitSummary("Average 3 h", null))
+        assertEquals("Average 3 h. Limit 2 h", limitSummary("Average 3 h", "Limit 2 h"))
+        assertEquals("Average 3 h", limitSummary("Average 3 h", ""))
     }
 }

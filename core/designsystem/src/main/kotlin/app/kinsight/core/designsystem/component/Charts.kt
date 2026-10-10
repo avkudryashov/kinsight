@@ -19,6 +19,11 @@ import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.semantics.Role
@@ -41,7 +46,8 @@ import kotlin.math.roundToInt
  * also gets a bold label, so colour is never the only cue. Negative values draw as zero; [labels] are padded or
  * trimmed to the bars. When labels do not fit their slots (narrow screen, large font), only every n-th label is
  * shown, counted back from today so today's label always stays. [labelAnchor] is the bar thinning counts from instead
- * (0 for a clock-hour axis, so hour 0 and every 6th stay); null means the last bar.
+ * (0 for a clock-hour axis, so hour 0 and every 6th stay); null means the last bar. A [limit] (same unit as [values])
+ * draws a dashed line labelled [limitLabel] and raises the scale to it; TalkBack reads the label after [summary].
  */
 @Composable
 fun BarChart(
@@ -52,14 +58,18 @@ fun BarChart(
     height: Dp = 120.dp,
     highlightLast: Boolean = true,
     labelAnchor: Int? = null,
+    limit: Long? = null,
+    limitLabel: String? = null,
 ) {
     val highlight = MaterialTheme.colorScheme.primary
     val normal = MaterialTheme.colorScheme.secondary
     val bars = values.map { it.coerceAtLeast(0L) }
     val names = chartLabels(labels, bars.size)
-    Column(modifier.clearAndSetSemantics { contentDescription = summary }) {
+    val limitStyle = limitStyle()
+    val measurer = rememberTextMeasurer()
+    Column(modifier.clearAndSetSemantics { contentDescription = limitSummary(summary, limitLabel) }) {
         Canvas(Modifier.fillMaxWidth().height(height)) {
-            val max = (bars.maxOrNull() ?: 0L).coerceAtLeast(1L)
+            val max = scaleMax(bars.maxOrNull() ?: 0L, limit)
             val slot = size.width / bars.size.coerceAtLeast(1)
             val bar = slot * 0.6f
             bars.forEachIndexed { i, v ->
@@ -71,6 +81,7 @@ fun BarChart(
                     cornerRadius = CornerRadius(4.dp.toPx()),
                 )
             }
+            limitFraction(limit, max)?.let { drawLimit(size.height * (1 - it), limitLabel, measurer, limitStyle) }
         }
         ChartLabels(names, anchor = labelAnchor ?: names.lastIndex, bold = if (highlightLast) names.lastIndex else null)
     }
@@ -82,7 +93,8 @@ fun BarChart(
  * [summary]; with [onBarClick] every bar for which [barClickable] holds (not a future day) is also its own semantics
  * node with a click action labelled [barClickLabel]. The [highlight]ed bar gets a bold label and a thin underline,
  * and no bar is faded (colour is never the only cue); label thinning counts from [labelAnchor], else from it, else from
- * the last bar.
+ * the last bar. A [limit] (same unit as the segments, e.g. a daily limit) draws a dashed line labelled [limitLabel] and
+ * raises the scale to it, so the line is always on the chart; TalkBack reads the label after [summary].
  */
 @Composable
 fun StackedBarChart(
@@ -97,6 +109,8 @@ fun StackedBarChart(
     height: Dp = 160.dp,
     barClickable: (Int) -> Boolean = { true },
     labelAnchor: Int? = null,
+    limit: Long? = null,
+    limitLabel: String? = null,
 ) {
     val bars = stacks.map { stack -> stack.map { it.coerceAtLeast(0L) } }
     val names = chartLabels(labels, bars.size)
@@ -104,15 +118,18 @@ fun StackedBarChart(
     val baseline = MaterialTheme.colorScheme.outlineVariant
     val markColor = MaterialTheme.colorScheme.onSurface
     val marked = highlight?.takeIf { it in bars.indices }
+    val limitStyle = limitStyle()
+    val measurer = rememberTextMeasurer()
+    val described = limitSummary(summary, limitLabel)
     val outer = if (onBarClick == null) {
-        Modifier.clearAndSetSemantics { contentDescription = summary }
+        Modifier.clearAndSetSemantics { contentDescription = described }
     } else {
-        Modifier.semantics { contentDescription = summary; isTraversalGroup = true }
+        Modifier.semantics { contentDescription = described; isTraversalGroup = true }
     }
     Column(modifier.then(outer)) {
         Box(Modifier.fillMaxWidth().height(height)) {
             Canvas(Modifier.matchParentSize()) {
-                val max = (bars.maxOfOrNull { it.sum() } ?: 0L).coerceAtLeast(1L)
+                val max = scaleMax(bars.maxOfOrNull { it.sum() } ?: 0L, limit)
                 val slot = size.width / bars.size.coerceAtLeast(1)
                 val bar = slot * 0.6f
                 val corner = CornerRadius(4.dp.toPx())
@@ -141,6 +158,7 @@ fun StackedBarChart(
                         }
                     }
                 }
+                limitFraction(limit, max)?.let { drawLimit(floor * (1 - it), limitLabel, measurer, limitStyle) }
             }
             if (onBarClick != null) {
                 Row(Modifier.matchParentSize()) {
@@ -211,6 +229,36 @@ private fun ChartLabels(names: List<String>, anchor: Int, bold: Int?) {
         }
     }
 }
+
+private class LimitStyle(val line: Color, val text: TextStyle)
+
+@Composable
+private fun limitStyle() = LimitStyle(
+    MaterialTheme.colorScheme.onSurface,
+    MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold),
+)
+
+/** A dashed line across the chart at [y] with [label] at its end, above it (below when there is no room above). */
+private fun DrawScope.drawLimit(y: Float, label: String?, measurer: TextMeasurer, style: LimitStyle) {
+    val dash = 4.dp.toPx()
+    drawLine(style.line, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(dash, dash)))
+    if (label.isNullOrEmpty()) return
+    val text = measurer.measure(label, style.text, maxLines = 1)
+    val gap = 2.dp.toPx()
+    val top = if (y - gap - text.size.height >= 0) y - gap - text.size.height else y + gap
+    drawText(text, topLeft = Offset((size.width - text.size.width).coerceAtLeast(0f), top))
+}
+
+/** The top of a chart's scale: the tallest bar or the [limit], whichever is higher, at least 1. */
+internal fun scaleMax(barMax: Long, limit: Long?): Long = maxOf(barMax, limit ?: 0L).coerceAtLeast(1L)
+
+/** The [limit]'s height as a share of [max] (at most the whole chart); null without a positive limit. */
+internal fun limitFraction(limit: Long?, max: Long): Float? =
+    if (limit == null || limit <= 0L) null else (limit.toFloat() / max.coerceAtLeast(1L)).coerceAtMost(1f)
+
+/** What TalkBack reads for a chart: [summary], then the limit line's [limitLabel] when there is one. */
+internal fun limitSummary(summary: String, limitLabel: String?): String =
+    if (limitLabel.isNullOrEmpty()) summary else "$summary. $limitLabel"
 
 /**
  * The colour alpha of bar [i]'s segments when bar [marked] is highlighted (null: none): always full. Fading the other
