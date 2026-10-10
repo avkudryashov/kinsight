@@ -15,7 +15,7 @@ dependencies {
     api(project(":core:transport-ble"))
     api(project(":core:usage"))
     api(project(":core:keystore"))
-    implementation(libs.coroutines.core)
-    implementation(libs.datastore.preferences)
+    api(libs.coroutines.core)
+    api(libs.datastore.preferences)
     testImplementation(project(":core:testing"))
 }
