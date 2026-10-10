@@ -6,6 +6,7 @@ import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.sync.SecureChannel
+import app.kinsight.core.sync.SyncSession
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -124,4 +125,10 @@ class UsageContentTest {
         heavyRows(activeHours, appsPerHour),
         (0 until activeHours).map { PendingHourRow(date, it, 59 * MIN, 12) },
     )
+
+    @Test
+    fun detailLimitIsTheSyncBatchBudget() {
+        // SyncSession never sends an entry above its batch budget: a bigger detail would never leave the device.
+        assertEquals(SyncSession.BATCH_BYTES, Publisher.MAX_DETAIL_ENTRY_BYTES)
+    }
 }

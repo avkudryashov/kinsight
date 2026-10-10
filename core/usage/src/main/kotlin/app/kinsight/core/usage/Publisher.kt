@@ -9,6 +9,7 @@ import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.proto.AppCatalog
 import app.kinsight.core.model.proto.StateEvent
+import app.kinsight.core.sync.SyncSession
 import app.kinsight.core.sync.observedLamport
 import okio.ByteString.Companion.toByteString
 import java.time.LocalDate
@@ -142,10 +143,10 @@ class Publisher(
         const val MIN_INTERVAL_MS = 3_600_000L
 
         /**
-         * Largest signed UsageDetail entry we publish. Mirrors SyncSession.BATCH_BYTES in core/sync (private there):
-         * SyncSession never sends an entry above its batch budget, so a bigger one would never leave this device.
+         * Largest signed UsageDetail entry we publish: SyncSession.BATCH_BYTES. SyncSession never sends an entry
+         * above its batch budget, so a bigger one would never leave this device.
          */
-        const val MAX_DETAIL_ENTRY_BYTES = 60_000
+        const val MAX_DETAIL_ENTRY_BYTES = SyncSession.BATCH_BYTES
     }
 }
 

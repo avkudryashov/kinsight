@@ -342,7 +342,8 @@ class SyncSession(
     companion object {
         const val MAX_INVALID = 10
         private const val PAGE = 200
-        private const val BATCH_BYTES = 60_000
+        /** Byte budget of one EntryBatch; an entry above it is never sent (core/usage caps UsageDetail by it). */
+        const val BATCH_BYTES = 60_000
         private const val ENTRY_OVERHEAD = 8
     }
 }
