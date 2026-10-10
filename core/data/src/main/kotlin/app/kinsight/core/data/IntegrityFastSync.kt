@@ -18,15 +18,17 @@ import kotlinx.coroutines.sync.withLock
 
 /**
  * Brings a child's own integrity news to a parent in range within seconds instead of after the sync cooldown (phones,
- * 2026-10-10: a pause took 4 min 40 s). Every own integrity StateEvent the pipeline signs or queues
- * ([KINDS]: AlertPlanner.INTEGRITY_KINDS plus SHARING_RESUMED) asks for one fast-mode window, the same 60 s as
+ * 2026-10-10: a pause took 4 min 40 s). Every own StateEvent the pipeline signs or queues that a parent alerts on
+ * ([KINDS]: AlertPlanner.INTEGRITY_KINDS, plus the closers in AlertPlanner.CLOSERS, SHARING_RESUMED and
+ * NOTIFICATION_SHOWN, which clear the parent's open notification) asks for one fast-mode window, the same 60 s as
  * «Sync now», at most once per [MIN_INTERVAL_MS] (a flapping switch must not keep the radio in low latency), and never
- * while the user's Stop holds. A refused start does not use up the interval. [clock] is monotonic in the app.
+ * while the user's Stop holds. [startFast] says whether the start went out (false: no group, or the system refused
+ * the service start); a start that was skipped or failed does not use up the interval. [clock] is monotonic in the app.
  */
 class IntegrityFastSync(
     private val clock: () -> Long,
     private val stoppedByUser: suspend () -> Boolean,
-    private val startFast: () -> Unit,
+    private val startFast: () -> Boolean,
 ) {
     private val mutex = Mutex()
     private var lastStartMs: Long? = null
@@ -38,14 +40,14 @@ class IntegrityFastSync(
         val last = lastStartMs
         if (last != null && now - last < MIN_INTERVAL_MS) return@withLock false
         if (stoppedByUser()) return@withLock false
+        if (!startFast()) return@withLock false
         lastStartMs = now
-        startFast()
         true
     }
 
     companion object {
         const val MIN_INTERVAL_MS = 120_000L
-        val KINDS: Set<StateEvent.Kind> = AlertPlanner.INTEGRITY_KINDS + StateEvent.Kind.SHARING_RESUMED
+        val KINDS: Set<StateEvent.Kind> = AlertPlanner.INTEGRITY_KINDS + AlertPlanner.CLOSERS.values
         private const val TAG = "KinsightSync"
 
         /**
@@ -60,7 +62,7 @@ class IntegrityFastSync(
             val fast = IntegrityFastSync(
                 clock = SystemClock::elapsedRealtime,
                 stoppedByUser = { SyncGraph.state(app).stoppedByUser() },
-                startFast = { if (SyncGraph.groups(app).exists()) SyncService.requestFast(app) },
+                startFast = { SyncGraph.groups(app).exists() && SyncService.requestFast(app) },
             )
             UsageGraph.ownStateEventListener = { kind ->
                 if (kind in KINDS) {

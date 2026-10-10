@@ -751,32 +751,37 @@ class SyncService : Service() {
 
         /**
          * Safe from anywhere: without the «Nearby devices» permissions nothing starts (on API 34+ startForeground
-         * would throw), and a refused start (from the background) is logged, never thrown.
+         * would throw), and a refused start (from the background) is logged, never thrown. False in both cases.
          */
-        fun start(context: Context, reason: String, fast: Boolean = false) {
+        fun start(context: Context, reason: String, fast: Boolean = false): Boolean {
             val missing = BlePermissions.missing(context)
             if (missing.isNotEmpty()) {
                 Log.w(TAG, "not starting the sync service ($reason): missing ${missing.joinToString { it.substringAfterLast('.') }}")
-                return
+                return false
             }
             val intent = Intent(context, SyncService::class.java)
                 .putExtra(EXTRA_REASON, reason)
                 .putExtra(EXTRA_BY_USER, reason == REASON_UI)
             if (fast) intent.action = ACTION_SYNC_NOW
-            try {
+            return try {
                 context.startForegroundService(intent)
+                true
             } catch (e: Exception) {
                 Log.w(TAG, "cannot start the sync service ($reason)", e)
+                false
             }
         }
 
         /**
          * One fast-mode window (as «Sync now») without a UI start: a running instance goes fast in process (no
          * foreground-service start from the background), otherwise a REASON_APP_OPEN start. Both honour the user's
-         * Stop. For IntegrityFastSync (core/data); the fast-mode dial rules are ConnectPolicy's as always.
+         * Stop. For IntegrityFastSync (core/data); the fast-mode dial rules are ConnectPolicy's as always. False when
+         * nothing could start (see [start]).
          */
-        fun requestFast(context: Context) {
-            instance?.fastUnlessStopped() ?: start(context, REASON_APP_OPEN, fast = true)
+        fun requestFast(context: Context): Boolean {
+            val running = instance ?: return start(context, REASON_APP_OPEN, fast = true)
+            running.fastUnlessStopped()
+            return true
         }
 
         /** The app came to the front (or an onboarding step closed): post the notification again if it can be seen now. */

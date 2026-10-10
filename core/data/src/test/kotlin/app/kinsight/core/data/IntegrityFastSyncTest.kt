@@ -11,7 +11,8 @@ class IntegrityFastSyncTest {
     private var now = 1_000_000L
     private var stopped = false
     private var starts = 0
-    private val fast = IntegrityFastSync(clock = { now }, stoppedByUser = { stopped }, startFast = { starts++ })
+    private var startWorks = true
+    private val fast = IntegrityFastSync(clock = { now }, stoppedByUser = { stopped }, startFast = { starts++; startWorks })
 
     @Test
     fun integrityEntryStartsFastModeOnce() = runBlocking<Unit> {
@@ -33,18 +34,31 @@ class IntegrityFastSyncTest {
 
     @Test
     fun nonIntegrityEntryDoesNotStart() = runBlocking<Unit> {
-        assertFalse(fast.onOwnStateEvent(StateEvent.Kind.NOTIFICATION_SHOWN))
+        assertFalse(fast.onOwnStateEvent(StateEvent.Kind.USAGE_ACCESS_RESTORED))
         assertFalse(fast.onOwnStateEvent(StateEvent.Kind.KIND_UNSPECIFIED))
         assertEquals(0, starts)
     }
 
     @Test
-    fun everyIntegrityKindAndTheResumeStart() = runBlocking<Unit> {
-        for (kind in AlertPlanner.INTEGRITY_KINDS + StateEvent.Kind.SHARING_RESUMED) {
+    fun everyIntegrityKindAndEveryCloserStart() = runBlocking<Unit> {
+        assertEquals(AlertPlanner.INTEGRITY_KINDS + AlertPlanner.CLOSERS.values, IntegrityFastSync.KINDS)
+        assertTrue(StateEvent.Kind.SHARING_RESUMED in IntegrityFastSync.KINDS)
+        assertTrue(StateEvent.Kind.NOTIFICATION_SHOWN in IntegrityFastSync.KINDS)
+        for (kind in IntegrityFastSync.KINDS) {
             now += IntegrityFastSync.MIN_INTERVAL_MS
             assertTrue(fast.onOwnStateEvent(kind), kind.name)
         }
-        assertEquals(AlertPlanner.INTEGRITY_KINDS.size + 1, starts)
+        assertEquals(IntegrityFastSync.KINDS.size, starts)
+    }
+
+    @Test
+    fun failedStartDoesNotUseUpTheInterval() = runBlocking<Unit> {
+        startWorks = false // no group, or the system refused the service start
+        assertFalse(fast.onOwnStateEvent(StateEvent.Kind.SHARING_PAUSED))
+        startWorks = true
+        now += 1
+        assertTrue(fast.onOwnStateEvent(StateEvent.Kind.SHARING_PAUSED))
+        assertEquals(2, starts)
     }
 
     @Test
