@@ -80,8 +80,8 @@ fun BarChart(
  * Stacked vertical bars on Canvas (spec §9.8): bar i is the sum of [stacks][i], segment j drawn bottom-up in
  * [colors][j] (wrapping). A bar with nothing draws a faint baseline so the day still reads as a day. TalkBack reads
  * [summary]; with [onBarClick] every bar for which [barClickable] holds (not a future day) is also its own semantics
- * node with a click action labelled [barClickLabel]. The [highlight]ed bar keeps full colour and a bold label while
- * the others fade, so colour is never the only cue; label thinning counts from [labelAnchor], else from it, else from
+ * node with a click action labelled [barClickLabel]. The [highlight]ed bar gets a bold label and a thin underline,
+ * and no bar is faded (colour is never the only cue); label thinning counts from [labelAnchor], else from it, else from
  * the last bar.
  */
 @Composable
@@ -102,6 +102,7 @@ fun StackedBarChart(
     val names = chartLabels(labels, bars.size)
     val palette = colors.ifEmpty { listOf(MaterialTheme.colorScheme.secondary) }
     val baseline = MaterialTheme.colorScheme.outlineVariant
+    val markColor = MaterialTheme.colorScheme.onSurface
     val marked = highlight?.takeIf { it in bars.indices }
     val outer = if (onBarClick == null) {
         Modifier.clearAndSetSemantics { contentDescription = summary }
@@ -115,19 +116,23 @@ fun StackedBarChart(
                 val slot = size.width / bars.size.coerceAtLeast(1)
                 val bar = slot * 0.6f
                 val corner = CornerRadius(4.dp.toPx())
+                // Room under the bars for the highlight's underline.
+                val mark = 3.dp.toPx()
+                val floor = if (marked == null) size.height else size.height - mark - 2.dp.toPx()
                 bars.forEachIndexed { i, stack ->
                     val left = i * slot + (slot - bar) / 2
+                    if (barMarked(i, marked)) drawRoundRect(markColor, Offset(left, size.height - mark), Size(bar, mark), CornerRadius(mark / 2))
                     val total = stack.sum()
                     if (total == 0L) {
                         val line = 2.dp.toPx()
-                        drawRoundRect(baseline, Offset(left, size.height - line), Size(bar, line), CornerRadius(line / 2))
+                        drawRoundRect(baseline, Offset(left, floor - line), Size(bar, line), CornerRadius(line / 2))
                         return@forEachIndexed
                     }
-                    val alpha = if (marked == null || marked == i) 1f else 0.45f
-                    val h = (size.height * total.toFloat() / max).coerceAtLeast(2.dp.toPx())
+                    val alpha = barAlpha(i, marked)
+                    val h = (floor * total.toFloat() / max).coerceAtLeast(2.dp.toPx())
                     // Clip the whole bar to a rounded rect so only its top and bottom corners are rounded.
-                    clipPath(Path().apply { addRoundRect(RoundRect(left, size.height - h, left + bar, size.height, corner)) }) {
-                        var bottom = size.height
+                    clipPath(Path().apply { addRoundRect(RoundRect(left, floor - h, left + bar, floor, corner)) }) {
+                        var bottom = floor
                         stack.forEachIndexed { j, v ->
                             if (v == 0L) return@forEachIndexed
                             val seg = h * v.toFloat() / total
@@ -206,6 +211,17 @@ private fun ChartLabels(names: List<String>, anchor: Int, bold: Int?) {
         }
     }
 }
+
+/**
+ * The colour alpha of bar [i]'s segments when bar [marked] is highlighted (null: none): always full. Fading the other
+ * bars made a whole week look dimmed when the highlighted day (today) had no data yet (phones, 0.5.0); the highlight
+ * is the bold label and the underline ([barMarked]) instead.
+ */
+@Suppress("UNUSED_PARAMETER")
+internal fun barAlpha(i: Int, marked: Int?): Float = 1f
+
+/** Whether bar [i] carries the highlight mark. */
+internal fun barMarked(i: Int, marked: Int?): Boolean = marked != null && i == marked
 
 /** Whether bar [i]'s label shows when every [step]-th label is kept, counted from [anchor] in both directions. */
 internal fun labelShown(i: Int, anchor: Int, step: Int): Boolean = Math.floorMod(anchor - i, step.coerceAtLeast(1)) == 0

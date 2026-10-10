@@ -2,6 +2,8 @@ package app.kinsight.core.designsystem
 
 import androidx.compose.ui.graphics.Color
 import app.kinsight.core.designsystem.component.CATEGORY_COLOR_COUNT
+import app.kinsight.core.designsystem.component.barAlpha
+import app.kinsight.core.designsystem.component.barMarked
 import app.kinsight.core.designsystem.component.categoryPalette
 import app.kinsight.core.designsystem.component.contrastRatio
 import app.kinsight.core.designsystem.component.heatCells
@@ -78,6 +80,21 @@ class ChartMathTest {
         assertContentEquals(LongArray(24) { 7L }, c[1])
         assertContentEquals(LongArray(24), c[6])
         assertEquals(7, heatCells(emptyArray()).size)
+    }
+
+    @Test
+    fun aHighlightedBarDoesNotDimTheOthers() {
+        // Phones, 0.5.0: today without data was highlighted and every other bar of the week looked dimmed.
+        for (marked in listOf(null, 0, 6)) {
+            for (i in 0..6) assertEquals(1f, barAlpha(i, marked), "bar $i, marked $marked")
+        }
+    }
+
+    @Test
+    fun onlyTheHighlightedBarGetsTheMark() {
+        assertTrue(barMarked(6, marked = 6))
+        assertFalse(barMarked(5, marked = 6))
+        assertFalse(barMarked(0, marked = null))
     }
 
     @Test
