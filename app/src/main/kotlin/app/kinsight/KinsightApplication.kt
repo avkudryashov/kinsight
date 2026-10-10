@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.IntegrityFastSync
+import app.kinsight.core.data.ResetStatus
 import app.kinsight.core.transport.ble.BlePermissions
 import app.kinsight.core.transport.ble.SyncGraph
 import app.kinsight.core.usage.UsageGraph
@@ -39,6 +40,16 @@ open class KinsightApplication : Application() {
         SyncGraph.onboardingDone = { AppGraph.get(it).prefs.current().onboardingDone }
         UsageAccessWatcher.register(this)
         val app = this
+        // A reset or leave wipes after MainActivity.onStop may have redrawn the widget: redraw once the wipe ends.
+        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
+            attempt("widget wipe watch") {
+                var previous: ResetStatus = ResetStatus.Idle
+                AppGraph.get(app).reset.status.collect { s ->
+                    if (KinsightWidget.wipeEnded(previous, s)) KinsightWidget.update(app)
+                    previous = s
+                }
+            }
+        }
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             attempt("sharing reconcile") { UsageGraph.pipeline(app).reconcileSharing() }
             attempt("join recovery") { AppGraph.get(app).pairing.finishInterruptedJoin() }
