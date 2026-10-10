@@ -11,6 +11,7 @@ const val DAY = 86_400_000L
 const val MAPS = "com.example.maps"
 const val CHAT = "com.example.chat"
 const val LAUNCHER = "com.example.launcher"
+const val SETTINGS = "com.android.settings"
 
 /** Recorded event sequences written as local wall times of [date] in [zone] ("10:15", "23:59:59"). */
 class Script(private val zone: ZoneId, private val date: LocalDate) {

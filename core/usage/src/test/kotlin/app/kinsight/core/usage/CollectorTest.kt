@@ -106,6 +106,21 @@ class CollectorTest {
     }
 
     @Test
+    fun forwardClockJumpDoesNotCreditTheJumpedInterval() = runTest {
+        // Reviewer probe: Settings resumed at 09:58, 6 real minutes pass, the clock is set 3 h ahead meanwhile.
+        source.events += s.resumed("09:58", SETTINGS)
+        collector.collect() // 10:00, SETTINGS still open
+        clock.elapsedMs += 4 * MIN
+        clock.wallMs += 4 * MIN + 3 * HOUR_MS // real 10:04, the clock reads 13:04
+        collector.collect()
+        assertEquals(3 * HOUR_MS, queue.pendingEvents().single().clockShiftMs)
+        val total = queue.dayUsage("2026-10-09").apps.filter { it.packageName == SETTINGS }.sumOf { it.foregroundMs }
+        assertEquals(6L, total / MIN)
+        // Nothing carried across the jump: the app counts again only from its next RESUMED.
+        assertEquals("", queue.state()!!.resumed)
+    }
+
+    @Test
     fun backwardClockJumpRebasesTheCursor() = runTest {
         collector.collect() // 10:00
         clock.elapsedMs += 30 * MIN

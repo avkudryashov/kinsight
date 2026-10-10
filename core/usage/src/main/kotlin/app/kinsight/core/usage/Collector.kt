@@ -44,11 +44,14 @@ class Collector(
         var from = prev.cursorMs
         var stream = StreamState(prev.screenOn, StreamCodec.decode(prev.resumed))
         var until = now.wallMs
+        var jumpAt: Long? = null
         val shift = ClockWatch.shift(ClockSample(prev.wallMs, prev.elapsedMs, prev.bootCount), now)
         if (shift != null) {
             events += event(StateEvent.Kind.CLOCK_CHANGED, prev.wallMs, now.wallMs, shift)
             // Set back: finish the old timeline up to the elapsed-clock "now", then continue from the new wall time.
             if (shift < 0) until = maxOf(from, now.wallMs - shift)
+            // Set ahead: nothing open is carried over the jump, or the jumped hours would count as screen time.
+            if (shift > 0) jumpAt = now.wallMs - shift
         }
         if (until - from > HISTORY_MS) {
             val resume = until - HISTORY_MS
@@ -56,7 +59,7 @@ class Collector(
             from = resume
             stream = StreamState.INITIAL
         }
-        return aggregate(from, until, stream, ZoneId.of(prev.zoneId), zoneNow, now, events, prev)
+        return aggregate(from, until, stream, ZoneId.of(prev.zoneId), zoneNow, now, events, prev, jumpAt)
     }
 
     /** Access is gone: record USAGE_ACCESS_REVOKED on the "had it → lost it" transition and hold the cursor. */
@@ -81,12 +84,23 @@ class Collector(
         now: ClockSample,
         events: List<PendingEventRow>,
         prev: CollectorStateRow?,
+        jumpAt: Long? = null,
     ): CollectResult {
         val raw = if (until > from) source.read(from, until) else emptyList()
         // Without access the system answers with no events, which looks like an idle period: a revoke during the
         // read must not move the cursor over data that is still there.
         if (!access.granted()) return revoked(prev, now)
-        val agg = Aggregator.run(start, raw, from, until, zone, launchers.launchers())
+        val excluded = launchers.launchers()
+        val agg = if (jumpAt == null) {
+            Aggregator.run(start, raw, from, until, zone, excluded)
+        } else {
+            // A forward jump: [from, jumpAt) with the carried state, then [jumpAt, until) with no app carried over.
+            // An app open across the jump undercounts until its next RESUMED (spec §7).
+            val cut = jumpAt.coerceIn(from, until)
+            val before = Aggregator.run(start, raw, from, cut, zone, excluded)
+            val after = Aggregator.run(StreamState(before.end.screenOn, emptySet()), raw, cut, until, zone, excluded)
+            before + after
+        }
         val hourSlots = agg.screenMs.keys + agg.unlocks.keys
         val dates = (hourSlots + agg.appMs.keys.map { it.slot }).map { it.date }.distinct().sorted()
         queue.commit(
