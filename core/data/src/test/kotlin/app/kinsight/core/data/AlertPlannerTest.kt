@@ -34,7 +34,9 @@ class AlertPlannerTest {
         departed: List<MemberView> = emptyList(),
     joined: Map<DeviceId, Long> = emptyMap(),
     inviter: DeviceId? = null,
-) = AlertInput(self, members, departed, events, children, now, zone, 24, mode, markers, joined, inviter)
+    thresholds: List<ThresholdRule> = emptyList(),
+    todays: Map<DeviceId, ThresholdDay> = emptyMap(),
+) = AlertInput(self, members, departed, events, children, now, zone, 24, mode, markers, joined, inviter, thresholds, todays)
 
     @Test
     fun firstRunMarksHistoryAsSeen() {
@@ -262,5 +264,142 @@ class AlertPlannerTest {
             val alerts = AlertPlanner.plan(input(events = listOf(ev(kid, 1, kind), ev(kid, 2, resumed), ev(kid, 3, StateEvent.Kind.NOTIFICATION_SHOWN)))).alerts
             assertEquals(listOf<Alert>(Alert.Integrity("Kid", kind, 1_000, kid.id)), alerts, kind.name)
         }
+    }
+
+    // Thresholds (stage 5b, spec §9.7).
+
+    private val min = 60_000L
+    private val oct10 = LocalDate.of(2026, 10, 10)
+    private fun rule(target: ThresholdTarget, limitMs: Long, child: DeviceId = kid.id) = ThresholdRule.of(child, target, limitMs)!!
+    private fun day(totalMs: Long, games: Long = 0, apps: Map<String, Long> = emptyMap(), date: LocalDate = oct10, labels: Map<String, String> = emptyMap()) =
+        ThresholdDay(date, TodayUsage(totalMs, if (games > 0) mapOf(AppCategory.GAMES to games) else emptyMap(), apps), labels)
+    private fun thresholdAlerts(plan: AlertPlan) = plan.alerts.filterIsInstance<Alert.Threshold>()
+    private fun byId(alerts: List<Alert.Threshold>) = alerts.sortedBy { ThresholdRule.idOf(it.child, it.target) }
+
+    @Test
+    fun thresholdFiresWhenReachedAndOncePerDay() {
+        val total = rule(ThresholdTarget.Total, 3 * h)
+        assertTrue(thresholdAlerts(AlertPlanner.plan(input(thresholds = listOf(total), todays = mapOf(kid.id to day(3 * h - min))))).isEmpty())
+        val first = AlertPlanner.plan(input(thresholds = listOf(total), todays = mapOf(kid.id to day(3 * h))))
+        assertEquals(listOf(Alert.Threshold(kid.id, "Kid", ThresholdTarget.Total, null, 3 * h, 3 * h)), thresholdAlerts(first))
+        assertEquals(setOf("${total.id}@${3 * h}@2026-10-10"), first.markers.thresholdNotified)
+        // Review Focus 3: the hourly runs later the same day, with more time, say nothing.
+        var markers = first.markers
+        for (hour in 13..23) {
+            val again = AlertPlanner.plan(
+                input(now = at(10, hour), thresholds = listOf(total), todays = mapOf(kid.id to day(3 * h + hour * min)), markers = markers),
+            )
+            assertTrue(thresholdAlerts(again).isEmpty())
+            markers = again.markers
+        }
+        // The child's next day is a new promise.
+        val next = AlertPlanner.plan(
+            input(now = at(11, 20), thresholds = listOf(total), todays = mapOf(kid.id to day(4 * h, date = oct10.plusDays(1))), markers = markers),
+        )
+        assertEquals(1, thresholdAlerts(next).size)
+    }
+
+    @Test
+    fun lateSummaryWithEveryLimitLongPassedNotifiesOncePerRule() {
+        // Review Focus 3: the evening summary arrives with all three limits passed: one alert per rule, then silence.
+        val rules = listOf(
+            rule(ThresholdTarget.Total, 2 * h),
+            rule(ThresholdTarget.Category(AppCategory.GAMES), h),
+            rule(ThresholdTarget.App("com.roblox.client"), 30 * min),
+        )
+        val today = day(5 * h, games = 4 * h, apps = mapOf("com.roblox.client" to 4 * h), labels = mapOf("com.roblox.client" to "Roblox"))
+        val evening = AlertPlanner.plan(input(now = at(10, 22), thresholds = rules, todays = mapOf(kid.id to today)))
+        assertEquals(
+            byId(
+                listOf(
+                    Alert.Threshold(kid.id, "Kid", ThresholdTarget.App("com.roblox.client"), "Roblox", 4 * h, 30 * min),
+                    Alert.Threshold(kid.id, "Kid", ThresholdTarget.Category(AppCategory.GAMES), null, 4 * h, h),
+                    Alert.Threshold(kid.id, "Kid", ThresholdTarget.Total, null, 5 * h, 2 * h),
+                ),
+            ),
+            byId(thresholdAlerts(evening)),
+        )
+        val later = AlertPlanner.plan(input(now = at(10, 23), thresholds = rules, todays = mapOf(kid.id to today), markers = evening.markers))
+        assertTrue(thresholdAlerts(later).isEmpty())
+    }
+
+    @Test
+    fun firstRunStillFiresThresholdsAlreadyExceeded() {
+        val plan = AlertPlanner.plan(input(markers = AlertMarkers(), thresholds = listOf(rule(ThresholdTarget.Total, h)), todays = mapOf(kid.id to day(2 * h))))
+        assertEquals(1, thresholdAlerts(plan).size)
+    }
+
+    @Test
+    fun raisedThenLoweredLimitDoesNotRepeatAndANewValueNotifiesWhenExceeded() {
+        // Review Focus 2.
+        val today = mapOf(kid.id to day(70 * min))
+        val first = AlertPlanner.plan(input(thresholds = listOf(rule(ThresholdTarget.Total, h)), todays = today))
+        assertEquals(1, thresholdAlerts(first).size)
+        val raised = AlertPlanner.plan(input(thresholds = listOf(rule(ThresholdTarget.Total, 2 * h)), todays = today, markers = first.markers))
+        assertTrue(thresholdAlerts(raised).isEmpty())
+        val back = AlertPlanner.plan(input(thresholds = listOf(rule(ThresholdTarget.Total, h)), todays = today, markers = raised.markers))
+        assertTrue(thresholdAlerts(back).isEmpty())
+        val lower = AlertPlanner.plan(input(thresholds = listOf(rule(ThresholdTarget.Total, 45 * min)), todays = today, markers = back.markers))
+        assertEquals(listOf(Alert.Threshold(kid.id, "Kid", ThresholdTarget.Total, null, 70 * min, 45 * min)), thresholdAlerts(lower))
+        val again = AlertPlanner.plan(input(thresholds = listOf(rule(ThresholdTarget.Total, 45 * min)), todays = today, markers = lower.markers))
+        assertTrue(thresholdAlerts(again).isEmpty())
+    }
+
+    @Test
+    fun aDeletedRuleNotifiesAgainWhenAddedBack() {
+        val total = rule(ThresholdTarget.Total, h)
+        val today = mapOf(kid.id to day(2 * h))
+        val first = AlertPlanner.plan(input(thresholds = listOf(total), todays = today))
+        val deleted = AlertPlanner.plan(input(thresholds = emptyList(), todays = today, markers = first.markers))
+        assertTrue(deleted.markers.thresholdNotified.isEmpty())
+        assertEquals(1, thresholdAlerts(AlertPlanner.plan(input(thresholds = listOf(total), todays = today, markers = deleted.markers))).size)
+    }
+
+    @Test
+    fun categoryOverrideChangedAfterTheAlertDoesNotRepeatIt() {
+        // Review Focus 5: an override moves the games away and back the same day.
+        val games = rule(ThresholdTarget.Category(AppCategory.GAMES), h)
+        val first = AlertPlanner.plan(input(thresholds = listOf(games), todays = mapOf(kid.id to day(2 * h, games = 90 * min))))
+        assertEquals(1, thresholdAlerts(first).size)
+        val moved = AlertPlanner.plan(input(thresholds = listOf(games), todays = mapOf(kid.id to day(2 * h)), markers = first.markers))
+        assertTrue(thresholdAlerts(moved).isEmpty())
+        val back = AlertPlanner.plan(input(thresholds = listOf(games), todays = mapOf(kid.id to day(2 * h, games = 95 * min)), markers = moved.markers))
+        assertTrue(thresholdAlerts(back).isEmpty())
+    }
+
+    @Test
+    fun parentsUsageNeverAndADepartedChildNever() {
+        val forDad = rule(ThresholdTarget.Total, h, child = dad.id)
+        val forMom = rule(ThresholdTarget.Total, h, child = mom.id)
+        val forKid = rule(ThresholdTarget.Total, h)
+        val todays = mapOf(dad.id to day(5 * h), mom.id to day(5 * h), kid.id to day(5 * h))
+        assertTrue(thresholdAlerts(AlertPlanner.plan(input(thresholds = listOf(forDad, forMom), todays = todays))).isEmpty())
+        val departed = input(members = listOf(mom, dad), departed = listOf(kid), children = emptyList(), thresholds = listOf(forKid), todays = todays)
+        assertTrue(thresholdAlerts(AlertPlanner.plan(departed)).isEmpty())
+    }
+
+    @Test
+    fun aChildsOwnPhoneNeverEvaluatesThresholds() {
+        val me = kid.copy(isSelf = true)
+        val plan = AlertPlanner.plan(
+            input(self = me, members = listOf(mom.copy(isSelf = false), me), thresholds = listOf(rule(ThresholdTarget.Total, h)), todays = mapOf(kid.id to day(5 * h))),
+        )
+        assertTrue(thresholdAlerts(plan).isEmpty())
+    }
+
+    @Test
+    fun noUsageForTheChildsTodayIsNothingToEvaluate() {
+        val plan = AlertPlanner.plan(input(thresholds = listOf(rule(ThresholdTarget.Total, h)), todays = mapOf(kid.id to ThresholdDay(oct10, null))))
+        assertTrue(thresholdAlerts(plan).isEmpty())
+    }
+
+    @Test
+    fun thresholdMarkersKeepTheLastThreeDates() {
+        val total = rule(ThresholdTarget.Total, h)
+        val old = listOf(6, 7, 8, 9).map { "${total.id}@$h@2026-10-0$it" }.toSet()
+        val plan = AlertPlanner.plan(
+            input(thresholds = listOf(total), todays = mapOf(kid.id to day(2 * h)), markers = AlertMarkers(initialized = true, thresholdNotified = old)),
+        )
+        assertEquals(setOf("2026-10-08", "2026-10-09", "2026-10-10"), plan.markers.thresholdNotified.map { it.substringAfterLast('@') }.toSet())
     }
 }

@@ -4,6 +4,7 @@ import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.proto.StateEvent
 import java.time.DayOfWeek
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 
 /** What the app should notify (spec §9.7); the app turns it into notifications on its channels. */
@@ -24,7 +25,27 @@ sealed interface Alert {
 
     /** Today's (or, weekly, the last 7 days') time per child. */
     data class Summary(val weekly: Boolean, val lines: List<Pair<String, Long>>) : Alert
+
+    /**
+     * A child passed a parent's daily limit (stage 5b, §9.7) on its own today: [usedMs] of [target] against [limitMs].
+     * [targetLabel]: the app's label from the child's catalog for an app rule (null: unknown, or not an app rule).
+     */
+    data class Threshold(
+        val child: DeviceId,
+        val device: String,
+        val target: ThresholdTarget,
+        val targetLabel: String?,
+        val usedMs: Long,
+        val limitMs: Long,
+    ) : Alert
 }
+
+/**
+ * A child's today as the thresholds read it (AlertPlanner.input): its own date (spec §9.3: the zone of its latest
+ * summary) and the usage of that date; [usage] null when no summary of that date arrived yet (nothing to evaluate,
+ * never the day before). [appLabels]: catalog labels of the apps the parent's rules name.
+ */
+data class ThresholdDay(val date: LocalDate, val usage: TodayUsage?, val appLabels: Map<String, String> = emptyMap())
 
 data class AlertInput(
     val self: MemberView,
@@ -41,6 +62,15 @@ data class AlertInput(
     val joinedMs: Map<DeviceId, Long> = emptyMap(),
     /** The admin who added this device; a child's «new parent» baseline is this admin only. Null: unknown. */
     val inviter: DeviceId? = null,
+    /** The parent's daily limits (stage 5b); only rules of active children are evaluated. */
+    val thresholds: List<ThresholdRule> = emptyList(),
+    /** Each child's today for [thresholds], by device. */
+    val todays: Map<DeviceId, ThresholdDay> = emptyMap(),
+    /**
+     * Per child, the viewer's last 7 days (oldest first) for the summary: the parent's day, not the child's (which
+     * [children] carry since the dashboard shows the child's own day). Absent: [children]'s figures.
+     */
+    val viewerWeek: Map<DeviceId, List<DayTotal>> = emptyMap(),
 )
 
 data class AlertPlan(val alerts: List<Alert>, val markers: AlertMarkers)
@@ -82,8 +112,22 @@ object AlertPlanner {
 
     fun plan(input: AlertInput): AlertPlan = if (input.self.role == Role.CHILD) child(input) else parent(input)
 
-    /** Builds the input from a snapshot (the worker in app). */
-    fun input(ready: GroupSnapshot.Ready, prefs: Prefs, markers: AlertMarkers, nowMs: Long, zone: ZoneId): AlertInput {
+    /** How many of the children's dates the threshold markers keep. */
+    const val THRESHOLD_MARKER_DATES = 3
+
+    /**
+     * Builds the input from a snapshot (the worker in app). [thresholds] and the viewer's category [overrides] feed the
+     * threshold check; each child's today is its own (UsageReadModel.todayUsage).
+     */
+    fun input(
+        ready: GroupSnapshot.Ready,
+        prefs: Prefs,
+        markers: AlertMarkers,
+        nowMs: Long,
+        zone: ZoneId,
+        thresholds: List<ThresholdRule> = emptyList(),
+        overrides: Map<String, AppCategory> = emptyMap(),
+    ): AlertInput {
         val members = SnapshotViews.members(ready, nowMs)
         val departed = ready.membership.departed.values.map {
             MemberView(it.member.id, it.member.displayName, it.member.role.toRole(), it.member.isAdmin, isSelf = false, lastSeenMs = null)
@@ -94,6 +138,19 @@ object AlertPlanner {
             if (pk.size != 32) null else DeviceId.fromSignPublicKey(pk) to e
         }.toMap()
         val today = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
+        val byAuthor = UsageReadModel.summaries(ready.summaries)
+        val children = members.filter { it.role == Role.CHILD && !it.isSelf }
+        val ruled = thresholds.map { it.child }.toSet()
+        val todays = children.filter { it.id in ruled }.associate { child ->
+            val byDate = byAuthor[child.id]
+            val catalog = UsageReadModel.catalogOf(ready.catalog, child.id)
+            val apps = thresholds.filter { it.child == child.id }.mapNotNull { (it.target as? ThresholdTarget.App)?.packageName }
+            child.id to ThresholdDay(
+                date = UsageReadModel.childToday(byDate, today, nowMs),
+                usage = UsageReadModel.todayUsage(child, byDate, catalog, today, overrides, nowMs),
+                appLabels = apps.mapNotNull { p -> catalog[p]?.label?.takeIf { it.isNotBlank() }?.let { p to it } }.toMap(),
+            )
+        }
         return AlertInput(
             self = members.first { it.isSelf },
             members = members,
@@ -107,6 +164,9 @@ object AlertPlanner {
             markers = markers,
             joinedMs = adds.mapValues { it.value.body.created_at_ms },
             inviter = adds[members.first { it.isSelf }.id]?.author,
+            thresholds = thresholds,
+            todays = todays,
+            viewerWeek = children.associate { it.id to UsageReadModel.days(byAuthor[it.id], today, 7) },
         )
     }
 
@@ -156,10 +216,52 @@ object AlertPlanner {
         }
         if (dayOk && now.hour >= SUMMARY_HOUR && lastSummary != today && summarised.isNotEmpty()) {
             val weekly = i.summaryMode == SummaryMode.WEEKLY
-            alerts += Alert.Summary(weekly, summarised.map { it.member.name to if (weekly) it.week.sumOf { d -> d.totalMs } else it.today.totalMs })
+            alerts += Alert.Summary(
+                weekly,
+                summarised.map { c ->
+                    // The parent's day (and week), not the child's: a child ahead would read as its near-empty new day.
+                    val week = i.viewerWeek[c.member.id]
+                    c.member.name to when {
+                        weekly -> (week ?: c.week).sumOf { d -> d.totalMs }
+                        week != null -> week.lastOrNull()?.totalMs ?: 0L
+                        else -> c.today.totalMs
+                    }
+                },
+            )
             lastSummary = today
         }
-        return AlertPlan(alerts, i.markers.copy(notifiedSeq = notified, noContact = noContact, lastSummaryDate = lastSummary, initialized = true))
+        val thresholdNotified = thresholds(i, alerts)
+        return AlertPlan(
+            alerts,
+            i.markers.copy(
+                notifiedSeq = notified, noContact = noContact, lastSummaryDate = lastSummary, initialized = true,
+                thresholdNotified = thresholdNotified,
+            ),
+        )
+    }
+
+    /**
+     * Daily limits (stage 5b, §9.7): active children only, on the child's own today. A rule fires once per (rule,
+     * limit, child's date), also on the first run (a rule is a promise about today, not history). Markers of a
+     * deleted rule go (re-adding it notifies again); the rest keep the last [THRESHOLD_MARKER_DATES] dates.
+     */
+    private fun thresholds(i: AlertInput, alerts: MutableList<Alert>): Set<String> {
+        val children = i.members.filter { it.role == Role.CHILD && !it.isSelf }.associateBy { it.id }
+        val ruleIds = i.thresholds.map { it.id }.toSet()
+        val marks = i.markers.thresholdNotified.filterTo(mutableSetOf()) { AlertMarkers.parseThresholdKey(it)?.first in ruleIds }
+        for (rule in i.thresholds.sortedBy { it.id }) {
+            val child = children[rule.child] ?: continue
+            val day = i.todays[child.id] ?: continue
+            val usage = day.usage ?: continue
+            val used = ThresholdEval.usage(rule.target, usage)
+            if (used < rule.limitMs) continue
+            if (marks.add(AlertMarkers.thresholdKey(rule.id, rule.limitMs, day.date))) {
+                val label = (rule.target as? ThresholdTarget.App)?.let { day.appLabels[it.packageName] }
+                alerts += Alert.Threshold(child.id, child.name, rule.target, label, used, rule.limitMs)
+            }
+        }
+        val keep = marks.mapNotNull { AlertMarkers.parseThresholdKey(it)?.second }.distinct().sortedDescending().take(THRESHOLD_MARKER_DATES).toSet()
+        return marks.filterTo(mutableSetOf()) { AlertMarkers.parseThresholdKey(it)?.second in keep }
     }
 
     private fun child(i: AlertInput): AlertPlan {

@@ -24,6 +24,24 @@ class AlertMarkersTest {
     }
 
     @Test
+    fun thresholdMarkersRoundTripWithOddPackages() {
+        val keys = setOf(
+            "${a.hex}/total@3600000@2026-10-10",
+            "${a.hex}/app:com.odd,pkg@x@900000@2026-10-11",
+            "${b.hex}/cat:GAMES@5400000@2026-10-11",
+        )
+        val m = AlertMarkers(initialized = true, thresholdNotified = keys)
+        assertEquals(m, AlertMarkers.decode(m.encode()))
+    }
+
+    @Test
+    fun badThresholdMarkersAreSkippedOneByOne() {
+        val good = "${a.hex}/total@3600000@2026-10-10"
+        val text = "t:$good|nolimit@2026-10-10|${a.hex}/total@-5@2026-10-10|${a.hex}/total@60@not-a-date|@60@2026-10-10"
+        assertEquals(setOf(good), AlertMarkers.decode(text).thresholdNotified)
+    }
+
+    @Test
     fun garbageDecodesToDefaults() {
         assertEquals(AlertMarkers(), AlertMarkers.decode(null))
         assertEquals(AlertMarkers(), AlertMarkers.decode("n:zz=1\nc:nothex\nweird"))
