@@ -776,13 +776,19 @@ class SyncService : Service() {
          * One fast-mode window (as «Sync now») without a UI start: a running instance goes fast in process (no
          * foreground-service start from the background), otherwise a REASON_APP_OPEN start. Both honour the user's
          * Stop. For IntegrityFastSync (core/data); the fast-mode dial rules are ConnectPolicy's as always. False when
-         * nothing could start (see [start]).
+         * nothing could start (see [start]), and when the running instance cannot go fast ([acceptsFast]: it is stopping
+         * or gone, or its radio is not up), so the caller does not count a window that never went out.
          */
         fun requestFast(context: Context): Boolean {
             val running = instance ?: return start(context, REASON_APP_OPEN, fast = true)
+            if (!acceptsFast(running.stopping, running.destroyed, running.snapshot.state)) return false
             running.fastUnlessStopped()
             return true
         }
+
+        /** A running instance can take a fast window: not stopping or destroyed, and starting or running its radio. */
+        internal fun acceptsFast(stopping: Boolean, destroyed: Boolean, state: ServiceState): Boolean =
+            !stopping && !destroyed && (state == ServiceState.RUNNING || state == ServiceState.STARTING)
 
         /** The app came to the front (or an onboarding step closed): post the notification again if it can be seen now. */
         fun refreshNotification() {
