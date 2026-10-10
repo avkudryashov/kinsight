@@ -4,6 +4,13 @@ package kinsight.v1;
 
 option java_package = "app.kinsight.core.model.proto";
 
+// Set by the admin at pairing (spec §4.8). Unspecified reads as PARENT: such a device never shares its own usage.
+enum DeviceRole {
+  DEVICE_ROLE_UNSPECIFIED = 0;
+  PARENT = 1;
+  CHILD = 2;
+}
+
 message SignedEntry {
   bytes body = 1;       // encoded EntryBody
   bytes signature = 2;  // Ed25519 over body bytes
@@ -68,6 +75,11 @@ message StateEvent {
     BLUETOOTH_OFF = 6;
     DATA_GAP = 7;
     LEFT_GROUP = 8;
+    SYNC_STOPPED = 9;          // the user stopped sync on this device: from = stop, to = restart from the app
+    NOTIFICATION_HIDDEN = 10;  // the sync notification cannot be seen (permission or channel off): from = detected
+    NOTIFICATION_SHOWN = 11;   // it can be seen again: from = hidden since, to = now
+    NEARBY_PERMISSION_OFF = 12;  // «Nearby devices» was revoked: from = noticed, to = granted again
+    APP_FORCE_STOPPED = 13;      // the user force-stopped the app: from = the stop (system exit record), to = next start
   }
   Kind kind = 1;
   int64 from_ms = 2;
@@ -85,12 +97,14 @@ message CreateGroup {
   bytes sign_public_key = 2;
   bytes dh_public_key = 3;
   string display_name = 4;
+  DeviceRole role = 5;  // always PARENT from the app; CHILD makes the genesis invalid
 }
 
 message AddMember {
   bytes sign_public_key = 1;
   bytes dh_public_key = 2;
   string display_name = 3;
+  DeviceRole role = 4;
 }
 
 message RemoveMember {

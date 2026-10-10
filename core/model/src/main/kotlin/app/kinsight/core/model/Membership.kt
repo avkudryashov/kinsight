@@ -2,6 +2,7 @@ package app.kinsight.core.model
 
 import app.kinsight.core.crypto.Primitives
 import app.kinsight.core.crypto.toHex
+import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.RotateDiscoveryKey
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
@@ -12,7 +13,11 @@ data class Member(
     val dhPublicKey: ByteString,
     val displayName: String,
     val isAdmin: Boolean,
-)
+    val role: DeviceRole = DeviceRole.DEVICE_ROLE_UNSPECIFIED,
+) {
+    /** Only a CHILD shares its own usage (spec §4.8); unspecified reads as a parent. */
+    val isChild: Boolean get() = role == DeviceRole.CHILD
+}
 
 data class Departed(val member: Member, val lastSeq: Long)
 
@@ -25,6 +30,8 @@ data class MembershipState(
 ) {
     fun signKeyOf(id: DeviceId): ByteArray? =
         (active[id] ?: departed[id]?.member)?.signPublicKey?.toByteArray()
+
+    fun roleOf(id: DeviceId): DeviceRole? = (active[id] ?: departed[id]?.member)?.role
 
     fun acceptsEntryFrom(id: DeviceId, seq: Long): Boolean =
         id in active || departed[id]?.let { seq <= it.lastSeq } == true
@@ -157,7 +164,8 @@ object Membership {
         return e.seq == 1L &&
             e.author == DeviceId.fromSignPublicKey(pk) &&
             GroupId.derive(pk, create.salt.toByteArray()) == groupId &&
-            e.verifySignature(pk)
+            e.verifySignature(pk) &&
+            create.role != DeviceRole.CHILD
     }
 
     private fun idOrNull(bytes: ByteString): DeviceId? =
@@ -166,7 +174,7 @@ object Membership {
     private fun replay(groupId: GroupId, genesis: DecodedEntry, ordered: List<DecodedEntry>, cutoffs: Cutoffs): Pass {
         val create = genesis.body.membership_op!!.create!!
         val active = linkedMapOf(
-            genesis.author to Member(genesis.author, create.sign_public_key, create.dh_public_key, create.display_name, isAdmin = true),
+            genesis.author to Member(genesis.author, create.sign_public_key, create.dh_public_key, create.display_name, isAdmin = true, role = create.role),
         )
         val departed = mutableMapOf<DeviceId, Departed>()
         val removedForever = mutableSetOf<DeviceId>()
@@ -206,7 +214,7 @@ object Membership {
                         if (id in active || id in removedForever || active.values.any { it.dhPublicKey == add.dh_public_key }) {
                             false
                         } else {
-                            active[id] = Member(id, add.sign_public_key, add.dh_public_key, add.display_name, isAdmin = false)
+                            active[id] = Member(id, add.sign_public_key, add.dh_public_key, add.display_name, isAdmin = false, role = add.role)
                             true
                         }
                     }
@@ -233,7 +241,7 @@ object Membership {
                     val sa = op.set_admin!!
                     val id = idOrNull(sa.device_id)
                     val m = id?.let { active[it] }
-                    if (m == null || (sa.admin && id in demoted)) {
+                    if (m == null || (sa.admin && (id in demoted || m.isChild))) {
                         false
                     } else {
                         active[id] = m.copy(isAdmin = sa.admin)
