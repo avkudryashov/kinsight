@@ -11,7 +11,8 @@ import app.kinsight.core.model.proto.StateEvent
 import java.time.Instant
 import java.time.ZoneId
 
-enum class CollectResult { COLLECTED, NO_ACCESS }
+/** NOT_ALLOWED: the pipeline did not run the collector (a parent, or no consent yet; spec §4.8). */
+enum class CollectResult { COLLECTED, NO_ACCESS, NOT_ALLOWED }
 
 /**
  * Moves usage events from the system into the local queue (spec §7): always, sharing on or off. Each run reads

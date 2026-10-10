@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -19,6 +20,7 @@ class SettingsStore(private val store: DataStore<Preferences>) {
             sharing = p[SHARING] ?: DEFAULTS.sharing,
             detailRetentionDays = p[DETAIL_DAYS] ?: DEFAULTS.detailRetentionDays,
             summaryRetentionDays = p[SUMMARY_DAYS] ?: DEFAULTS.summaryRetentionDays,
+            consentAtMs = p[CONSENT_AT],
         )
     }
 
@@ -39,12 +41,22 @@ class SettingsStore(private val store: DataStore<Preferences>) {
         }
     }
 
+    suspend fun recordConsent(atMs: Long) {
+        store.edit { it[CONSENT_AT] = atMs }
+    }
+
+    /** A wiped group or a new identity: sharing off, consent forgotten, default retention. No event is signed. */
+    suspend fun reset() {
+        store.edit { it.clear() }
+    }
+
     companion object {
         const val MAX_RETENTION_DAYS = 3650
         private val DEFAULTS = UsageSettings()
         private val SHARING = booleanPreferencesKey("share_usage")
         private val DETAIL_DAYS = intPreferencesKey("detail_retention_days")
         private val SUMMARY_DAYS = intPreferencesKey("summary_retention_days")
+        private val CONSENT_AT = longPreferencesKey("consent_at_ms")
 
         /** [file] must end with ".preferences_pb"; one active instance per file in a process. */
         fun create(file: File, scope: CoroutineScope): SettingsStore =

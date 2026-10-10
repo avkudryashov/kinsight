@@ -9,8 +9,9 @@ import app.kinsight.core.database.KinsightDatabaseFactory
 import app.kinsight.core.database.RoomUsageQueue
 
 /**
- * Process-wide wiring until Hilt arrives (stage 4): one database, one settings DataStore, one pipeline lock.
- * [targetProvider] stays null until a group exists, so the pipeline only fills the local queue.
+ * Process-wide wiring (no Hilt in v1): one database, one settings DataStore, one pipeline lock.
+ * [targetProvider] stays null until a group exists; [ownUsageGate] (installed by SyncGraph.install) lets only a
+ * consenting CHILD collect and publish its usage, and is closed until then.
  */
 object UsageGraph {
     const val SETTINGS_NAME = "kinsight_usage_settings"
@@ -19,13 +20,26 @@ object UsageGraph {
     var targetProvider: suspend () -> PublishTarget? = { null }
 
     @Volatile
+    var ownUsageGate: suspend (PublishTarget?) -> Boolean = { false }
+
+    @Volatile
     private var override: UsagePipeline? = null
 
     @Volatile
     private var instance: UsagePipeline? = null
 
+    @Volatile
+    private var settingsInstance: SettingsStore? = null
+
     fun pipeline(context: Context): UsagePipeline =
         override ?: instance ?: synchronized(this) { instance ?: create(context.applicationContext).also { instance = it } }
+
+    /** The one SettingsStore of the process (DataStore allows one active instance per file). */
+    fun settings(context: Context): SettingsStore = settingsInstance ?: synchronized(this) {
+        settingsInstance ?: SettingsStore(
+            PreferenceDataStoreFactory.create(produceFile = { context.applicationContext.preferencesDataStoreFile(SETTINGS_NAME) }),
+        ).also { settingsInstance = it }
+    }
 
     @VisibleForTesting
     fun setOverride(pipeline: UsagePipeline?) {
@@ -42,15 +56,13 @@ object UsageGraph {
             clock = AndroidDeviceClock(context),
             launchers = HomeLauncherSource(pm),
         )
-        val settings = SettingsStore(
-            PreferenceDataStoreFactory.create(produceFile = { context.preferencesDataStoreFile(SETTINGS_NAME) }),
-        )
         return UsagePipeline(
             db = db,
             collector = collector,
-            settings = settings,
+            settings = settings(context),
             apps = PackageAppInfoSource(pm),
             target = { targetProvider() },
+            ownUsage = { ownUsageGate(it) },
         )
     }
 }

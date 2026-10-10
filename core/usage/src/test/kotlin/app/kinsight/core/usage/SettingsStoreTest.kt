@@ -13,6 +13,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 
 class SettingsStoreTest {
     private val dir = Files.createTempDirectory("kinsight-settings").toFile()
@@ -53,5 +54,17 @@ class SettingsStoreTest {
         assertFailsWith<IllegalArgumentException> { s.setRetention(100, 50) }
         assertFailsWith<IllegalArgumentException> { s.setRetention(10, 4000) }
         assertEquals(UsageSettings(), s.current())
+    }
+
+    @Test
+    fun consentIsRecordedAndResetForgetsEverything() = runTest {
+        val store = store()
+        assertNull(store.current().consentAtMs)
+        store.recordConsent(1_234L)
+        store.setSharing(true)
+        store.setRetention(detailDays = 30, summaryDays = 200)
+        assertEquals(1_234L, store.current().consentAtMs)
+        store.reset()
+        assertEquals(UsageSettings(), store.current())
     }
 }

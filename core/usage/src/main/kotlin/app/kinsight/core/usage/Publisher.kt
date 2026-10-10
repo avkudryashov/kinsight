@@ -100,7 +100,9 @@ class Publisher(
         if (days.isNotEmpty()) queue.setLastUsagePublishMs(now)
 
         val catalog = mutableListOf<String>()
-        for (pkg in packages) {
+        // This run's packages, then any package of an earlier published day that never got its catalog entry (a crash
+        // after the day went out, or an app that was invisible then): stage 4 review of 3b.
+        for (pkg in packages + queue.packagesWithoutCatalog()) {
             val info = apps.info(pkg) ?: continue
             val hash = info.hash()
             if (queue.catalogHash(pkg) == hash) continue

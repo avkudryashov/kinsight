@@ -1,8 +1,14 @@
 package app.kinsight.core.usage
 
+import app.kinsight.core.database.CollectBatch
+import app.kinsight.core.database.CollectorStateRow
+import app.kinsight.core.database.DayZone
+import app.kinsight.core.database.HourDelta
 import app.kinsight.core.database.KinsightDatabaseFactory
+import app.kinsight.core.database.PendingEventRow
 import app.kinsight.core.database.RoomEntryStore
 import app.kinsight.core.database.RoomUsageQueue
+import app.kinsight.core.database.UsageDelta
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryKind
@@ -27,6 +33,7 @@ import java.time.ZoneId
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -53,6 +60,21 @@ class UsagePipelineTest {
         clock = { clock.wallMs },
         today = { LocalDate.ofInstant(Instant.ofEpochMilli(clock.wallMs), zone) },
     )
+
+    private fun gated(target: PublishTarget?, allowed: Boolean, apps: FakeApps = FakeApps()) = UsagePipeline(
+        db = db,
+        collector = Collector(RoomUsageQueue(db), source, FakeAccess(), clock, FakeLaunchers()),
+        settings = settings,
+        apps = apps,
+        target = { target },
+        clock = { clock.wallMs },
+        today = { LocalDate.ofInstant(Instant.ofEpochMilli(clock.wallMs), zone) },
+        ownUsage = { allowed },
+    )
+
+    private suspend fun signOwn(kind: StateEvent.Kind, p: UsagePipeline) {
+        p.appendOwn { author -> listOf(author.create { it.copy(state_event = StateEvent(kind = kind)) }) }
+    }
 
     @AfterTest
     fun cleanUp() {
@@ -118,7 +140,7 @@ class UsagePipelineTest {
             settings = settings,
             apps = FakeApps(),
             target = {
-                // The first call comes from collectAndPublish, between collecting and publishing: hold it there.
+                // The first call comes from collectAndPublish before it collects: hold it there.
                 if (calls++ == 0) {
                     inside.complete(Unit)
                     release.await()
@@ -192,5 +214,120 @@ class UsagePipelineTest {
         settings.setRetention(detailDays = 30, summaryDays = 200)
         val current = pipeline(null).currentSettings()
         assertEquals(30 to 200, current.detailRetentionDays to current.summaryRetentionDays)
+    }
+
+    @Test
+    fun parentNeverCollectsOrPublishes() = runTest {
+        store.applyBatch(listOf(genesis.entry))
+        val p = gated(PublishTarget(genesis.groupId, keys), allowed = false)
+        source.events += listOf(s.resumed("09:00", MAPS), s.paused("09:30", MAPS))
+        assertEquals(RunReport(CollectResult.NOT_ALLOWED, null), p.collectAndPublish(force = true))
+        assertNull(RoomUsageQueue(db).state()) // nothing was read from the system
+        p.queueEvent(StateEvent.Kind.BLUETOOTH_OFF, fromMs = 1_000, toMs = 2_000)
+        assertTrue(RoomUsageQueue(db).pendingEvents().isEmpty())
+        assertFailsWith<IllegalStateException> { p.setSharing(true) }
+        assertFalse(settings.current().sharing)
+        assertTrue(own().isEmpty())
+    }
+
+    @Test
+    fun reconcileTurnsSettingOffAfterSignedPause() = runTest {
+        store.applyBatch(listOf(genesis.entry))
+        val p = pipeline(PublishTarget(genesis.groupId, keys))
+        p.setSharing(true)
+        signOwn(StateEvent.Kind.SHARING_PAUSED, p) // the crash: the pause is signed, the setting never written
+        val before = store.authorState(keys.deviceId).lastSeq
+        p.reconcileSharing()
+        assertFalse(settings.current().sharing)
+        assertEquals(before, store.authorState(keys.deviceId).lastSeq)
+    }
+
+    @Test
+    fun reconcileTurnsSettingOnAfterSignedResume() = runTest {
+        store.applyBatch(listOf(genesis.entry))
+        val p = pipeline(PublishTarget(genesis.groupId, keys))
+        source.events += listOf(s.resumed("09:00", MAPS), s.paused("09:30", MAPS))
+        p.collectAndPublish()
+        signOwn(StateEvent.Kind.SHARING_RESUMED, p)
+        p.reconcileSharing()
+        assertTrue(settings.current().sharing)
+        assertEquals(30 * MIN, own().single { it.kind == EntryKind.USAGE_SUMMARY }.body.usage_summary!!.total_ms)
+    }
+
+    @Test
+    fun reconcileSignsResumedWhenJoinedWithSharingOn() = runTest {
+        settings.setSharing(true) // switched on while no group existed: nothing could be signed then
+        store.applyBatch(listOf(genesis.entry))
+        val p = pipeline(PublishTarget(genesis.groupId, keys))
+        p.reconcileSharing()
+        assertEquals(StateEvent.Kind.SHARING_RESUMED, own().first().stateKind())
+        p.reconcileSharing()
+        assertEquals(1, own().count { it.stateKind() == StateEvent.Kind.SHARING_RESUMED })
+    }
+
+    @Test
+    fun reconcileTurnsSharingOffWhenNotAllowed() = runTest {
+        settings.setSharing(true)
+        store.applyBatch(listOf(genesis.entry))
+        gated(PublishTarget(genesis.groupId, keys), allowed = false).reconcileSharing()
+        assertFalse(settings.current().sharing)
+        assertTrue(own().isEmpty())
+    }
+
+    @Test
+    fun reconcileSignsNothingForADeviceThatMayNotShareAfterAResume() = runTest {
+        // Preflight C16: a device that may not share (a parent) never signs a StateEvent, not even SHARING_PAUSED.
+        store.applyBatch(listOf(genesis.entry))
+        pipeline(PublishTarget(genesis.groupId, keys)).setSharing(true) // signed SHARING_RESUMED while still allowed
+        val before = store.authorState(keys.deviceId).lastSeq
+        gated(PublishTarget(genesis.groupId, keys), allowed = false).reconcileSharing()
+        assertFalse(settings.current().sharing)
+        assertEquals(before, store.authorState(keys.deviceId).lastSeq)
+        assertTrue(own().none { it.stateKind() == StateEvent.Kind.SHARING_PAUSED })
+    }
+
+    @Test
+    fun reconcileWithoutAGroupChangesNothing() = runTest {
+        settings.setSharing(true)
+        pipeline(null).reconcileSharing()
+        assertTrue(settings.current().sharing)
+    }
+
+    @Test
+    fun queueIsPrunedPastTheSummaryRetention() = runTest {
+        settings.setRetention(detailDays = 10, summaryDays = 30)
+        val q = RoomUsageQueue(db)
+        val sample = clock.sample()
+        q.commit(
+            CollectBatch(
+                usage = listOf(UsageDelta("2026-08-01", 9, MAPS, MIN, 60 * MIN)),
+                hours = listOf(HourDelta("2026-08-01", 9, MIN, 1, 60 * MIN)),
+                days = listOf(DayZone("2026-08-01", zone.id)),
+                events = listOf(PendingEventRow(kind = StateEvent.Kind.BLUETOOTH_OFF.value, fromMs = 1_000, toMs = 2_000)),
+                state = CollectorStateRow(
+                    cursorMs = sample.wallMs, zoneId = zone.id, screenOn = false, resumed = "", wallMs = sample.wallMs,
+                    elapsedMs = sample.elapsedMs, bootCount = sample.bootCount, accessGranted = true, accessLostMs = null,
+                ),
+            ),
+        )
+        pipeline(null).collectAndPublish()
+        assertTrue(q.dayUsage("2026-08-01").apps.isEmpty())
+        assertTrue(q.changedDays().none { it.date == "2026-08-01" })
+        assertTrue(q.pendingEvents().isEmpty())
+    }
+
+    @Test
+    fun catalogIsRetriedForPackagesWithoutState() = runTest {
+        store.applyBatch(listOf(genesis.entry))
+        val apps = FakeApps() // MAPS is invisible at first
+        val p = gated(PublishTarget(genesis.groupId, keys), allowed = true, apps = apps)
+        source.events += listOf(s.resumed("09:00", MAPS), s.paused("09:30", MAPS))
+        p.collectAndPublish()
+        p.setSharing(true)
+        assertTrue(own().none { it.kind == EntryKind.APP_CATALOG })
+        apps.known[MAPS] = AppInfo("Maps", byteArrayOf(1, 2), 6)
+        clock.advance(120 * MIN)
+        p.collectAndPublish() // the day itself is unchanged, the missing catalog entry still comes
+        assertEquals("Maps", own().single { it.kind == EntryKind.APP_CATALOG }.body.app_catalog!!.label)
     }
 }
