@@ -21,6 +21,7 @@ abstract class KinsightDatabase : RoomDatabase() {
     abstract fun vectorDao(): VectorDao
     abstract fun usageDao(): UsageDao
     abstract fun authorDao(): AuthorDao
+    abstract fun wipeDao(): WipeDao
 }
 
 object KinsightDatabaseFactory {

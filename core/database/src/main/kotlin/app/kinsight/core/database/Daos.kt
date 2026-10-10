@@ -37,6 +37,14 @@ interface EntryDao {
     @Query("SELECT bytes FROM entries WHERE usage_date IS NOT NULL")
     suspend fun bytesWithUsageDate(): List<ByteArray>
 
+    /** Superseded kinds by the shape of their key (DecodedEntry.supersedeKey), e.g. "%/sum/%" for UsageSummary. */
+    @Query("SELECT bytes FROM entries WHERE supersede_key LIKE :pattern ORDER BY author, seq")
+    suspend fun bytesBySupersedeKey(pattern: String): List<ByteArray>
+
+    /** Never superseded and not membership: state events except LEFT_GROUP, and unknown kinds. */
+    @Query("SELECT bytes FROM entries WHERE supersede_key IS NULL AND membership = 0 ORDER BY author, seq")
+    suspend fun unkeyedBytes(): List<ByteArray>
+
     @Query("SELECT MAX(seq) FROM entries WHERE author = :author")
     suspend fun maxSeq(author: String): Long?
 }
@@ -148,6 +156,26 @@ interface UsageDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun setCatalogHash(row: CatalogStateRow)
+
+    @Query("DELETE FROM pending_usage WHERE date < :before")
+    suspend fun pruneUsage(before: String)
+
+    @Query("DELETE FROM pending_hours WHERE date < :before")
+    suspend fun pruneHours(before: String)
+
+    @Query("DELETE FROM pending_days WHERE date < :before")
+    suspend fun pruneDays(before: String)
+
+    @Query("DELETE FROM pending_events WHERE to_ms < :beforeMs")
+    suspend fun pruneEvents(beforeMs: Long)
+
+    /** Packages with time on a day that was published at least once and no AppCatalog entry yet. */
+    @Query(
+        "SELECT DISTINCT u.package_name FROM pending_usage u JOIN pending_days d ON d.date = u.date " +
+            "WHERE d.published_version > 0 AND u.foreground_ms > 0 " +
+            "AND u.package_name NOT IN (SELECT package_name FROM catalog_state) ORDER BY u.package_name",
+    )
+    suspend fun packagesWithoutCatalog(): List<String>
 }
 
 @Dao
@@ -158,4 +186,41 @@ interface AuthorDao {
     /** REPLACE: the row has one key and every column is supplied. */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun set(row: AuthorStateRow)
+}
+
+/** Empties the database for a new group or identity (LocalData.wipeAll); one statement per table of the schema. */
+@Dao
+interface WipeDao {
+    @Query("DELETE FROM entries")
+    suspend fun entries()
+
+    @Query("DELETE FROM vector_contig")
+    suspend fun vectorContig()
+
+    @Query("DELETE FROM vector_above")
+    suspend fun vectorAbove()
+
+    @Query("DELETE FROM pending_usage")
+    suspend fun pendingUsage()
+
+    @Query("DELETE FROM pending_hours")
+    suspend fun pendingHours()
+
+    @Query("DELETE FROM pending_days")
+    suspend fun pendingDays()
+
+    @Query("DELETE FROM pending_events")
+    suspend fun pendingEvents()
+
+    @Query("DELETE FROM collector_state")
+    suspend fun collectorState()
+
+    @Query("DELETE FROM publish_state")
+    suspend fun publishState()
+
+    @Query("DELETE FROM author_state")
+    suspend fun authorState()
+
+    @Query("DELETE FROM catalog_state")
+    suspend fun catalogState()
 }

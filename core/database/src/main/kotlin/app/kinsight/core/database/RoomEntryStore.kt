@@ -3,6 +3,7 @@ package app.kinsight.core.database
 import app.kinsight.core.crypto.toHex
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
+import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.GroupId
 import app.kinsight.core.sync.EntryStore
 import app.kinsight.core.sync.SyncPolicy
@@ -61,6 +62,20 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
     }
 
     override suspend fun liveEntries(): List<DecodedEntry> = entryDao.allBytes().map(DecodedEntry::decode)
+
+    /** Live UsageSummary entries of every author (the v1 screens read only these, spec §9.3). */
+    suspend fun summaries(): List<DecodedEntry> = entryDao.bytesBySupersedeKey("%/sum/%").map(DecodedEntry::decode)
+
+    suspend fun catalog(): List<DecodedEntry> = entryDao.bytesBySupersedeKey("%/app/%").map(DecodedEntry::decode)
+
+    suspend fun heartbeats(): List<DecodedEntry> = entryDao.bytesBySupersedeKey("%/hb").map(DecodedEntry::decode)
+
+    /** Every StateEvent, LEFT_GROUP included (stored as membership), ordered by author and seq. */
+    suspend fun stateEvents(): List<DecodedEntry> =
+        (entryDao.unkeyedBytes() + entryDao.membershipBytes())
+            .map(DecodedEntry::decode)
+            .filter { it.kind == EntryKind.STATE_EVENT }
+            .sortedWith(compareBy({ it.author.hex }, { it.seq }))
 
     override suspend fun prune(policy: SyncPolicy): Unit = db.write {
         for (bytes in entryDao.bytesWithUsageDate()) {

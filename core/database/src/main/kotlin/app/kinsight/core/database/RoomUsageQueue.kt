@@ -68,4 +68,14 @@ class RoomUsageQueue(private val db: KinsightDatabase) {
     suspend fun catalogHash(packageName: String): String? = dao.catalogHash(packageName)
 
     suspend fun setCatalogHash(packageName: String, hash: String) = dao.setCatalogHash(CatalogStateRow(packageName, hash))
+
+    /** Drops rows of local dates before [beforeDate] and events that ended before [beforeMs] (the summary horizon). */
+    suspend fun prune(beforeDate: String, beforeMs: Long): Unit = db.write {
+        dao.pruneUsage(beforeDate)
+        dao.pruneHours(beforeDate)
+        dao.pruneDays(beforeDate)
+        dao.pruneEvents(beforeMs)
+    }
+
+    suspend fun packagesWithoutCatalog(): List<String> = dao.packagesWithoutCatalog()
 }
