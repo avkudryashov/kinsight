@@ -1,9 +1,9 @@
 package app.kinsight.core.transport.ble
 
 import android.app.ActivityManager
-import android.app.ApplicationExitInfo
 import android.app.NotificationManager
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import androidx.datastore.preferences.preferencesDataStoreFile
 import app.kinsight.core.database.KinsightDatabaseFactory
@@ -11,6 +11,7 @@ import app.kinsight.core.database.RoomEntryStore
 import app.kinsight.core.keystore.DeviceIdentity
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.Membership
+import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.usage.PublishTarget
 import app.kinsight.core.usage.UsageGraph
@@ -84,10 +85,20 @@ object SyncGraph {
      * Inside the pipeline lock (the gate runs there): reads Room and the settings DataStore only, never the pipeline.
      * The rule itself is [app.kinsight.core.usage.ownUsageAllowed], shared with the test devices.
      */
-    private suspend fun allowsOwnUsage(t: PublishTarget, context: Context): Boolean {
-        val store = RoomEntryStore(KinsightDatabaseFactory.shared(context), t.groupId)
-        val membership = Membership.compute(t.groupId, store.membershipEntries())
-        return ownUsageAllowed(membership, t.keys.deviceId, UsageGraph.settings(context).current())
+    private suspend fun allowsOwnUsage(t: PublishTarget, context: Context): Boolean =
+        ownUsageAllowed(membership(context, t), t.keys.deviceId, UsageGraph.settings(context).current())
+
+    private suspend fun membership(context: Context, t: PublishTarget): MembershipState? =
+        Membership.compute(t.groupId, RoomEntryStore(KinsightDatabaseFactory.shared(context), t.groupId).membershipEntries())
+
+    /**
+     * For the integrity trackers: when the own-usage gate opened (the consent time), null while it is closed. The same
+     * rule queueEvent applies ([ownUsageAllowed]); reads Room and DataStore only, never the pipeline.
+     */
+    private suspend fun gateOpenSince(context: Context): Long? {
+        val t = target(context) ?: return null
+        val settings = UsageGraph.settings(context).current()
+        return settings.consentAtMs.takeIf { ownUsageAllowed(membership(context, t), t.keys.deviceId, settings) }
     }
 
     /** The one GroupStore of the process (its read cache must see every write), in noBackupFilesDir. */
@@ -169,37 +180,54 @@ object SyncGraph {
         if (groups(context).exists()) bluetoothOff(context).onOn()
     }
 
-    private fun recorder(context: Context): suspend (StateEvent.Kind, Long, Long) -> Unit {
+    private fun recorder(context: Context): EventRecorder {
         val app = context.applicationContext
         return { kind, from, to -> UsageGraph.pipeline(app).queueEvent(kind, from, to) }
     }
 
-    /** Stop from the notification or the app (SyncService.stopByUser). */
-    suspend fun onUserStop(context: Context) = stateLock.withLock { StopTracker(state(context), recorder(context)).onUserStop() }
+    private fun gate(context: Context): GateOpenSince {
+        val app = context.applicationContext
+        return { gateOpenSince(app) }
+    }
+
+    /** Stop from the notification or the app (SyncService.stopByUser); without a group only the flag is kept. */
+    suspend fun onUserStop(context: Context) = stateLock.withLock {
+        if (groups(context).exists()) {
+            StopTracker(state(context), recorder(context), gate(context)).onUserStop()
+        } else {
+            state(context).markStoppedByUser(atMs = null)
+        }
+    }
 
     /** A start from the app's own screen: clears the Stop and records SYNC_STOPPED for the stopped interval. */
-    suspend fun onUserStart(context: Context) = stateLock.withLock { StopTracker(state(context), recorder(context)).onUserStart() }
+    suspend fun onUserStart(context: Context) = stateLock.withLock {
+        if (groups(context).exists()) StopTracker(state(context), recorder(context), gate(context)).onUserStart() else state(context).clearStop()
+    }
 
     /** Only while a group exists (otherwise nothing could deliver the event); parents drop it in queueEvent. */
     suspend fun onNotificationVisibility(context: Context, visible: Boolean) = stateLock.withLock {
-        if (groups(context).exists()) NotificationWatch(state(context), recorder(context)).onVisibility(visible)
+        if (groups(context).exists()) NotificationWatch(state(context), recorder(context), gate(context)).onVisibility(visible)
     }
 
     fun notificationVisibleNow(context: Context): Boolean = StatusText.notificationVisible(snapshotNow(context)) ?: true
 
     /** «Nearby devices» granted or not, only while a group exists: app start, every service check, hourly alerts run. */
     suspend fun onNearbyPermission(context: Context, granted: Boolean) = stateLock.withLock {
-        if (groups(context).exists()) NearbyWatch(state(context), recorder(context)).onPermission(granted)
+        if (groups(context).exists()) NearbyWatch(state(context), recorder(context), gate(context)).onPermission(granted)
     }
 
-    /** At process start (Application): force stops the system recorded since the last check (API 30+). */
+    /**
+     * At process start (Application), with or without a group: without one (or before consent) the exits are only
+     * marked as seen, so the baseline exists by the time the device joins and its first force stop is reported.
+     */
     suspend fun checkForceStops(context: Context) = stateLock.withLock {
-        if (!groups(context).exists()) return@withLock
-        val am = context.applicationContext.getSystemService(ActivityManager::class.java)
-        val stops = am.getHistoricalProcessExitReasons(context.packageName, 0, 0)
-            .filter { it.reason == ApplicationExitInfo.REASON_USER_REQUESTED }
-            .map { it.timestamp }
-        ForceStopCheck(state(context), recorder(context)).onStart(stops)
+        val app = context.applicationContext
+        val am = app.getSystemService(ActivityManager::class.java)
+        val lastUpdate = app.packageManager.getPackageInfo(app.packageName, 0).lastUpdateTime
+        val stops = am.getHistoricalProcessExitReasons(app.packageName, 0, 0)
+            .filter { ForceStopCheck.isUserForceStop(it.reason, it.timestamp, Build.VERSION.SDK_INT, lastUpdate) }
+            .map { AppExit(it.timestamp, it.pid) }
+        ForceStopCheck(state(app), recorder(app), gate(app)).onStart(stops)
     }
 
     suspend fun onSessionCompleted(context: Context, peer: DeviceId, atMs: Long) {
@@ -207,10 +235,15 @@ object SyncGraph {
     }
 
     /**
-     * LocalReset (core/data), under the pipeline lock: no group file and no transport state of the old group. The
-     * group file is fsynced file I/O, so it runs on IO whatever the caller's dispatcher (preflight C20).
+     * Leaving, removal or a new identity (LocalReset, core/data): no group file and no transport state of the old
+     * group, under [stateLock] so no tracker writes a stale interval after the clear. The force-stop marks stay (see
+     * TransportStateStore.clear). The group file is fsynced file I/O, so it runs on IO (preflight C20).
+     *
+     * Lock order is [stateLock], then the pipeline lock: the caller must NOT hold the pipeline lock (no
+     * pipeline.exclusive around this), or it deadlocks against a tracker waiting in queueEvent. Call it before the
+     * exclusive wipe: once the group file is gone the pipeline has no target and publishes nothing.
      */
-    suspend fun forgetGroup(context: Context) {
+    suspend fun forgetGroup(context: Context) = stateLock.withLock {
         withContext(Dispatchers.IO) { groups(context).delete() }
         state(context).clear()
     }

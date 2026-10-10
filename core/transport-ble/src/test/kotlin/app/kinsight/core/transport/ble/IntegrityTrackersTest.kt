@@ -1,5 +1,6 @@
 package app.kinsight.core.transport.ble
 
+import android.app.ApplicationExitInfo
 import app.kinsight.core.model.proto.StateEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,10 +22,21 @@ class IntegrityTrackersTest {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val state = TransportStateStore.create(File(dir, "t.preferences_pb"), scope)
     private var now = 1_000_000L
+
+    /** When the own-usage gate opened (consent); null while it is closed and queueEvent drops everything. */
+    private var openSince: Long? = 0L
+    private var accept = true
     private val recorded = mutableListOf<Triple<StateEvent.Kind, Long, Long>>()
-    private val record: suspend (StateEvent.Kind, Long, Long) -> Unit = { k, f, t -> recorded += Triple(k, f, t) }
-    private val stops = StopTracker(state, record, clock = { now })
-    private val watch = NotificationWatch(state, record, clock = { now })
+    private val record: suspend (StateEvent.Kind, Long, Long) -> Boolean = { k, f, t ->
+        val ok = accept && openSince != null
+        if (ok) recorded += Triple(k, f, t)
+        ok
+    }
+    private val gate: suspend () -> Long? = { openSince }
+    private val stops = StopTracker(state, record, gate, clock = { now })
+    private val watch = NotificationWatch(state, record, gate, clock = { now })
+    private val nearby = NearbyWatch(state, record, gate, clock = { now })
+    private val check = ForceStopCheck(state, record, gate, clock = { now })
 
     @AfterTest
     fun cleanUp() {
@@ -70,7 +82,6 @@ class IntegrityTrackersTest {
 
     @Test
     fun nearbyRevokedThenGrantedRecordsOneInterval() = runBlocking<Unit> {
-        val nearby = NearbyWatch(state, record, clock = { now })
         nearby.onPermission(true)
         nearby.onPermission(false)
         now += 30_000
@@ -81,25 +92,144 @@ class IntegrityTrackersTest {
     }
 
     @Test
-    fun forceStopsNewerThanTheLastCheckAreRecordedOnce() = runBlocking<Unit> {
-        val check = ForceStopCheck(state, record, clock = { now })
-        check.onStart(listOf(500_000L)) // first check: only the baseline, history before it is not reported
+    fun forceStopsAreRecordedOnceByIdentity() = runBlocking<Unit> {
+        check.onStart(listOf(AppExit(500_000L, 1))) // first check: only the baseline, history before it is not reported
         assertTrue(recorded.isEmpty())
         now += 60_000
-        check.onStart(listOf(500_000L, 1_020_000L))
+        check.onStart(listOf(AppExit(500_000L, 1), AppExit(1_020_000L, 2)))
         assertEquals(listOf(Triple(StateEvent.Kind.APP_FORCE_STOPPED, 1_020_000L, 1_060_000L)), recorded)
         now += 60_000
-        check.onStart(listOf(500_000L, 1_020_000L))
+        check.onStart(listOf(AppExit(500_000L, 1), AppExit(1_020_000L, 2)))
         assertEquals(1, recorded.size)
     }
 
     @Test
-    fun failedRecordKeepsTheIntervalForTheNextTry() = runBlocking<Unit> {
+    fun failedRecordClearsTheFlagButKeepsTheInterval() = runBlocking<Unit> {
         stops.onUserStop()
-        val failing = StopTracker(state, record = { _, _, _ -> error("db down") }, clock = { now })
+        val failing = StopTracker(state, record = { _, _, _ -> error("db down") }, gate = gate, clock = { now })
         runCatching { failing.onUserStart() }
-        assertTrue(state.stoppedByUser())
+        assertFalse(state.stoppedByUser()) // the flag never sticks because of a failed event
+        assertEquals(1_000_000L, state.stoppedAtMs())
+        now += 1_000
         stops.onUserStart()
-        assertEquals(1, recorded.size)
+        assertEquals(listOf(Triple(StateEvent.Kind.SYNC_STOPPED, 1_000_000L, 1_001_000L)), recorded)
+    }
+
+    // Fix round 1, ruling 1: the first force stop after joining is not lost.
+
+    @Test
+    fun forceStopAfterJoiningIsRecorded() = runBlocking<Unit> {
+        openSince = null // no group yet: the gate is closed, the check only sets the baseline
+        check.onStart(emptyList())
+        openSince = 1_000_000L // joined and consented
+        now = 2_000_000L
+        check.onStart(listOf(AppExit(1_500_000L, 42))) // force stopped after joining, next start
+        assertEquals(listOf(Triple(StateEvent.Kind.APP_FORCE_STOPPED, 1_500_000L, 2_000_000L)), recorded)
+    }
+
+    @Test
+    fun forgettingTheGroupKeepsTheForceStopBaseline() = runBlocking<Unit> {
+        check.onStart(listOf(AppExit(500_000L, 1)))
+        state.clear()
+        check.onStart(listOf(AppExit(500_000L, 1), AppExit(1_200_000L, 2)))
+        assertEquals(listOf(Triple(StateEvent.Kind.APP_FORCE_STOPPED, 1_200_000L, 1_200_000L)), recorded) // to = max(stop, now)
+    }
+
+    // Fix round 1, ruling 2: identity, not wall time, decides what is new.
+
+    @Test
+    fun clockSetForwardThenBackHidesNoForceStop() = runBlocking<Unit> {
+        check.onStart(listOf(AppExit(500_000L, 1)))
+        now = 9_000_000L // clock set forward
+        check.onStart(listOf(AppExit(500_000L, 1), AppExit(8_900_000L, 2)))
+        now = 700_000L // and back
+        check.onStart(listOf(AppExit(500_000L, 1), AppExit(8_900_000L, 2), AppExit(650_000L, 3)))
+        check.onStart(listOf(AppExit(500_000L, 1), AppExit(8_900_000L, 2), AppExit(650_000L, 3)))
+        assertEquals(listOf(8_900_000L, 650_000L), recorded.map { it.second })
+        assertTrue(recorded.all { it.first == StateEvent.Kind.APP_FORCE_STOPPED })
+    }
+
+    @Test
+    fun anUpdateOnApi33IsNotAForceStop() {
+        val user = ApplicationExitInfo.REASON_USER_REQUESTED
+        assertFalse(ForceStopCheck.isUserForceStop(user, 1_000_000L, sdkInt = 33, lastUpdateMs = 970_000L))
+        assertFalse(ForceStopCheck.isUserForceStop(user, 1_000_000L, sdkInt = 31, lastUpdateMs = 1_005_000L))
+        assertTrue(ForceStopCheck.isUserForceStop(user, 1_000_000L, sdkInt = 33, lastUpdateMs = 900_000L))
+        assertTrue(ForceStopCheck.isUserForceStop(user, 1_000_000L, sdkInt = 34, lastUpdateMs = 990_000L))
+        assertFalse(ForceStopCheck.isUserForceStop(ApplicationExitInfo.REASON_CRASH, 1_000_000L, sdkInt = 34, lastUpdateMs = 0L))
+    }
+
+    // Fix round 1, ruling 3: a closed gate (before consent) keeps nothing; after consent the state is reported fresh.
+
+    @Test
+    fun stopBeforeConsentIsReportedFromConsent() = runBlocking<Unit> {
+        openSince = null
+        stops.onUserStop()
+        assertTrue(state.stoppedByUser())
+        assertNull(state.stoppedAtMs())
+        openSince = 1_100_000L
+        now = 1_200_000L
+        stops.onUserStart()
+        assertEquals(listOf(Triple(StateEvent.Kind.SYNC_STOPPED, 1_100_000L, 1_200_000L)), recorded)
+        assertFalse(state.stoppedByUser())
+    }
+
+    @Test
+    fun hiddenBeforeConsentIsReportedAfterIt() = runBlocking<Unit> {
+        openSince = null
+        watch.onVisibility(false)
+        assertTrue(recorded.isEmpty())
+        assertNull(state.notificationHiddenSinceMs())
+        openSince = 1_000_000L
+        now = 1_100_000L
+        watch.onVisibility(false)
+        now = 1_200_000L
+        watch.onVisibility(true)
+        assertEquals(
+            listOf(
+                Triple(StateEvent.Kind.NOTIFICATION_HIDDEN, 1_100_000L, 1_100_000L),
+                Triple(StateEvent.Kind.NOTIFICATION_SHOWN, 1_100_000L, 1_200_000L),
+            ),
+            recorded,
+        )
+    }
+
+    @Test
+    fun nearbyOffBeforeConsentIsReportedFromTheFirstCheckAfterIt() = runBlocking<Unit> {
+        openSince = null
+        nearby.onPermission(false)
+        assertNull(state.nearbyOffSinceMs())
+        openSince = 1_000_000L
+        now = 1_100_000L
+        nearby.onPermission(false)
+        now = 1_300_000L
+        nearby.onPermission(true)
+        assertEquals(listOf(Triple(StateEvent.Kind.NEARBY_PERMISSION_OFF, 1_100_000L, 1_300_000L)), recorded)
+    }
+
+    @Test
+    fun forceStopBeforeConsentIsNeverReported() = runBlocking<Unit> {
+        check.onStart(emptyList())
+        openSince = null
+        check.onStart(listOf(AppExit(1_100_000L, 5)))
+        openSince = 1_200_000L
+        check.onStart(listOf(AppExit(1_100_000L, 5)))
+        assertTrue(recorded.isEmpty())
+    }
+
+    @Test
+    fun refusedEventsKeepTheStateForTheNextTry() = runBlocking<Unit> {
+        accept = false // the gate closed between the tracker's check and queueEvent
+        watch.onVisibility(false)
+        assertNull(state.notificationHiddenSinceMs())
+        check.onStart(emptyList())
+        check.onStart(listOf(AppExit(1_050_000L, 7)))
+        accept = true
+        watch.onVisibility(false)
+        check.onStart(listOf(AppExit(1_050_000L, 7)))
+        assertEquals(
+            listOf(StateEvent.Kind.NOTIFICATION_HIDDEN, StateEvent.Kind.APP_FORCE_STOPPED),
+            recorded.map { it.first },
+        )
     }
 }

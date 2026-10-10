@@ -202,7 +202,7 @@ class UsagePipelineTest {
     fun queuedEventIsPublishedWithTheOthers() = runTest {
         store.applyBatch(listOf(genesis.entry))
         val p = pipeline(PublishTarget(genesis.groupId, keys))
-        p.queueEvent(StateEvent.Kind.BLUETOOTH_OFF, fromMs = 1_000, toMs = 2_000)
+        assertTrue(p.queueEvent(StateEvent.Kind.BLUETOOTH_OFF, fromMs = 1_000, toMs = 2_000))
         p.setSharing(true)
         val off = own().single { it.stateKind() == StateEvent.Kind.BLUETOOTH_OFF }.body.state_event!!
         assertEquals(1_000L to 2_000L, off.from_ms to off.to_ms)
@@ -223,7 +223,7 @@ class UsagePipelineTest {
         source.events += listOf(s.resumed("09:00", MAPS), s.paused("09:30", MAPS))
         assertEquals(RunReport(CollectResult.NOT_ALLOWED, null), p.collectAndPublish(force = true))
         assertNull(RoomUsageQueue(db).state()) // nothing was read from the system
-        p.queueEvent(StateEvent.Kind.BLUETOOTH_OFF, fromMs = 1_000, toMs = 2_000)
+        assertFalse(p.queueEvent(StateEvent.Kind.BLUETOOTH_OFF, fromMs = 1_000, toMs = 2_000))
         assertTrue(RoomUsageQueue(db).pendingEvents().isEmpty())
         assertFailsWith<IllegalStateException> { p.setSharing(true) }
         assertFalse(settings.current().sharing)

@@ -107,10 +107,14 @@ class UsagePipeline(
         true
     }
 
-    /** Queues a local integrity event (signed on the next publish while sharing is on); dropped without [ownUsage]. */
-    suspend fun queueEvent(kind: StateEvent.Kind, fromMs: Long, toMs: Long): Unit = mutex.withLock {
-        if (!ownUsage(target())) return@withLock
+    /**
+     * Queues a local integrity event (signed on the next publish while sharing is on). False when it was dropped
+     * because [ownUsage] refused: the caller keeps its own state then, so nothing is marked as reported.
+     */
+    suspend fun queueEvent(kind: StateEvent.Kind, fromMs: Long, toMs: Long): Boolean = mutex.withLock {
+        if (!ownUsage(target())) return@withLock false
         queue.addEvent(PendingEventRow(kind = kind.value, fromMs = fromMs, toMs = toMs))
+        true
     }
 
     /**

@@ -19,6 +19,12 @@ import java.io.File
 
 data class HeartbeatMark(val atMs: Long, val version: String)
 
+/**
+ * ForceStopCheck's memory: [baselineMs] is the newest exit at the very first check (older ones are never reported),
+ * [seen] the exits already handled, by identity, so a clock change can neither hide nor repeat one.
+ */
+data class ForceStopMarks(val baselineMs: Long, val seen: Set<AppExit>)
+
 /** Small local transport state that must survive a process restart (DataStore, never synchronised). */
 class TransportStateStore(private val store: DataStore<Preferences>) {
     suspend fun lastSyncMs(): Long? = store.data.first()[LAST_SYNC]
@@ -62,6 +68,22 @@ class TransportStateStore(private val store: DataStore<Preferences>) {
         store.edit { if (ms == null) it.remove(STOPPED_AT) else it[STOPPED_AT] = ms }
     }
 
+    /** One transition: the Stop flag set and, when [atMs] is given, the stop time unless one is already kept. */
+    suspend fun markStoppedByUser(atMs: Long?) {
+        store.edit {
+            it[STOPPED_BY_USER] = true
+            if (atMs != null && it[STOPPED_AT] == null) it[STOPPED_AT] = atMs
+        }
+    }
+
+    /** One transition: neither the Stop flag nor a stop time. */
+    suspend fun clearStop() {
+        store.edit {
+            it.remove(STOPPED_BY_USER)
+            it.remove(STOPPED_AT)
+        }
+    }
+
     /** Since when the sync notification cannot be seen; null while it can (NotificationWatch). */
     suspend fun notificationHiddenSinceMs(): Long? = store.data.first()[NOTIFICATION_HIDDEN_SINCE]
 
@@ -76,11 +98,18 @@ class TransportStateStore(private val store: DataStore<Preferences>) {
         store.edit { if (ms == null) it.remove(NEARBY_OFF_SINCE) else it[NEARBY_OFF_SINCE] = ms }
     }
 
-    /** When the system's exit records were last checked for force stops (ForceStopCheck); null before the first check. */
-    suspend fun forceStopCheckedMs(): Long? = store.data.first()[FORCE_STOP_CHECKED]
+    /** What ForceStopCheck already knows of the system's exit records; null before the first check. */
+    suspend fun forceStopMarks(): ForceStopMarks? {
+        val p = store.data.first()
+        val baseline = p[FORCE_STOP_BASELINE] ?: return null
+        return ForceStopMarks(baseline, decodeExits(p[FORCE_STOP_SEEN]))
+    }
 
-    suspend fun setForceStopCheckedMs(ms: Long) {
-        store.edit { it[FORCE_STOP_CHECKED] = ms }
+    suspend fun setForceStopMarks(marks: ForceStopMarks) {
+        store.edit {
+            it[FORCE_STOP_BASELINE] = marks.baselineMs
+            it[FORCE_STOP_SEEN] = encodeExits(marks.seen)
+        }
     }
 
     /** Wall time of the last completed direct session per peer («last seen», stage 4). */
@@ -97,9 +126,19 @@ class TransportStateStore(private val store: DataStore<Preferences>) {
         }
     }
 
-    /** A wiped group or identity: everything here belonged to the old group. */
+    /**
+     * A wiped group or identity: everything here belonged to the old group, except the force-stop marks. Those
+     * describe this device's exit history, and a wiped baseline would swallow the first force stop after the next
+     * join (fix round 1).
+     */
     suspend fun clear() {
-        store.edit { it.clear() }
+        store.edit {
+            val baseline = it[FORCE_STOP_BASELINE]
+            val seen = it[FORCE_STOP_SEEN]
+            it.clear()
+            if (baseline != null) it[FORCE_STOP_BASELINE] = baseline
+            if (seen != null) it[FORCE_STOP_SEEN] = seen
+        }
     }
 
     companion object {
@@ -113,7 +152,8 @@ class TransportStateStore(private val store: DataStore<Preferences>) {
         private val NOTIFICATION_HIDDEN_SINCE = longPreferencesKey("notification_hidden_since_ms")
         private val PEER_SEEN = stringPreferencesKey("peer_seen")
         private val NEARBY_OFF_SINCE = longPreferencesKey("nearby_off_since_ms")
-        private val FORCE_STOP_CHECKED = longPreferencesKey("force_stop_checked_ms")
+        private val FORCE_STOP_BASELINE = longPreferencesKey("force_stop_baseline_ms")
+        private val FORCE_STOP_SEEN = stringPreferencesKey("force_stop_seen")
 
         /** "hex=ms;hex=ms"; malformed parts are skipped (the file is a cache). */
         internal fun decodePeers(text: String?): Map<DeviceId, Long> = text.orEmpty().split(';').mapNotNull { part ->
@@ -121,6 +161,14 @@ class TransportStateStore(private val store: DataStore<Preferences>) {
             val time = ms.toLongOrNull() ?: return@mapNotNull null
             runCatching { DeviceId(id) to time }.getOrNull()
         }.toMap()
+
+        /** "ms:pid;ms:pid"; malformed parts are skipped. */
+        internal fun decodeExits(text: String?): Set<AppExit> = text.orEmpty().split(';').mapNotNull { part ->
+            val (ms, pid) = part.split(':').takeIf { it.size == 2 } ?: return@mapNotNull null
+            AppExit(ms.toLongOrNull() ?: return@mapNotNull null, pid.toIntOrNull() ?: return@mapNotNull null)
+        }.toSet()
+
+        internal fun encodeExits(all: Set<AppExit>): String = all.joinToString(";") { "${it.timestampMs}:${it.pid}" }
 
         internal fun encodePeers(all: Map<DeviceId, Long>): String = all.entries.joinToString(";") { "${it.key.hex}=${it.value}" }
 
