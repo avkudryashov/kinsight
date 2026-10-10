@@ -78,12 +78,16 @@ class StopTracker(
  * Whether the sync notification can be seen (research §3 and §8 п. 5): NOTIFICATION_HIDDEN once when it becomes
  * invisible (permission or channel off), NOTIFICATION_SHOWN(from = hidden since, to = now) when it is back. The
  * «since» is kept only once HIDDEN was accepted, so a refused HIDDEN is tried again on the next check.
+ * Until [onboardingDone] the notification being invisible is not hiding (emulator run 2026-10-10): the service starts at
+ * the join, the notification permission is asked a few screens later, so nothing is recorded then; a refusal that
+ * stands once onboarding is finished is reported at the next check.
  */
 class NotificationWatch(
     private val state: TransportStateStore,
     private val record: EventRecorder,
     private val gate: GateOpenSince,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val onboardingDone: suspend () -> Boolean = { true },
 ) {
     suspend fun onVisibility(visible: Boolean) {
         val since = state.notificationHiddenSinceMs()
@@ -96,6 +100,7 @@ class NotificationWatch(
             is GateState.Open -> Unit
         }
         if (!visible && since == null) {
+            if (!onboardingDone()) return
             val now = clock()
             if (record(StateEvent.Kind.NOTIFICATION_HIDDEN, now, now)) state.setNotificationHiddenSinceMs(now)
         } else if (visible && since != null) {

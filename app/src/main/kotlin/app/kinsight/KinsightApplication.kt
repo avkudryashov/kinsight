@@ -30,6 +30,7 @@ open class KinsightApplication : Application() {
         AlertChannels.ensure(this)
         AlertsWork.schedule(this)
         SyncGraph.onSessionFinished = { AlertsWork.runSoon(it) }
+        SyncGraph.onboardingDone = { AppGraph.get(it).prefs.current().onboardingDone }
         UsageAccessWatcher.register(this)
         val app = this
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {

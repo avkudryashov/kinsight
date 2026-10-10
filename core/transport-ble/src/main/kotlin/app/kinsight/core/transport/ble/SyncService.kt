@@ -76,7 +76,8 @@ class SyncService : Service() {
     @Volatile
     private var destroyed = false
 
-    // Serial dispatcher only.
+    // Serial dispatcher only (stopping is also read on the main thread by repostForeground).
+    @Volatile
     private var stopping = false
     private var fastUntilMono = 0L
     private var fastEnd: Job? = null
@@ -95,6 +96,7 @@ class SyncService : Service() {
 
     // Main thread only.
     private var foreground = false
+    private val mainHandler by lazy { android.os.Handler(mainLooper) }
 
     @Volatile
     private var snapshot = ServiceSnapshot(ServiceState.STARTING)
@@ -198,6 +200,36 @@ class SyncService : Service() {
 
     private fun onRotationTick() {
         scope.launch { engine?.refreshAdvert() }
+        onNotificationCheck() // the periodic visibility check
+    }
+
+    /**
+     * Notifications may have been allowed since the last post (the app came to the front, an onboarding step closed,
+     * the periodic tick): post the notification again, and tell the visibility tracker what the user sees now. A
+     * foreground notification posted before POST_NOTIFICATIONS was granted is not shown once it is (emulator run
+     * 2026-10-10, finding 3), so a hidden→visible change also re-enters the foreground (publish).
+     */
+    private fun onNotificationCheck() {
+        scope.launch {
+            if (stopping || destroyed) return@launch
+            publish()
+            quietly("notification check") {
+                SyncGraph.onNotificationVisibility(applicationContext, SyncGraph.notificationVisibleNow(applicationContext))
+            }
+        }
+    }
+
+    /** startForeground again with the current notification (main thread, where [foreground] lives); never throws. */
+    private fun repostForeground() {
+        mainHandler.post {
+            if (!foreground || destroyed || stopping) return@post
+            try {
+                startForeground(NOTIFICATION_ID, notification(snapshot), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+                log("notification posted again")
+            } catch (e: Exception) {
+                log("cannot post the notification again: $e")
+            }
+        }
     }
 
     /** A scan error delivered to ScanReceiver (EXTRA_ERROR_CODE): the scan is not running, retry it. */
@@ -593,6 +625,7 @@ class SyncService : Service() {
         SyncGraph.publish(snapshot)
         val visible = StatusText.notificationVisible(snapshot)
         if (visible != null && visible != lastVisible) {
+            if (visible && lastVisible == false) repostForeground()
             lastVisible = visible
             scope.launch { quietly("notification visibility") { SyncGraph.onNotificationVisibility(applicationContext, visible) } }
         }
@@ -702,6 +735,11 @@ class SyncService : Service() {
             } catch (e: Exception) {
                 Log.w(TAG, "cannot start the sync service ($reason)", e)
             }
+        }
+
+        /** The app came to the front (or an onboarding step closed): post the notification again if it can be seen now. */
+        fun refreshNotification() {
+            instance?.onNotificationCheck()
         }
 
         internal fun rotationTick() {

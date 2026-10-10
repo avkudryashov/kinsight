@@ -54,6 +54,13 @@ object SyncGraph {
     /** The service's latest state, for the diagnostics screen. */
     val snapshot: StateFlow<ServiceSnapshot> = _snapshot.asStateFlow()
 
+    /**
+     * Whether the first-run screens are finished (AppPrefs.onboardingDone, set by the app: core/data sits above this
+     * module). Until then a hidden sync notification is the onboarding grace, not hiding (NotificationWatch).
+     */
+    @Volatile
+    var onboardingDone: suspend (Context) -> Boolean = { true }
+
     /** Runs after every finished session, outside any lock (the app schedules its alerts there). Must not throw. */
     @Volatile
     var onSessionFinished: (Context) -> Unit = {}
@@ -229,7 +236,10 @@ object SyncGraph {
 
     /** Only while a group exists (otherwise nothing could deliver the event); parents drop it in queueEvent. */
     suspend fun onNotificationVisibility(context: Context, visible: Boolean) = stateLock.withLock {
-        if (groups(context).exists()) NotificationWatch(state(context), recorder(context), gate(context)).onVisibility(visible)
+        if (groups(context).exists()) {
+            val app = context.applicationContext
+            NotificationWatch(state(app), recorder(app), gate(app), onboardingDone = { onboardingDone(app) }).onVisibility(visible)
+        }
     }
 
     fun notificationVisibleNow(context: Context): Boolean = StatusText.notificationVisible(snapshotNow(context)) ?: true

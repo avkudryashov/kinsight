@@ -27,6 +27,9 @@ interface SyncControl {
 
     /** Stops the service without the Stop flag and waits (bounded) until it is gone: before a wipe. */
     suspend fun stopAndWait()
+
+    /** The app came to the front: a running service posts its notification again if it can be seen now. */
+    fun refreshNotification() {}
 }
 
 /**
@@ -48,6 +51,8 @@ class ServiceSyncControl(context: Context) : SyncControl {
     }
 
     override fun requestStop() = SyncService.requestStop(app)
+
+    override fun refreshNotification() = SyncService.refreshNotification()
 
     override suspend fun stopAndWait() {
         withContext(lane) { SyncService.stop(app) }

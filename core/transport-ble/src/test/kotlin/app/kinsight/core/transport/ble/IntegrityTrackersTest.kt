@@ -49,6 +49,24 @@ class IntegrityTrackersTest {
     }
 
     @Test
+    fun aHiddenNotificationDuringOnboardingIsNotHiding() = runBlocking<Unit> {
+        // Emulator run 2026-10-10, finding 3: the service starts at the join, the notification permission is asked two
+        // screens later; the parent got «the sync notification is hidden» for that onboarding grace.
+        var onboarded = false
+        val w = NotificationWatch(state, record, gate, clock = { now }, onboardingDone = { onboarded })
+        w.onVisibility(false)
+        now += 60_000
+        w.onVisibility(true)
+        assertEquals(emptyList(), recorded)
+        assertNull(state.notificationHiddenSinceMs())
+
+        // Finished, but the user refused notifications: that is hiding, openly reported.
+        onboarded = true
+        w.onVisibility(false)
+        assertEquals(listOf(Triple(StateEvent.Kind.NOTIFICATION_HIDDEN, now, now)), recorded)
+    }
+
+    @Test
     fun stopThenStartRecordsOneInterval() = runBlocking<Unit> {
         stops.onUserStop()
         assertTrue(state.stoppedByUser())

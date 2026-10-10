@@ -49,6 +49,15 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
+     * Back from a system dialog too (the notification permission of onboarding does not stop the activity): the sync
+     * notification is posted again once it can be seen (emulator run 2026-10-10, finding 3).
+     */
+    override fun onResume() {
+        super.onResume()
+        AppGraph.get(this).sync.refreshNotification()
+    }
+
+    /**
      * Any kinsight://pair/ link (the manifest filter): the first run parses it and names a wrong or newer invite
      * itself, so the version is not checked here.
      */
