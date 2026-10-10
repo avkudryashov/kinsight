@@ -1,6 +1,11 @@
 package app.kinsight.feature.dashboard
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.provider.Settings
 import android.text.format.DateUtils
+import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,10 +21,13 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -40,6 +48,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.kinsight.core.data.AppGraph
@@ -56,15 +65,17 @@ import app.kinsight.core.designsystem.component.isJustNow
 import app.kinsight.core.designsystem.component.relativeTime
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.transport.ble.ServiceState
-import app.kinsight.core.transport.ble.SyncProblem
 import kotlinx.coroutines.delay
 import java.time.format.TextStyle
 import kotlin.math.abs
 
 private const val HOUR_MS = 3_600_000L
 
+/** The service has no «done» signal for a fast window: the pull spinner is a short acknowledgement only. */
+private const val REFRESH_MS = 1_500L
+
 @Composable
-fun DashboardRoute(onOpenDevice: (DeviceId) -> Unit, onConsent: () -> Unit) {
+fun DashboardRoute(onOpenDevice: (DeviceId) -> Unit, onConsent: () -> Unit, onInviteChild: () -> Unit) {
     val context = LocalContext.current
     val vm: DashboardViewModel = viewModel {
         val g = AppGraph.get(context)
@@ -78,14 +89,16 @@ fun DashboardRoute(onOpenDevice: (DeviceId) -> Unit, onConsent: () -> Unit) {
             now = System.currentTimeMillis()
         }
     }
-    DashboardScreen(ui, now, onOpenDevice, vm::pause, vm::resume, onConsent, vm::start, vm::syncNow)
+    DashboardScreen(ui, now, onOpenDevice, vm::pause, vm::resume, onConsent, vm::start, vm::syncNow, onInviteChild)
 }
 
 /**
- * Spec §9.2 and §9.6. Both roles get a «who sees my data» header. A child's names its parents and, while sharing,
- * pauses in two taps; the pause is open (a signed SHARING_PAUSED its parents are told about), and the screen says so.
- * A parent's own usage is never shared (Play Stalkerware ruling), so it has no pause; it gets a card per child.
+ * Spec §9.2 and §9.6, reshaped by user feedback 2026-10-10 (the Family Link / Screen Time pattern): a parent's home
+ * shows its children only (and an invite while there are none); a child's shows one «who sees my data» row with the
+ * two-tap open pause, then its own card. This phone's sync status lives in Settings; Overview shows it only as a
+ * banner when the service needs the user, so the move never hides a problem. Pull to refresh runs «Sync now».
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
     ui: DashboardUi,
@@ -96,6 +109,7 @@ fun DashboardScreen(
     onConsent: () -> Unit,
     onStart: () -> Unit,
     onSyncNow: () -> Unit,
+    onInviteChild: () -> Unit,
 ) {
     val d = ui.dashboard
     if (d == null) {
@@ -110,23 +124,111 @@ fun DashboardScreen(
     }
     val child = d.self.role == MemberRole.CHILD
     val noContactMs = ui.noContactHours * HOUR_MS
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Text(stringResource(R.string.dash_title), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() }) }
-        item {
+    val attention = SyncAttention.of(ui.service)
+    var refreshing by remember { mutableStateOf(false) }
+    LaunchedEffect(refreshing) {
+        if (refreshing) {
+            delay(REFRESH_MS)
+            refreshing = false
+        }
+    }
+    PullToRefreshBox(
+        isRefreshing = refreshing,
+        onRefresh = {
+            refreshing = true
+            onSyncNow()
+        },
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        LazyColumn(
+            Modifier.fillMaxSize().testTag("dash_list"),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item { Text(stringResource(R.string.dash_title), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() }) }
+            attention?.let { a -> item { AttentionBanner(a, onStart) } }
             if (child) {
-                ChildTransparencyCard(d.parents, d.selfUsage?.sharing ?: Sharing.Never, ui.sharingFailed, onPause, onResume, onConsent)
+                item { ChildTransparencyRow(d.parents, d.selfUsage?.sharing ?: Sharing.Never, ui.sharingFailed, onPause, onResume, onConsent) }
+                d.selfUsage?.let { u -> item { DeviceCard(u, nowMs, noContactMs) { onOpenDevice(u.member.id) } } }
+            } else if (d.children.isEmpty()) {
+                item {
+                    EmptyState(stringResource(R.string.dash_empty_title), stringResource(R.string.dash_empty_body)) {
+                        Button(onInviteChild, Modifier.testTag("dash_invite_child")) { Text(stringResource(R.string.dash_invite_child)) }
+                    }
+                }
             } else {
-                ParentTransparencyCard(d.parents)
+                items(d.children, key = { it.member.id.hex }) { u -> DeviceCard(u, nowMs, noContactMs) { onOpenDevice(u.member.id) } }
             }
         }
-        item { ThisPhoneCard(ui.service, nowMs, onStart, onSyncNow) }
-        if (child) {
-            d.selfUsage?.let { u -> item { DeviceCard(u, nowMs, noContactMs) { onOpenDevice(u.member.id) } } }
-        } else if (d.children.isEmpty()) {
-            item { EmptyState(stringResource(R.string.dash_empty_title), stringResource(R.string.dash_empty_body)) }
-        } else {
-            items(d.children, key = { it.member.id.hex }) { u -> DeviceCard(u, nowMs, noContactMs) { onOpenDevice(u.member.id) } }
+    }
+}
+
+/** A sync problem the user has to act on. Running, waiting, syncing and starting are normal and show nothing. */
+internal enum class SyncAttention {
+    STOPPED,
+    NO_PERMISSION,
+    BLUETOOTH_OFF,
+    KEY_ERROR,
+    RADIO_ERROR,
+    ;
+
+    companion object {
+        /** The old «This phone» card's precedence: the user's Stop first, then what blocks the radio. */
+        fun of(s: ServiceStatus?): SyncAttention? = when {
+            s == null -> null
+            s.stoppedByUser -> STOPPED
+            s.missingPermissions.isNotEmpty() || s.state == ServiceState.NO_PERMISSION -> NO_PERMISSION
+            s.state == ServiceState.BLUETOOTH_OFF -> BLUETOOTH_OFF
+            s.state == ServiceState.STORAGE_ERROR -> KEY_ERROR
+            s.state == ServiceState.RADIO_ERROR -> RADIO_ERROR
+            else -> null
         }
+    }
+}
+
+@Composable
+private fun AttentionBanner(a: SyncAttention, onStart: () -> Unit) {
+    val context = LocalContext.current
+    Card(
+        Modifier.fillMaxWidth().testTag("dash_banner").semantics { liveRegion = LiveRegionMode.Polite },
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        ),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                stringResource(
+                    when (a) {
+                        SyncAttention.STOPPED -> R.string.dash_stopped
+                        SyncAttention.NO_PERMISSION -> R.string.dash_no_permission
+                        SyncAttention.BLUETOOTH_OFF -> R.string.dash_bluetooth_off
+                        SyncAttention.KEY_ERROR -> R.string.dash_storage_error
+                        SyncAttention.RADIO_ERROR -> R.string.dash_radio_error
+                    },
+                ),
+            )
+            when (a) {
+                SyncAttention.STOPPED -> Button(onStart, Modifier.testTag("dash_start")) { Text(stringResource(R.string.dash_start)) }
+                SyncAttention.NO_PERMISSION -> OutlinedButton(
+                    { context.open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri())) },
+                    Modifier.testTag("dash_app_settings"),
+                ) { Text(stringResource(R.string.dash_open_app_settings)) }
+                SyncAttention.BLUETOOTH_OFF -> OutlinedButton(
+                    { context.open(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) },
+                    Modifier.testTag("dash_bt_settings"),
+                ) { Text(stringResource(R.string.dash_open_bluetooth)) }
+                SyncAttention.KEY_ERROR, SyncAttention.RADIO_ERROR -> Unit
+            }
+        }
+    }
+}
+
+private fun Context.open(intent: Intent) {
+    try {
+        startActivity(intent)
+    } catch (e: ActivityNotFoundException) {
+        Log.w("KinsightDashboard", "no activity for ${intent.action}", e)
     }
 }
 
@@ -134,8 +236,9 @@ fun DashboardScreen(
 private fun dateTime(ms: Long): String =
     DateUtils.formatDateTime(LocalContext.current, ms, DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH)
 
+/** One compact row: who sees this phone's time, what sharing does now, and the one button for it. */
 @Composable
-private fun ChildTransparencyCard(
+private fun ChildTransparencyRow(
     parents: List<MemberView>,
     sharing: Sharing,
     failed: Boolean,
@@ -144,28 +247,27 @@ private fun ChildTransparencyCard(
     onConsent: () -> Unit,
 ) {
     var ask by remember { mutableStateOf(false) }
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    OutlinedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 if (parents.isEmpty()) stringResource(R.string.dash_shared_with_nobody)
                 else stringResource(R.string.dash_shared_with, parents.joinToString(", ") { it.name }),
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleSmall,
             )
             when (sharing) {
                 Sharing.On -> {
-                    Text(stringResource(R.string.dash_sharing_on))
-                    Text(stringResource(R.string.dash_pause_hint), style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.dash_pause_hint), style = MaterialTheme.typography.bodySmall)
                     OutlinedButton({ ask = true }, Modifier.testTag("dash_pause")) { Text(stringResource(R.string.dash_pause)) }
                 }
                 is Sharing.Paused -> {
-                    Text(stringResource(R.string.dash_paused_since, dateTime(sharing.sinceMs)))
+                    Text(stringResource(R.string.dash_paused_since, dateTime(sharing.sinceMs)), style = MaterialTheme.typography.bodySmall)
                     Button(onResume, Modifier.testTag("dash_resume")) { Text(stringResource(R.string.dash_resume)) }
                 }
                 Sharing.Never -> {
-                    Text(stringResource(R.string.dash_not_sharing))
+                    Text(stringResource(R.string.dash_not_sharing), style = MaterialTheme.typography.bodySmall)
                     Button(onConsent, Modifier.testTag("dash_consent")) { Text(stringResource(R.string.dash_turn_on)) }
                 }
-                Sharing.Left -> Text(stringResource(R.string.dash_left))
+                Sharing.Left -> Text(stringResource(R.string.dash_left), style = MaterialTheme.typography.bodySmall)
             }
             if (failed) {
                 Text(
@@ -190,49 +292,6 @@ private fun ChildTransparencyCard(
             },
             dismissButton = { TextButton({ ask = false }, Modifier.testTag("dash_pause_cancel")) { Text(stringResource(R.string.dash_cancel)) } },
         )
-    }
-}
-
-/** [others]: the other parents, who see the children's data as this parent does. */
-@Composable
-private fun ParentTransparencyCard(others: List<MemberView>) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(stringResource(R.string.dash_parent_not_shared), style = MaterialTheme.typography.titleMedium)
-            Text(
-                if (others.isEmpty()) stringResource(R.string.dash_parent_only_viewer)
-                else stringResource(R.string.dash_parent_co_viewers, others.joinToString(", ") { it.name }),
-            )
-        }
-    }
-}
-
-@Composable
-private fun ThisPhoneCard(s: ServiceStatus?, nowMs: Long, onStart: () -> Unit, onSyncNow: () -> Unit) {
-    val last = s?.lastSyncMs
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(stringResource(R.string.dash_this_phone), style = MaterialTheme.typography.titleMedium)
-            val text = when {
-                s == null -> ""
-                s.stoppedByUser -> stringResource(R.string.dash_stopped)
-                s.missingPermissions.isNotEmpty() || s.state == ServiceState.NO_PERMISSION -> stringResource(R.string.dash_no_permission)
-                s.state == ServiceState.BLUETOOTH_OFF -> stringResource(R.string.dash_bluetooth_off)
-                s.state == ServiceState.STORAGE_ERROR -> stringResource(R.string.dash_storage_error)
-                s.state == ServiceState.RADIO_ERROR -> stringResource(R.string.dash_radio_error)
-                s.syncing -> stringResource(R.string.dash_syncing)
-                s.problem == SyncProblem.PEER_NEEDS_UPDATE -> stringResource(R.string.dash_peer_update)
-                last != null && isJustNow(last, nowMs) -> stringResource(R.string.dash_synced_now)
-                last != null -> stringResource(R.string.dash_synced, relativeTime(last, nowMs))
-                else -> stringResource(R.string.dash_never_synced)
-            }
-            if (text.isNotEmpty()) Text(text)
-            if (s?.stoppedByUser == true) {
-                Button(onStart, Modifier.testTag("dash_start")) { Text(stringResource(R.string.dash_start)) }
-            } else {
-                OutlinedButton(onSyncNow, Modifier.testTag("dash_sync_now")) { Text(stringResource(R.string.dash_sync_now)) }
-            }
-        }
     }
 }
 

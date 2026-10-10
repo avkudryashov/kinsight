@@ -227,7 +227,15 @@ private fun MainScaffold(appVersion: String, openDevice: StateFlow<String?>, onD
         NavHost(nav, startDestination = OverviewDest) {
             composable<OverviewDest> {
                 Box(Modifier.windowInsetsPadding(topInsets)) {
-                    DashboardRoute(onOpenDevice = { nav.navigate(DeviceDest(it.hex)) }, onConsent = { nav.navigate(ConsentDest) })
+                    DashboardRoute(
+                        onOpenDevice = { nav.navigate(DeviceDest(it.hex)) },
+                        onConsent = { nav.navigate(ConsentDest) },
+                        // The group tab's child invite, so closing it lands on the group, as the invite there does.
+                        onInviteChild = {
+                            nav.selectTab(GroupDest)
+                            nav.navigate(InviteDest(Role.CHILD.name))
+                        },
+                    )
                 }
             }
             composable<GroupDest> {

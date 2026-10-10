@@ -1,5 +1,8 @@
 package app.kinsight.feature.dashboard
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
@@ -7,6 +10,8 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeDown
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.kinsight.core.data.DashboardState
 import app.kinsight.core.data.DayTotal
@@ -52,9 +57,14 @@ class DashboardScreenTest {
         onResume: () -> Unit = {},
         onConsent: () -> Unit = {},
         onOpenDevice: (DeviceId) -> Unit = {},
+        onSyncNow: () -> Unit = {},
+        onInviteChild: () -> Unit = {},
     ) = rule.setContent {
         KinsightTheme(dynamicColor = false) {
-            DashboardScreen(ui, now, onOpenDevice, onPause = onPause, onResume = onResume, onConsent = onConsent, onStart = onStart, onSyncNow = {})
+            DashboardScreen(
+                ui, now, onOpenDevice, onPause = onPause, onResume = onResume, onConsent = onConsent, onStart = onStart,
+                onSyncNow = onSyncNow, onInviteChild = onInviteChild,
+            )
         }
     }
 
@@ -88,9 +98,107 @@ class DashboardScreenTest {
     }
 
     @Test
-    fun parentWithoutChildrenSeesTheEmptyState() {
-        show(DashboardUi(DashboardState(mom, null, emptyList(), emptyList()), running, true))
+    fun parentWithoutChildrenSeesTheEmptyStateWithAnInvite() {
+        var invited = false
+        show(DashboardUi(DashboardState(mom, null, emptyList(), emptyList()), running, true), onInviteChild = { invited = true })
         rule.onNodeWithText("No children yet").assertExists()
+        rule.onNodeWithTag("dash_invite_child").performClick()
+        rule.waitForIdle()
+        assertTrue(invited)
+    }
+
+    @Test
+    fun parentWithChildrenSeesOnlyTheChildren() {
+        // User feedback 2026-10-10: the parent's home shows children; this phone's status moved to Settings.
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), listOf(dad)), running.copy(lastSyncMs = now - 5 * 60_000), true))
+        rule.onNodeWithText("Kid").assertExists()
+        rule.onNodeWithText("This phone").assertDoesNotExist()
+        rule.onNodeWithText("is not shared", substring = true).assertDoesNotExist()
+        rule.onNodeWithText("also visible to", substring = true).assertDoesNotExist()
+        rule.onNodeWithText("Last sync", substring = true).assertDoesNotExist()
+        rule.onNodeWithTag("dash_sync_now").assertDoesNotExist()
+        rule.onNodeWithTag("dash_banner").assertDoesNotExist()
+        rule.onNodeWithTag("dash_pause").assertDoesNotExist()
+        rule.onNodeWithTag("dash_consent").assertDoesNotExist()
+    }
+
+    @Test
+    fun childSeesTheTransparencyRowAndItsOwnCardButNoThisPhone() {
+        show(childUi(Sharing.On))
+        rule.onNodeWithText("Your screen time is visible to: Mom").assertExists()
+        rule.onNodeWithTag("dash_pause").assertExists()
+        rule.onNodeWithText("Kid").assertExists()
+        rule.onNodeWithText("This phone").assertDoesNotExist()
+        rule.onNodeWithTag("dash_sync_now").assertDoesNotExist()
+        rule.onNodeWithTag("dash_banner").assertDoesNotExist()
+    }
+
+    private fun bannerFor(s: ServiceStatus, text: String, role: Role = Role.PARENT) {
+        val ui = if (role == Role.CHILD) childUi(Sharing.On).copy(service = s) else DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), emptyList()), s, true)
+        show(ui)
+        rule.onNodeWithTag("dash_banner").assertExists()
+        rule.onNodeWithText(text, substring = true).assertExists()
+    }
+
+    @Test
+    fun bluetoothOffShowsABanner() = bannerFor(running.copy(state = ServiceState.BLUETOOTH_OFF), "Bluetooth is off")
+
+    @Test
+    fun noPermissionShowsABanner() = bannerFor(running.copy(state = ServiceState.NO_PERMISSION), "Nearby devices")
+
+    @Test
+    fun aMissingPermissionShowsABannerOnAChild() =
+        bannerFor(running.copy(missingPermissions = listOf("android.permission.BLUETOOTH_SCAN")), "Nearby devices", Role.CHILD)
+
+    @Test
+    fun aRadioErrorShowsABanner() = bannerFor(running.copy(state = ServiceState.RADIO_ERROR), "Bluetooth error")
+
+    @Test
+    fun aKeyErrorShowsABanner() = bannerFor(running.copy(state = ServiceState.STORAGE_ERROR), "Key storage error")
+
+    @Test
+    fun aStopOnAChildShowsTheBannerWithStart() {
+        var started = false
+        show(childUi(Sharing.On).copy(service = running.copy(state = ServiceState.STOPPED, stoppedByUser = true)), onStart = { started = true })
+        rule.onNodeWithTag("dash_banner").assertExists()
+        rule.onNodeWithText("Sync was stopped by you", substring = true).assertExists()
+        rule.onNodeWithTag("dash_start").performClick()
+        rule.waitForIdle()
+        assertTrue(started)
+    }
+
+    @Test
+    fun normalStatesShowNoBanner() {
+        val states = listOf(
+            running,
+            running.copy(syncing = true),
+            running.copy(lastSyncMs = null), // waiting for the family's phones
+            running.copy(state = ServiceState.STARTING),
+            null,
+        )
+        var current by mutableStateOf<ServiceStatus?>(states.first())
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                DashboardScreen(
+                    DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), emptyList()), current, true), now, {},
+                    onPause = {}, onResume = {}, onConsent = {}, onStart = {}, onSyncNow = {}, onInviteChild = {},
+                )
+            }
+        }
+        states.forEach {
+            current = it
+            rule.waitForIdle()
+            rule.onNodeWithTag("dash_banner").assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun pullToRefreshSyncsNow() {
+        var synced = 0
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), emptyList()), running, true), onSyncNow = { synced++ })
+        rule.onNodeWithTag("dash_list").performTouchInput { swipeDown(startY = top + 10f, endY = bottom, durationMillis = 600) }
+        rule.waitForIdle()
+        assertEquals(1, synced)
     }
 
     @Test
@@ -100,38 +208,6 @@ class DashboardScreenTest {
         rule.onNodeWithTag("dash_start").performClick()
         rule.waitForIdle()
         assertTrue(started)
-    }
-
-    @Test
-    fun parentHeaderSaysOwnUsageIsNotSharedAndOffersNoPause() {
-        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), listOf(dad)), running.copy(lastSyncMs = now - 5 * 60_000), true))
-        rule.onNodeWithText("Your screen time is not shared", substring = true).assertExists()
-        rule.onNodeWithText("also visible to: Dad", substring = true).assertExists()
-        rule.onNodeWithTag("dash_pause").assertDoesNotExist()
-        rule.onNodeWithTag("dash_resume").assertDoesNotExist()
-        rule.onNodeWithTag("dash_consent").assertDoesNotExist()
-        rule.onNodeWithText("Last sync", substring = true).assertExists()
-    }
-
-    @Test
-    fun aSyncMomentsAgoOrSlightlyAheadOfTheClockReadsJustNow() {
-        // Emulator run 2026-10-10: «Last sync In 0 minutes» (the stamp a little ahead of the screen's clock).
-        show(DashboardUi(DashboardState(mom, null, emptyList(), emptyList()), running.copy(lastSyncMs = now + 2_000), true))
-        rule.onNodeWithText("Last sync: just now").assertExists()
-        rule.onNodeWithText("In ", substring = true).assertDoesNotExist()
-    }
-
-    @Test
-    fun anOlderSyncReadsInThePast() {
-        show(DashboardUi(DashboardState(mom, null, emptyList(), emptyList()), running.copy(lastSyncMs = now - 5 * 60_000), true))
-        rule.onNodeWithText("Last sync: 5 minutes ago").assertExists()
-    }
-
-    @Test
-    @Config(qualifiers = "ru")
-    fun justNowInRussian() {
-        show(DashboardUi(DashboardState(mom, null, emptyList(), emptyList()), running.copy(lastSyncMs = now), true))
-        rule.onNodeWithText("Последняя синхронизация: только что").assertExists()
     }
 
     @Test
