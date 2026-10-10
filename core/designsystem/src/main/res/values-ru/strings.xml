@@ -4,4 +4,6 @@
     <string name="ds_duration_minutes">%1$d мин</string>
     <string name="ds_duration_hours">%1$d ч</string>
     <string name="ds_duration_hours_minutes">%1$d ч %2$d мин</string>
+    <string name="ds_qr_error_title">Не удалось показать QR-код</string>
+    <string name="ds_qr_error_body">Код пустой или слишком длинный.</string>
 </resources>

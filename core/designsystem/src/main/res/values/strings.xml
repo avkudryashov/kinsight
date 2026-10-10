@@ -4,4 +4,6 @@
     <string name="ds_duration_minutes">%1$d min</string>
     <string name="ds_duration_hours">%1$d h</string>
     <string name="ds_duration_hours_minutes">%1$d h %2$d min</string>
+    <string name="ds_qr_error_title">Can\'t show the QR code</string>
+    <string name="ds_qr_error_body">The code is empty or too long.</string>
 </resources>

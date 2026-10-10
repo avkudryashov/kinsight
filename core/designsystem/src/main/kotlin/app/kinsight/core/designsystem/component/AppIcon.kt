@@ -13,13 +13,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
 
-/** The 48 px WebP icon from AppCatalog (decorative: the label is next to it); a neutral circle without one. */
+/**
+ * An app's icon from AppCatalog (a 48 px WebP), drawn at a fixed 40 dp; [modifier] applies inside that box.
+ * Decorative (the label is next to it); a neutral circle when there is no icon or it does not decode.
+ */
 @Composable
 fun AppIcon(webp: ByteArray?, modifier: Modifier = Modifier) {
     val bitmap = remember(webp) {
         webp?.let { runCatching { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() }.getOrNull() }
     }
-    val m = modifier.size(40.dp)
+    val m = Modifier.size(40.dp).then(modifier)
     if (bitmap != null) {
         Image(bitmap, contentDescription = null, modifier = m)
     } else {

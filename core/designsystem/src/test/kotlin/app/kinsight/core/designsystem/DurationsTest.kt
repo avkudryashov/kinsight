@@ -23,9 +23,20 @@ class DurationsTest {
     }
 
     @Test
+    fun boundaries() {
+        assertEquals("<1 min", formatDuration(res, 0))
+        assertEquals("1 min", formatDuration(res, 60_000))
+        assertEquals("59 min", formatDuration(res, 59 * 60_000L + 59_999))
+        assertEquals("1 h", formatDuration(res, 60 * 60_000L))
+        assertEquals("1 h 1 min", formatDuration(res, 61 * 60_000L))
+    }
+
+    @Test
     @Config(qualifiers = "ru")
     fun russianFormats() {
         assertEquals("45 мин", formatDuration(res, 45 * 60_000L))
         assertEquals("2 ч 5 мин", formatDuration(res, 125 * 60_000L))
+        assertEquals("<1 мин", formatDuration(res, 59_000))
+        assertEquals("3 ч", formatDuration(res, 180 * 60_000L))
     }
 }
