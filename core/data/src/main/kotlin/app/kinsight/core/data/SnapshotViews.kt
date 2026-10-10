@@ -108,6 +108,7 @@ object SnapshotViews {
             overrides = overrides,
             details = UsageReadModel.details(details)[id],
             weekFields = weekFields,
+            nowMs = nowMs,
         )
     }
 

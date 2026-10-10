@@ -6,6 +6,7 @@ import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.proto.AppCatalog
 import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.model.proto.UsageDetail
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.WeekFields
@@ -240,9 +241,12 @@ object UsageReadModel {
         overrides: Map<String, AppCategory> = emptyMap(),
         details: Map<LocalDate, DecodedEntry>? = null,
         weekFields: WeekFields = WeekFields.of(Locale.getDefault()),
+        nowMs: Long? = null,
     ): DeviceDetail {
         val own = surfaced(member, byDate)
         val ownDetails = surfaced(member, details)
+        @Suppress("NAME_SHADOWING")
+        val today = childToday(own, today, nowMs)
         val mine = events.filter { it.author == member.id }
         val days = days(own, range.dates(), today)
         val dayCategories = days.map { dayCategories(own, it, catalog, overrides) }
@@ -271,7 +275,22 @@ object UsageReadModel {
                 null
             },
             heatmap = if (range.period == Period.DAY) null else heatmap(own, ownDetails, range.dates(), today, catalog, overrides, weekFields),
+            today = today,
         )
+    }
+
+    /**
+     * The child's own date at [nowMs], from the zone of its latest summary (highest seq), when that is later than the
+     * viewer's [today]: a child in a zone ahead of the parent can already be on the next day (Review Focus 3). Never
+     * earlier than [today] and at most one day later (zone offsets span 26 h); an unparsable zone (untrusted peer), no
+     * summary or a null [nowMs] keeps [today].
+     */
+    fun childToday(byDate: Map<LocalDate, DecodedEntry>?, today: LocalDate, nowMs: Long?): LocalDate {
+        if (nowMs == null) return today
+        val zoneId = byDate?.values?.maxByOrNull { it.seq }?.body?.usage_summary?.zone_id ?: return today
+        val zone = runCatching { ZoneId.of(zoneId) }.getOrNull() ?: return today
+        val theirs = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
+        return theirs.coerceIn(today, today.plusDays(1))
     }
 
     /**

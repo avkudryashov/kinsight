@@ -378,4 +378,30 @@ class UsageReadModelTest {
         assertFalse(forward(range(Period.MONTH)))
         assertTrue(forward(range(Period.MONTH).previous()))
     }
+
+    private fun zoned(date: LocalDate, zone: String, minutes: Long) = kid.create {
+        it.copy(usage_summary = UsageSummary(local_date = date.toString(), zone_id = zone, total_ms = minutes * min))
+    }
+
+    @Test
+    fun aChildAheadOfTheParentShowsItsOwnToday() {
+        // Sat 10 Oct 20:00 in Los Angeles (the parent) is Sun 11 Oct 12:00 in Tokyo (the child).
+        val now = LocalDate.of(2026, 10, 10).atTime(20, 0).atZone(ZoneId.of("America/Los_Angeles")).toInstant().toEpochMilli()
+        val tomorrow = today.plusDays(1)
+        val by = byDate(zoned(today, "Asia/Tokyo", 30), zoned(tomorrow, "Asia/Tokyo", 15))
+        val week = UsageReadModel.detail(member, by, emptyMap(), emptyList(), range(Period.WEEK), today, nowMs = now)
+        assertEquals(tomorrow, week.today)
+        assertTrue(week.days.last().known)
+        assertEquals(45 * min, week.totalMs)
+        assertFalse(week.canGoForward)
+        val day = UsageReadModel.detail(member, by, emptyMap(), emptyList(), range(Period.DAY, tomorrow), today, nowMs = now)
+        assertEquals(15 * min, day.totalMs)
+        // A child behind the parent, or with a zone that does not parse, keeps the parent's today.
+        val behind = byDate(zoned(today, "Pacific/Honolulu", 30))
+        assertEquals(today, UsageReadModel.detail(member, behind, emptyMap(), emptyList(), range(Period.WEEK), today, nowMs = now).today)
+        val broken = byDate(zoned(today, "Not/AZone", 30), zoned(tomorrow, "Not/AZone", 15))
+        val unparsed = UsageReadModel.detail(member, broken, emptyMap(), emptyList(), range(Period.WEEK), today, nowMs = now)
+        assertEquals(today, unparsed.today)
+        assertFalse(unparsed.days.last().known)
+    }
 }

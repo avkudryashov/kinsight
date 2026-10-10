@@ -153,6 +153,11 @@ data class DeviceDetail(
     val hours: List<HourTotal>? = null,
     /** Level 4 of a WEEK or MONTH: weekday × hour averages; null when no day of the range has a usable UsageDetail. */
     val heatmap: Heatmap? = null,
+    /**
+     * The child's today, the bound of forward navigation: the viewer's date, or the next one when the child's zone is
+     * already there (UsageReadModel.childToday); null when not given (screen tests), the screen then uses the viewer's.
+     */
+    val today: LocalDate? = null,
 ) {
     val period: Period get() = range.period
 }
