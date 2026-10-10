@@ -64,4 +64,37 @@ class UsageRepositoryTest {
         assertEquals(600_000L, map.cells[6][15])
         assertEquals(0L, map.cells[3].sum())
     }
+
+    @Test
+    fun aCategoryOverrideReEmitsTheDetailAndTheApp() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val kidKeys = DeviceKeys.generate()
+        mom.pipeline.appendOwn { a -> listOf(a.addMember(kidKeys.sign.publicKey, kidKeys.dh.publicKey, "Kid", DeviceRole.CHILD)) }
+        val kid = EntryAuthor(mom.groups.read()!!.groupId, kidKeys, lastSeq = 0)
+        val game = "com.example.game" // no catalog entry, not in the built-in table: Other
+        mom.store().applyBatch(
+            listOf(
+                kid.create {
+                    it.copy(usage_summary = UsageSummary(local_date = today.toString(), zone_id = "UTC", total_ms = 600_000, apps = listOf(AppTotal(game, 600_000))))
+                },
+            ),
+        )
+        val usage = UsageRepository(mom.snapshots, mom.prefs, date = { today })
+        val week = DetailRange.of(Period.WEEK, today, sunFirst)
+        fun categories(d: DeviceDetail) = d.categories.map { it.category to it.totalMs }
+
+        assertEquals(listOf(AppCategory.OTHER to 600_000L), categories(usage.detail(kidKeys.deviceId, week, sunFirst).firstWithin { it?.categories?.isNotEmpty() == true }))
+        val app = withTimeout(10_000) { usage.app(kidKeys.deviceId, game, week).first { it != null }!! }
+        assertEquals(AppCategory.OTHER, app.category)
+        assertEquals(true, app.canChangeCategory) // the viewer is Mom, a parent
+
+        usage.setCategory(game, AppCategory.GAMES)
+        usage.detail(kidKeys.deviceId, week, sunFirst).firstWithin { d -> d != null && categories(d) == listOf(AppCategory.GAMES to 600_000L) }
+        val changed = withTimeout(10_000) { usage.app(kidKeys.deviceId, game, week).first { it?.category == AppCategory.GAMES }!! }
+        assertEquals(true, changed.overridden)
+
+        usage.setCategory(game, null) // «По умолчанию»
+        usage.detail(kidKeys.deviceId, week, sunFirst).firstWithin { d -> d != null && categories(d) == listOf(AppCategory.OTHER to 600_000L) }
+        assertEquals(false, withTimeout(10_000) { usage.app(kidKeys.deviceId, game, week).first { it?.category == AppCategory.OTHER }!! }.overridden)
+    }
 }

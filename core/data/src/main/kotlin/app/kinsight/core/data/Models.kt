@@ -146,14 +146,14 @@ data class DeviceUsage(
  */
 data class DeviceDetail(
     val member: MemberView,
-    val range: DetailRange,
-    val days: List<DayTotal>,
+    override val range: DetailRange,
+    override val days: List<DayTotal>,
     val totalMs: Long,
     val unlocks: Int,
     val apps: List<AppUsage>,
     val events: List<EventView>,
     val sharing: Sharing,
-    val canGoBack: Boolean = false,
+    override val canGoBack: Boolean = false,
     val canGoForward: Boolean = false,
     /** Level 3: the range's time per category, largest first, zero omitted; sums to [totalMs]. */
     val categories: List<CategoryTotal> = emptyList(),
@@ -167,7 +167,45 @@ data class DeviceDetail(
      * The child's today, the bound of forward navigation: the viewer's date, or the next one when the child's zone is
      * already there (UsageReadModel.childToday); null when not given (screen tests), the screen then uses the viewer's.
      */
-    val today: LocalDate? = null,
-) {
+    override val today: LocalDate? = null,
+) : RangedView {
+    val period: Period get() = range.period
+}
+
+/**
+ * What a screen with period navigation reads to move its range: [days] of [range] (a day is known when it has a
+ * summary), [canGoBack] while an older summary exists, [today] the child's today (null: the viewer's).
+ */
+interface RangedView {
+    val range: DetailRange
+    val days: List<DayTotal>
+    val canGoBack: Boolean
+    val today: LocalDate?
+}
+
+/**
+ * One app of a child over [range] (the app screen, spec §9.3, stage 5a). [days]: the app's time per date of the range
+ * (known when the date has a summary, so a known zero is a day the app was not used); [hours]: 24 clock hours of a DAY
+ * from a usable UsageDetail, else null; [rank]: 1-based place in the child's top of the range, null without time.
+ * [category] with the parent's override applied ([overridden]); [canChangeCategory]: the viewer is a parent and the
+ * package is not the `~other` remainder.
+ */
+class AppDetail(
+    val member: MemberView,
+    val packageName: String,
+    override val range: DetailRange,
+    val label: String,
+    val icon: ByteArray?,
+    val category: AppCategory,
+    val overridden: Boolean,
+    override val days: List<DayTotal>,
+    val totalMs: Long,
+    val hours: List<Long>?,
+    val rank: Int?,
+    val canChangeCategory: Boolean,
+    override val canGoBack: Boolean,
+    val canGoForward: Boolean,
+    override val today: LocalDate?,
+) : RangedView {
     val period: Period get() = range.period
 }

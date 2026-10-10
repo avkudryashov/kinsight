@@ -303,6 +303,17 @@ class UsageRepository(
                 SnapshotViews.detail(it, id, range, today(), clock(), overrides = o, details = details, weekFields = weekFields)
             }
         }
+
+    /** App [packageName] of device [id] over [range], reloaded on every log or category change (the app screen). */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun app(id: DeviceId, packageName: String, range: DetailRange): Flow<AppDetail?> =
+        combine(snapshots.snapshots, categoryOverrides) { s, o -> s to o }.mapLatest { (s, o) ->
+            (s as? GroupSnapshot.Ready)?.let {
+                // Hours are drawn for a DAY only; a week or month needs no UsageDetail.
+                val details = if (range.period == Period.DAY) snapshots.details(it.groupId, id, range) else emptyList()
+                SnapshotViews.app(it, id, packageName, range, today(), clock(), overrides = o, details = details)
+            }
+        }
 }
 
 data class ServiceStatus(

@@ -112,6 +112,36 @@ object SnapshotViews {
         )
     }
 
+    /**
+     * App [packageName] of active or departed member [id] over [range]; null for an unknown device. Only a parent
+     * viewer may change its category.
+     */
+    fun app(
+        s: GroupSnapshot.Ready,
+        id: DeviceId,
+        packageName: String,
+        range: DetailRange,
+        today: LocalDate,
+        nowMs: Long = System.currentTimeMillis(),
+        overrides: Map<String, AppCategory> = emptyMap(),
+        details: List<DecodedEntry> = emptyList(),
+    ): AppDetail? {
+        val member = s.membership.active[id] ?: s.membership.departed[id]?.member ?: return null
+        val viewer = s.membership.active[s.self]
+        return UsageReadModel.app(
+            member = view(s, member, nowMs),
+            byDate = UsageReadModel.summaries(s.summaries)[id],
+            details = UsageReadModel.details(details)[id],
+            catalog = UsageReadModel.catalogOf(s.catalog, id),
+            packageName = packageName,
+            range = range,
+            today = today,
+            overrides = overrides,
+            viewerIsParent = viewer?.role?.toRole() == Role.PARENT,
+            nowMs = nowMs,
+        )
+    }
+
     private fun view(s: GroupSnapshot.Ready, m: Member, nowMs: Long): MemberView {
         val isSelf = m.id == s.self
         val fresh = (s.summaries.asSequence() + s.heartbeats.asSequence() + s.events.asSequence())

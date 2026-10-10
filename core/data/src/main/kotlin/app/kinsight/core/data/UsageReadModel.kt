@@ -280,6 +280,70 @@ object UsageReadModel {
     }
 
     /**
+     * One app [packageName] of [member] over [range] (the app screen, spec §9.3, stage 5a), from the same summaries,
+     * details and bounds as [detail]: per-day time from each date's summary (clamped to a day), the DAY's clock hours
+     * from a usable UsageDetail (each slot capped at [MAX_MS_PER_HOUR_SLOT]), the place in [apps] of the range.
+     * [viewerIsParent]: only a parent may change a category (a child's own phone never offers it), never of `~other`.
+     */
+    fun app(
+        member: MemberView,
+        byDate: Map<LocalDate, DecodedEntry>?,
+        details: Map<LocalDate, DecodedEntry>?,
+        catalog: Map<String, AppCatalog>,
+        packageName: String,
+        range: DetailRange,
+        today: LocalDate,
+        overrides: Map<String, AppCategory>,
+        viewerIsParent: Boolean = false,
+        nowMs: Long? = null,
+    ): AppDetail {
+        val own = surfaced(member, byDate)
+        val ownDetails = surfaced(member, details)
+        @Suppress("NAME_SHADOWING")
+        val today = childToday(own, today, nowMs)
+        val days = days(own, range.dates(), today).map { d ->
+            val ms = if (d.known) dayApps(own, d.date)[packageName] ?: 0L else 0L
+            DayTotal(d.date, ms, 0, hasData = ms > 0, known = d.known)
+        }
+        val top = apps(own, days.filter { it.known }.map { it.date }, catalog)
+        val hours = if (range.period == Period.DAY && !range.start.isAfter(today)) {
+            detailOf(own, ownDetails, range.start)?.let { appHours(it, packageName) }
+        } else {
+            null
+        }
+        val remainder = packageName == Categories.REMAINDER_PACKAGE
+        val c = catalog[packageName]
+        return AppDetail(
+            member = member,
+            packageName = packageName,
+            range = range,
+            label = c?.label?.takeIf { it.isNotBlank() } ?: packageName,
+            icon = c?.icon_webp?.toByteArray()?.takeIf { it.isNotEmpty() },
+            category = Categories.of(packageName, c?.category, overrides),
+            overridden = !remainder && overrides.containsKey(packageName),
+            days = days,
+            totalMs = days.sumOf { it.totalMs },
+            hours = hours,
+            rank = top.indexOfFirst { it.packageName == packageName }.takeIf { it >= 0 }?.plus(1),
+            canChangeCategory = viewerIsParent && !remainder,
+            canGoBack = own?.keys?.any { it.isBefore(range.start) } == true,
+            canGoForward = range.end.isBefore(today),
+            today = today,
+        )
+    }
+
+    /** 24 clock hours of one app in [detail]; buckets of the same hour summed, each slot capped (untrusted peer). */
+    private fun appHours(detail: UsageDetail, packageName: String): List<Long> {
+        val slots = LongArray(24)
+        for (b in detail.hours) {
+            if (b.hour !in 0..23) continue
+            val ms = b.apps.filter { it.package_name == packageName }.sumOf { it.foreground_ms.coerceIn(0L, MAX_MS_PER_HOUR_SLOT) }
+            slots[b.hour] = (slots[b.hour] + ms).coerceAtMost(MAX_MS_PER_HOUR_SLOT)
+        }
+        return slots.toList()
+    }
+
+    /**
      * The child's own date at [nowMs], from the zone of its latest summary (highest seq), when that is later than the
      * viewer's [today]: a child in a zone ahead of the parent can already be on the next day (Review Focus 3). Never
      * earlier than [today] and at most one day later (zone offsets span 26 h); an unparsable zone (untrusted peer), no
