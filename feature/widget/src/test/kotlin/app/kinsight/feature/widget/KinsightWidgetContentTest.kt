@@ -7,7 +7,13 @@ import androidx.glance.testing.unit.hasTestTag
 import androidx.glance.testing.unit.hasText
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
+import java.util.TimeZone
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 
@@ -17,6 +23,19 @@ class KinsightWidgetContentTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
     private val now = 1_760_000_000_000L
     private val links = WidgetLinks()
+
+    private var zone: TimeZone? = null
+
+    @Before
+    fun utc() {
+        zone = TimeZone.getDefault()
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+    }
+
+    @After
+    fun restore() {
+        TimeZone.setDefault(zone)
+    }
 
     private fun kid(i: Int) = ChildRow("c$i".repeat(16), "Kid$i", (60L + i) * 60_000, hasData = true, status = ChildStatus.Updated(now))
 
@@ -57,5 +76,33 @@ class KinsightWidgetContentTest {
         provideComposable { GlanceTheme { WidgetContent(WidgetState.Child(75 * 60_000, true, listOf("Mom", "Dad")), now, links) } }
         onNode(hasTestTag("wid_self_total")).assertExists()
         onNode(hasText("Visible to: Mom, Dad")).assertExists()
+    }
+
+    @Test
+    fun compactChildHidesParents(): Unit = runGlanceAppWidgetUnitTest {
+        setContext(context)
+        setAppWidgetSize(KinsightWidget.COMPACT)
+        provideComposable { GlanceTheme { WidgetContent(WidgetState.Child(75 * 60_000, true, listOf("Mom")), now, links) } }
+        onNode(hasTestTag("wid_self_total")).assertExists()
+        onNode(hasTestTag("wid_parents")).assertDoesNotExist()
+    }
+
+    /** now is 2025-10-09 08:53 UTC: earlier the same day shows only the time, another day the date too. */
+    @Test
+    fun statusTimeIsClockTodayAndDateBefore() {
+        val today = statusText(context, ChildStatus.Updated(now - 3_600_000), now)
+        assertTrue(today, today.startsWith("Updated "))
+        assertFalse(today, today.contains("Oct"))
+        val before = statusText(context, ChildStatus.Updated(now - 86_400_000), now)
+        assertTrue(before, before.contains("Oct 8") || before.contains("8 Oct"))
+    }
+
+    @Test
+    fun statusWords() {
+        assertTrue(statusText(context, ChildStatus.Paused(now - 60_000), now).startsWith("Paused since "))
+        val noContact = statusText(context, ChildStatus.NoContact(now - 2 * 86_400_000), now)
+        assertTrue(noContact, noContact.startsWith("No contact since ") && noContact.contains("Oct 7"))
+        assertEquals("Not sharing", statusText(context, ChildStatus.NotSharing, now))
+        assertEquals("No data yet", statusText(context, ChildStatus.NoData, now))
     }
 }
