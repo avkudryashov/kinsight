@@ -14,6 +14,7 @@ import app.kinsight.core.sync.PROTOCOL_VERSION
 import app.kinsight.core.sync.SecureChannel
 import app.kinsight.core.sync.TODAY
 import app.kinsight.core.sync.summary
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.awaitCancellation
@@ -357,8 +358,8 @@ class SyncEngineTest {
                 return late
             }
         }
-        // kotlinx 1.10.2 hands back a value the block returned without suspending again, even after its timeout fired,
-        // so the late stream is used (the silent far end then trips the session timeout); either way it gets closed.
+        // The connect never suspends, so withTimeout runs it undispatched and hands back its value even though the
+        // timeout fired meanwhile: the late stream is used (the silent far end then trips the session timeout).
         val e0 = engine(g, d0, connectTimeout = 100.milliseconds, sessionTimeout = 300.milliseconds, link = slowLink)
         val e1 = engine(g, d1)
         while (true) { // a window in which d0 connects
@@ -372,5 +373,78 @@ class SyncEngineTest {
         assertEquals(SyncProblem.LINK_FAILED, e0.status.value.lastProblem)
         // The far end sees the handshake's first message, then the close.
         withTimeout(2.seconds) { assertFailsWith<IOException> { while (true) farEnd.readFully(1) } }
+    }
+
+    @Test
+    fun aStreamThatASuspendingConnectReturnsAfterTheTimeoutIsClosed() = runBlocking<Unit> {
+        val g = TestGroup.create(2)
+        val (d0, d1) = g.devices
+        d0.store.applyBatch(listOf(d0.author.summary(TODAY.toString(), 5)))
+        val (late, farEnd) = MemoryPipe.pair()
+        val stubbornLink = object : BleLink {
+            override suspend fun connect(address: PeerAddress): ByteStream {
+                // Suspends past the timeout, then returns anyway (a radio callback that ignores the cancellation).
+                // withTimeout drops a value that arrives after it fired on this dispatched path: only the engine's
+                // holder can close the stream.
+                try {
+                    delay(10_000)
+                } catch (e: CancellationException) {
+                    // ignored on purpose
+                }
+                return late
+            }
+        }
+        val e0 = engine(g, d0, connectTimeout = 100.milliseconds, link = stubbornLink)
+        val e1 = engine(g, d1)
+        while (true) { // a window in which d0 connects
+            e0.refreshAdvert()
+            e1.refreshAdvert()
+            if (e0.advert.value!!.deviceTagValue < e1.advert.value!!.deviceTagValue) break
+            wall += DiscoveryTags.WINDOW_MS
+        }
+        e0.onSightings(listOf(Sighting(Addr("d1"), e1.advert.value!!, rssi = -50)))
+        awaitFinished(1, e0)
+        assertEquals(SyncProblem.LINK_FAILED, e0.status.value.lastProblem)
+        assertTrue(logs.any { it.startsWith("d0: connect to ") && it.endsWith(" timed out") }, "$logs")
+        withTimeout(2.seconds) { assertFailsWith<IOException> { farEnd.readFully(1) } } // closed, nothing written
+    }
+
+    @Test
+    fun aStrayCancellationFromPrepareDoesNotStopTheEngine() = runBlocking<Unit> {
+        val g = TestGroup.create(2)
+        val (d0, d1) = g.devices
+        d0.store.applyBatch(listOf(d0.author.summary(TODAY.toString(), 5)))
+        // An inner withTimeout of the callback leaks its TimeoutCancellationException: the first call on each engine.
+        fun strayOnce(): suspend () -> Unit {
+            val first = AtomicBoolean(true)
+            return { if (first.getAndSet(false)) withTimeout(1.milliseconds) { awaitCancellation() } }
+        }
+        val e0 = engine(g, d0, prepare = strayOnce())
+        val e1 = engine(g, d1, prepare = strayOnce())
+        seeEachOther("d0", e0, "d1", e1) // the initiator prepares inside its session, the responder in its sightings loop
+        awaitFinished(2, e0, e1)
+        assertEquals(d0.store.versionVector(), d1.store.versionVector())
+
+        // Both sightings loops still run: a later round is decided and synced.
+        d0.store.applyBatch(listOf(d0.author.summary(TODAY.minusDays(1).toString(), 7)))
+        mono += 11 * 60_000
+        seeEachOther("d0-rpa2", e0, "d1-rpa2", e1)
+        awaitFinished(4, e0, e1)
+        assertEquals(d0.store.versionVector(), d1.store.versionVector())
+    }
+
+    @Test
+    fun aFailureWhileRecordingStillReportsTheSessionOnce() = runBlocking<Unit> {
+        val g = TestGroup.create(2)
+        val (d0, d1) = g.devices
+        d0.store.applyBatch(listOf(d0.author.summary(TODAY.toString(), 5)))
+        val e0 = engine(g, d0)
+        val e1 = engine(g, d1, onLog = { if (it.startsWith("session ") && "Completed(" in it) error("log sink broken") })
+        seeEachOther("d0", e0, "d1", e1)
+        awaitFinished(2, e0, e1)
+        delay(200)
+        assertEquals(1, e1.status.value.finishedSessions)
+        assertTrue(!e1.status.value.syncing)
+        assertEquals(SyncProblem.LINK_FAILED, e1.status.value.lastProblem)
     }
 }

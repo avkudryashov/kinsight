@@ -11,11 +11,12 @@ import app.kinsight.core.sync.SecureChannel
 import app.kinsight.core.sync.SessionResult
 import app.kinsight.core.sync.SyncPolicy
 import app.kinsight.core.sync.SyncSession
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -111,9 +112,8 @@ class SyncEngine(
             for (batch in sightings) {
                 try {
                     handle(batch)
-                } catch (e: CancellationException) {
-                    throw e
                 } catch (e: Exception) {
+                    ensureOwnCancellation()
                     log("sightings failed: $e")
                 }
             }
@@ -151,9 +151,8 @@ class SyncEngine(
     suspend fun refreshAdvert() {
         try {
             _advert.value = contextOrNull()?.let { advertFor(it) }
-        } catch (e: CancellationException) {
-            throw e
         } catch (e: Exception) {
+            ensureOwnCancellation()
             log("advert refresh failed: $e")
         }
     }
@@ -206,8 +205,9 @@ class SyncEngine(
     }
 
     /**
-     * [BleLink.connect] within [connectTimeout]. A stream that arrives just as the timeout fires (the call returned,
-     * but the timeout won) is closed here: nobody else holds it.
+     * [BleLink.connect] within [connectTimeout]. withTimeout hands back a value after it fired only on the undispatched
+     * path (the block never suspended); a connect that suspended and still returns a stream after the timeout has its
+     * value dropped, so the holder closes that stream here: nobody else holds it.
      */
     private suspend fun connectOrNull(d: Decision.Connect): ByteStream? {
         var connected: ByteStream? = null
@@ -217,11 +217,9 @@ class SyncEngine(
             connected?.close()
             log("connect to ${d.peer.value.take(12)} timed out")
             null
-        } catch (e: CancellationException) {
-            connected?.close()
-            throw e
         } catch (e: Exception) {
             connected?.close()
+            ensureOwnCancellation()
             log("connect to ${d.peer.value.take(12)} failed: $e")
             null
         }
@@ -237,18 +235,16 @@ class SyncEngine(
         try {
             val outcome = try {
                 body()
-            } catch (e: CancellationException) {
-                throw e
             } catch (e: Exception) {
+                ensureOwnCancellation()
                 log("session ${initiatedTo?.value?.take(12) ?: "inbound"} crashed: $e")
                 Outcome(SessionResult.Failed(e), authenticated = null)
             } ?: return
             record(initiatedTo, outcome)
             reported = true
             refreshAdvert() // the vector changed: peers should see the new hash
-        } catch (e: CancellationException) {
-            throw e
         } catch (e: Exception) {
+            ensureOwnCancellation()
             log("recording the session failed: $e")
             if (!reported) {
                 _status.update {
@@ -290,9 +286,8 @@ class SyncEngine(
         } catch (e: TimeoutCancellationException) {
             log("session timed out after $sessionTimeout")
             SessionResult.Failed(IOException("session timed out after $sessionTimeout", e))
-        } catch (e: CancellationException) {
-            throw e
         } catch (e: Exception) {
+            ensureOwnCancellation()
             SessionResult.Failed(e)
         } finally {
             stream.close()
@@ -362,18 +357,23 @@ class SyncEngine(
         try {
             // Bounded: prepare runs while the session gate is held (and before a responder's sightings move on).
             withTimeoutOrNull(prepareTimeout) { prepare() } ?: log("prepare timed out after $prepareTimeout")
-        } catch (e: CancellationException) {
-            throw e
         } catch (e: Exception) {
+            ensureOwnCancellation()
             log("prepare failed: $e")
         }
     }
 
+    /**
+     * Called first in every catch-all of the engine. A CancellationException means we are cancelled only when our own
+     * coroutine is: then this rethrows. A stray one leaking from a callback (an inner withTimeout of prepare or context,
+     * a link) is handled as an ordinary failure, so it cannot end the sightings loop or a session without a record.
+     */
+    private suspend fun ensureOwnCancellation() = currentCoroutineContext().ensureActive()
+
     private suspend fun contextOrNull(): SyncContext? = try {
         context()
-    } catch (e: CancellationException) {
-        throw e
     } catch (e: Exception) {
+        ensureOwnCancellation()
         log("no sync context: $e")
         null
     }
