@@ -62,6 +62,26 @@ class DetailChartsTest {
     }
 
     @Test
+    fun barsThatCannotOpenHaveNoClickAction() {
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                StackedBarChart(
+                    stacks = listOf(listOf(1L), listOf(2L), listOf(0L)),
+                    colors = colors,
+                    labels = listOf("M", "T", "W"),
+                    summary = "Week",
+                    onBarClick = {},
+                    barClickLabel = { "Open day $it" },
+                    barClickable = { it < 2 },
+                )
+            }
+        }
+        rule.onNode(clickLabel("Open day 1")).assertExists()
+        rule.onNode(clickLabel("Open day 2")).assertDoesNotExist()
+        rule.onNodeWithContentDescription("Open day 2").assertDoesNotExist()
+    }
+
+    @Test
     fun stackedBarsWithoutAClickHandlerAreOnlyTheSummary() {
         rule.setContent {
             KinsightTheme(dynamicColor = false) {

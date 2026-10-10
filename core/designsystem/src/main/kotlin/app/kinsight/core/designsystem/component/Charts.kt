@@ -20,6 +20,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -29,15 +30,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.ceil
+import kotlin.math.roundToInt
 
 /**
  * Vertical bars on Canvas (spec §9.8). TalkBack reads [summary] instead of the bars; the highlighted last bar (today)
  * also gets a bold label, so colour is never the only cue. Negative values draw as zero; [labels] are padded or
  * trimmed to the bars. When labels do not fit their slots (narrow screen, large font), only every n-th label is
- * shown, counted back from today so today's label always stays.
+ * shown, counted back from today so today's label always stays. [labelAnchor] is the bar thinning counts from instead
+ * (0 for a clock-hour axis, so hour 0 and every 6th stay); null means the last bar.
  */
 @Composable
 fun BarChart(
@@ -47,6 +51,7 @@ fun BarChart(
     modifier: Modifier = Modifier,
     height: Dp = 120.dp,
     highlightLast: Boolean = true,
+    labelAnchor: Int? = null,
 ) {
     val highlight = MaterialTheme.colorScheme.primary
     val normal = MaterialTheme.colorScheme.secondary
@@ -67,16 +72,17 @@ fun BarChart(
                 )
             }
         }
-        ChartLabels(names, anchor = names.lastIndex, bold = if (highlightLast) names.lastIndex else null)
+        ChartLabels(names, anchor = labelAnchor ?: names.lastIndex, bold = if (highlightLast) names.lastIndex else null)
     }
 }
 
 /**
  * Stacked vertical bars on Canvas (spec §9.8): bar i is the sum of [stacks][i], segment j drawn bottom-up in
  * [colors][j] (wrapping). A bar with nothing draws a faint baseline so the day still reads as a day. TalkBack reads
- * [summary]; with [onBarClick] every bar is also its own semantics node with a click action labelled
- * [barClickLabel]. The [highlight]ed bar keeps full colour and a bold label while the others fade, so colour is
- * never the only cue; label thinning counts from it (else from the last bar).
+ * [summary]; with [onBarClick] every bar for which [barClickable] holds (not a future day) is also its own semantics
+ * node with a click action labelled [barClickLabel]. The [highlight]ed bar keeps full colour and a bold label while
+ * the others fade, so colour is never the only cue; label thinning counts from [labelAnchor], else from it, else from
+ * the last bar.
  */
 @Composable
 fun StackedBarChart(
@@ -89,6 +95,8 @@ fun StackedBarChart(
     barClickLabel: (Int) -> String = { "" },
     highlight: Int? = null,
     height: Dp = 160.dp,
+    barClickable: (Int) -> Boolean = { true },
+    labelAnchor: Int? = null,
 ) {
     val bars = stacks.map { stack -> stack.map { it.coerceAtLeast(0L) } }
     val names = chartLabels(labels, bars.size)
@@ -132,8 +140,13 @@ fun StackedBarChart(
             if (onBarClick != null) {
                 Row(Modifier.matchParentSize()) {
                     bars.indices.forEach { i ->
+                        val bar = Modifier.weight(1f).fillMaxHeight()
+                        if (!barClickable(i)) {
+                            Box(bar)
+                            return@forEach
+                        }
                         Box(
-                            Modifier.weight(1f).fillMaxHeight().clickable(
+                            bar.clickable(
                                 onClickLabel = barClickLabel(i),
                                 role = Role.Button,
                             ) { onBarClick(i) }
@@ -143,13 +156,15 @@ fun StackedBarChart(
                 }
             }
         }
-        ChartLabels(names, anchor = marked ?: names.lastIndex, bold = marked)
+        ChartLabels(names, anchor = labelAnchor ?: marked ?: names.lastIndex, bold = marked)
     }
 }
 
 /**
  * One label per bar under a chart, hidden from TalkBack (the chart's summary covers them). When labels do not fit
- * their slots, only every n-th is shown, counted from [anchor] so its label always stays; [bold] marks one label.
+ * their slots, only every n-th is shown, counted from [anchor] so its label always stays; n is rounded up to the
+ * labels' own spacing (an axis labelled every 6th hour keeps 0, 6, 12, 18). A shown label is centred on its bar and may
+ * use the width of the n slots it stands for, so it is not cut to one narrow slot; [bold] marks one label.
  */
 @Composable
 private fun ChartLabels(names: List<String>, anchor: Int, bold: Int?) {
@@ -160,20 +175,33 @@ private fun ChartLabels(names: List<String>, anchor: Int, bold: Int?) {
     BoxWithConstraints(Modifier.fillMaxWidth().clearAndSetSemantics {}) {
         val slotPx = constraints.maxWidth.toFloat() / names.size
         val widest = names.maxOf { measurer.measure(it, style.copy(fontWeight = FontWeight.Bold)).size.width }
-        val step = labelStep(widest.toFloat(), slotPx)
-        Row(Modifier.fillMaxWidth()) {
-            names.forEachIndexed { i, label ->
-                Text(
-                    if (labelShown(i, anchor, step)) label else "",
-                    Modifier.weight(1f),
-                    color = color,
-                    style = style,
-                    textAlign = TextAlign.Center,
-                    fontWeight = if (i == bold) FontWeight.Bold else null,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Ellipsis,
-                )
+        val step = spacedStep(labelStep(widest.toFloat(), slotPx), labelSpacing(names))
+        Layout(
+            content = {
+                names.forEachIndexed { i, label ->
+                    Text(
+                        if (labelShown(i, anchor, step)) label else "",
+                        color = color,
+                        style = style,
+                        textAlign = TextAlign.Center,
+                        fontWeight = if (i == bold) FontWeight.Bold else null,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { measurables, c ->
+            val width = c.maxWidth
+            val slot = width.toFloat() / names.size
+            val room = (slot * step).toInt().coerceIn(0, width)
+            val placeables = measurables.map { it.measure(Constraints(maxWidth = room)) }
+            layout(width, placeables.maxOf { it.height }) {
+                placeables.forEachIndexed { i, p ->
+                    val x = (slot * (i + 0.5f) - p.width / 2f).roundToInt().coerceIn(0, (width - p.width).coerceAtLeast(0))
+                    p.placeRelative(x, 0)
+                }
             }
         }
     }
@@ -184,6 +212,18 @@ internal fun labelShown(i: Int, anchor: Int, step: Int): Boolean = Math.floorMod
 
 /** [labels] padded with blanks or trimmed to [count] bars. */
 internal fun chartLabels(labels: List<String>, count: Int): List<String> = List(count) { labels.getOrElse(it) { "" } }
+
+/** The smallest gap between two labelled bars ([names] pre-spaced by the caller, e.g. every 6th hour); 1 with fewer than two labels. */
+internal fun labelSpacing(names: List<String>): Int {
+    val labelled = names.indices.filter { names[it].isNotEmpty() }
+    return labelled.zipWithNext { a, b -> b - a }.minOrNull()?.coerceAtLeast(1) ?: 1
+}
+
+/** [step] rounded up to a multiple of [spacing], so thinning drops whole labels rather than landing on blanks. */
+internal fun spacedStep(step: Int, spacing: Int): Int {
+    val sp = spacing.coerceAtLeast(1)
+    return ((step.coerceAtLeast(1) + sp - 1) / sp) * sp
+}
 
 /** Show every n-th label so the widest one ([widestPx]) fits in the n slots it may use. */
 internal fun labelStep(widestPx: Float, slotPx: Float): Int =

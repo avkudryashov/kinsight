@@ -8,6 +8,9 @@ import app.kinsight.core.designsystem.component.heatCells
 import app.kinsight.core.designsystem.component.heatHourLabels
 import app.kinsight.core.designsystem.component.heatIntensity
 import app.kinsight.core.designsystem.component.labelShown
+import app.kinsight.core.designsystem.component.labelSpacing
+import app.kinsight.core.designsystem.component.labelStep
+import app.kinsight.core.designsystem.component.spacedStep
 import app.kinsight.core.designsystem.component.paletteIndex
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -95,5 +98,31 @@ class ChartMathTest {
         // Too few or too many: padded with blanks or trimmed to the four ticks.
         assertEquals(listOf("a", "", "", ""), heatHourLabels(listOf("a")))
         assertEquals(listOf("a", "b", "c", "d"), heatHourLabels(listOf("a", "b", "c", "d", "e")))
+    }
+
+    @Test
+    fun hourAxisKeepsItsSixHourTicksAtNarrowWidth() {
+        // 24 bars on a 360 dp phone: ~13 dp slots, "12 AM" ~34 dp wide needs every 3rd slot.
+        val names = (0..23).map { if (it % 6 == 0) "12 AM" else "" }
+        assertEquals(6, labelSpacing(names))
+        val raw = labelStep(widestPx = 34f, slotPx = 13f)
+        assertEquals(3, raw)
+        // Counted from the last bar (the old anchor), not one tick survives.
+        assertFalse(listOf(0, 6, 12, 18).any { labelShown(it, anchor = 23, step = raw) })
+        // Counted from hour 0 with the step rounded up to the labels' own spacing, all four stay.
+        for (r in 1..6) {
+            val step = spacedStep(r, labelSpacing(names))
+            assertEquals(6, step)
+            assertTrue(listOf(0, 6, 12, 18).all { labelShown(it, anchor = 0, step = step) }, "raw step $r")
+        }
+        // A month labelled every 5th day from day 1.
+        val month = (0 until 31).map { if (it % 5 == 0) "${it + 1}" else "" }
+        assertEquals(5, labelSpacing(month))
+        assertEquals(5, spacedStep(2, 5))
+        assertEquals(10, spacedStep(7, 5))
+        // Every bar labelled (a week): unchanged.
+        assertEquals(1, labelSpacing(listOf("M", "T", "W")))
+        assertEquals(1, labelSpacing(listOf("M")))
+        assertEquals(3, spacedStep(3, 1))
     }
 }
