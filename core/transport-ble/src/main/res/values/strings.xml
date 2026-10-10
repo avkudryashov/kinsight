@@ -5,6 +5,7 @@
     <string name="kinsight_status_storage_error">Key storage error: open Kinsight</string>
     <string name="kinsight_status_no_permission">Allow Nearby devices to sync</string>
     <string name="kinsight_status_bluetooth_off">Bluetooth is off: turn it on to sync</string>
+    <string name="kinsight_status_radio_error">Bluetooth radio error: sync paused</string>
     <string name="kinsight_status_syncing">Syncing</string>
     <string name="kinsight_status_peer_needs_update">A family device needs an app update</string>
     <string name="kinsight_status_waiting">Waiting for family devices</string>

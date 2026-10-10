@@ -3,7 +3,7 @@ package app.kinsight.core.transport.ble
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.Member
 
-enum class ServiceState { STOPPED, STARTING, NO_GROUP, STORAGE_ERROR, NO_PERMISSION, BLUETOOTH_OFF, RUNNING }
+enum class ServiceState { STOPPED, STARTING, NO_GROUP, STORAGE_ERROR, NO_PERMISSION, BLUETOOTH_OFF, RADIO_ERROR, RUNNING }
 
 /**
  * What the service shows: its own state, the engine's status and the persisted last sync time. [peers] are the display
@@ -22,7 +22,7 @@ data class ServiceSnapshot(
 )
 
 data class StatusLine(val kind: Kind, val lastSyncWallMs: Long?) {
-    enum class Kind { STARTING, STORAGE_ERROR, NO_PERMISSION, BLUETOOTH_OFF, SYNCING, PEER_NEEDS_UPDATE, WAITING }
+    enum class Kind { STARTING, STORAGE_ERROR, NO_PERMISSION, BLUETOOTH_OFF, RADIO_ERROR, SYNCING, PEER_NEEDS_UPDATE, WAITING }
 }
 
 /** The notification line (spec §8, §10): an environment problem first, then what sync is doing. */
@@ -32,6 +32,7 @@ object StatusText {
             ServiceState.STORAGE_ERROR -> StatusLine.Kind.STORAGE_ERROR
             ServiceState.NO_PERMISSION -> StatusLine.Kind.NO_PERMISSION
             ServiceState.BLUETOOTH_OFF -> StatusLine.Kind.BLUETOOTH_OFF
+            ServiceState.RADIO_ERROR -> StatusLine.Kind.RADIO_ERROR
             ServiceState.STOPPED, ServiceState.STARTING, ServiceState.NO_GROUP -> StatusLine.Kind.STARTING
             ServiceState.RUNNING -> when {
                 s.sync.syncing -> StatusLine.Kind.SYNCING

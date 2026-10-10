@@ -142,7 +142,14 @@ class SyncService : Service() {
         }
         instance = this
         if (action == ACTION_REPOST && !fresh) {
-            scope.launch { publish() }
+            // After a Stop that a newer command (this one) kept alive, a repost must not revive the service.
+            scope.launch {
+                controlLock.withLock {
+                    var stopped = false
+                    quietly("read the stop flag") { stopped = SyncGraph.state(applicationContext).stoppedByUser() }
+                    if (stopped) stopNow(startId) else publish()
+                }
+            }
             return START_STICKY
         }
         // A REPOST that reaches a fresh instance is an ordinary start (the stop flag is honoured).
@@ -291,8 +298,9 @@ class SyncService : Service() {
             rs.cancel()
             r.close()
             log("cannot open servers: $ex")
-            // Bluetooth going off under us is the usual cause: then it is the ordinary off path (tracker included).
-            bluetoothOff(if (adapter.isEnabled) "cannot open servers: ${ex.message}" else null)
+            // Bluetooth going off under us: the ordinary off path (tracker included). With Bluetooth on it is a radio
+            // error, never a BLUETOOTH_OFF interval the family would see.
+            if (adapter.isEnabled) problem(ServiceState.RADIO_ERROR, "cannot open servers: ${ex.message}") else bluetoothOff()
             return false
         }
         radio = r
@@ -440,6 +448,7 @@ class SyncService : Service() {
                 StatusLine.Kind.STORAGE_ERROR -> R.string.kinsight_status_storage_error
                 StatusLine.Kind.NO_PERMISSION -> R.string.kinsight_status_no_permission
                 StatusLine.Kind.BLUETOOTH_OFF -> R.string.kinsight_status_bluetooth_off
+                StatusLine.Kind.RADIO_ERROR -> R.string.kinsight_status_radio_error
                 StatusLine.Kind.SYNCING -> R.string.kinsight_status_syncing
                 StatusLine.Kind.PEER_NEEDS_UPDATE -> R.string.kinsight_status_peer_needs_update
                 StatusLine.Kind.WAITING -> R.string.kinsight_status_waiting

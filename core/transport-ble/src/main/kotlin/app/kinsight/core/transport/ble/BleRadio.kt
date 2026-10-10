@@ -66,6 +66,10 @@ internal class BleRadio(
     @Volatile
     private var advertising = false
 
+    /** Set by [close]: a call racing the teardown (another thread) must not start a scan or an advert again. */
+    @Volatile
+    private var closed = false
+
     private val advertiseCallback = object : AdvertiseCallback() {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
             log("advertising mode=${settingsInEffect.mode}")
@@ -138,6 +142,7 @@ internal class BleRadio(
      * list in the scan response (it does not fit in the advertisement). Never throws.
      */
     fun advertise(payload: AdvertPayload, fast: Boolean) {
+        if (closed) return
         try {
             val advertiser = adapter.bluetoothLeAdvertiser ?: return log("no advertiser")
             if (advertising) runCatching { advertiser.stopAdvertising(advertiseCallback) }
@@ -161,6 +166,8 @@ internal class BleRadio(
                 .build()
             advertiser.startAdvertising(settings, data, response, advertiseCallback)
             advertising = true
+            // close() sets closed before it stops: one of us sees the other, so no advert outlives the radio.
+            if (closed) runCatching { advertiser.stopAdvertising(advertiseCallback) }.also { advertising = false }
         } catch (e: Exception) {
             log("advertise failed: $e")
         }
@@ -172,6 +179,7 @@ internal class BleRadio(
      * for [BATCH_DELAY_MS] when supported (each delivery wakes the app); fast mode reports at once. Never throws.
      */
     fun startScan(fast: Boolean) {
+        if (closed) return
         try {
             val scanner = adapter.bluetoothLeScanner ?: return log("no scanner")
             val pending = ScanReceiver.pendingIntent(context)
@@ -187,6 +195,7 @@ internal class BleRadio(
                 .setReportDelay(delay)
                 .build()
             val rc = scanner.startScan(filters, settings, pending)
+            if (closed) runCatching { scanner.stopScan(pending) } // same pairing as for the advert
             log("scan started fast=$fast reportDelay=$delay rc=$rc")
         } catch (e: Exception) {
             log("scan failed: $e")
@@ -195,6 +204,7 @@ internal class BleRadio(
 
     /** Stops everything; never throws, safe to call twice. */
     fun close() {
+        closed = true
         runCatching { adapter.bluetoothLeScanner?.stopScan(ScanReceiver.pendingIntent(context)) }
         if (advertising) runCatching { adapter.bluetoothLeAdvertiser?.stopAdvertising(advertiseCallback) }
         advertising = false

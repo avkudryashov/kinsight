@@ -23,6 +23,12 @@ class StatusTextTest {
     }
 
     @Test
+    fun radioErrorIsItsOwnLineNotBluetoothOff() {
+        val line = StatusText.line(ServiceSnapshot(ServiceState.RADIO_ERROR, "cannot open servers", syncing))
+        assertEquals(StatusLine(StatusLine.Kind.RADIO_ERROR, 7), line)
+    }
+
+    @Test
     fun runningShowsSyncingThenUpdateHintThenWaiting() {
         assertEquals(StatusLine.Kind.SYNCING, StatusText.line(ServiceSnapshot(ServiceState.RUNNING, sync = syncing)).kind)
         val outdated = SyncStatus(lastProblem = SyncProblem.PEER_NEEDS_UPDATE)
