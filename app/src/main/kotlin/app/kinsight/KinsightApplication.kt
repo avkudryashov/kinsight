@@ -3,6 +3,7 @@ package app.kinsight
 import android.app.Application
 import android.util.Log
 import app.kinsight.core.data.AppGraph
+import app.kinsight.core.data.IntegrityFastSync
 import app.kinsight.core.transport.ble.BlePermissions
 import app.kinsight.core.transport.ble.SyncGraph
 import app.kinsight.core.usage.UsageGraph
@@ -16,7 +17,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 /**
- * Wiring at process start: the publish target and the role/consent gate (SyncGraph.install), the hourly usage
+ * Wiring at process start: the publish target and the role/consent gate (SyncGraph.install), fast mode for own
+ * integrity events (IntegrityFastSync.install), the hourly usage
  * collection, the integrity alerts, and the checks only a fresh process can make: the «share» switch reconciled with
  * the last signed SHARING_* (spec §7), a join interrupted after the welcome finished, force stops since the last
  * start (with or without a group: the baseline), and a revoked «Nearby devices». Each check runs on its own, so one
@@ -26,6 +28,7 @@ open class KinsightApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         SyncGraph.install(this)
+        IntegrityFastSync.install(this)
         UsageWork.schedule(this)
         AlertChannels.ensure(this)
         AlertsWork.schedule(this)

@@ -213,6 +213,17 @@ class SyncService : Service() {
         return "fast mode for ${FAST_MS / 1000} s"
     }
 
+    /** [requestFast] on a running instance: the same fast mode as [syncNow], but never after the user's Stop. */
+    private fun fastUnlessStopped() {
+        scope.launch {
+            controlLock.withLock {
+                var stopped = false
+                quietly("read the stop flag") { stopped = SyncGraph.state(applicationContext).stoppedByUser() }
+                if (stopped) log("stopped by the user: no fast mode") else reconcile(fast = true)
+            }
+        }
+    }
+
     private fun onRotationTick() {
         scope.launch { engine?.refreshAdvert() }
         onNotificationCheck() // the periodic visibility check
@@ -757,6 +768,15 @@ class SyncService : Service() {
             } catch (e: Exception) {
                 Log.w(TAG, "cannot start the sync service ($reason)", e)
             }
+        }
+
+        /**
+         * One fast-mode window (as «Sync now») without a UI start: a running instance goes fast in process (no
+         * foreground-service start from the background), otherwise a REASON_APP_OPEN start. Both honour the user's
+         * Stop. For IntegrityFastSync (core/data); the fast-mode dial rules are ConnectPolicy's as always.
+         */
+        fun requestFast(context: Context) {
+            instance?.fastUnlessStopped() ?: start(context, REASON_APP_OPEN, fast = true)
         }
 
         /** The app came to the front (or an onboarding step closed): post the notification again if it can be seen now. */
