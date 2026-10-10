@@ -1,0 +1,123 @@
+package app.kinsight.core.usage
+
+import app.kinsight.core.database.PendingEventRow
+import app.kinsight.core.database.RoomEntryStore
+import app.kinsight.core.database.RoomUsageQueue
+import app.kinsight.core.model.DecodedEntry
+import app.kinsight.core.model.DeviceKeys
+import app.kinsight.core.model.EntryAuthor
+import app.kinsight.core.model.GroupId
+import app.kinsight.core.model.proto.AppCatalog
+import app.kinsight.core.model.proto.StateEvent
+import app.kinsight.core.sync.observedLamport
+import okio.ByteString.Companion.toByteString
+import java.time.LocalDate
+
+/** The group and identity entries are signed for; null until a group exists (stage 4). */
+data class PublishTarget(val groupId: GroupId, val keys: DeviceKeys)
+
+data class PublishReport(val events: Int, val days: List<String>, val catalog: List<String>) {
+    companion object {
+        val NONE = PublishReport(0, emptyList(), emptyList())
+    }
+}
+
+/**
+ * Turns the local queue into signed entries when sharing is on (spec §5 «Переключатели», §7). Every entry is stored
+ * through [RoomEntryStore.appendOwn] together with the queue bookkeeping it settles, and the EntryAuthor is rebuilt
+ * from the stored author state on every call, so a failure never burns or repeats a seq.
+ */
+class Publisher(
+    private val queue: RoomUsageQueue,
+    private val store: RoomEntryStore,
+    private val keys: DeviceKeys,
+    private val apps: AppInfoSource,
+    private val clock: () -> Long,
+    private val today: () -> LocalDate,
+) {
+    suspend fun publish(settings: UsageSettings, force: Boolean): PublishReport {
+        if (!settings.sharing) return PublishReport.NONE
+        val author = newAuthor()
+
+        var events = 0
+        for (row in queue.pendingEvents()) {
+            val e = author.create { it.copy(state_event = row.toStateEvent()) }
+            store.appendOwn(listOf(e)) { queue.deleteEvent(row.id) }
+            events++
+        }
+
+        val now = clock()
+        val last = queue.lastUsagePublishMs()
+        val due = force || last == null || now < last || now - last >= MIN_INTERVAL_MS
+        if (!due) return PublishReport(events, emptyList(), emptyList())
+
+        val summaryHorizon = today().minusDays(settings.summaryRetentionDays.toLong())
+        val detailHorizon = today().minusDays(settings.detailRetentionDays.toLong())
+        val days = mutableListOf<String>()
+        val packages = sortedSetOf<String>()
+        for (day in queue.changedDays()) {
+            val usage = queue.dayUsage(day.date)
+            val content = UsageContent.build(day.date, day.zoneId, usage.apps, usage.hours)
+            val date = LocalDate.parse(day.date)
+            val entries = mutableListOf<DecodedEntry>()
+            if (content.hash != day.publishedHash) {
+                if (!date.isBefore(summaryHorizon)) entries += author.create { it.copy(usage_summary = content.summary) }
+                if (!date.isBefore(detailHorizon)) entries += author.create { it.copy(usage_detail = content.detail) }
+            }
+            if (entries.isEmpty()) {
+                queue.markPublished(day.date, content.hash, day.version)
+                continue
+            }
+            store.appendOwn(entries) { queue.markPublished(day.date, content.hash, day.version) }
+            days += day.date
+            content.summary.apps.mapTo(packages) { it.package_name }
+        }
+        if (days.isNotEmpty()) queue.setLastUsagePublishMs(now)
+
+        val catalog = mutableListOf<String>()
+        for (pkg in packages) {
+            val info = apps.info(pkg) ?: continue
+            val hash = info.hash()
+            if (queue.catalogHash(pkg) == hash) continue
+            val e = author.create {
+                it.copy(
+                    app_catalog = AppCatalog(
+                        package_name = pkg,
+                        label = info.label,
+                        icon_webp = info.iconWebp.toByteString(),
+                        category = info.category,
+                    ),
+                )
+            }
+            store.appendOwn(listOf(e)) { queue.setCatalogHash(pkg, hash) }
+            catalog += pkg
+        }
+        return PublishReport(events, days, catalog)
+    }
+
+    /** SHARING_PAUSED / SHARING_RESUMED: signed at once, whatever the sharing switch says (spec §5). */
+    suspend fun recordSharingChange(sharing: Boolean) {
+        val now = clock()
+        val kind = if (sharing) StateEvent.Kind.SHARING_RESUMED else StateEvent.Kind.SHARING_PAUSED
+        val e = newAuthor().create { it.copy(state_event = StateEvent(kind = kind, from_ms = now, to_ms = now)) }
+        store.appendOwn(listOf(e))
+    }
+
+    private suspend fun newAuthor(): EntryAuthor {
+        val state = store.authorState(keys.deviceId)
+        val observed = store.observedLamport()
+        return EntryAuthor(store.groupId, keys, state.lastSeq, clock, state.lastLamport) { observed }
+    }
+
+    companion object {
+        /** At most one new UsageSummary/UsageDetail version per hour, except a forced run (spec §7). */
+        const val MIN_INTERVAL_MS = 3_600_000L
+    }
+}
+
+internal fun PendingEventRow.toStateEvent() = StateEvent(
+    kind = StateEvent.Kind.fromValue(kind) ?: StateEvent.Kind.KIND_UNSPECIFIED,
+    from_ms = fromMs,
+    to_ms = toMs,
+    clock_shift_ms = clockShiftMs,
+)

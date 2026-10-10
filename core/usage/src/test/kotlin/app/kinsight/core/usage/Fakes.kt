@@ -35,3 +35,8 @@ class FakeClock(
 class FakeLaunchers(var packages: Set<String> = setOf(LAUNCHER)) : LauncherSource {
     override fun launchers() = packages
 }
+
+class FakeApps : AppInfoSource {
+    val known = mutableMapOf<String, AppInfo>()
+    override fun info(packageName: String): AppInfo? = known[packageName]
+}
