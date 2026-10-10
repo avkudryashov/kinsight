@@ -24,7 +24,7 @@ class OnboardingScreensTest {
     fun consentNamesTheRecipientAndTheBacklog() {
         var agreed = false
         rule.setContent { KinsightTheme(dynamicColor = false) { ConsentScreen("Mom", onAgree = { agreed = true }, onNotNow = {}) } }
-        rule.onNodeWithText("including Mom, and parents who join later", substring = true).assertExists()
+        rule.onNodeWithText("every parent in your family group (currently Mom) and parents who join later", substring = true).assertExists()
         rule.onNodeWithText("Your parents will see", substring = true).assertExists()
         rule.onNodeWithText("last 7 days", substring = true).performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("a notification is always shown", substring = true).performScrollTo().assertIsDisplayed()
@@ -65,7 +65,7 @@ class OnboardingScreensTest {
     @Config(qualifiers = "ru")
     fun russianConsentUsesPrinimayuAndNeSeichas() {
         rule.setContent { KinsightTheme(dynamicColor = false) { ConsentScreen("Мама", onAgree = {}, onNotNow = {}) } }
-        rule.onNodeWithText("в том числе Мама, и тех, кто вступит позже", substring = true).assertExists()
+        rule.onNodeWithText("всех родителей вашей семейной группы (сейчас это Мама) и тех, кто вступит позже", substring = true).assertExists()
         rule.onNodeWithText("Твои родители увидят", substring = true).assertExists()
         rule.onNodeWithText("не более чем за 7 последних дней", substring = true).assertExists()
         rule.onNodeWithText("Принимаю").assertExists()

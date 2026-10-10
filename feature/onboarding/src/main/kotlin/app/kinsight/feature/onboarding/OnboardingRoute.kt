@@ -13,6 +13,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -21,6 +24,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.core.net.toUri
@@ -136,24 +141,22 @@ fun OnboardingRoute(
     }
     val state by vm.state.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
+    val restored by vm.restored.collectAsStateWithLifecycle()
+    val blocked by vm.nearbyBlocked.collectAsStateWithLifecycle()
     var unrestricted by remember { mutableStateOf(unrestrictedBattery(context)) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        vm.env = readEnv(context)
         unrestricted = unrestrictedBattery(context)
-        if (state.step == Step.USAGE_ACCESS && vm.env.usageAccessGranted) vm.next()
-        if (state.step == Step.NEARBY && vm.env.nearbyGranted) vm.next()
+        vm.onResumed(readEnv(context))
     }
     val nearby = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        vm.env = readEnv(context)
-        when {
-            vm.env.nearbyGranted || state.path == Path.CREATE -> vm.next()
-            nearbyBlocked(activity, context) -> vm.show(OnboardingMessage.NEARBY_BLOCKED)
-            else -> vm.show(OnboardingMessage.NEARBY_REQUIRED)
-        }
+        vm.onNearbyResult(readEnv(context), nearbyBlocked(activity, context))
     }
     val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        vm.env = readEnv(context)
-        vm.next()
+        vm.onNotificationsResult(readEnv(context))
+    }
+    if (!restored) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        return
     }
     BackHandler(enabled = state.step != Step.WELCOME && state.step != Step.DONE) { vm.back() }
     val child = state.role == DeviceRole.CHILD
@@ -172,13 +175,13 @@ fun OnboardingRoute(
             body = stringResource(R.string.onb_nearby_body),
             agreeLabel = stringResource(R.string.onb_agree),
             onAgree = { nearby.launch(BlePermissions.REQUIRED.toTypedArray()) },
-            onNotNow = { if (state.path == Path.CREATE) vm.next() else vm.show(OnboardingMessage.NEARBY_REQUIRED) },
-            note = when (message) {
-                OnboardingMessage.NEARBY_REQUIRED -> stringResource(R.string.onb_nearby_required)
-                OnboardingMessage.NEARBY_BLOCKED -> stringResource(R.string.onb_nearby_blocked)
+            onNotNow = vm::onNearbyNotNow,
+            note = when {
+                blocked -> stringResource(R.string.onb_nearby_blocked)
+                message == OnboardingMessage.NEARBY_REQUIRED -> stringResource(R.string.onb_nearby_required)
                 else -> null
             },
-            onOpenSettings = if (message == OnboardingMessage.NEARBY_BLOCKED) ({ openAppSettings(context) }) else null,
+            onOpenSettings = if (blocked) ({ openAppSettings(context) }) else null,
         )
         Step.SCAN -> ScanScreen(
             message = inviteError ?: if (message == OnboardingMessage.SCANNER_UNAVAILABLE) stringResource(R.string.onb_scan_unavailable) else null,

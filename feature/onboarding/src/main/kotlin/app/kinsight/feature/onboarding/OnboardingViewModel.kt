@@ -26,7 +26,6 @@ enum class OnboardingMessage {
     NAME_INVALID,
     CREATE_FAILED,
     NEARBY_REQUIRED,
-    NEARBY_BLOCKED,
     SCANNER_UNAVAILABLE,
 }
 
@@ -59,20 +58,41 @@ class OnboardingViewModel(
     private val _message = MutableStateFlow<OnboardingMessage?>(null)
     val message: StateFlow<OnboardingMessage?> = _message.asStateFlow()
 
+    /** Nearby was denied and Android will not ask again: only the app's settings page can grant it now. */
+    private val _nearbyBlocked = MutableStateFlow(false)
+    val nearbyBlocked: StateFlow<Boolean> = _nearbyBlocked.asStateFlow()
+
+    private val _restored = MutableStateFlow(false)
+
+    /** False until [restoring] is done: the route shows a loading state, so no WELCOME tap races the restore. */
+    val restored: StateFlow<Boolean> = _restored.asStateFlow()
+
     private var finishing = false
 
-    /** Refreshed by the route on every resume and after each permission result. */
+    /** What is granted, as of the last [onResumed] or permission result. */
     @Volatile
     var env: Env = Env.NOTHING
+        private set
+    private var envKnown = false
+
+    /** This phone is already in a group (resumed after a kill): back never leaves the post-group steps. */
+    private var groupExists = false
+
+    /** The resume step was picked before the real permissions were known: pick it again on the first resume. */
+    private var reevaluate = false
 
     /** Done once the saved name and the group on disk have been applied. */
     internal val restoring: Job = viewModelScope.launch {
-        if (saved.get<String>(KEY_NAME) == null) {
-            val stored = runCatching { prefs.current().deviceName }.getOrNull()
-            if (stored != null && DeviceNames.ok(stored)) set { it.copy(name = stored) }
+        try {
+            if (saved.get<String>(KEY_NAME) == null) {
+                val stored = runCatching { prefs.current().deviceName }.getOrNull()
+                if (stored != null && DeviceNames.ok(stored)) set { it.copy(name = stored) }
+            }
+            val g = group.state.first { it !is GroupState.Loading }
+            if (g is GroupState.Ready) resumeIn(g, runCatching { group.consentRecorded() }.getOrDefault(false))
+        } finally {
+            _restored.value = true
         }
-        val g = group.state.first { it !is GroupState.Loading }
-        if (g is GroupState.Ready) resumeIn(g, runCatching { group.consentRecorded() }.getOrDefault(false))
     }
 
     private fun restore(): OnboardingState {
@@ -105,18 +125,70 @@ class OnboardingViewModel(
         saved[KEY_ROLE] = s.joinedRole?.value
     }
 
-    private fun resumeIn(g: GroupState.Ready, consentRecorded: Boolean) = set { s ->
-        val created = s.path == Path.CREATE ||
-            (s.path == null && g.self.isAdmin && g.self.role == Role.PARENT && g.members.size == 1)
-        if (created) {
-            val c = s.copy(path = Path.CREATE, invite = null, consent = false)
-            return@set if (c.step == Step.BATTERY || c.step == Step.DONE) c else c.copy(step = Step.DONE)
+    /** The group decides: its admin created it (only DONE was left), anyone else joined (resume after PAIR). */
+    private fun resumeIn(g: GroupState.Ready, consentRecorded: Boolean) {
+        groupExists = true
+        set { s ->
+            if (g.self.isAdmin && g.self.role == Role.PARENT) {
+                val c = s.copy(path = Path.CREATE, invite = null, consent = false, joinedRole = null)
+                return@set if (c.step == Step.BATTERY || c.step == Step.DONE) c else c.copy(step = Step.DONE)
+            }
+            val role = g.self.role.toDeviceRole()
+            val joined = s.copy(path = Path.JOIN, joinedRole = role, consent = role == DeviceRole.CHILD && consentRecorded)
+            val order = OnboardingFlow.order(joined)
+            if (order.indexOf(joined.step) > order.indexOf(Step.PAIR)) return@set joined
+            if (!envKnown) reevaluate = true
+            joined.copy(step = OnboardingFlow.next(joined.copy(step = Step.PAIR), env))
         }
-        val role = g.self.role.toDeviceRole()
-        val joined = s.copy(path = Path.JOIN, joinedRole = role, consent = role == DeviceRole.CHILD && consentRecorded)
-        val order = OnboardingFlow.order(joined)
-        if (order.indexOf(joined.step) > order.indexOf(Step.PAIR)) joined
-        else joined.copy(step = OnboardingFlow.next(joined.copy(step = Step.PAIR), env))
+    }
+
+    /**
+     * Every ON_RESUME: record what is granted and advance only when the current step's own permission is now granted
+     * (granted in the system settings). Idempotent: a step already advanced by a permission result stays put.
+     */
+    fun onResumed(env: Env) {
+        this.env = env
+        envKnown = true
+        if (env.nearbyGranted) _nearbyBlocked.value = false
+        if (reevaluate) {
+            reevaluate = false
+            set { it.copy(step = OnboardingFlow.next(it.copy(step = Step.PAIR), env)) }
+        }
+        val granted = when (_state.value.step) {
+            Step.NEARBY -> env.nearbyGranted
+            Step.NOTIFICATIONS -> env.notificationsGranted
+            Step.USAGE_ACCESS -> env.usageAccessGranted
+            else -> false
+        }
+        if (granted) next()
+    }
+
+    /** The Nearby request returned; [blocked]: denied and Android will not ask again. */
+    fun onNearbyResult(env: Env, blocked: Boolean) {
+        this.env = env
+        envKnown = true
+        if (_state.value.step != Step.NEARBY) return
+        when {
+            env.nearbyGranted -> {
+                _nearbyBlocked.value = false
+                next()
+            }
+            _state.value.path == Path.CREATE -> next()
+            blocked -> _nearbyBlocked.value = true
+            else -> _message.value = OnboardingMessage.NEARBY_REQUIRED
+        }
+    }
+
+    /** «Not now» on Nearby: a parent creating a group goes on; joining needs Nearby, the settings way stays offered. */
+    fun onNearbyNotNow() {
+        if (_state.value.path == Path.CREATE) next() else if (!_nearbyBlocked.value) _message.value = OnboardingMessage.NEARBY_REQUIRED
+    }
+
+    /** The notification request returned, granted or not: go on. */
+    fun onNotificationsResult(env: Env) {
+        this.env = env
+        envKnown = true
+        if (_state.value.step == Step.NOTIFICATIONS) next()
     }
 
     /** A new choice drops whatever an earlier path left: create never carries an invite or a consent. */
@@ -183,7 +255,10 @@ class OnboardingViewModel(
 
     fun back() {
         _message.value = null
-        set { it.copy(step = OnboardingFlow.previous(it, env)) }
+        set {
+            val p = OnboardingFlow.previous(it, env)
+            if (groupExists && p in BEFORE_GROUP) it else it.copy(step = p)
+        }
     }
 
     /**
@@ -210,6 +285,8 @@ class OnboardingViewModel(
     }
 
     private companion object {
+        val BEFORE_GROUP = setOf(Step.WELCOME, Step.NAME, Step.PARENT_INFO, Step.SCAN, Step.CONSENT, Step.PAIR)
+
         const val KEY_STEP = "onb_step"
         const val KEY_PATH = "onb_path"
         const val KEY_NAME = "onb_name"

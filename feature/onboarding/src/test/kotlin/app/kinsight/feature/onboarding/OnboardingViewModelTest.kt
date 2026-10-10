@@ -107,7 +107,7 @@ class OnboardingViewModelTest {
         val vm = vm(group)
         vm.choose(Path.CREATE)
         vm.setName("Mom")
-        vm.env = Env(nearbyGranted = true, notificationsGranted = true, usageAccessGranted = true)
+        vm.onResumed(Env(nearbyGranted = true, notificationsGranted = true, usageAccessGranted = true))
         repeat(3) { vm.next() }
         assertEquals(Step.DONE, vm.state.value.step)
         var finished = false
@@ -125,8 +125,7 @@ class OnboardingViewModelTest {
         first.setName("Kid")
         first.next()
         assertTrue(first.onInviteText(invite(DeviceRole.CHILD).toUri()))
-        first.env = Env(nearbyGranted = true, notificationsGranted = false, usageAccessGranted = false)
-        first.next()
+        first.onResumed(Env(nearbyGranted = true, notificationsGranted = false, usageAccessGranted = false))
         assertEquals(Step.CONSENT, first.state.value.step)
         first.consent(true)
         assertEquals(Step.PAIR, first.state.value.step)
@@ -167,5 +166,89 @@ class OnboardingViewModelTest {
         assertEquals("Pixel 8a", vm(FakeGroup(GroupState.NoGroup)).state.value.name)
         val saved = SavedStateHandle(mapOf("onb_name" to "ㅤ"))
         assertEquals("Pixel 8a", vm(FakeGroup(GroupState.NoGroup), saved).state.value.name)
+    }
+
+    private val granted = Env(nearbyGranted = true, notificationsGranted = false, usageAccessGranted = false)
+    private val all = Env(nearbyGranted = true, notificationsGranted = true, usageAccessGranted = true)
+
+    @Test
+    fun aNearbyGrantAdvancesOnce() = runBlocking<Unit> {
+        val vm = vm(FakeGroup(GroupState.NoGroup))
+        vm.onResumed(Env.NOTHING)
+        vm.choose(Path.JOIN)
+        vm.next()
+        assertEquals(Step.NEARBY, vm.state.value.step)
+        vm.onNearbyResult(granted, blocked = false)
+        assertEquals(Step.SCAN, vm.state.value.step)
+        vm.onResumed(granted)
+        assertEquals(Step.SCAN, vm.state.value.step)
+    }
+
+    @Test
+    fun aNearbyGrantOnTheCreatePathDoesNotSkipNotifications() = runBlocking<Unit> {
+        val vm = vm(FakeGroup(GroupState.NoGroup))
+        vm.onResumed(Env.NOTHING)
+        vm.choose(Path.CREATE)
+        vm.next()
+        vm.next()
+        assertEquals(Step.NEARBY, vm.state.value.step)
+        vm.onNearbyResult(granted, blocked = false)
+        assertEquals(Step.NOTIFICATIONS, vm.state.value.step)
+        vm.onResumed(granted)
+        assertEquals(Step.NOTIFICATIONS, vm.state.value.step)
+    }
+
+    @Test
+    fun aGrantInSettingsAdvancesOnResume() = runBlocking<Unit> {
+        val vm = vm(FakeGroup(GroupState.NoGroup))
+        vm.onResumed(Env.NOTHING)
+        vm.choose(Path.JOIN)
+        vm.next()
+        vm.onResumed(granted)
+        assertEquals(Step.SCAN, vm.state.value.step)
+    }
+
+    @Test
+    fun notNowKeepsTheSettingsWayWhenNearbyIsBlocked() = runBlocking<Unit> {
+        val vm = vm(FakeGroup(GroupState.NoGroup))
+        vm.choose(Path.JOIN)
+        vm.next()
+        vm.onNearbyResult(Env.NOTHING, blocked = true)
+        assertTrue(vm.nearbyBlocked.value)
+        vm.onNearbyNotNow()
+        assertTrue(vm.nearbyBlocked.value)
+        assertEquals(Step.NEARBY, vm.state.value.step)
+    }
+
+    @Test
+    fun theResumeStepWaitsForTheRealPermissions() = runBlocking<Unit> {
+        val group = FakeGroup(ready(member("Kid", Role.CHILD, self = true), member("Mom", Role.PARENT, isAdmin = true)), consent = true)
+        val vm = vm(group)
+        vm.onResumed(all)
+        assertEquals(Step.BATTERY, vm.state.value.step)
+    }
+
+    @Test
+    fun aRestoredPathNeverGoesBackToWelcome() = runBlocking<Unit> {
+        val created = vm(FakeGroup(ready(member("Mom", Role.PARENT, self = true, isAdmin = true), member("Kid", Role.CHILD))))
+        created.onResumed(Env.NOTHING)
+        assertEquals(Path.CREATE, created.state.value.path)
+        repeat(10) { created.back() }
+        assertTrue(created.state.value.step !in setOf(Step.WELCOME, Step.NAME, Step.PARENT_INFO), "${created.state.value.step}")
+
+        val joined = vm(FakeGroup(ready(member("Kid", Role.CHILD, self = true), member("Mom", Role.PARENT, isAdmin = true))))
+        joined.onResumed(Env.NOTHING)
+        repeat(10) { joined.back() }
+        assertTrue(joined.state.value.step !in setOf(Step.WELCOME, Step.NAME, Step.PAIR, Step.CONSENT), "${joined.state.value.step}")
+    }
+
+    @Test
+    fun theScreenWaitsForTheRestore() = runBlocking<Unit> {
+        val group = FakeGroup(GroupState.Loading)
+        val vm = OnboardingViewModel(prefs, group, "Pixel 8a", SavedStateHandle())
+        assertFalse(vm.restored.value)
+        group.flow.value = GroupState.NoGroup
+        withTimeout(5_000) { vm.restoring.join() }
+        assertTrue(vm.restored.value)
     }
 }
