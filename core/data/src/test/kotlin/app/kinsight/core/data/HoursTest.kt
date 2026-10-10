@@ -109,6 +109,7 @@ class HoursTest {
         assertEquals(7, map.rangeDays)
         assertEquals(7, map.cells.size)
         assertEquals(24, map.cells[0].size)
+        assertEquals(DayOfWeek.MONDAY, map.firstDayOfWeek)
         assertEquals(60 * min, map.cells[0][8]) // Monday row first
         assertEquals(0L, map.cells[1][8]) // Tuesday: no hourly data
         assertEquals(30 * min, map.cells[2][8])
@@ -120,6 +121,7 @@ class HoursTest {
         val sunWeek = DetailRange.of(Period.WEEK, wed, sunFirst) // Sun 27 Sep to Sat 3 Oct
         val sunMap = assertNotNull(detailOf(sunWeek, sunFirst, *entries).heatmap)
         assertEquals(2, sunMap.coveredDays)
+        assertEquals(DayOfWeek.SUNDAY, sunMap.firstDayOfWeek)
         assertEquals(60 * min, sunMap.cells[1][8]) // Monday is the second row when Sunday comes first
         assertEquals(30 * min, sunMap.cells[3][8])
     }

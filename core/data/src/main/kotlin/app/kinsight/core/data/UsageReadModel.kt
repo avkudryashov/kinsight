@@ -117,7 +117,7 @@ object UsageReadModel {
         if (covered == 0) return null
         val cells = Array(7) { row -> LongArray(24) { h -> if (perWeekday[row] == 0) 0L else sums[row][h] / perWeekday[row] } }
         val unlocks = IntArray(24) { h -> Math.round(unlockSums[h].toDouble() / covered).toInt() }
-        return Heatmap(cells, unlocks, covered, past.size)
+        return Heatmap(cells, unlocks, covered, past.size, weekFields.firstDayOfWeek)
     }
 
     /** Scales [cats] down so it sums to at most [cap] (≥ 0), the rounding residue going to the largest entry. */

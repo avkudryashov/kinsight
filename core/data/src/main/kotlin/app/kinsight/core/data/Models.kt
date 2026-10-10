@@ -3,6 +3,7 @@ package app.kinsight.core.data
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.StateEvent
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.WeekFields
 
@@ -89,8 +90,17 @@ class HourTotal(val hour: Int, val totalMs: Long, val unlocks: Int, val byCatego
  * mean over the covered days of that weekday (a weekday with none is 0). [unlocks]: per hour, the mean over all
  * [coveredDays]. [coveredDays]: days of the range with a usable UsageDetail; [rangeDays]: days of the range up to the
  * viewer's today (a future day cannot have data).
+ *
+ * [firstDayOfWeek]: the weekday of row 0, from the same WeekFields the rows were built with, so the screen names the
+ * rows by the data rather than by its own locale.
  */
-class Heatmap(val cells: Array<LongArray>, val unlocks: IntArray, val coveredDays: Int, val rangeDays: Int)
+class Heatmap(
+    val cells: Array<LongArray>,
+    val unlocks: IntArray,
+    val coveredDays: Int,
+    val rangeDays: Int,
+    val firstDayOfWeek: DayOfWeek = DayOfWeek.MONDAY,
+)
 
 /** A child's sharing as the group sees it, from its own signed events. */
 sealed interface Sharing {
