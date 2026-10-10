@@ -51,13 +51,13 @@
     <string name="onb_battery_oneplus">Настройки → Батарея → Оптимизация батареи → Kinsight → Не оптимизировать. Также: Настройки → Приложения → Kinsight → Батарея → Разрешить фоновую активность.</string>
     <string name="onb_battery_oppo">Настройки → Батарея → Другие настройки → Оптимизация использования батареи → Kinsight → Не оптимизировать. Также разрешите Kinsight фоновую активность.</string>
     <string name="onb_battery_vivo">Настройки → Батарея → Управление энергопотреблением в фоне → Kinsight → Разрешить.</string>
-    <string name="onb_battery_other">Откройте настройки батареи для Kinsight и разрешите работу в фоне без ограничений. Точный путь зависит от производителя телефона.</string>
+    <string name="onb_battery_other">Откройте Настройки → Приложения → Kinsight → Сведения о приложении → Использование батареи → Без ограничений. Точный путь зависит от производителя телефона.</string>
     <string name="onb_done_title">Готово</string>
     <string name="onb_done_body_parent">Дальше: пригласите телефон ребёнка на вкладке «Группа».</string>
     <string name="onb_done_body_child">Этот телефон в вашей семейной группе.</string>
     <string name="onb_done_open">Открыть Kinsight</string>
     <string name="onb_create_failed">Не удалось создать группу. Откройте Настройки → Диагностика на этом телефоне.</string>
-    <string name="onb_consent_child">Твои родители увидят, сколько времени ты проводишь в телефоне и в каких приложениях.</string>
+    <string name="onb_consent_child">Ваши родители увидят, сколько времени вы проводите в телефоне и в каких приложениях.</string>
     <string name="onb_consent_failed">Не удалось включить обмен. Попробуйте ещё раз или откройте Настройки → Диагностика на этом телефоне.</string>
     <string name="onb_open_settings">Открыть настройки приложения</string>
     <string name="onb_nearby_blocked">Разрешение «Устройства поблизости» для Kinsight выключено, и Android больше не спросит. Откройте настройки приложения, затем «Разрешения» → «Устройства поблизости» → «Разрешить».</string>

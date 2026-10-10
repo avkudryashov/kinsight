@@ -66,10 +66,23 @@ class OnboardingScreensTest {
     fun russianConsentUsesPrinimayuAndNeSeichas() {
         rule.setContent { KinsightTheme(dynamicColor = false) { ConsentScreen("Мама", onAgree = {}, onNotNow = {}) } }
         rule.onNodeWithText("всех родителей вашей семейной группы (сейчас это Мама) и тех, кто вступит позже", substring = true).assertExists()
-        rule.onNodeWithText("Твои родители увидят", substring = true).assertExists()
+        rule.onNodeWithText("Ваши родители увидят, сколько времени вы проводите", substring = true).assertExists()
         rule.onNodeWithText("не более чем за 7 последних дней", substring = true).assertExists()
         rule.onNodeWithText("Принимаю").assertExists()
         rule.onNodeWithText("Не сейчас").assertExists()
+    }
+
+    @Test
+    fun genericBatteryTextNamesAppInfoPath() {
+        rule.setContent { KinsightTheme(dynamicColor = false) { BatteryScreen(BatteryVendor.OTHER, false, {}, {}) } }
+        rule.onNodeWithText("App info → App battery usage → Unrestricted", substring = true).assertExists()
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun russianGenericBatteryTextNamesAppInfoPath() {
+        rule.setContent { KinsightTheme(dynamicColor = false) { BatteryScreen(BatteryVendor.OTHER, false, {}, {}) } }
+        rule.onNodeWithText("Сведения о приложении → Использование батареи → Без ограничений", substring = true).assertExists()
     }
 
     @Test
