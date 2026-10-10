@@ -84,7 +84,7 @@ class SyncService : Service() {
     private var scanWanted: Boolean? = null
     private var scanActive: Boolean? = null
     private var scanRetry: Job? = null
-    private val scanRetrySchedule = RadioRetrySchedule()
+    private val scanRecovery = ScanRecovery()
     private val radioRetrySchedule = RadioRetrySchedule()
     private var radioRetry: Job? = null
 
@@ -104,8 +104,10 @@ class SyncService : Service() {
                 BluetoothAdapter.STATE_ON -> scope.launch { controlLock.withLock { reconcile(fast = false) } }
                 BluetoothAdapter.STATE_TURNING_OFF, BluetoothAdapter.STATE_OFF -> scope.launch {
                     controlLock.withLock {
-                        // Only a running radio goes to BLUETOOTH_OFF: a storage or permission problem stays on screen.
-                        if (!stopping && snapshot.state == ServiceState.RUNNING) bluetoothOff()
+                        // A running radio, or one that failed to open (RADIO_ERROR: its retry is cancelled), goes to
+                        // BLUETOOTH_OFF; a storage or permission problem stays on screen.
+                        val radioState = snapshot.state == ServiceState.RUNNING || snapshot.state == ServiceState.RADIO_ERROR
+                        if (!stopping && radioState) bluetoothOff()
                     }
                 }
             }
@@ -204,7 +206,19 @@ class SyncService : Service() {
             scanActive = null
             scanProblem = "scan failed (error $code)"
             refreshRadioDetail()
-            if (scanRetry?.isActive != true) scheduleScanRetry()
+            if (scanRetry?.isActive != true) scheduleScanRetry(scanRecovery.onError())
+        }
+    }
+
+    /** A batch delivered without an error: the scan works, so its backoff and any scan problem are cleared. */
+    private fun onScanOk() {
+        scope.launch {
+            if (radio == null) return@launch
+            scanRecovery.onDelivered()
+            if (scanProblem != null) {
+                scanProblem = null
+                refreshRadioDetail()
+            }
         }
     }
 
@@ -404,7 +418,7 @@ class SyncService : Service() {
         scanWanted = null
         scanActive = null
         scanRetry = null
-        scanRetrySchedule.reset()
+        scanRecovery.reset()
         scanProblem = null
         advertProblem = null
         fastEnd = null
@@ -457,24 +471,20 @@ class SyncService : Service() {
         }
         scanThrottle.record(now)
         val rc = r.startScan(want)
-        if (rc == 0) {
-            scanActive = want
-            scanRetrySchedule.reset()
-            if (scanProblem != null) {
-                scanProblem = null
-                refreshRadioDetail()
-            }
+        val retryIn = scanRecovery.onStarted(rc)
+        if (retryIn == null) {
+            scanActive = want // accepted; only a delivered batch (onScanOk) proves it works and clears the problem
         } else {
             scanActive = null
             scanProblem = "scan failed (rc $rc)"
             refreshRadioDetail()
-            scheduleScanRetry()
+            scheduleScanRetry(retryIn)
         }
     }
 
     /** A failed scan start: again after the retry schedule, never sooner than the throttle allows. */
-    private fun scheduleScanRetry() {
-        val wait = maxOf(scanRetrySchedule.next(), scanThrottle.waitMs(SystemClock.elapsedRealtime()))
+    private fun scheduleScanRetry(backoffMs: Long) {
+        val wait = maxOf(backoffMs, scanThrottle.waitMs(SystemClock.elapsedRealtime()))
         log("scan retry in ${wait}ms")
         scanRetry = radioScope?.launch {
             delay(wait)
@@ -641,6 +651,10 @@ class SyncService : Service() {
 
         internal fun scanError(code: Int) {
             instance?.onScanError(code)
+        }
+
+        internal fun scanOk() {
+            instance?.onScanOk()
         }
     }
 }

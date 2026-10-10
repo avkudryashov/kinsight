@@ -29,7 +29,7 @@ class ScanReceiver : BroadcastReceiver() {
             ScanRouting.Action.DROP -> return
             ScanRouting.Action.DELIVER -> Unit
         }
-        if (error != -1) SyncService.scanError(error)
+        if (error != -1) SyncService.scanError(error) else SyncService.scanOk()
         val results: List<ScanResult> = if (Build.VERSION.SDK_INT >= 33) {
             intent.getParcelableArrayListExtra(BluetoothLeScanner.EXTRA_LIST_SCAN_RESULT, ScanResult::class.java).orEmpty()
         } else {
