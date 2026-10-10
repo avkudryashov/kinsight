@@ -12,6 +12,7 @@ android {
 }
 
 dependencies {
+    api(libs.room.runtime)
     api(project(":core:sync"))
     testImplementation(project(":core:testing"))
 }
