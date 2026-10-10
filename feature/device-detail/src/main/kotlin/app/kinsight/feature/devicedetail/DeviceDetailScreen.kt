@@ -29,6 +29,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,9 +70,7 @@ import app.kinsight.core.designsystem.component.durationText
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.usage.UsageSettings
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
-import java.time.temporal.WeekFields
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -251,14 +250,20 @@ fun DeviceDetailScreen(
                     }
                 }
             }
-            item(key = "hours_title") { SectionTitle(stringResource(R.string.det_time_of_day)) }
-            val hours = detail.hours
-            val heatmap = detail.heatmap
-            when {
-                detail.period == Period.DAY && hours != null -> item(key = "hours") { HoursCharts(hours) }
-                detail.period != Period.DAY && heatmap != null -> item(key = "heatmap") { HeatmapSection(heatmap) }
-                else -> item(key = "hours_unavailable") {
-                    Text(pluralStringResource(R.plurals.det_hours_unavailable, detailRetentionDays, detailRetentionDays))
+            if (known) {
+                item(key = "hours_title") { SectionTitle(stringResource(R.string.det_time_of_day)) }
+                val hours = detail.hours
+                val heatmap = detail.heatmap
+                // Without detail: past the viewer's detail retention it was pruned, otherwise it has not arrived yet.
+                val horizon = today.minusDays(detailRetentionDays.toLong())
+                val pruned = detail.days.any { it.known && it.date.isBefore(horizon) }
+                when {
+                    detail.period == Period.DAY && hours != null -> item(key = "hours") { HoursCharts(hours) }
+                    detail.period != Period.DAY && heatmap != null -> item(key = "heatmap") { HeatmapSection(heatmap) }
+                    pruned -> item(key = "hours_unavailable") {
+                        Text(pluralStringResource(R.plurals.det_hours_unavailable, detailRetentionDays, detailRetentionDays))
+                    }
+                    else -> item(key = "hours_not_arrived") { Text(stringResource(R.string.det_hours_not_arrived)) }
                 }
             }
         } else {
@@ -306,7 +311,7 @@ private fun Modifier.swipeSteps(canBack: Boolean, canForward: Boolean, onBack: (
 
 @Composable
 fun AllAppsScreen(detail: DeviceDetail, onBack: () -> Unit) =
-    Screen(stringResource(R.string.det_all_apps_title, detail.member.name, periodLabel(detail.period)), onBack) { padding ->
+    Screen(stringResource(R.string.det_all_apps_title, detail.member.name, rangeTitle(detail.range, detail.today ?: LocalDate.now())), onBack) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("det_apps"), contentPadding = PaddingValues(16.dp)) {
             if (detail.apps.isEmpty()) item { Text(stringResource(R.string.det_no_apps)) }
             items(detail.apps, key = { it.packageName }) { AppRow(it, null) }
@@ -340,25 +345,32 @@ private fun locale(): Locale = LocalConfiguration.current.locales[0]
 private fun DaysChart(detail: DeviceDetail, today: LocalDate, onOpenDay: (LocalDate) -> Unit) {
     val locale = locale()
     val days = detail.days
+    // A month is labelled every 5th day from the 1st, thinned from the 1st as well.
     val labels = when (detail.period) {
         Period.WEEK -> days.map { it.date.dayOfWeek.getDisplayName(TextStyle.SHORT, locale) }
-        else -> days.mapIndexed { i, d -> if (i % 5 == 4 || i == days.lastIndex) d.date.dayOfMonth.toString() else "" }
+        else -> days.mapIndexed { i, d -> if (i % 5 == 0) d.date.dayOfMonth.toString() else "" }
     }
     val withData = days.filter { it.known }
     val busiest = withData.maxByOrNull { it.totalMs } ?: return
     val busiestName = when (detail.period) {
         Period.WEEK -> busiest.date.dayOfWeek.getDisplayName(TextStyle.FULL, locale)
-        else -> busiest.date.format(DateTimeFormatter.ofPattern("d MMMM", locale))
+        else -> dayMonth(busiest.date, locale)
     }
-    val summary = stringResource(
+    val daysSummary = stringResource(
         R.string.det_chart_summary,
         durationText(withData.sumOf { it.totalMs } / withData.size),
         busiestName,
         durationText(busiest.totalMs),
     )
+    val top = detail.categories.take(2).map { stringResource(R.string.det_category_item, categoryName(it.category), durationText(it.totalMs)) }
+    val summary = if (top.isEmpty()) daysSummary else "$daysSummary. " + stringResource(R.string.det_categories_summary, top.joinToString(", "))
     val stacks = days.mapIndexed { i, d -> stackOf(detail.dayCategories.getOrNull(i), d) }
-    val dayNames = days.map { dayTitle(it.date, today) }
+    val todayText = stringResource(R.string.det_today)
+    val yesterdayText = stringResource(R.string.det_yesterday)
     val openLabel = stringResource(R.string.det_open_day, "%s")
+    val barLabels = remember(days, today, locale, openLabel, todayText, yesterdayText) {
+        days.map { openLabel.replace("%s", dayTitle(it.date, today, locale, todayText, yesterdayText)) }
+    }
     StackedBarChart(
         stacks = stacks,
         colors = AppCategory.entries.map { categoryColor(it.ordinal) },
@@ -366,8 +378,10 @@ private fun DaysChart(detail: DeviceDetail, today: LocalDate, onOpenDay: (LocalD
         summary = summary,
         modifier = Modifier.testTag("det_chart"),
         onBarClick = { i -> onOpenDay(days[i].date) },
-        barClickLabel = { i -> openLabel.replace("%s", dayNames[i]) },
+        barClickLabel = { i -> barLabels[i] },
         highlight = days.indexOfFirst { it.date == today }.takeIf { it >= 0 },
+        barClickable = { i -> !days[i].date.isAfter(today) },
+        labelAnchor = if (detail.period == Period.MONTH) 0 else null,
     )
 }
 
@@ -394,20 +408,21 @@ private fun HoursCharts(hours: List<HourTotal>) {
             labels = labels,
             summary = summary,
             modifier = Modifier.testTag("det_hours"),
+            labelAnchor = 0,
         )
         Text(stringResource(R.string.det_unlocks_by_hour), style = MaterialTheme.typography.labelLarge)
         val mostUnlocks = hours.maxByOrNull { it.unlocks }?.takeIf { it.unlocks > 0 }
         val unlockSummary = mostUnlocks?.let { stringResource(R.string.det_unlocks_summary, hourTime(it.hour, locale, is24), it.unlocks) }
             ?: stringResource(R.string.det_unlocks_none)
-        Box(Modifier.testTag("det_hour_unlocks")) { BarChart(hours.map { it.unlocks.toLong() }, labels, unlockSummary) }
+        Box(Modifier.testTag("det_hour_unlocks")) { BarChart(hours.map { it.unlocks.toLong() }, labels, unlockSummary, highlightLast = false, labelAnchor = 0) }
     }
 }
 
-/** Level 4 of a week or month: weekday × hour, rows from the locale's first day of week. */
+/** Level 4 of a week or month: weekday × hour, rows from the data's first day of week (the range's WeekFields). */
 @Composable
 private fun HeatmapSection(heatmap: Heatmap) {
     val locale = locale()
-    val first = WeekFields.of(locale).firstDayOfWeek
+    val first = heatmap.firstDayOfWeek
     val weekdays = (0L..6).map { first.plus(it) }
     val is24 = android.text.format.DateFormat.is24HourFormat(LocalContext.current)
     // The busiest cell; an all-empty grid says so rather than naming the first cell.

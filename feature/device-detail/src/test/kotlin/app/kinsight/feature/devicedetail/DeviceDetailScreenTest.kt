@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Text
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
@@ -42,6 +43,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.util.Locale
 
@@ -117,8 +119,9 @@ class DeviceDetailScreenTest {
 
     @Test
     fun allAppsListsEveryApp() {
-        rule.setContent { KinsightTheme(dynamicColor = false) { AllAppsScreen(detail, onBack = {}) } }
+        rule.setContent { KinsightTheme(dynamicColor = false) { AllAppsScreen(detail.copy(today = today), onBack = {}) } }
         rule.onNodeWithTag("det_apps").performScrollToNode(hasText("App 7"))
+        rule.onNodeWithText("Kid: all apps, Oct 4", substring = true).assertExists()
     }
 
     @Test
@@ -303,15 +306,60 @@ class DeviceDetailScreenTest {
 
     @Test
     fun levelFourSaysWhenHourlyDataIsUnavailable() {
-        show(detail.copy(today = today), detailRetentionDays = 30)
+        // Known days from 4 Oct; with 3 days of detail kept, the oldest ones are past retention.
+        show(detail.copy(today = today), detailRetentionDays = 3)
         list.performScrollToNode(hasText("Time of day"))
-        list.performScrollToNode(hasText("Hourly data for this period is not available (it is kept for 30 days)"))
+        list.performScrollToNode(hasText("Hourly data for this period is not available (it is kept for 3 days)"))
+    }
+
+    @Test
+    fun recentDaysWithoutDetailSayItHasNotArrivedYet() {
+        show(day(today), detailRetentionDays = 30)
+        list.performScrollToNode(hasText("Time of day"))
+        list.performScrollToNode(hasText("Hourly data for this period has not arrived yet"))
+        rule.onNode(hasText("is not available", substring = true)).assertDoesNotExist()
+    }
+
+    @Test
+    fun anUnknownDayHasNoTimeOfDaySection() {
+        show(day(today.minusDays(2), known = false))
+        list.performScrollToNode(hasText("Events"))
+        rule.onNodeWithText("Time of day").assertDoesNotExist()
+        rule.onNode(hasText("Hourly data", substring = true)).assertDoesNotExist()
+    }
+
+    @Test
+    fun futureDaysOfTheWeekCannotBeOpened() {
+        val wed = today.minusDays(3)
+        val days = detail.days.map { if (it.date.isAfter(wed)) DayTotal(it.date, 0, 0) else it }
+        show(detail.copy(days = days, today = wed))
+        rule.onAllNodes(hasClickAction() and hasContentDescription("Open ", substring = true)).assertCountEquals(4)
+    }
+
+    @Test
+    fun heatmapRowsFollowTheDataFirstDayOfWeek() {
+        // Row 0 is the busiest; the data says rows start on Wednesday whatever the UI locale says.
+        val cells = Array(7) { d -> LongArray(24) { h -> if (d == 0 && h == 15) 30 * 60_000L else 0 } }
+        show(detail.copy(heatmap = Heatmap(cells, IntArray(24), 3, 7, firstDayOfWeek = DayOfWeek.WEDNESDAY), today = today))
+        list.performScrollToNode(hasTestTag("det_heatmap"))
+        rule.onNode(hasContentDescription("Most time on Wednesday", substring = true)).assertExists()
+    }
+
+    @Test
+    fun categoryChartSummaryNamesTheTopCategories() {
+        val cats = listOf(
+            CategoryTotal(AppCategory.GAMES, 60 * 60_000L), CategoryTotal(AppCategory.VIDEO, 30 * 60_000L),
+            CategoryTotal(AppCategory.NEWS, 1 * 60_000L),
+        )
+        show(detail.copy(categories = cats, today = today))
+        rule.onNode(hasContentDescription("Time by category per day. Games 1 h, Video 30 min", substring = true)).assertExists()
+        rule.onNode(hasContentDescription("News", substring = true)).assertDoesNotExist()
     }
 
     @Test
     @Config(qualifiers = "ru")
     fun levelFourUnavailableInRussian() {
-        show(day(today), detailRetentionDays = 30)
+        show(day(today.minusDays(40)), detailRetentionDays = 30)
         list.performScrollToNode(hasText("Почасовые данные за этот период недоступны (хранятся 30 дней)"))
     }
 

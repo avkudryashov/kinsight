@@ -154,4 +154,18 @@ class DeviceDetailViewModelTest {
         vm.select(Period.DAY)
         assertEquals(sat.plusDays(1), vm.range.value.start)
     }
+
+    @Test
+    fun midnightInsideTheSameWeekRefreshesTheDetail() = runTest(dispatcher) {
+        val wed = sat.minusDays(3)
+        val source = FakeSource(lastTwoWeeks).apply { viewerToday.value = wed }
+        val vm = vm(source)
+        assertEquals(wed, vm.detail.value?.today)
+        assertEquals(false, vm.detail.value?.days?.first { it.date == wed.plusDays(1) }?.known)
+        source.viewerToday.value = wed.plusDays(1)
+        ticks.emit(Unit)
+        assertEquals(week(wed), vm.range.value)
+        assertEquals(wed.plusDays(1), vm.detail.value?.today)
+        assertEquals(true, vm.detail.value?.days?.first { it.date == wed.plusDays(1) }?.known)
+    }
 }

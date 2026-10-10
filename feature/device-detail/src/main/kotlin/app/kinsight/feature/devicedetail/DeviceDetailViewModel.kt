@@ -15,11 +15,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.DateTimeParseException
 import java.time.temporal.WeekFields
@@ -74,13 +77,16 @@ class DeviceDetailViewModel internal constructor(
 
     val range: StateFlow<DetailRange> = _range.asStateFlow()
 
-    val detail: StateFlow<DeviceDetail?> = _range.flatMapLatest { source.detail(it) }
+    /** The viewer's date, re-read on every tick; a change resubscribes the detail so today, known days and the child's today are fresh. */
+    private val dates: Flow<LocalDate> = ticks.map { source.today() }.onStart { emit(source.today()) }.distinctUntilChanged()
+
+    val detail: StateFlow<DeviceDetail?> = combine(_range, dates) { r, _ -> r }
+        .flatMapLatest { source.detail(it) }
         .onEach { reanchor(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     init {
         save()
-        viewModelScope.launch { ticks.collect { reanchor(detail.value) } }
     }
 
     /** Another period around the same anchor; going to DAY picks the range's last known day up to today. */

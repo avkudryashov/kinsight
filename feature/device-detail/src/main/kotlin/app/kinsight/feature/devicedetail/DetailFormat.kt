@@ -23,14 +23,18 @@ private fun String.capitalized(locale: Locale) = replaceFirstChar { it.titlecase
 
 /** A day by name: «Today», «Yesterday», else the weekday and date in the locale's order ("Tue, Oct 6", «Вт, 6 окт.»). */
 @Composable
-internal fun dayTitle(date: LocalDate, today: LocalDate): String {
-    val locale = currentLocale()
-    return when (date) {
-        today -> stringResource(R.string.det_today)
-        today.minusDays(1) -> stringResource(R.string.det_yesterday)
-        else -> skeleton(if (date.year == today.year) "MMMEd" else "yMMMEd", locale, utcMs(date)).capitalized(locale)
-    }
+internal fun dayTitle(date: LocalDate, today: LocalDate): String =
+    dayTitle(date, today, currentLocale(), stringResource(R.string.det_today), stringResource(R.string.det_yesterday))
+
+/** [dayTitle] outside composition, with the «Today» and «Yesterday» texts given. */
+internal fun dayTitle(date: LocalDate, today: LocalDate, locale: Locale, todayText: String, yesterdayText: String): String = when (date) {
+    today -> todayText
+    today.minusDays(1) -> yesterdayText
+    else -> skeleton(if (date.year == today.year) "MMMEd" else "yMMMEd", locale, utcMs(date)).capitalized(locale)
 }
+
+/** Day and month in the locale's order and case ("October 6", «6 октября»). */
+internal fun dayMonth(date: LocalDate, locale: Locale): String = skeleton("MMMMd", locale, utcMs(date))
 
 /** The period header's title: a day by [dayTitle], a week as a date interval ("Oct 4 – 10"), a month with its year. */
 @Composable
