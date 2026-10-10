@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="dash_title">Overview</string>
+    <string name="dash_shared_with">Your screen time is visible to: %1$s</string>
+    <string name="dash_shared_with_nobody">No parent is in the group yet.</string>
+    <string name="dash_sharing_on">Sharing is on.</string>
+    <string name="dash_pause_hint">You can pause sharing at any time, but your parents are told when you do.</string>
+    <string name="dash_pause">Pause sharing</string>
+    <string name="dash_pause_title">Pause sharing?</string>
+    <string name="dash_pause_body">Your family will see the pause. Time during the pause is still counted on this phone and will be sent when you resume.</string>
+    <string name="dash_cancel">Cancel</string>
+    <string name="dash_paused_since">Sharing has been paused since %1$s.</string>
+    <string name="dash_resume">Resume sharing</string>
+    <string name="dash_not_sharing">This phone does not share. Your family sees that.</string>
+    <string name="dash_turn_on">Turn on sharing</string>
+    <string name="dash_parent_not_shared">Your screen time is not shared. Kinsight shares only children\'s screen time.</string>
+    <string name="dash_parent_co_viewers">Your children\'s screen time is also visible to: %1$s</string>
+    <string name="dash_parent_only_viewer">No other parent is in the group.</string>
+    <string name="dash_this_phone">This phone</string>
+    <string name="dash_stopped">Sync was stopped by you. Your family will see when it was stopped.</string>
+    <string name="dash_start">Start sync</string>
+    <string name="dash_sync_now">Sync now</string>
+    <string name="dash_no_permission">Sync needs the Nearby devices permission. Allow it in the app settings.</string>
+    <string name="dash_bluetooth_off">Bluetooth is off. Turn it on to sync.</string>
+    <string name="dash_storage_error">Key storage error. Open Settings on this phone.</string>
+    <string name="dash_radio_error">Bluetooth error. Sync will retry by itself.</string>
+    <string name="dash_syncing">Syncing…</string>
+    <string name="dash_peer_update">A family phone needs a Kinsight update.</string>
+    <string name="dash_synced">Last sync %1$s</string>
+    <string name="dash_never_synced">No sync yet. Keep the phones close.</string>
+    <string name="dash_empty_title">No children yet</string>
+    <string name="dash_empty_body">Invite your child\'s phone from the Group tab.</string>
+    <string name="dash_no_data_today">No data today</string>
+    <string name="dash_week_summary">Last 7 days: %1$s in total, most on %2$s</string>
+    <string name="dash_week_no_data">Last 7 days: no data</string>
+    <string name="dash_vs_same">About the same as the 7-day average</string>
+    <string name="dash_vs_more">%1$s more than the 7-day average</string>
+    <string name="dash_vs_less">%1$s less than the 7-day average</string>
+    <string name="dash_card_paused">Sharing paused since %1$s</string>
+    <string name="dash_card_not_sharing">Does not share</string>
+    <string name="dash_card_left">Left the group</string>
+    <string name="dash_card_not_seen">No contact. Last seen %1$s</string>
+    <string name="dash_card_updated">Updated %1$s</string>
+    <string name="dash_card_no_data">No data yet</string>
+</resources>

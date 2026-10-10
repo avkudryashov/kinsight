@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="dash_title">Обзор</string>
+    <string name="dash_shared_with">Ваше экранное время видят: %1$s</string>
+    <string name="dash_shared_with_nobody">В группе пока нет родителей.</string>
+    <string name="dash_sharing_on">Обмен включён.</string>
+    <string name="dash_pause_hint">Обмен можно поставить на паузу в любой момент, но родители узнают об этом.</string>
+    <string name="dash_pause">Поставить на паузу</string>
+    <string name="dash_pause_title">Поставить обмен на паузу?</string>
+    <string name="dash_pause_body">Семья увидит паузу. Время за паузу продолжит считаться на этом телефоне и будет отправлено, когда вы снимете паузу.</string>
+    <string name="dash_cancel">Отмена</string>
+    <string name="dash_paused_since">Обмен на паузе с %1$s.</string>
+    <string name="dash_resume">Снять паузу</string>
+    <string name="dash_not_sharing">Этот телефон не делится данными. Семья это видит.</string>
+    <string name="dash_turn_on">Включить обмен</string>
+    <string name="dash_parent_not_shared">Ваше экранное время никому не передаётся. Kinsight передаёт только экранное время детей.</string>
+    <string name="dash_parent_co_viewers">Экранное время ваших детей также видят: %1$s</string>
+    <string name="dash_parent_only_viewer">Других родителей в группе нет.</string>
+    <string name="dash_this_phone">Этот телефон</string>
+    <string name="dash_stopped">Вы остановили синхронизацию. Семья увидит, когда она была остановлена.</string>
+    <string name="dash_start">Запустить синхронизацию</string>
+    <string name="dash_sync_now">Синхронизировать сейчас</string>
+    <string name="dash_no_permission">Для синхронизации нужно разрешение «Устройства поблизости». Разрешите его в настройках приложения.</string>
+    <string name="dash_bluetooth_off">Bluetooth выключен. Включите его для синхронизации.</string>
+    <string name="dash_storage_error">Ошибка хранилища ключей. Откройте настройки на этом телефоне.</string>
+    <string name="dash_radio_error">Ошибка Bluetooth. Синхронизация повторится сама.</string>
+    <string name="dash_syncing">Синхронизация…</string>
+    <string name="dash_peer_update">На одном из телефонов семьи нужно обновить Kinsight.</string>
+    <string name="dash_synced">Последняя синхронизация: %1$s</string>
+    <string name="dash_never_synced">Синхронизаций ещё не было. Держите телефоны рядом.</string>
+    <string name="dash_empty_title">Детей пока нет</string>
+    <string name="dash_empty_body">Пригласите телефон ребёнка на вкладке «Группа».</string>
+    <string name="dash_no_data_today">За сегодня данных нет</string>
+    <string name="dash_week_summary">За 7 дней: всего %1$s, самый активный день: %2$s</string>
+    <string name="dash_week_no_data">За 7 дней данных нет</string>
+    <string name="dash_vs_same">Примерно как в среднем за 7 дней</string>
+    <string name="dash_vs_more">На %1$s больше среднего за 7 дней</string>
+    <string name="dash_vs_less">На %1$s меньше среднего за 7 дней</string>
+    <string name="dash_card_paused">Обмен на паузе с %1$s</string>
+    <string name="dash_card_not_sharing">Не делится данными</string>
+    <string name="dash_card_left">Устройство вышло из группы</string>
+    <string name="dash_card_not_seen">Нет связи. Последний контакт: %1$s</string>
+    <string name="dash_card_updated">Обновлено %1$s</string>
+    <string name="dash_card_no_data">Данных пока нет</string>
+</resources>
