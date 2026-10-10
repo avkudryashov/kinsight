@@ -15,7 +15,7 @@ sealed interface Alert {
      * The child undid an open problem ([kind] is the open kind: SHARING_PAUSED or NOTIFICATION_HIDDEN, see
      * AlertPlanner.CLOSERS): the app cancels that child's notification of [kind] instead of posting.
      */
-    data class Resolved(val id: DeviceId, val kind: StateEvent.Kind) : Alert
+    data class Resolved(val id: DeviceId, val kind: StateEvent.Kind, val device: String) : Alert
 
     data class NoContact(val device: String, val sinceMs: Long) : Alert
 
@@ -124,7 +124,7 @@ object AlertPlanner {
                 val open = OPENERS[e.kind] ?: continue
                 // Resolved only when the pair's latest earlier event is the open one: a repeated resume says nothing.
                 val before = sorted.subList(0, index).lastOrNull { it.kind == open || it.kind == e.kind }
-                if (before?.kind == open) alerts += Alert.Resolved(child.id, open)
+                if (before?.kind == open) alerts += Alert.Resolved(child.id, open, child.name)
             }
             notified[child.id] = maxOf(mark, max)
         }

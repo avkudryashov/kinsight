@@ -207,14 +207,14 @@ class AlertPlannerTest {
         assertEquals(listOf(Alert.Integrity("Kid", paused, 1_000, kid.id)), first.alerts)
         val events = listOf(ev(kid, 1, paused), ev(kid, 2, resumed))
         val second = AlertPlanner.plan(input(events = events, markers = first.markers))
-        assertEquals(listOf(Alert.Resolved(kid.id, paused)), second.alerts)
+        assertEquals(listOf(Alert.Resolved(kid.id, paused, "Kid")), second.alerts)
         assertTrue(AlertPlanner.plan(input(events = events, markers = second.markers)).alerts.isEmpty())
     }
 
     @Test
     fun pauseAndResumeBetweenTwoRunsAreBothSaidInOrder() {
         val plan = AlertPlanner.plan(input(events = listOf(ev(kid, 1, paused), ev(kid, 2, resumed))))
-        assertEquals(listOf(Alert.Integrity("Kid", paused, 1_000, kid.id), Alert.Resolved(kid.id, paused)), plan.alerts)
+        assertEquals(listOf(Alert.Integrity("Kid", paused, 1_000, kid.id), Alert.Resolved(kid.id, paused, "Kid")), plan.alerts)
     }
 
     @Test
@@ -225,7 +225,7 @@ class AlertPlannerTest {
         assertEquals(listOf(Alert.Integrity("Kid", paused, 3_000, kid.id)), second.alerts)
         val all = AlertPlanner.plan(input(events = events))
         assertEquals(
-            listOf(Alert.Integrity("Kid", paused, 1_000, kid.id), Alert.Resolved(kid.id, paused), Alert.Integrity("Kid", paused, 3_000, kid.id)),
+            listOf(Alert.Integrity("Kid", paused, 1_000, kid.id), Alert.Resolved(kid.id, paused, "Kid"), Alert.Integrity("Kid", paused, 3_000, kid.id)),
             all.alerts,
         )
     }
@@ -245,7 +245,7 @@ class AlertPlannerTest {
         val hidden = StateEvent.Kind.NOTIFICATION_HIDDEN
         val first = AlertPlanner.plan(input(events = listOf(ev(kid, 1, hidden))))
         val second = AlertPlanner.plan(input(events = listOf(ev(kid, 1, hidden), ev(kid, 2, StateEvent.Kind.NOTIFICATION_SHOWN)), markers = first.markers))
-        assertEquals(listOf(Alert.Resolved(kid.id, hidden)), second.alerts)
+        assertEquals(listOf(Alert.Resolved(kid.id, hidden, "Kid")), second.alerts)
     }
 
     @Test

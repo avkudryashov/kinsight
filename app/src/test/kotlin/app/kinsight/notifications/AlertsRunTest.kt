@@ -195,7 +195,7 @@ class AlertsRunTest {
         AlertNotifier.post(context, Alert.Integrity("Kid", StateEvent.Kind.LEFT_GROUP, 1_000, kid.id))
         AlertNotifier.post(context, Alert.Integrity("Sis", StateEvent.Kind.SHARING_PAUSED, 1_000, sis))
         AlertNotifier.post(context, Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000, kid.id))
-        assertTrue(AlertNotifier.post(context, Alert.Resolved(kid.id, StateEvent.Kind.SHARING_PAUSED)))
+        assertTrue(AlertNotifier.post(context, Alert.Resolved(kid.id, StateEvent.Kind.SHARING_PAUSED, "Kid")))
         val titles = shadowOf(nm).allNotifications.map { it.extras.getCharSequence(Notification.EXTRA_TITLE).toString() }.toSet()
         val left = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.LEFT_GROUP, 1_000, kid.id)).title
         val sisPaused = AlertText.of(context, Alert.Integrity("Sis", StateEvent.Kind.SHARING_PAUSED, 1_000, sis)).title
@@ -213,5 +213,14 @@ class AlertsRunTest {
         assertTrue(AlertNotifier.post(context, Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000, kid.id)))
         assertNull(shadowOf(nm).getNotification(legacyId))
         assertEquals(1, shadowOf(nm).allNotifications.size)
+    }
+
+    @Test
+    fun aResumeAlsoCancelsAnOldBuildsNameKeyedNotification() = runBlocking<Unit> {
+        val legacyId = ("i" + "Kid" + StateEvent.Kind.SHARING_PAUSED.name).hashCode()
+        nm.notify(legacyId, AlertNotifier.build(context, Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 500, null)))
+        assertTrue(AlertNotifier.post(context, Alert.Resolved(kid.id, StateEvent.Kind.SHARING_PAUSED, "Kid")))
+        assertNull(shadowOf(nm).getNotification(legacyId))
+        assertTrue(shadowOf(nm).allNotifications.isEmpty())
     }
 }

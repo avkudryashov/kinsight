@@ -32,6 +32,8 @@ object AlertNotifier {
     fun post(context: Context, alert: Alert): Boolean {
         if (alert is Alert.Resolved) {
             NotificationManagerCompat.from(context).cancel(idOf(alert))
+            // An older build keyed the open notification by the child's name: that one goes too.
+            NotificationManagerCompat.from(context).cancel(integrityId(alert.device, alert.kind))
             return true
         }
         if (!canPost(context)) return false
