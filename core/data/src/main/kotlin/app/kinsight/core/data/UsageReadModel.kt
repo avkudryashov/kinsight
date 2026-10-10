@@ -33,10 +33,8 @@ object UsageReadModel {
     const val MAX_UNLOCKS_PER_DAY = 10_000
     const val MAX_CLOCK_SKEW_MS = 5 * 60_000L
 
-    /** Most a clock hour slot holds: two runs of the hour on a fall-back day. */
+    /** Most a clock hour holds, one bucket or a whole slot: two runs of the hour on a fall-back day (spec §7). */
     const val MAX_MS_PER_HOUR_SLOT = 2 * 3_600_000L
-
-    private const val MAX_MS_PER_BUCKET = 3_600_000L
 
     /** Per author and local date, the summary with the highest seq (a malformed date is skipped). */
     fun summaries(entries: List<DecodedEntry>): Map<DeviceId, Map<LocalDate, DecodedEntry>> = latest(entries, EntryKind.USAGE_SUMMARY)
@@ -61,8 +59,9 @@ object UsageReadModel {
 
     /**
      * 24 clock hours of [detail] (spec §7: hours are the child's local clock hours). A missing hour is 0, buckets of the
-     * same hour (fall-back day) are summed; a bucket outside 0..23 is dropped. Untrusted peer: each bucket's apps are
-     * scaled down to one hour, each slot holds at most [MAX_MS_PER_HOUR_SLOT] and [MAX_UNLOCKS_PER_DAY] unlocks.
+     * same hour are summed (the publisher writes one bucket per hour; the repeated hour of a fall-back day can hold two
+     * hours, a skipped spring-forward hour has none); a bucket outside 0..23 is dropped. Untrusted peer: each slot,
+     * however many buckets claim it, is scaled down to [MAX_MS_PER_HOUR_SLOT] and holds at most [MAX_UNLOCKS_PER_DAY] unlocks.
      */
     fun hours(detail: UsageDetail, catalog: Map<String, AppCatalog>, overrides: Map<String, AppCategory>): List<HourTotal> {
         val cats = Array(24) { java.util.EnumMap<AppCategory, Long>(AppCategory::class.java) }
@@ -72,10 +71,9 @@ object UsageReadModel {
             if (h !in 0..23) continue
             val bucket = java.util.EnumMap<AppCategory, Long>(AppCategory::class.java)
             for (a in b.apps) {
-                val ms = a.foreground_ms.coerceIn(0L, MAX_MS_PER_BUCKET)
+                val ms = a.foreground_ms.coerceIn(0L, MAX_MS_PER_HOUR_SLOT)
                 if (ms > 0) bucket.merge(Categories.of(a.package_name, catalog[a.package_name]?.category, overrides), ms, Long::plus)
             }
-            fitDown(bucket, MAX_MS_PER_BUCKET)
             val room = MAX_MS_PER_HOUR_SLOT - cats[h].values.sum()
             fitDown(bucket, room)
             bucket.forEach { (c, ms) -> cats[h].merge(c, ms, Long::plus) }

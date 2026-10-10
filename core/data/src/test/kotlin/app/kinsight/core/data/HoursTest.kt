@@ -143,6 +143,53 @@ class HoursTest {
     }
 
     @Test
+    fun fallBackHourInOneBucketHoldsUpToTwoHours() {
+        // The publisher writes one bucket per clock hour; on 25 Oct 2026 (Europe/Madrid) hour 2 lasts two real hours.
+        val dst = LocalDate.of(2026, 10, 25)
+        val day = DetailRange.of(Period.DAY, dst, monFirst)
+        val bucket = HourBucket(hour = 2, apps = listOf(AppTotal(game, 70 * min), AppTotal(chat, 50 * min)))
+        val (sums, dets) = split(listOf(summary(dst, 120), detail(dst, listOf(bucket))))
+        val hours = assertNotNull(
+            UsageReadModel.detail(member, sums, catalog, emptyList(), day, today = dst, details = dets, weekFields = monFirst).hours,
+        )
+        assertEquals(120 * min, hours[2].totalMs)
+        assertEquals(mapOf(AppCategory.GAMES to 70 * min, AppCategory.SOCIAL to 50 * min), hours[2].byCategory)
+    }
+
+    @Test
+    fun hostileBucketsOfOneHourStayWithinTwoHours() {
+        val dst = LocalDate.of(2026, 10, 25)
+        val day = DetailRange.of(Period.DAY, dst, monFirst)
+        val buckets = List(3) { HourBucket(hour = 2, apps = listOf(AppTotal(game, 100 * min))) }
+        val (sums, dets) = split(listOf(summary(dst, 120), detail(dst, buckets)))
+        val hours = assertNotNull(
+            UsageReadModel.detail(member, sums, catalog, emptyList(), day, today = dst, details = dets, weekFields = monFirst).hours,
+        )
+        assertEquals(UsageReadModel.MAX_MS_PER_HOUR_SLOT, hours[2].totalMs)
+    }
+
+    @Test
+    fun springForwardDayHasAnEmptySkippedHour() {
+        // 29 Mar 2026, Europe/Madrid: clock hour 2 does not exist; the child writes no bucket for it.
+        val dst = LocalDate.of(2026, 3, 29)
+        val day = DetailRange.of(Period.DAY, dst, monFirst)
+        val (sums, dets) = split(listOf(summary(dst, 40), detail(dst, Triple(1, game, 20L), Triple(3, game, 20L))))
+        val hours = assertNotNull(
+            UsageReadModel.detail(member, sums, catalog, emptyList(), day, today = dst, details = dets, weekFields = monFirst).hours,
+        )
+        assertEquals(24, hours.size)
+        assertEquals(0L, hours[2].totalMs)
+        assertEquals(40 * min, hours.sumOf { it.totalMs })
+    }
+
+    @Test
+    fun detailsSkipsAMalformedDate() {
+        val bad = kid.create { it.copy(usage_detail = UsageDetail(local_date = "2026-10-01x", zone_id = "Europe/Madrid")) }
+        val good = detail(today, Triple(1, game, 5L))
+        assertEquals(setOf(today), UsageReadModel.details(listOf(bad, good))[kidKeys.deviceId]!!.keys)
+    }
+
+    @Test
     fun fallBackDaySumsTheDoubledHourAndKeeps24Slots() {
         // 25 Oct 2026, Europe/Madrid: 02:00-03:00 happens twice; the child writes two buckets for clock hour 2.
         val dst = LocalDate.of(2026, 10, 25)

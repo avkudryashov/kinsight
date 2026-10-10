@@ -103,4 +103,17 @@ class RoomEntryStoreTest {
         val got = store.details(keys.deviceId, LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 7))
         assertEquals(listOf("2026-10-01", "2026-10-07"), got.map { it.body.usage_detail!!.local_date })
     }
+
+    @Test
+    fun detailsReturnsAMalformedDateInRangeAndOnlyTheNewestVersion() = runTest {
+        val store = open()
+        val old = author.detail("2026-10-03")
+        val bad = author.detail("2026-10-01x") // sorts inside the key range; the read model drops it (usageDate null)
+        val newer = author.detail("2026-10-03")
+        store.applyBatch(listOf(genesis.entry, old, bad, newer))
+        val got = store.details(keys.deviceId, LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 7))
+        assertEquals(listOf("2026-10-01x", "2026-10-03"), got.map { it.body.usage_detail!!.local_date })
+        assertEquals(null, got[0].usageDate)
+        assertEquals(newer.seq, got[1].seq)
+    }
 }
