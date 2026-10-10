@@ -1,0 +1,196 @@
+package app.kinsight.feature.group
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import app.kinsight.core.data.AppPrefs
+import app.kinsight.core.data.InviteState
+import app.kinsight.core.data.JoinState
+import app.kinsight.core.data.PairingCoordinator
+import app.kinsight.core.data.Role
+import app.kinsight.core.sync.pairing.Invite
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+/** An open invite as the invite screen sees it ([PairingCoordinator.InviteSession]); a seam for tests. */
+internal interface InviteHandle {
+    val state: StateFlow<InviteState>
+
+    fun confirm()
+
+    fun decline()
+
+    fun close()
+}
+
+internal fun interface InviteOpener {
+    fun open(scope: CoroutineScope, role: Role, adminName: String): InviteHandle
+}
+
+/** A join attempt as the join screen sees it ([PairingCoordinator.JoinSession]); a seam for tests. */
+internal interface JoinHandle {
+    val state: StateFlow<JoinState>
+
+    fun cancel()
+}
+
+internal fun interface JoinStarter {
+    fun start(scope: CoroutineScope, invite: Invite, name: String, consent: Boolean): JoinHandle
+}
+
+private fun PairingCoordinator.opener() = InviteOpener { scope, role, adminName ->
+    val s = invite(scope, role, adminName)
+    object : InviteHandle {
+        override val state = s.state
+
+        override fun confirm() = s.confirm()
+
+        override fun decline() = s.decline()
+
+        override fun close() = s.close()
+    }
+}
+
+private fun PairingCoordinator.starter() = JoinStarter { scope, invite, name, consent ->
+    val s = join(scope, invite, name, consent)
+    object : JoinHandle {
+        override val state = s.state
+
+        override fun cancel() = s.cancel()
+    }
+}
+
+/** The admin name an invite carries when this phone has none yet (the invite refuses a blank one). */
+internal const val FALLBACK_ADMIN_NAME = "Kinsight"
+
+/**
+ * One invite at a time for this screen. The screen closes it whenever it stops being visible ([close]: radio off,
+ * token dead) and [resume] opens a fresh one when it comes back, unless the invite already ended (added, expired,
+ * failed: those stay on screen until the admin acts).
+ */
+class InviteViewModel internal constructor(
+    private val opener: InviteOpener,
+    private val adminName: suspend () -> String,
+    private val role: Role,
+) : ViewModel() {
+    constructor(pairing: PairingCoordinator, prefs: AppPrefs, role: Role) : this(
+        pairing.opener(),
+        { prefs.current().deviceName?.takeIf { it.isNotBlank() } ?: FALLBACK_ADMIN_NAME },
+        role,
+    )
+
+    private val _state = MutableStateFlow<InviteState>(InviteState.Starting)
+    val state: StateFlow<InviteState> = _state.asStateFlow()
+    private var handle: InviteHandle? = null
+    private var collector: Job? = null
+    private var closed = false
+
+    init {
+        start()
+    }
+
+    /** Opens a new invite (a new code), closing the current one first. */
+    fun start() {
+        stop()
+        closed = false
+        _state.value = InviteState.Starting
+        collector = viewModelScope.launch {
+            // The session is a child of this collector: cancelling the collector also ends it (and its radio).
+            val h = opener.open(this, role, adminName())
+            handle = h
+            h.state.collect { _state.value = it }
+        }
+    }
+
+    fun confirm() {
+        handle?.confirm()
+    }
+
+    fun decline() {
+        handle?.decline()
+    }
+
+    /** The screen went away: the radio stops and a guest waiting for the admin is refused. */
+    fun close() {
+        stop()
+        closed = true
+    }
+
+    /** The screen is visible again: a live invite closed by [close] is replaced by a fresh one. */
+    fun resume() {
+        if (!closed) return
+        when (_state.value) {
+            InviteState.Starting, is InviteState.Showing, is InviteState.Confirm -> start()
+            else -> Unit
+        }
+    }
+
+    private fun stop() {
+        collector?.cancel()
+        collector = null
+        handle?.close()
+        handle = null
+    }
+
+    override fun onCleared() {
+        stop()
+    }
+}
+
+/**
+ * One join attempt for this screen. [consent] is the child's consent from onboarding; without it the phone joins
+ * without sharing. [cancel] stops searching or waiting, but never a welcome that is being stored: once the admin has
+ * added this phone, finishing is better than half a group.
+ */
+class JoinViewModel internal constructor(
+    private val starter: JoinStarter,
+    private val invite: Invite,
+    private val name: String,
+    private val consent: Boolean,
+) : ViewModel() {
+    constructor(pairing: PairingCoordinator, invite: Invite, name: String, consent: Boolean) :
+        this(pairing.starter(), invite, name, consent)
+
+    private val _state = MutableStateFlow<JoinState>(JoinState.Searching)
+    val state: StateFlow<JoinState> = _state.asStateFlow()
+    private var handle: JoinHandle? = null
+    private var collector: Job? = null
+    private var cancelled = false
+
+    init {
+        start()
+    }
+
+    /** A new attempt (Try again), cancelling the current one first. */
+    fun start() {
+        handle?.cancel()
+        collector?.cancel()
+        cancelled = false
+        _state.value = JoinState.Searching
+        collector = viewModelScope.launch {
+            val h = starter.start(viewModelScope, invite, name, consent)
+            handle = h
+            h.state.collect { _state.value = it }
+        }
+    }
+
+    fun cancel() {
+        if (storing()) return
+        handle?.cancel()
+        cancelled = true
+    }
+
+    /** The screen is shown again: an attempt stopped by [cancel] starts over. */
+    fun resume() {
+        if (cancelled && !storing()) start()
+    }
+
+    private fun storing() = _state.value == JoinState.Saving || _state.value == JoinState.Joined
+
+    override fun onCleared() {
+        if (!storing()) handle?.cancel()
+    }
+}
