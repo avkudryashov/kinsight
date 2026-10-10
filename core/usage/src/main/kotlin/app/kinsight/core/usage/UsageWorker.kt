@@ -10,10 +10,12 @@ import kotlinx.coroutines.CancellationException
 class UsageWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val force = inputData.getBoolean(UsageWork.KEY_FORCE, false)
+        val rollover = inputData.getBoolean(UsageWork.KEY_ROLLOVER, false)
         return try {
             val report = UsageGraph.pipeline(applicationContext).collectAndPublish(force)
-            Log.i(TAG, "usage run force=$force: $report")
-            if (!force) UsageWork.scheduleRollover(applicationContext)
+            Log.i(TAG, "usage run force=$force rollover=$rollover: $report")
+            // A failed rollover run chains nothing (an appended child would fail with it); the next hourly run re-arms.
+            UsageWork.scheduleRollover(applicationContext, UsageWork.rolloverPolicyAfterRun(rollover))
             Result.success()
         } catch (e: CancellationException) {
             throw e

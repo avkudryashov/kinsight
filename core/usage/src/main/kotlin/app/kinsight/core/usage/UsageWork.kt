@@ -19,6 +19,7 @@ object UsageWork {
     const val NOW = "kinsight-usage-now"
     const val ROLLOVER = "kinsight-usage-rollover"
     const val KEY_FORCE = "force"
+    const val KEY_ROLLOVER = "rollover"
     private const val ROLLOVER_GRACE_MS = 60_000L
 
     fun schedule(context: Context) {
@@ -36,14 +37,27 @@ object UsageWork {
         WorkManager.getInstance(context).enqueueUniqueWork(NOW, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
     }
 
-    /** A forced run a minute after the next local midnight; kept if one is already waiting. */
-    fun scheduleRollover(context: Context, nowMs: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()) {
+    /**
+     * A forced run a minute after the next local midnight. [policy]: KEEP from ordinary runs (one already waiting
+     * stays), APPEND_OR_REPLACE from the rollover run itself (the next one waits behind it), REPLACE after a clock
+     * or zone change (the waiting delay was computed on the old clock or in the old zone).
+     */
+    fun scheduleRollover(
+        context: Context,
+        policy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP,
+        nowMs: Long = System.currentTimeMillis(),
+        zone: ZoneId = ZoneId.systemDefault(),
+    ) {
         val request = OneTimeWorkRequestBuilder<UsageWorker>()
             .setInitialDelay(delayToRollover(nowMs, zone), TimeUnit.MILLISECONDS)
-            .setInputData(workDataOf(KEY_FORCE to true))
+            .setInputData(workDataOf(KEY_FORCE to true, KEY_ROLLOVER to true))
             .build()
-        WorkManager.getInstance(context).enqueueUniqueWork(ROLLOVER, ExistingWorkPolicy.KEEP, request)
+        WorkManager.getInstance(context).enqueueUniqueWork(ROLLOVER, policy, request)
     }
+
+    /** The rollover run chains the next one; every other run only makes sure one is waiting. */
+    fun rolloverPolicyAfterRun(isRollover: Boolean): ExistingWorkPolicy =
+        if (isRollover) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.KEEP
 
     fun delayToRollover(nowMs: Long, zone: ZoneId): Long {
         val now = Instant.ofEpochMilli(nowMs).atZone(zone)
