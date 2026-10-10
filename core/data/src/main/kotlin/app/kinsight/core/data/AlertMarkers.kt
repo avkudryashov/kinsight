@@ -5,7 +5,7 @@ import app.kinsight.core.model.DeviceId
 /**
  * What the alerts have already said (AlertPlanner): the highest notified seq per author, children reported as out of
  * contact, the parents a child already knows (null before the first run) and the date of the last summary.
- * Stored as text lines "n:id=seq,…", "c:id,…", "p:id,…", "s:date"; anything malformed reads as the default.
+ * Stored as text lines "n:id=seq,…", "c:id,…", "p:id,…", "s:date"; a malformed pair is skipped on its own.
  */
 data class AlertMarkers(
     val notifiedSeq: Map<DeviceId, Long> = emptyMap(),
@@ -21,20 +21,25 @@ data class AlertMarkers(
     }.joinToString("\n")
 
     companion object {
-        fun decode(text: String?): AlertMarkers = try {
+        private val HEX_ID = Regex("[0-9a-f]{32}")
+
+        /** Each pair is parsed on its own: a bad id, a missing or negative seq is skipped; an empty "s:" is no date. */
+        fun decode(text: String?): AlertMarkers {
             val lines = text.orEmpty().lines().filter { it.length >= 2 && it[1] == ':' }.associate { it[0] to it.substring(2) }
-            fun ids(s: String?): Set<DeviceId>? = s?.split(',')?.filter { it.isNotEmpty() }?.map(::DeviceId)?.toSet()
-            AlertMarkers(
-                notifiedSeq = lines['n'].orEmpty().split(',').filter { it.isNotEmpty() }.associate {
-                    val (id, seq) = it.split('=')
-                    DeviceId(id) to seq.toLong()
-                },
+            fun id(s: String): DeviceId? = if (HEX_ID.matches(s)) DeviceId(s) else null
+            fun ids(s: String?): Set<DeviceId>? = s?.split(',')?.mapNotNull(::id)?.toSet()
+            return AlertMarkers(
+                notifiedSeq = lines['n'].orEmpty().split(',').mapNotNull { pair ->
+                    val parts = pair.split('=')
+                    if (parts.size != 2) return@mapNotNull null
+                    val key = id(parts[0]) ?: return@mapNotNull null
+                    val seq = parts[1].toLongOrNull()?.takeIf { it >= 0 } ?: return@mapNotNull null
+                    key to seq
+                }.toMap(),
                 noContact = ids(lines['c']).orEmpty(),
                 knownParents = ids(lines['p']),
-                lastSummaryDate = lines['s'],
+                lastSummaryDate = lines['s']?.takeIf { it.isNotEmpty() },
             )
-        } catch (e: Exception) {
-            AlertMarkers()
         }
     }
 }

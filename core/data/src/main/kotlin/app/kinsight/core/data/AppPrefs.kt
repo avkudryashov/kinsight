@@ -33,7 +33,7 @@ class AppPrefs(private val store: DataStore<Preferences>) {
             deviceName = p[DEVICE_NAME],
             onboardingDone = p[ONBOARDING_DONE] ?: false,
             summaryMode = p[SUMMARY_MODE]?.let { m -> SummaryMode.entries.firstOrNull { it.name == m } } ?: SummaryMode.DAILY,
-            noContactHours = p[NO_CONTACT_HOURS] ?: 24,
+            noContactHours = p[NO_CONTACT_HOURS]?.takeIf { it in NO_CONTACT_RANGE } ?: 24,
             lastPruneDate = p[LAST_PRUNE],
         )
     }
@@ -54,7 +54,7 @@ class AppPrefs(private val store: DataStore<Preferences>) {
     }
 
     suspend fun setNoContactHours(hours: Int) {
-        require(hours in 1..168) { "no-contact hours must be 1..168" }
+        require(hours in NO_CONTACT_RANGE) { "no-contact hours must be 1..168" }
         store.edit { it[NO_CONTACT_HOURS] = hours }
     }
 
@@ -84,6 +84,7 @@ class AppPrefs(private val store: DataStore<Preferences>) {
 
     companion object {
         const val NAME = "kinsight_app_prefs"
+        private val NO_CONTACT_RANGE = 1..168
         private val DEVICE_NAME = stringPreferencesKey("device_name")
         private val ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
         private val SUMMARY_MODE = stringPreferencesKey("summary_mode")

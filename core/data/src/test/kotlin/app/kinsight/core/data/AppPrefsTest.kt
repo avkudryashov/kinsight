@@ -1,5 +1,8 @@
 package app.kinsight.core.data
 
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import app.kinsight.core.model.DeviceId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -55,5 +58,26 @@ class AppPrefsTest {
         assertEquals(AlertMarkers(), prefs.alertMarkers())
         prefs.reset()
         assertEquals(Prefs(), prefs.current())
+    }
+
+    @Test
+    fun aCorruptFileStartsOver() = runBlocking<Unit> {
+        val file = File(dir, "corrupt.preferences_pb")
+        file.writeBytes(ByteArray(64) { 0xFF.toByte() })
+        val corrupt = AppPrefs.create(file, scope)
+        assertEquals(Prefs(), corrupt.current())
+        assertEquals(AlertMarkers(), corrupt.alertMarkers())
+    }
+
+    @Test
+    fun outOfRangeNoContactHoursReadAsDefault() = runBlocking<Unit> {
+        val store = PreferenceDataStoreFactory.create(scope = scope, produceFile = { File(dir, "raw.preferences_pb") })
+        val raw = AppPrefs(store)
+        for (bad in listOf(0, -3, 169, Int.MAX_VALUE)) {
+            store.edit { it[intPreferencesKey("no_contact_hours")] = bad }
+            assertEquals(24, raw.current().noContactHours)
+        }
+        store.edit { it[intPreferencesKey("no_contact_hours")] = 168 }
+        assertEquals(168, raw.current().noContactHours)
     }
 }

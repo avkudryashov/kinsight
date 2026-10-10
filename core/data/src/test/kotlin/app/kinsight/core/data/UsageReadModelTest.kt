@@ -13,6 +13,8 @@ import java.time.LocalDate
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import kotlin.test.assertNull
 
 class UsageReadModelTest {
@@ -101,5 +103,80 @@ class UsageReadModelTest {
         assertEquals(10, week.unlocks)
         assertEquals(UsageReadModel.MAX_EVENTS, week.events.size)
         assertEquals(190 * min, UsageReadModel.detail(member, by, emptyMap(), events, today, Period.MONTH).totalMs)
+    }
+
+    private val day = 86_400_000L
+    private val nowMs = 1_760_000_000_000L
+
+    private fun raw(date: LocalDate, totalMs: Long, unlocks: Int, apps: List<AppTotal> = emptyList(), createdMs: Long = nowMs) =
+        kid.create {
+            it.copy(
+                created_at_ms = createdMs,
+                usage_summary = UsageSummary(local_date = date.toString(), zone_id = "Europe/Madrid", total_ms = totalMs, apps = apps, unlocks = unlocks),
+            )
+        }
+
+    @Test
+    fun peerNumbersAreClamped() {
+        val pkg = "com.example.x"
+        val entries = (0L..29).map { raw(today.minusDays(it), Long.MAX_VALUE, Int.MAX_VALUE, listOf(AppTotal(pkg, Long.MAX_VALUE)), Long.MAX_VALUE) } +
+            raw(today.minusDays(40), -5, -7)
+        val by = UsageReadModel.summaries(entries)[kidKeys.deviceId]
+        val month = UsageReadModel.detail(member, by, emptyMap(), emptyList(), today, Period.MONTH)
+        assertEquals(30 * day, month.totalMs)
+        assertEquals(30 * UsageReadModel.MAX_UNLOCKS_PER_DAY, month.unlocks)
+        assertEquals(30 * day, month.apps.single().totalMs)
+        assertEquals(day, UsageReadModel.average(by, today))
+        val usage = UsageReadModel.usage(member, by, emptyList(), today, nowMs = nowMs)
+        assertEquals(nowMs + 5 * min, usage.updatedMs)
+        val negative = UsageReadModel.summaries(listOf(raw(today, -5, -7, listOf(AppTotal(pkg, -1)))))[kidKeys.deviceId]
+        val d = UsageReadModel.days(negative, today, 1).single()
+        assertEquals(0L, d.totalMs)
+        assertEquals(0, d.unlocks)
+        assertTrue(UsageReadModel.apps(negative, listOf(today), emptyMap()).isEmpty())
+    }
+
+    @Test
+    fun dayTotalTellsNoDataFromZero() {
+        val by = byDate(raw(today, 0, 0))
+        val two = UsageReadModel.days(by, today, 2)
+        assertFalse(two[0].hasData)
+        assertTrue(two[1].hasData)
+        assertEquals(0L, two[1].totalMs)
+    }
+
+    @Test
+    fun usageAndDetailUseOnlyTheMembersOwnEvents() {
+        val other = EntryAuthor(groupId, DeviceKeys.generate(), lastSeq = 0)
+        val mine = event(StateEvent.Kind.SHARING_RESUMED)
+        val theirs = listOf(
+            other.create { it.copy(state_event = StateEvent(kind = StateEvent.Kind.LEFT_GROUP)) },
+            other.create { it.copy(state_event = StateEvent(kind = StateEvent.Kind.CLOCK_CHANGED)) },
+        )
+        val events = UsageReadModel.events(theirs + mine)
+        assertEquals(Sharing.On, UsageReadModel.usage(member, null, events, today).sharing)
+        val detail = UsageReadModel.detail(member, null, emptyMap(), events, today, Period.DAY)
+        assertEquals(Sharing.On, detail.sharing)
+        assertEquals(listOf(kidKeys.deviceId), detail.events.map { it.author })
+    }
+
+    @Test
+    fun aParentsUsageIsNeverSurfaced() {
+        val parentKeys = DeviceKeys.generate()
+        val parent = EntryAuthor(groupId, parentKeys, lastSeq = 0)
+        val entry = parent.create {
+            it.copy(usage_summary = UsageSummary(local_date = today.toString(), zone_id = "Europe/Madrid", total_ms = 30 * min, apps = listOf(AppTotal("p", 30 * min)), unlocks = 3))
+        }
+        val by = UsageReadModel.summaries(listOf(entry))[parentKeys.deviceId]
+        val view = MemberView(parentKeys.deviceId, "Mom", Role.PARENT, isAdmin = true, isSelf = false, lastSeenMs = null)
+        val usage = UsageReadModel.usage(view, by, emptyList(), today)
+        assertEquals(0L, usage.today.totalMs)
+        assertFalse(usage.today.hasData)
+        assertNull(usage.averageMs)
+        assertNull(usage.updatedMs)
+        val detail = UsageReadModel.detail(view, by, emptyMap(), emptyList(), today, Period.WEEK)
+        assertEquals(0L, detail.totalMs)
+        assertEquals(0, detail.unlocks)
+        assertTrue(detail.apps.isEmpty())
     }
 }

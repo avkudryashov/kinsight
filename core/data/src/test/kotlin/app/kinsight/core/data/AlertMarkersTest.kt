@@ -21,4 +21,11 @@ class AlertMarkersTest {
         assertEquals(AlertMarkers(), AlertMarkers.decode(null))
         assertEquals(AlertMarkers(), AlertMarkers.decode("n:zz=1\nc:nothex\nweird"))
     }
+
+    @Test
+    fun badPairsAreSkippedOneByOne() {
+        val c = DeviceId("cc".repeat(16))
+        val text = "n:zz=1,${a.hex}=5,${b.hex}=-1,${c.hex}=x,${c.hex}\nc:nothex,${b.hex}\np:${"zz".repeat(16)},${a.hex}\ns:"
+        assertEquals(AlertMarkers(mapOf(a to 5L), setOf(b), setOf(a), null), AlertMarkers.decode(text))
+    }
 }

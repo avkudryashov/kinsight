@@ -22,7 +22,7 @@ data class MemberView(
     val lastSeenMs: Long?,
 )
 
-data class DayTotal(val date: LocalDate, val totalMs: Long, val unlocks: Int)
+data class DayTotal(val date: LocalDate, val totalMs: Long, val unlocks: Int, val hasData: Boolean = totalMs > 0 || unlocks > 0)
 
 /** One app over a period; [label] falls back to the package name (spec §7: invisible packages). */
 class AppUsage(val packageName: String, val label: String, val icon: ByteArray?, val totalMs: Long)
