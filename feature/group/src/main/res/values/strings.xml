@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="grp_title">Family group</string>
+    <string name="grp_parent">Parent</string>
+    <string name="grp_child">Child</string>
+    <string name="grp_admin">admin</string>
+    <string name="grp_this_phone">this phone</string>
+    <string name="grp_not_seen">not seen yet</string>
+    <string name="grp_seen">seen %1$s</string>
+    <string name="grp_invite_child">Invite a child\'s phone</string>
+    <string name="grp_invite_parent">Invite a parent\'s phone</string>
+    <string name="grp_second_admin">Make another parent an admin. If this phone is lost, an admin is needed to invite phones again; without one the family has to create a new group.</string>
+    <string name="grp_actions_for">Actions for %1$s</string>
+    <string name="grp_make_admin">Make admin</string>
+    <string name="grp_remove">Remove from group</string>
+    <string name="grp_grant_title">Make %1$s an admin?</string>
+    <string name="grp_grant_body">Admins can invite and remove phones. This cannot be undone without pairing that phone again.</string>
+    <string name="grp_remove_title">Remove %1$s?</string>
+    <string name="grp_remove_body">The phone stops syncing with the group. To come back it needs a new invitation and a reset of its identity.</string>
+    <string name="grp_leave">Leave the group</string>
+    <string name="grp_leave_title">Leave the family group?</string>
+    <string name="grp_leave_body">Everyone in the group will see that this phone left. Data already on their phones stays until their retention ends. Coming back needs a new invitation.</string>
+    <string name="grp_leave_sole_admin">You are the only admin. Make another parent an admin first, or remove the other phones.</string>
+    <string name="grp_leaving">Leaving: telling your family…</string>
+    <string name="grp_confirm">Confirm</string>
+    <string name="grp_cancel">Cancel</string>
+    <string name="grp_no_group_title">No group</string>
+    <string name="grp_no_group_body">This phone is not in a family group.</string>
+    <string name="grp_removed_title">Not in the group any more</string>
+    <string name="grp_removed_body">This phone was removed from the family group or has left it.</string>
+    <string name="grp_unavailable_title">The group cannot be shown</string>
+    <string name="grp_err_title">That did not work</string>
+    <string name="grp_ok">OK</string>
+    <string name="grp_err_leave_no_group">This phone is no longer an active member of a family group, so there is nothing to leave.</string>
+    <string name="grp_err_leave_sole_admin">Leaving was refused: other phones are still in the group and this phone is their only admin. Make another parent an admin, or remove the other phones, then leave.</string>
+    <string name="grp_err_leave_not_signed">Could not record that this phone is leaving. Nothing was deleted; try again.</string>
+    <string name="grp_err_leave_wipe_failed">Your family was told that this phone left, but clearing this phone failed. Tap Start over to finish.</string>
+    <string name="grp_err_grant">Could not make that phone an admin. This phone may no longer be in the group.</string>
+    <string name="grp_err_remove">Could not remove that phone. This phone may no longer be in the group.</string>
+</resources>

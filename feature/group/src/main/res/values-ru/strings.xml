@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="grp_title">Семейная группа</string>
+    <string name="grp_parent">Родитель</string>
+    <string name="grp_child">Ребёнок</string>
+    <string name="grp_admin">администратор</string>
+    <string name="grp_this_phone">этот телефон</string>
+    <string name="grp_not_seen">ещё не был на связи</string>
+    <string name="grp_seen">на связи %1$s</string>
+    <string name="grp_invite_child">Пригласить телефон ребёнка</string>
+    <string name="grp_invite_parent">Пригласить телефон родителя</string>
+    <string name="grp_second_admin">Назначьте администратором второго родителя. Если этот телефон потеряется, без администратора нельзя будет приглашать телефоны, и семье придётся создавать новую группу.</string>
+    <string name="grp_actions_for">Действия для %1$s</string>
+    <string name="grp_make_admin">Сделать администратором</string>
+    <string name="grp_remove">Исключить из группы</string>
+    <string name="grp_grant_title">Сделать %1$s администратором?</string>
+    <string name="grp_grant_body">Администраторы приглашают и исключают телефоны. Отменить это можно только пересопряжением того телефона.</string>
+    <string name="grp_remove_title">Исключить %1$s?</string>
+    <string name="grp_remove_body">Телефон перестанет синхронизироваться с группой. Чтобы вернуться, ему нужны новое приглашение и сброс идентичности.</string>
+    <string name="grp_leave">Выйти из группы</string>
+    <string name="grp_leave_title">Выйти из семейной группы?</string>
+    <string name="grp_leave_body">Все в группе увидят, что этот телефон вышел. Данные, которые уже есть на их телефонах, хранятся до конца их срока хранения. Вернуться можно только по новому приглашению.</string>
+    <string name="grp_leave_sole_admin">Вы единственный администратор. Сначала назначьте администратором другого родителя или исключите остальные телефоны.</string>
+    <string name="grp_leaving">Выход: сообщаем семье…</string>
+    <string name="grp_confirm">Подтвердить</string>
+    <string name="grp_cancel">Отмена</string>
+    <string name="grp_no_group_title">Нет группы</string>
+    <string name="grp_no_group_body">Этот телефон не состоит в семейной группе.</string>
+    <string name="grp_removed_title">Телефон больше не в группе</string>
+    <string name="grp_removed_body">Этот телефон исключили из семейной группы, или он из неё вышел.</string>
+    <string name="grp_unavailable_title">Не удаётся показать группу</string>
+    <string name="grp_err_title">Не получилось</string>
+    <string name="grp_ok">Понятно</string>
+    <string name="grp_err_leave_no_group">Этот телефон больше не участник семейной группы, выходить не из чего.</string>
+    <string name="grp_err_leave_sole_admin">Выход отклонён: в группе остаются другие телефоны, а этот телефон их единственный администратор. Назначьте администратором другого родителя или исключите остальные телефоны, затем выходите.</string>
+    <string name="grp_err_leave_not_signed">Не удалось записать выход этого телефона. Ничего не удалено, попробуйте ещё раз.</string>
+    <string name="grp_err_leave_wipe_failed">Семья узнала, что этот телефон вышел, но очистить этот телефон не удалось. Нажмите «Начать заново», чтобы закончить.</string>
+    <string name="grp_err_grant">Не удалось сделать тот телефон администратором. Возможно, этот телефон уже не в группе.</string>
+    <string name="grp_err_remove">Не удалось исключить тот телефон. Возможно, этот телефон уже не в группе.</string>
+</resources>
