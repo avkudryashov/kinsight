@@ -84,6 +84,10 @@ class InviteViewModel internal constructor(
 
     private val _state = MutableStateFlow<InviteState>(InviteState.Starting)
     val state: StateFlow<InviteState> = _state.asStateFlow()
+    private val _confirming = MutableStateFlow(false)
+
+    /** Add was tapped: the answer is on its way until the invite moves on (added, failed, back to the QR). */
+    val confirming: StateFlow<Boolean> = _confirming.asStateFlow()
     private var handle: InviteHandle? = null
     private var collector: Job? = null
     private var closed = false
@@ -96,20 +100,27 @@ class InviteViewModel internal constructor(
     fun start() {
         stop()
         closed = false
+        _confirming.value = false
         _state.value = InviteState.Starting
         collector = viewModelScope.launch {
             // The session is a child of this collector: cancelling the collector also ends it (and its radio).
             val h = opener.open(this, role, adminName())
             handle = h
-            h.state.collect { _state.value = it }
+            h.state.collect {
+                _state.value = it
+                if (it !is InviteState.Confirm) _confirming.value = false
+            }
         }
     }
 
     fun confirm() {
+        if (_state.value !is InviteState.Confirm || _confirming.value) return
+        _confirming.value = true
         handle?.confirm()
     }
 
     fun decline() {
+        if (_confirming.value) return
         handle?.decline()
     }
 

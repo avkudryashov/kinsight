@@ -5,7 +5,13 @@ import androidx.activity.ComponentActivity
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -33,8 +39,17 @@ class PairingScreensTest {
     private val now = 1_000_000L
     private val uri = "kinsight://pair/1/AAAA"
 
-    private fun invite(state: InviteState, role: Role = Role.CHILD, onConfirm: () -> Unit = {}, onDecline: () -> Unit = {}, onRetry: () -> Unit = {}, onClose: () -> Unit = {}) =
-        rule.setContent { KinsightTheme(dynamicColor = false) { InviteScreen(state, role, now, onConfirm, onDecline, onRetry, onClose) } }
+    private fun invite(
+        state: InviteState,
+        role: Role = Role.CHILD,
+        onConfirm: () -> Unit = {},
+        onDecline: () -> Unit = {},
+        onRetry: () -> Unit = {},
+        onClose: () -> Unit = {},
+        confirming: Boolean = false,
+    ) = rule.setContent {
+        KinsightTheme(dynamicColor = false) { InviteScreen(state, role, now, onConfirm, onDecline, onRetry, onClose, confirming = confirming) }
+    }
 
     private fun join(state: JoinState, onRetry: () -> Unit = {}, onBack: () -> Unit = {}) =
         rule.setContent { KinsightTheme(dynamicColor = false) { JoinScreen(state, "Mom", onRetry, onBack) } }
@@ -43,8 +58,47 @@ class PairingScreensTest {
     fun inviteShowsTheQrAndTheCountdown() {
         invite(InviteState.Showing(uri, now + 125_000))
         rule.onNodeWithContentDescription("Invitation QR code").assertExists()
-        rule.onNodeWithText("2:05", substring = true).assertExists()
+        // The visible m:ss ticks every second; what a screen reader hears is the coarse, politely announced form.
+        rule.onNodeWithTag("inv_countdown").assertContentDescriptionEquals("Expires within 3 minutes")
+        rule.onNodeWithTag("inv_countdown").assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
         rule.onNodeWithText("child", substring = true).assertExists()
+    }
+
+    @Test
+    fun theCountdownIsAnnouncedOnlyAtMinuteBoundariesAndTheLastHalfMinute() {
+        var left by mutableStateOf(125_000L)
+        rule.setContent { KinsightTheme(dynamicColor = false) { InviteScreen(InviteState.Showing(uri, now + left), Role.CHILD, now, {}, {}, {}, {}) } }
+        val countdown = rule.onNodeWithTag("inv_countdown")
+        countdown.assertContentDescriptionEquals("Expires within 3 minutes")
+        left = 121_000L
+        rule.waitForIdle()
+        countdown.assertContentDescriptionEquals("Expires within 3 minutes")
+        left = 120_000L
+        rule.waitForIdle()
+        countdown.assertContentDescriptionEquals("Expires within 2 minutes")
+        left = 31_000L
+        rule.waitForIdle()
+        countdown.assertContentDescriptionEquals("Expires within 1 minute")
+        left = 30_000L
+        rule.waitForIdle()
+        countdown.assertContentDescriptionEquals("Expires in less than 30 seconds")
+        left = 4_000L
+        rule.waitForIdle()
+        countdown.assertContentDescriptionEquals("Expires in less than 30 seconds")
+    }
+
+    @Test
+    fun spokenMinutesChangeOnlyAtBoundaries() {
+        assertEquals(listOf(3, 3, 2, 2, 1, 1, null, null), listOf(125L, 121L, 120L, 61L, 60L, 31L, 30L, 0L).map { spokenMinutes(it) })
+    }
+
+    @Test
+    fun afterAddIsTappedTheAnswerButtonsWaitWithProgress() {
+        invite(InviteState.Confirm(uri, now + 60_000, "Kid's phone", Role.CHILD), confirming = true)
+        rule.onNodeWithTag("inv_confirm").assertIsNotEnabled()
+        rule.onNodeWithTag("inv_decline").assertIsNotEnabled()
+        rule.onNodeWithTag("inv_adding").assertExists()
+        rule.onNodeWithText("Adding", substring = true).assertExists()
     }
 
     @Test
@@ -127,6 +181,12 @@ class PairingScreensTest {
     fun aUsedOrExpiredTokenReadsAsAnInvalidCode() {
         join(JoinState.Failed(PairFailure.BAD_TOKEN))
         rule.onNodeWithText("This QR code is no longer valid", substring = true).assertExists()
+    }
+
+    @Test
+    fun aDeclineAlsoCoversAClosedInvitation() {
+        join(JoinState.Failed(PairFailure.DECLINED))
+        rule.onNodeWithText("The admin declined or closed the invitation.").assertExists()
     }
 
     @Test

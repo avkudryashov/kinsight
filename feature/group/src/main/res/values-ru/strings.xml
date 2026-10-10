@@ -73,10 +73,18 @@
     <string name="pair_fail_wrong_admin">Это не тот телефон, который показал приглашение.</string>
     <string name="pair_fail_bad_token">Этот QR-код больше недействителен. Попросите новый.</string>
     <string name="pair_fail_expired">Этот QR-код больше недействителен: срок истёк. Попросите новый.</string>
-    <string name="pair_fail_declined">Администратор отклонил запрос.</string>
+    <string name="pair_fail_declined">Администратор отклонил приглашение или закрыл его.</string>
     <string name="pair_fail_removed_before">Этот телефон раньше исключили из группы. Сбросьте идентичность в настройках, чтобы вступить снова.</string>
     <string name="pair_fail_invalid">Приглашение или ответ недействительны. Если на одном из телефонов старая версия Kinsight, обновите приложение и повторите.</string>
     <string name="pair_fail_not_admin">Приглашать может только администратор.</string>
     <string name="pair_fail_already_in_group">Этот телефон уже в группе. Сначала выйдите из неё.</string>
     <string name="pair_fail_identity">Ключи этого телефона повреждены. Сбросьте идентичность в настройках.</string>
+    <string name="inv_adding">Добавляем…</string>
+    <string name="inv_expires_soon_spoken">Истекает менее чем через 30 секунд</string>
+    <plurals name="inv_expires_spoken">
+        <item quantity="one">Истекает в течение %d минуты</item>
+        <item quantity="few">Истекает в течение %d минут</item>
+        <item quantity="many">Истекает в течение %d минут</item>
+        <item quantity="other">Истекает в течение %d минуты</item>
+    </plurals>
 </resources>

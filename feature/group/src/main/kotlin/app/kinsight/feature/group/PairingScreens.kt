@@ -5,11 +5,13 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
@@ -28,8 +30,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -83,6 +90,7 @@ fun InviteScreen(
     onDecline: () -> Unit,
     onRetry: () -> Unit,
     onClose: () -> Unit,
+    confirming: Boolean = false,
 ) = Centered {
     Text(
         stringResource(R.string.inv_title, roleLabel(role)),
@@ -101,9 +109,22 @@ fun InviteScreen(
             AlertDialog(
                 onDismissRequest = {}, // an explicit answer only: a stray tap outside neither adds nor refuses
                 title = { Text(stringResource(R.string.inv_confirm_title, state.name, roleLabel(state.role))) },
-                text = { Text(stringResource(R.string.inv_confirm_body)) },
-                confirmButton = { TextButton(onConfirm, Modifier.testTag("inv_confirm")) { Text(stringResource(R.string.inv_confirm)) } },
-                dismissButton = { TextButton(onDecline, Modifier.testTag("inv_decline")) { Text(stringResource(R.string.inv_decline)) } },
+                text = {
+                    if (confirming) {
+                        Row(Modifier.testTag("inv_adding"), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(Modifier.size(24.dp))
+                            Text(stringResource(R.string.inv_adding))
+                        }
+                    } else {
+                        Text(stringResource(R.string.inv_confirm_body))
+                    }
+                },
+                confirmButton = {
+                    TextButton(onConfirm, Modifier.testTag("inv_confirm"), enabled = !confirming) { Text(stringResource(R.string.inv_confirm)) }
+                },
+                dismissButton = {
+                    TextButton(onDecline, Modifier.testTag("inv_decline"), enabled = !confirming) { Text(stringResource(R.string.inv_decline)) }
+                },
             )
         }
         is InviteState.Added -> {
@@ -125,12 +146,32 @@ fun InviteScreen(
 /** Whole seconds until [expiresAtMs], never negative. */
 internal fun secondsLeft(expiresAtMs: Long, nowMs: Long): Long = ((expiresAtMs - nowMs) / 1000).coerceAtLeast(0)
 
+/**
+ * What a screen reader is told about the countdown: «within N minutes» (N rounded up, so it changes exactly at each
+ * minute boundary), then null for the last 30 seconds («less than 30 seconds»). The visible m:ss is not announced.
+ */
+internal fun spokenMinutes(secondsLeft: Long): Int? = if (secondsLeft <= 30) null else ((secondsLeft + 59) / 60).toInt()
+
 @Composable
 private fun InviteQr(uri: String, expiresAtMs: Long, nowMs: Long) {
     QrCode(uri, stringResource(R.string.inv_qr_description), Modifier.fillMaxWidth().widthIn(max = 420.dp))
     Text(stringResource(R.string.inv_scan_hint), textAlign = TextAlign.Center)
     val left = secondsLeft(expiresAtMs, nowMs)
-    Text(stringResource(R.string.inv_expires_in, left / 60, left % 60), style = MaterialTheme.typography.titleMedium)
+    val minutes = spokenMinutes(left)
+    val spoken = if (minutes == null) {
+        stringResource(R.string.inv_expires_soon_spoken)
+    } else {
+        pluralStringResource(R.plurals.inv_expires_spoken, minutes, minutes)
+    }
+    Text(
+        stringResource(R.string.inv_expires_in, left / 60, left % 60),
+        style = MaterialTheme.typography.titleMedium,
+        // Only the coarse text is in the semantics, so the polite live region speaks when it changes, not every second.
+        modifier = Modifier.testTag("inv_countdown").clearAndSetSemantics {
+            contentDescription = spoken
+            liveRegion = LiveRegionMode.Polite
+        },
+    )
 }
 
 /** The host's standing radio problem: a human line, then the technical detail for support. The QR stays usable. */
@@ -197,22 +238,37 @@ internal fun KeepScreenBright() {
 @Composable
 fun InviteRoute(role: Role, onClose: () -> Unit) {
     val context = LocalContext.current
-    val activity = LocalActivity.current
     val vm: InviteViewModel = viewModel(key = "invite-$role") {
         val g = AppGraph.get(context)
         InviteViewModel(g.pairing, g.prefs, role)
     }
+    InviteRoute(vm, role, onClose)
+}
+
+@Composable
+internal fun InviteRoute(vm: InviteViewModel, role: Role, onClose: () -> Unit) {
+    val activity = LocalActivity.current
     val state by vm.state.collectAsStateWithLifecycle()
+    val confirming by vm.confirming.collectAsStateWithLifecycle()
     val now by rememberNowMs(periodMs = 1_000L)
     LifecycleStartEffect(vm) {
         vm.resume()
         onStopOrDispose { if (activity?.isChangingConfigurations != true) vm.close() }
     }
     if (state is InviteState.Showing || state is InviteState.Confirm) KeepScreenBright()
-    InviteScreen(state, role, now, vm::confirm, vm::decline, vm::start) {
-        vm.close()
-        onClose()
-    }
+    InviteScreen(
+        state,
+        role,
+        now,
+        onConfirm = vm::confirm,
+        onDecline = vm::decline,
+        onRetry = vm::start,
+        onClose = {
+            vm.close()
+            onClose()
+        },
+        confirming = confirming,
+    )
 }
 
 /**

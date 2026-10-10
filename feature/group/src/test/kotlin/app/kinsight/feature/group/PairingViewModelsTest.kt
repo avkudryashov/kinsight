@@ -74,9 +74,33 @@ class PairingViewModelsTest {
     @Test
     fun inviteForwardsTheAdminsDecision() {
         val vm = InviteViewModel(opener, { "Mom" }, Role.PARENT)
-        vm.confirm()
+        invites[0].state.value = InviteState.Confirm("kinsight://pair/1/AAAA", 5L, "Dad", Role.PARENT)
         vm.decline()
-        assertEquals(listOf("confirm", "decline"), invites[0].calls)
+        vm.confirm()
+        vm.decline() // Add was tapped: the answer is given
+        assertEquals(listOf("decline", "confirm"), invites[0].calls)
+    }
+
+    @Test
+    fun addingShowsProgressUntilTheInviteEnds() {
+        val vm = InviteViewModel(opener, { "Mom" }, Role.CHILD)
+        invites[0].state.value = InviteState.Confirm("kinsight://pair/1/AAAA", 5L, "Kid", Role.CHILD)
+        assertEquals(false, vm.confirming.value)
+        vm.confirm()
+        assertTrue(vm.confirming.value)
+        vm.confirm() // a second tap is not a second answer
+        assertEquals(listOf("confirm"), invites[0].calls)
+        invites[0].state.value = InviteState.Added("Kid")
+        assertEquals(false, vm.confirming.value)
+    }
+
+    @Test
+    fun aFailedAddEndsTheProgress() {
+        val vm = InviteViewModel(opener, { "Mom" }, Role.CHILD)
+        invites[0].state.value = InviteState.Confirm("kinsight://pair/1/AAAA", 5L, "Kid", Role.CHILD)
+        vm.confirm()
+        invites[0].state.value = InviteState.Failed(app.kinsight.core.data.PairFailure.LINK)
+        assertEquals(false, vm.confirming.value)
     }
 
     @Test
