@@ -4,3 +4,4 @@ build/
 *.class
 .kotlin/
 local.properties
+dist/
