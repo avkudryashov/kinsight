@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -140,10 +141,11 @@ fun DashboardScreen(
     // While the user's Stop holds, «Sync now» does nothing (the start honours the Stop): no pull, no action; the banner's
     // Start is the way back.
     val canSync = attention != SyncAttention.STOPPED
+    val listState = rememberLazyListState() // kept when the pull comes and goes with the Stop
     val list: @Composable BoxScope.() -> Unit = {
         LazyColumn(
             // Pull to refresh is a gesture only: TalkBack and switch users get the same «Sync now» as an action.
-            Modifier.fillMaxSize().testTag("dash_list").semantics {
+            modifier = Modifier.fillMaxSize().testTag("dash_list").semantics {
                 if (canSync) {
                     customActions = listOf(
                         CustomAccessibilityAction(syncNowLabel) {
@@ -153,6 +155,7 @@ fun DashboardScreen(
                     )
                 }
             },
+            state = listState,
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
