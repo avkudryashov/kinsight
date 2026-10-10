@@ -7,13 +7,14 @@ import app.kinsight.core.data.GroupRepository
 import app.kinsight.core.data.GroupState
 import app.kinsight.core.data.LocalReset
 import app.kinsight.core.data.Prefs
+import app.kinsight.core.data.ResetKind
+import app.kinsight.core.data.ResetStatus
 import app.kinsight.core.data.ServiceRepository
 import app.kinsight.core.data.ServiceStatus
 import app.kinsight.core.data.SettingsRepository
 import app.kinsight.core.data.SummaryMode
 import app.kinsight.core.usage.UsageSettings
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -34,7 +35,7 @@ data class SettingsUi(
     val prefs: Prefs = Prefs(),
     val service: ServiceStatus? = null,
     val error: SettingsError? = null,
-    /** An identity reset is running (on the app scope); the button is disabled meanwhile. */
+    /** A local wipe is running (LocalReset.status, app-wide); the reset button is disabled meanwhile. */
     val resetting: Boolean = false,
 )
 
@@ -58,7 +59,13 @@ internal interface SettingsActions {
 
     fun requestStop()
 
-    suspend fun resetIdentity()
+    /** LocalReset.status: app-wide, so it outlives this view model. */
+    val resetStatus: Flow<ResetStatus>
+
+    /** LocalReset.launchResetIdentity: on the app scope; joins a wipe already running. */
+    fun launchReset()
+
+    fun clearResetFailure()
 }
 
 private class RepositoryActions(
@@ -85,24 +92,29 @@ private class RepositoryActions(
 
     override fun requestStop() = serviceRepo.stop()
 
+    override val resetStatus = reset.status
+
     /** LocalReset: stopAndWait → forget the group files → pipeline.exclusive { wipe; settings reset; new keys }. */
-    override suspend fun resetIdentity() = reset.resetIdentity()
+    override fun launchReset() {
+        reset.launchResetIdentity()
+    }
+
+    override fun clearResetFailure() = reset.clearFailure()
 }
 
 /**
  * The settings screen's state and actions. Nothing here starts the sync service: opening settings never clears a
- * user's Stop, only [startSync] does. The identity reset runs on [appScope] (Graph.scope) so leaving the screen
- * mid-wipe cannot cancel it; every failure is logged and shown in [error], never swallowed.
+ * user's Stop, only [startSync] does. The identity reset runs in LocalReset on the app scope and its status is
+ * app-wide, so leaving the screen mid-wipe neither cancels it nor loses its failure. Every failure is shown.
  */
-class SettingsViewModel internal constructor(private val actions: SettingsActions, private val appScope: CoroutineScope) : ViewModel() {
-    constructor(group: GroupRepository, settings: SettingsRepository, service: ServiceRepository, reset: LocalReset, appScope: CoroutineScope) :
-        this(RepositoryActions(group, settings, service, reset), appScope)
+class SettingsViewModel internal constructor(private val actions: SettingsActions) : ViewModel() {
+    constructor(group: GroupRepository, settings: SettingsRepository, service: ServiceRepository, reset: LocalReset) :
+        this(RepositoryActions(group, settings, service, reset))
 
     private val _error = MutableStateFlow<SettingsError?>(null)
-    val error: StateFlow<SettingsError?> = _error.asStateFlow()
 
-    private val _resetting = MutableStateFlow(false)
-    val resetting: StateFlow<Boolean> = _resetting.asStateFlow()
+    /** The last failed setting change (not the reset: that one is in LocalReset.status). */
+    val error: StateFlow<SettingsError?> = _error.asStateFlow()
 
     private val data = combine(
         actions.group,
@@ -111,7 +123,10 @@ class SettingsViewModel internal constructor(private val actions: SettingsAction
         actions.service.map<ServiceStatus, ServiceStatus?> { it }.onStart { emit(null) },
     ) { g, u, p, s -> SettingsUi(g, u, p, s) }
 
-    val ui: StateFlow<SettingsUi> = combine(data, _error, _resetting) { d, e, r -> d.copy(error = e, resetting = r) }
+    val ui: StateFlow<SettingsUi> = combine(data, _error, actions.resetStatus) { d, e, r ->
+        val resetFailed = r is ResetStatus.Failed && r.kind == ResetKind.NEW_IDENTITY
+        d.copy(error = e ?: SettingsError.RESET.takeIf { resetFailed }, resetting = r is ResetStatus.Running)
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUi())
 
     /** A consenting child only; the pipeline signs SHARING_PAUSED / SHARING_RESUMED first, so the family is told. */
@@ -132,25 +147,13 @@ class SettingsViewModel internal constructor(private val actions: SettingsAction
     fun startSync() = actions.startByUser()
 
     fun dismissError() {
-        _error.value = null
+        if (_error.value != null) _error.value = null else actions.clearResetFailure()
     }
 
-    /** One reset at a time; on success the group state reads NoGroup and the app returns to the first run. */
+    /** On success the group state reads NoGroup and the app returns to the first run. */
     fun resetIdentity() {
-        if (!_resetting.compareAndSet(expect = false, update = true)) return
         _error.value = null
-        appScope.launch {
-            try {
-                actions.resetIdentity()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "identity reset failed", e)
-                _error.value = SettingsError.RESET
-            } finally {
-                _resetting.value = false
-            }
-        }
+        actions.launchReset()
     }
 
     private fun attempt(onFailure: SettingsError, what: String, block: suspend () -> Unit) {

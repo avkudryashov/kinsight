@@ -2,17 +2,23 @@ package app.kinsight.feature.settings
 
 import app.kinsight.core.data.GroupState
 import app.kinsight.core.data.Prefs
+import app.kinsight.core.data.ResetKind
+import app.kinsight.core.data.ResetStatus
 import app.kinsight.core.data.ServiceStatus
 import app.kinsight.core.data.SummaryMode
 import app.kinsight.core.transport.ble.ServiceState
 import app.kinsight.core.usage.UsageSettings
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -55,9 +61,23 @@ class SettingsViewModelTest {
 
         override fun requestStop() = call("stop")
 
-        override suspend fun resetIdentity() {
-            resetGate?.await()
-            call("reset")
+        /** Stands in for LocalReset: status and the running wipe live outside any view model. */
+        override val resetStatus = MutableStateFlow<ResetStatus>(ResetStatus.Idle)
+        lateinit var appScope: CoroutineScope
+        var resetOutcome: Exception? = null
+
+        override fun launchReset() {
+            calls += "launchReset"
+            resetStatus.value = ResetStatus.Running(ResetKind.NEW_IDENTITY)
+            appScope.launch {
+                resetGate?.await()
+                resetStatus.value = resetOutcome?.let { ResetStatus.Failed(ResetKind.NEW_IDENTITY, it.message!!) } ?: ResetStatus.Idle
+            }
+        }
+
+        override fun clearResetFailure() {
+            calls += "clearResetFailure"
+            resetStatus.value = ResetStatus.Idle
         }
     }
 
@@ -71,7 +91,8 @@ class SettingsViewModelTest {
 
     @Test
     fun openingSettingsNeverClearsAUserStop() = runTest {
-        val vm = SettingsViewModel(actions, backgroundScope)
+        actions.appScope = backgroundScope
+        val vm = SettingsViewModel(actions)
         backgroundScope.launch { vm.ui.collect {} }
         advanceUntilIdle()
         assertEquals(true, vm.ui.value.service?.stoppedByUser)
@@ -81,33 +102,43 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun aFailedResetIsShownNeverSilent() = runTest {
-        actions.fail = "reset"
-        val vm = SettingsViewModel(actions, TestScope(UnconfinedTestDispatcher(testScheduler)))
+    fun aFailedResetIsShownNeverSilentAndDismissClearsIt() = runTest {
+        actions.appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)) // the app scope: outlives any view model
+        actions.resetOutcome = IllegalStateException("disk full")
+        val vm = SettingsViewModel(actions)
+        backgroundScope.launch { vm.ui.collect {} }
         vm.resetIdentity()
-        assertEquals(SettingsError.RESET, vm.error.value)
-        assertFalse(vm.resetting.value)
+        advanceUntilIdle()
+        assertEquals(SettingsError.RESET, vm.ui.value.error)
+        assertFalse(vm.ui.value.resetting)
         vm.dismissError()
-        assertNull(vm.error.value)
+        advanceUntilIdle()
+        assertNull(vm.ui.value.error)
+        assertEquals(listOf("launchReset", "clearResetFailure"), actions.calls)
     }
 
     @Test
-    fun resetRunsOnTheAppScopeOnceAtATime() = runTest {
-        val gate = CompletableDeferred<Unit>()
-        actions.resetGate = gate
-        val vm = SettingsViewModel(actions, TestScope(UnconfinedTestDispatcher(testScheduler)))
-        vm.resetIdentity()
-        assertTrue(vm.resetting.value)
-        vm.resetIdentity()
-        gate.complete(Unit)
-        assertEquals(listOf("reset"), actions.calls)
-        assertFalse(vm.resetting.value)
-        assertNull(vm.error.value)
+    fun aViewModelClearedMidResetLeavesTheStatusToTheNextOne() = runTest {
+        actions.appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler))
+        actions.resetGate = CompletableDeferred()
+        actions.resetOutcome = IllegalStateException("disk full")
+        val store = ViewModelStore()
+        val first = ViewModelProvider.create(store, viewModelFactory { initializer { SettingsViewModel(actions) } })[SettingsViewModel::class]
+        first.resetIdentity()
+        store.clear() // the screen is gone; the wipe is not
+        val second = SettingsViewModel(actions)
+        backgroundScope.launch { second.ui.collect {} }
+        advanceUntilIdle()
+        assertTrue(second.ui.value.resetting)
+        actions.resetGate!!.complete(Unit)
+        advanceUntilIdle()
+        assertFalse(second.ui.value.resetting)
+        assertEquals(SettingsError.RESET, second.ui.value.error)
     }
 
     @Test
     fun settingFailuresAreShown() = runTest {
-        val vm = SettingsViewModel(actions, backgroundScope)
+        val vm = SettingsViewModel(actions)
         actions.fail = "retention:30/90"
         vm.setRetention(30, 90)
         assertEquals(SettingsError.RETENTION, vm.error.value)

@@ -45,6 +45,7 @@ class Graph internal constructor(app: Context) {
         sync = sync,
         wipeIdentity = { DeviceIdentity.resetBlocking(app) },
         snapshots = snapshots,
+        scope = scope,
     )
     val pairing = PairingCoordinator(
         link = AndroidPairingLink(app),

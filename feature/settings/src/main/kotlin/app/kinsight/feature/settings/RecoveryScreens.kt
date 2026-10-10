@@ -1,6 +1,5 @@
 package app.kinsight.feature.settings
 
-import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,68 +29,37 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import app.kinsight.core.data.AppGraph
+import app.kinsight.core.data.ResetKind
+import app.kinsight.core.data.ResetStatus
 import app.kinsight.core.designsystem.component.ErrorState
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 
-/** A local wipe in progress or failed (LocalReset.resetIdentity or forgetGroup). */
-data class RecoveryUi(val busy: Boolean = false, val failed: Boolean = false)
-
-/**
- * Runs one LocalReset operation at a time on [appScope] (Graph.scope), so leaving the screen cannot cancel a wipe
- * halfway; a failure is logged and shown, and the button retries.
- */
-class RecoveryViewModel(private val action: suspend () -> Unit, private val appScope: CoroutineScope) : ViewModel() {
-    private val _ui = MutableStateFlow(RecoveryUi())
-    val ui: StateFlow<RecoveryUi> = _ui.asStateFlow()
-
-    fun run() {
-        if (_ui.value.busy) return
-        _ui.value = RecoveryUi(busy = true)
-        appScope.launch {
-            try {
-                action()
-                _ui.value = RecoveryUi()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w("KinsightRecovery", "local wipe failed", e)
-                _ui.value = RecoveryUi(failed = true)
-            }
-        }
-    }
-}
-
-/** The key error root: a confirmed LocalReset.resetIdentity (new keys, everything local wiped). */
+/** The key error root: a confirmed LocalReset.resetIdentity (new keys, everything local wiped), status app-wide. */
 @Composable
 fun KeyErrorRoute(message: String) {
     val context = LocalContext.current
-    val vm: RecoveryViewModel = viewModel(key = "key_error") {
-        val g = AppGraph.get(context)
-        RecoveryViewModel(g.reset::resetIdentity, g.scope)
-    }
-    val ui by vm.ui.collectAsStateWithLifecycle()
-    KeyErrorScreen(message, vm::run, ui.busy, ui.failed)
+    val reset = remember { AppGraph.get(context).reset }
+    val status by reset.status.collectAsStateWithLifecycle()
+    KeyErrorScreen(
+        message,
+        onReset = { reset.launchResetIdentity() },
+        busy = status is ResetStatus.Running,
+        failed = (status as? ResetStatus.Failed)?.kind == ResetKind.NEW_IDENTITY,
+    )
 }
 
 /** The removed root: LocalReset.forgetGroup (the identity and the device name stay), then the first run. */
 @Composable
 fun RemovedRoute() {
     val context = LocalContext.current
-    val vm: RecoveryViewModel = viewModel(key = "removed") {
-        val g = AppGraph.get(context)
-        RecoveryViewModel(g.reset::forgetGroup, g.scope)
-    }
-    val ui by vm.ui.collectAsStateWithLifecycle()
-    RemovedScreen(vm::run, ui.busy, ui.failed)
+    val reset = remember { AppGraph.get(context).reset }
+    val status by reset.status.collectAsStateWithLifecycle()
+    RemovedScreen(
+        onStartOver = { reset.launchForgetGroup() },
+        busy = status is ResetStatus.Running,
+        failed = (status as? ResetStatus.Failed)?.kind == ResetKind.FORGET_GROUP,
+    )
 }
 
 /** Spec §6.2: a broken identity is an error with one way out, never a silent new identity; the way out asks first. */
@@ -123,7 +91,7 @@ fun RemovedScreen(onStartOver: () -> Unit, busy: Boolean = false, failed: Boolea
  */
 @Composable
 internal fun ResetIdentityDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
-    var understood by remember { mutableStateOf(false) }
+    var understood by rememberSaveable { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.set_reset_title)) },

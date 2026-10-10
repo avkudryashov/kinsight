@@ -48,10 +48,10 @@
     <string name="set_back">Back</string>
     <string name="set_version">Kinsight %1$s</string>
     <string name="set_error_title">That did not work</string>
-    <string name="set_error_sharing">Sharing did not change, and nothing was sent. Try again.</string>
+    <string name="set_error_sharing">Changing sharing did not finish. Check the switch and try again.</string>
     <string name="set_error_retention">The history setting was not saved, or old history was not removed yet. Try again.</string>
     <string name="set_error_notifications">The notification setting was not saved. Try again.</string>
-    <string name="set_error_reset">The reset did not finish. Part of the data may already be deleted. Try again; until it finishes, this phone does not sync.</string>
+    <string name="set_error_reset">The reset did not finish. Part of the data may already be deleted. Try again.</string>
     <string name="tr_title">Who sees my data</string>
     <string name="tr_child_who">Your screen time is sent to all parents in your family group, including any who join later. Now:</string>
     <string name="tr_nobody">nobody yet</string>
@@ -72,4 +72,14 @@
     <string name="rec_removed_body">An admin removed it, or it left. To join again, start over and scan a new invitation.</string>
     <string name="rec_start_over">Start over</string>
     <string name="rec_start_over_failed">Starting over did not finish: the old group data could not be deleted. Try again.</string>
+    <string name="set_shrink_title">Keep less history?</string>
+    <plurals name="set_shrink_body">
+        <item quantity="one">History older than %1$d day will be deleted from this phone now.</item>
+        <item quantity="other">History older than %1$d days will be deleted from this phone now.</item>
+    </plurals>
+    <plurals name="set_shrink_detail_body">
+        <item quantity="one">Detailed history older than %1$d day will be deleted from this phone now. Daily totals stay.</item>
+        <item quantity="other">Detailed history older than %1$d days will be deleted from this phone now. Daily totals stay.</item>
+    </plurals>
+    <string name="set_shrink">Delete</string>
 </resources>

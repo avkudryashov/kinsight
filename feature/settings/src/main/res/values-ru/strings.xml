@@ -48,10 +48,10 @@
     <string name="set_back">Назад</string>
     <string name="set_version">Kinsight %1$s</string>
     <string name="set_error_title">Не получилось</string>
-    <string name="set_error_sharing">Обмен не изменился, ничего не отправлено. Попробуйте ещё раз.</string>
+    <string name="set_error_sharing">Изменить обмен до конца не удалось. Проверьте переключатель и попробуйте ещё раз.</string>
     <string name="set_error_retention">Настройка истории не сохранилась, или старая история ещё не удалена. Попробуйте ещё раз.</string>
     <string name="set_error_notifications">Настройка уведомлений не сохранилась. Попробуйте ещё раз.</string>
-    <string name="set_error_reset">Сброс не завершился. Часть данных могла уже удалиться. Попробуйте ещё раз; пока сброс не завершён, телефон не синхронизируется.</string>
+    <string name="set_error_reset">Сброс не завершился. Часть данных могла уже удалиться. Попробуйте ещё раз.</string>
     <string name="tr_title">Кто видит мои данные</string>
     <string name="tr_child_who">Ваше экранное время получают все родители вашей семейной группы, в том числе те, кто присоединится позже. Сейчас это:</string>
     <string name="tr_nobody">пока никто</string>
@@ -72,4 +72,18 @@
     <string name="rec_removed_body">Его исключил администратор, или он вышел сам. Чтобы вступить снова, начните заново и отсканируйте новое приглашение.</string>
     <string name="rec_start_over">Начать заново</string>
     <string name="rec_start_over_failed">Начать заново не получилось: старые данные группы не удалились. Попробуйте ещё раз.</string>
+    <string name="set_shrink_title">Хранить меньше истории?</string>
+    <plurals name="set_shrink_body">
+        <item quantity="one">История старше %1$d дня будет сразу удалена с этого телефона.</item>
+        <item quantity="few">История старше %1$d дней будет сразу удалена с этого телефона.</item>
+        <item quantity="many">История старше %1$d дней будет сразу удалена с этого телефона.</item>
+        <item quantity="other">История старше %1$d дня будет сразу удалена с этого телефона.</item>
+    </plurals>
+    <plurals name="set_shrink_detail_body">
+        <item quantity="one">Подробная история старше %1$d дня будет сразу удалена с этого телефона. Итоги по дням останутся.</item>
+        <item quantity="few">Подробная история старше %1$d дней будет сразу удалена с этого телефона. Итоги по дням останутся.</item>
+        <item quantity="many">Подробная история старше %1$d дней будет сразу удалена с этого телефона. Итоги по дням останутся.</item>
+        <item quantity="other">Подробная история старше %1$d дня будет сразу удалена с этого телефона. Итоги по дням останутся.</item>
+    </plurals>
+    <string name="set_shrink">Удалить</string>
 </resources>

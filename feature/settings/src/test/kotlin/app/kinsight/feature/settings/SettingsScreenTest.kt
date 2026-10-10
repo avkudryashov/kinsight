@@ -129,7 +129,7 @@ class SettingsScreenTest {
     }
 
     @Test
-    fun aShorterSummaryPullsTheDetailDown() {
+    fun aShorterSummaryPullsTheDetailDownAfterAConfirm() {
         var picked: Pair<Int, Int>? = null
         show(
             SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(detailRetentionDays = 180, summaryRetentionDays = 365)),
@@ -137,7 +137,31 @@ class SettingsScreenTest {
         )
         rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_summary_90"))
         rule.onNodeWithTag("set_summary_90").performClick()
+        assertEquals(null, picked)
+        rule.onNodeWithText("History older than 90 days will be deleted from this phone now.").assertExists()
+        rule.onNodeWithTag("set_shrink_confirm").performClick()
         assertEquals(90 to 90, picked)
+    }
+
+    @Test
+    fun aShorterDetailAsksAndCancelKeepsEverything() {
+        var picked: Pair<Int, Int>? = null
+        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings()), onRetention = { d, s -> picked = d to s })
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_detail_30"))
+        rule.onNodeWithTag("set_detail_30").performClick()
+        rule.onNodeWithText("older than 30 days", substring = true).assertExists()
+        rule.onNodeWithText("Cancel").performClick()
+        assertEquals(null, picked)
+    }
+
+    @Test
+    fun aLongerRetentionIsInstant() {
+        var picked: Pair<Int, Int>? = null
+        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings()), onRetention = { d, s -> picked = d to s })
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_summary_730"))
+        rule.onNodeWithTag("set_summary_730").performClick()
+        assertEquals(90 to 730, picked)
+        rule.onNodeWithTag("set_shrink_confirm").assertDoesNotExist()
     }
 
     @Test
@@ -169,6 +193,12 @@ class SettingsScreenTest {
         rule.onNodeWithTag("set_reset_ack").performClick()
         rule.onNodeWithTag("set_reset_confirm").performClick()
         assertTrue(reset)
+    }
+
+    @Test
+    fun startOverIsDisabledWhileTheWipeRuns() {
+        rule.setContent { KinsightTheme(dynamicColor = false) { RemovedScreen(onStartOver = {}, busy = true) } }
+        rule.onNodeWithTag("rec_start_over").assertIsNotEnabled()
     }
 
     @Test

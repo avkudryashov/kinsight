@@ -32,11 +32,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -55,7 +56,7 @@ fun SettingsRoute(appVersion: String, onConsent: () -> Unit, onTransparency: () 
     val context = LocalContext.current
     val vm: SettingsViewModel = viewModel {
         val g = AppGraph.get(context)
-        SettingsViewModel(g.group, g.settingsRepository, g.service, g.reset, g.scope)
+        SettingsViewModel(g.group, g.settingsRepository, g.service, g.reset)
     }
     val ui by vm.ui.collectAsStateWithLifecycle()
     SettingsScreen(
@@ -64,7 +65,7 @@ fun SettingsRoute(appVersion: String, onConsent: () -> Unit, onTransparency: () 
     )
 }
 
-private enum class Ask { PAUSE, STOP, RESET }
+private enum class Ask { PAUSE, STOP, RESET, SHRINK }
 
 /**
  * Spec §4.7, §4.8, §9.6, §9.7. Only a child's phone has a «share» switch (Play Stalkerware ruling: an adult's usage is
@@ -92,7 +93,16 @@ fun SettingsScreen(
     val context = LocalContext.current
     val ready = ui.group as? GroupState.Ready
     val role = ready?.self?.role
-    var ask by remember { mutableStateOf<Ask?>(null) }
+    var ask by rememberSaveable { mutableStateOf<Ask?>(null) }
+    var pending by rememberSaveable { mutableStateOf(intArrayOf()) } // the detail and summary days a SHRINK asks about
+    val retention: (Pair<Int, Int>) -> Unit = { (d, s) ->
+        if (d < ui.usage.detailRetentionDays || s < ui.usage.summaryRetentionDays) {
+            pending = intArrayOf(d, s)
+            ask = Ask.SHRINK
+        } else {
+            onRetention(d, s)
+        }
+    }
     LazyColumn(
         Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).testTag("set_list"),
         contentPadding = PaddingValues(16.dp),
@@ -170,13 +180,11 @@ fun SettingsScreen(
         section(R.string.set_retention) {
             Text(stringResource(R.string.set_retention_detail))
             Choices(RetentionRules.DETAIL, ui.usage.detailRetentionDays, "set_detail", { stringResource(R.string.set_days, it) }) {
-                val (d, s) = RetentionRules.withDetail(it, ui.usage.summaryRetentionDays)
-                onRetention(d, s)
+                retention(RetentionRules.withDetail(it, ui.usage.summaryRetentionDays))
             }
             Text(stringResource(R.string.set_retention_summary))
             Choices(RetentionRules.SUMMARY, ui.usage.summaryRetentionDays, "set_summary", { stringResource(R.string.set_days, it) }) {
-                val (d, s) = RetentionRules.withSummary(ui.usage.detailRetentionDays, it)
-                onRetention(d, s)
+                retention(RetentionRules.withSummary(ui.usage.detailRetentionDays, it))
             }
         }
         if (role == Role.PARENT) {
@@ -227,6 +235,19 @@ fun SettingsScreen(
             onConfirm = onStopSync, onDismiss = { ask = null },
         )
         Ask.RESET -> ResetIdentityDialog(onConfirm = onResetIdentity, onDismiss = { ask = null })
+        Ask.SHRINK -> if (pending.size == 2) {
+            val (d, s) = pending
+            // Fewer daily totals deletes everything older; fewer detail days deletes only the detail.
+            val body = if (s < ui.usage.summaryRetentionDays) {
+                pluralStringResource(R.plurals.set_shrink_body, s, s)
+            } else {
+                pluralStringResource(R.plurals.set_shrink_detail_body, d, d)
+            }
+            Confirm(
+                stringResource(R.string.set_shrink_title), body, stringResource(R.string.set_shrink), "set_shrink_confirm",
+                onConfirm = { onRetention(d, s) }, onDismiss = { ask = null },
+            )
+        }
         null -> Unit
     }
 }
