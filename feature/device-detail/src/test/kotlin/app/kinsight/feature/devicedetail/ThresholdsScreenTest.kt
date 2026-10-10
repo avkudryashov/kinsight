@@ -139,12 +139,12 @@ class ThresholdsScreenTest {
     }
 
     @Test
-    fun anExistingTargetStartsFromItsLimit() {
-        show(listOf(games))
+    fun anExistingTargetStartsFromItsLimitAnotherFromTheDefault() {
+        show(listOf(ThresholdRule.of(kid, ThresholdTarget.Category(AppCategory.GAMES), 90 * 60_000L)!!))
         rule.onNodeWithTag("thr_add").performClick()
         rule.onNodeWithTag("thr_kind_category").performClick()
         rule.onNodeWithTag("thr_category_GAMES").performClick()
-        rule.onNodeWithTag("thr_value").assertTextEquals("1 h")
+        rule.onNodeWithTag("thr_value").assertTextEquals("1 h 30 min")
         rule.onNodeWithTag("thr_category_VIDEO").performClick()
         rule.onNodeWithTag("thr_value").assertTextEquals("1 h")
     }

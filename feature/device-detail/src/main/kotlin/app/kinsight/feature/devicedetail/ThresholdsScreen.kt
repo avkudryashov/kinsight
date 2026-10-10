@@ -222,9 +222,9 @@ internal fun ThresholdDialog(
         KIND_APP -> pkg?.let(ThresholdTarget::App)
         else -> null
     }
-    // Picking a target that already has a rule starts from its limit.
+    // Picking a target starts from its rule's limit, or the default for a target without one.
     fun picked(t: ThresholdTarget?) {
-        limitOf(t)?.let { value = it }
+        value = limitOf(t) ?: ThresholdValues.DEFAULT_MS
     }
     AlertDialog(
         onDismissRequest = onDismiss,
