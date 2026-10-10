@@ -5,4 +5,24 @@
     <string name="diagnostics_loading" translatable="false">Selecting key backend...</string>
     <string name="diagnostics_sync_now" translatable="false">Sync now</string>
     <string name="diagnostics_refresh" translatable="false">Refresh</string>
+    <string name="channel_integrity">Integrity</string>
+    <string name="channel_summaries">Summaries</string>
+    <string name="alert_paused">%1$s: sharing paused</string>
+    <string name="alert_access_revoked">%1$s: usage access turned off</string>
+    <string name="alert_left">%1$s left the family group</string>
+    <string name="alert_sync_stopped">%1$s: sync was stopped</string>
+    <string name="alert_notification_hidden">%1$s: the sync notification is hidden</string>
+    <string name="alert_nearby_off">%1$s: the Nearby devices permission was turned off</string>
+    <string name="alert_force_stopped">%1$s: Kinsight was force-stopped</string>
+    <string name="alert_bluetooth_off">%1$s: Bluetooth was turned off</string>
+    <string name="alert_data_gap">%1$s: part of the screen time history is missing</string>
+    <string name="alert_clock_changed">%1$s: the phone clock was changed</string>
+    <string name="alert_event">%1$s: something changed</string>
+    <string name="alert_at">At %1$s.</string>
+    <string name="alert_no_contact">%1$s is out of contact</string>
+    <string name="alert_no_contact_body">Last in contact %1$s. Keep the phones close, or check that Bluetooth is on.</string>
+    <string name="alert_new_parent">%1$s can now see your screen time</string>
+    <string name="alert_new_parent_body">A new parent joined your family group. Settings → Who sees my data shows everyone.</string>
+    <string name="alert_summary_daily">Screen time today</string>
+    <string name="alert_summary_weekly">Screen time this week</string>
 </resources>
