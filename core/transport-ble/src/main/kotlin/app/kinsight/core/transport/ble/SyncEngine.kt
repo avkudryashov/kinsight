@@ -81,6 +81,7 @@ class SyncEngine(
     private val onLinkExhausted: () -> Unit = {},
 ) {
     private val exhaustion = LinkExhaustion()
+    private val quiet = LogLimiter(monoClock)
 
     private val _status = MutableStateFlow(SyncStatus())
     val status: StateFlow<SyncStatus> = _status.asStateFlow()
@@ -129,8 +130,9 @@ class SyncEngine(
         sightings.trySend(batch)
     }
 
-    /** Fast mode (spec §8 «Быстрый режим»): until [untilMono] we connect past the cooldown and the tag order (not a block). */
+    /** Fast mode (spec §8 «Быстрый режим»): until [untilMono] we connect past the cooldown, bounded per peer (ConnectPolicy). */
     fun setFast(untilMono: Long) {
+        if (monoClock() >= fastUntilMono) policy.onFastStart() // a new window, not an extension
         fastUntilMono = untilMono
     }
 
@@ -184,7 +186,7 @@ class SyncEngine(
         for ((key, pair) in best) {
             val (s, id) = pair
             when (val d = policy.decide(s, key, id, self, vector, ctx.keys.deviceId, ctx.discoveryKey, nowWall, nowMono, fast)) {
-                is Decision.Ignore -> log("skip ${key.value.take(12)}: ${d.reason}")
+                is Decision.Ignore -> quiet.log("${key.value}:${d.reason}") { log("skip ${key.value.take(12)}: ${d.reason}") }
                 is Decision.Prepare -> prepareIfDue()
                 is Decision.Connect -> initiate(ctx, d)
             }
@@ -193,7 +195,8 @@ class SyncEngine(
 
     private fun initiate(ctx: SyncContext, d: Decision.Connect) {
         if (!tryAcquire()) {
-            log("skip ${d.peer.value.take(12)}: busy") // a session runs; the next batch tries again
+            // A session runs; the next batch tries again.
+            quiet.log("${d.peer.value}:busy") { log("skip ${d.peer.value.take(12)}: busy") }
             return
         }
         scope.launch {
@@ -326,7 +329,8 @@ class SyncEngine(
         val secondary = initiatedTo?.takeIf { it != primary }
         val problem = when (result) {
             is SessionResult.Completed -> {
-                listOfNotNull(primary, secondary).forEach { policy.onCompleted(it, now) }
+                val empty = result.received == 0 && result.sentBatches == 0
+                listOfNotNull(primary, secondary).forEach { policy.onCompleted(it, now, empty, initiated = it == initiatedTo) }
                 null
             }
             is SessionResult.TooManyInvalid -> {

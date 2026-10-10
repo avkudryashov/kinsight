@@ -12,6 +12,7 @@ import app.kinsight.core.sync.LinkFaults
 import app.kinsight.core.sync.MemoryPipe
 import app.kinsight.core.sync.PROTOCOL_VERSION
 import app.kinsight.core.sync.SecureChannel
+import app.kinsight.core.sync.SyncPolicy
 import app.kinsight.core.sync.TODAY
 import app.kinsight.core.sync.summary
 import kotlinx.coroutines.CancellationException
@@ -88,10 +89,11 @@ class SyncEngineTest {
         link: BleLink = this.link,
         onLog: (String) -> Unit = {},
         onLinkExhausted: () -> Unit = {},
+        syncPolicy: SyncPolicy = d.policy(),
         prepare: suspend () -> Unit = {},
     ) = SyncEngine(
         scope = scope,
-        context = { SyncContext(group.groupId, group.discoveryKey, d.keys, store, d.policy()) },
+        context = { SyncContext(group.groupId, group.discoveryKey, d.keys, store, syncPolicy) },
         link = link,
         prepare = prepare,
         monoClock = { mono },
@@ -231,6 +233,27 @@ class SyncEngineTest {
         }
         assertEquals(LinkExhaustion.THRESHOLD, connects.get())
         assertEquals(1, restarts.get())
+    }
+
+    @Test
+    fun twoFastPeersWhoseVectorsNeverMatchStopAfterOneEmptySession() = runBlocking<Unit> {
+        val g = TestGroup.create(2)
+        val (d0, d1) = g.devices
+        d0.store.applyBatch(listOf(d0.author.summary(TODAY.toString(), 5)))
+        val e0 = engine(g, d0)
+        // A child: it never takes the other's own entries, so the two vectors never match (emulator run 2026-10-10).
+        val e1 = engine(g, d1, syncPolicy = d1.policy().copy(showOthers = false))
+        e0.setFast(Long.MAX_VALUE)
+        e1.setFast(Long.MAX_VALUE)
+        repeat(60) {
+            seeEachOther("d0", e0, "d1", e1)
+            delay(30)
+            withTimeout(5.seconds) { while (e0.busy.value || e1.busy.value) delay(10) }
+            mono += 1_000 // a fast-mode scan reports every advert at once: one batch a second for a minute
+        }
+        assertTrue(d0.store.versionVector() != d1.store.versionVector())
+        assertTrue(connects.get() <= 2, "a fast minute dialled ${connects.get()} times")
+        assertTrue(logs.count { it.contains(": skip ") } <= 4 * 2, "skip lines are rate-limited: ${logs.filter { it.contains(": skip ") }}")
     }
 
     @Test

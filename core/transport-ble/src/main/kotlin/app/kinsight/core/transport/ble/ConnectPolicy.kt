@@ -32,18 +32,38 @@ sealed interface Decision {
  * cooldown; then the smaller advertised device tag connects. Equal tags: the smaller DeviceId connects when the peer
  * is resolved, otherwise nobody until the next window. The vector check compares the peer's vector tag with ours
  * computed for the window its group tag matched (a peer still or already in the neighbouring window stays comparable).
- * Fast mode («Sync now») skips the cooldown and the tag order and always connects (a block or an equal vector still
- * stops it): the peer is usually not in fast mode and would sit out its own cooldown, while a responder never checks
- * one. Two fast initiators meet the busy gate and the failure backoff.
+ *
+ * Fast mode («Sync now», one minute) skips the cooldown, but not the order of checks above (in sync and blocked still
+ * stop it), and it is bounded per peer (emulator run 2026-10-10: two fast phones dialled each other 30 times in 20 s,
+ * and one fast child ran an empty session every second for the whole minute):
+ *  - the smaller tag dials at once; the larger tag prepares for [fastYieldMs] first (the peer may be fast too and dial
+ *    us) and dials itself only if no session with that peer happened meanwhile (a peer in normal mode sits out its
+ *    cooldown, so somebody has to); an unresolved tag tie dials at once;
+ *  - at least [fastSpacingMs] between two dials to the same peer and after any session with it;
+ *  - after [fastMaxFailures] failed dials in a row the normal cooldown and backoff apply again until [onFastStart];
+ *  - a peer whose last session we initiated moved nothing either way is not dialled again while neither its advertised
+ *    vector nor ours changed («nothing new»). This is what ends the loop between a child and a parent: the child
+ *    (showOthers off) never takes the parent's own entries, so their vectors never match.
  * Times: nowWall for tag windows, nowMono (elapsedRealtime) for cooldowns.
  */
 class ConnectPolicy(
     private val cooldownMs: Long = COOLDOWN_MS,
     private val failureBackoffMs: Long = FAILURE_BACKOFF_MS,
     private val blockMs: Long = BLOCK_MS,
+    private val fastYieldMs: Long = FAST_YIELD_MS,
+    private val fastSpacingMs: Long = FAST_SPACING_MS,
+    private val fastMaxFailures: Int = FAST_MAX_FAILURES,
 ) {
     private val retryAt = HashMap<PeerKey, Long>()
     private val blockedUntil = HashMap<PeerKey, Long>()
+    private val failuresInRow = HashMap<PeerKey, Int>()
+    private val lastDial = HashMap<PeerKey, Long>()
+    private val lastSession = HashMap<PeerKey, Long>()
+    private val yieldSince = HashMap<PeerKey, Long>()
+
+    /** Our vector and the peer's advertised vector tag at the last Connect, and those of a session that moved nothing. */
+    private val dialSig = HashMap<PeerKey, ByteArray>()
+    private val noopSig = HashMap<PeerKey, ByteArray>()
 
     @Synchronized
     fun decide(
@@ -65,34 +85,85 @@ class ConnectPolicy(
             return Decision.Ignore("in sync")
         }
         if (isBlocked(peer, nowMono)) return Decision.Ignore("blocked")
-        if (fast) return Decision.Connect(peer, s.address)
-        if ((retryAt[peer] ?: Long.MIN_VALUE) > nowMono) return Decision.Ignore("cooldown")
+        val sig = selfVector + s.payload.vectorTag
         val ours = self.deviceTagValue
         val theirs = s.payload.deviceTagValue
-        val weConnect = when {
+        val weConnect: Boolean? = when {
             ours != theirs -> ours < theirs
             peerId != null -> selfId < peerId
-            else -> return Decision.Ignore("tag tie")
+            else -> null // unresolved tie
         }
-        return if (weConnect) Decision.Connect(peer, s.address) else Decision.Prepare(peer)
+        if (fast && (failuresInRow[peer] ?: 0) < fastMaxFailures) {
+            if (noopSig[peer]?.contentEquals(sig) == true) return Decision.Ignore("nothing new")
+            val recent = maxOf(lastDial[peer] ?: Long.MIN_VALUE, lastSession[peer] ?: Long.MIN_VALUE)
+            if (recent != Long.MIN_VALUE && nowMono - recent < fastSpacingMs) return Decision.Ignore("fast spacing")
+            if (weConnect == false) {
+                val since = yieldSince[peer]
+                if (since == null) {
+                    yieldSince[peer] = nowMono
+                    return Decision.Prepare(peer)
+                }
+                if (nowMono - since < fastYieldMs) return Decision.Prepare(peer)
+                if ((lastSession[peer] ?: Long.MIN_VALUE) >= since) {
+                    yieldSince[peer] = nowMono // the peer connected to us: keep yielding
+                    return Decision.Prepare(peer)
+                }
+            }
+            return connect(peer, s, sig, nowMono)
+        }
+        if ((retryAt[peer] ?: Long.MIN_VALUE) > nowMono) return Decision.Ignore("cooldown")
+        return when (weConnect) {
+            null -> Decision.Ignore("tag tie")
+            true -> connect(peer, s, sig, nowMono)
+            false -> Decision.Prepare(peer)
+        }
+    }
+
+    private fun connect(peer: PeerKey, s: Sighting, sig: ByteArray, nowMono: Long): Decision {
+        lastDial[peer] = nowMono
+        dialSig[peer] = sig
+        return Decision.Connect(peer, s.address)
     }
 
     @Synchronized
     fun isBlocked(peer: PeerKey, nowMono: Long): Boolean = (blockedUntil[peer] ?: Long.MIN_VALUE) > nowMono
 
-    /** A finished (or rejected) session: next one with this peer after the cooldown. */
+    /**
+     * A finished (or rejected) session: next one with this peer after the cooldown. [empty]: nothing moved either way;
+     * [initiated]: we dialled it (so the sighting it was decided on is known).
+     */
     @Synchronized
-    fun onCompleted(peer: PeerKey, nowMono: Long) = later(peer, nowMono + cooldownMs)
+    fun onCompleted(peer: PeerKey, nowMono: Long, empty: Boolean = false, initiated: Boolean = false) {
+        later(peer, nowMono + cooldownMs)
+        failuresInRow.remove(peer)
+        lastSession[peer] = nowMono
+        if (!empty) {
+            noopSig.remove(peer)
+        } else if (initiated) {
+            dialSig[peer]?.let { noopSig[peer] = it }
+        }
+    }
 
     /** A dropped link or failed connect: retry soon, but never earlier than an active cooldown allows. */
     @Synchronized
-    fun onFailed(peer: PeerKey, nowMono: Long) = later(peer, nowMono + failureBackoffMs)
+    fun onFailed(peer: PeerKey, nowMono: Long) {
+        later(peer, nowMono + failureBackoffMs)
+        failuresInRow[peer] = (failuresInRow[peer] ?: 0) + 1
+    }
 
     /** Too many invalid entries (spec §5.5): no session for an hour, fast mode included. */
     @Synchronized
     fun onBlocked(peer: PeerKey, nowMono: Long) {
         blockedUntil[peer] = nowMono + blockMs
         later(peer, nowMono + blockMs)
+    }
+
+    /** A new fast window («Sync now» while not fast): failure counts, spacing and yields start over. */
+    @Synchronized
+    fun onFastStart() {
+        failuresInRow.clear()
+        lastDial.clear()
+        yieldSince.clear()
     }
 
     private fun later(peer: PeerKey, at: Long) {
@@ -103,5 +174,8 @@ class ConnectPolicy(
         const val COOLDOWN_MS = 10 * 60_000L
         const val FAILURE_BACKOFF_MS = 60_000L
         const val BLOCK_MS = 60 * 60_000L
+        const val FAST_YIELD_MS = 5_000L
+        const val FAST_SPACING_MS = 5_000L
+        const val FAST_MAX_FAILURES = 3
     }
 }

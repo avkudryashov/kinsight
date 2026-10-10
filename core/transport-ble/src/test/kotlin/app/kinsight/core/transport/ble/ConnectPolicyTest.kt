@@ -83,14 +83,104 @@ class ConnectPolicyTest {
         assertTrue(!here.vectorTag.contentEquals(next.vectorTag))
     }
 
-    @Test
-    fun fastModeConnectsEvenWithTheLargerTag() {
+    /** (self advert, self id) and (peer advert, peer id), ordered so that the first one has the smaller tag. */
+    private fun smallThenBig(): Pair<Pair<AdvertPayload, DeviceId>, Pair<AdvertPayload, DeviceId>> {
         val sa = advert(a, 1)
         val sb = advert(b, 2)
         val aFirst = if (sa.deviceTagValue != sb.deviceTagValue) sa.deviceTagValue < sb.deviceTagValue else a < b
-        val (big, small) = if (aFirst) (sb to b) to (sa to a) else (sa to a) to (sb to b)
+        return if (aFirst) (sa to a) to (sb to b) else (sb to b) to (sa to a)
+    }
+
+    @Test
+    fun fastModeLetsTheSmallerTagDialFirstAndTheLargerOneOnlyAfterTheYield() {
+        val (small, big) = smallThenBig()
         assertIs<Decision.Prepare>(decide(big.first, big.second, small.first, small.second))
-        assertIs<Decision.Connect>(decide(big.first, big.second, small.first, small.second, fast = true))
+        // Fast: the larger tag yields for FAST_YIELD_MS (the peer may be in fast mode too and dial first)...
+        assertIs<Decision.Prepare>(decide(big.first, big.second, small.first, small.second, mono = 0, fast = true))
+        assertIs<Decision.Prepare>(
+            decide(big.first, big.second, small.first, small.second, mono = ConnectPolicy.FAST_YIELD_MS - 1, fast = true),
+        )
+        // ...then dials past its cooldown: a peer in normal mode would sit out its own.
+        assertIs<Decision.Connect>(
+            decide(big.first, big.second, small.first, small.second, mono = ConnectPolicy.FAST_YIELD_MS, fast = true),
+        )
+    }
+
+    @Test
+    fun fastModeSmallerTagDialsAtOnce() {
+        val (small, big) = smallThenBig()
+        policy.onCompleted(PeerKey.of(big.second), nowMono = -60_000) // in cooldown
+        assertIs<Decision.Connect>(decide(small.first, small.second, big.first, big.second, mono = 0, fast = true))
+    }
+
+    @Test
+    fun fastModeLargerTagDoesNotDialWhenThePeerConnectedDuringTheYield() {
+        val (small, big) = smallThenBig()
+        val peer = PeerKey.of(small.second)
+        assertIs<Decision.Prepare>(decide(big.first, big.second, small.first, small.second, mono = 0, fast = true))
+        policy.onCompleted(peer, nowMono = 1_000) // the peer dialed us (inbound)
+        val d = decide(big.first, big.second, small.first, small.second, mono = 60_000, fast = true)
+        assertTrue(d !is Decision.Connect, "the peer already connected in this fast window: $d")
+    }
+
+    @Test
+    fun fastModeSpacesDialsToOnePeerByFiveSeconds() {
+        val (small, big) = smallThenBig()
+        val peer = PeerKey.of(big.second)
+        assertIs<Decision.Connect>(decide(small.first, small.second, big.first, big.second, mono = 0, fast = true))
+        policy.onFailed(peer, nowMono = 500)
+        assertEquals(
+            Decision.Ignore("fast spacing"),
+            decide(small.first, small.second, big.first, big.second, mono = ConnectPolicy.FAST_SPACING_MS - 1, fast = true),
+        )
+        assertIs<Decision.Connect>(
+            decide(small.first, small.second, big.first, big.second, mono = ConnectPolicy.FAST_SPACING_MS, fast = true),
+        )
+    }
+
+    @Test
+    fun fastModeFallsBackToTheBackoffAfterThreeFailedDials() {
+        val (small, big) = smallThenBig()
+        val peer = PeerKey.of(big.second)
+        var t = 0L
+        repeat(ConnectPolicy.FAST_MAX_FAILURES) {
+            assertIs<Decision.Connect>(decide(small.first, small.second, big.first, big.second, mono = t, fast = true))
+            policy.onFailed(peer, nowMono = t)
+            t += ConnectPolicy.FAST_SPACING_MS
+        }
+        assertEquals(Decision.Ignore("cooldown"), decide(small.first, small.second, big.first, big.second, mono = t, fast = true))
+        // A new fast window (another «Sync now») starts the count over.
+        policy.onFastStart()
+        assertIs<Decision.Connect>(decide(small.first, small.second, big.first, big.second, mono = t, fast = true))
+    }
+
+    @Test
+    fun fastModeStopsDialingAPeerWhoseLastSessionWasEmptyUntilAVectorChanges() {
+        val (small, big) = smallThenBig()
+        val peer = PeerKey.of(big.second)
+        // A child (showOthers off) never takes a parent's own entries: the vectors never match (emulator run, 1 empty
+        // session per second for the whole fast minute).
+        assertIs<Decision.Connect>(decide(small.first, small.second, big.first, big.second, mono = 0, fast = true))
+        policy.onCompleted(peer, nowMono = 1_000, empty = true, initiated = true)
+        assertEquals(
+            Decision.Ignore("nothing new"),
+            decide(small.first, small.second, big.first, big.second, mono = 30_000, fast = true),
+        )
+        // Our vector changed (a new entry): there is something to send again.
+        val selfV = vector(5)
+        val changed = AdvertPayload(small.first.groupTag, small.first.deviceTag, small.first.vectorTag)
+        assertIs<Decision.Connect>(
+            decide(changed, small.second, big.first, big.second, mono = 30_000, fast = true, selfV = selfV),
+        )
+    }
+
+    @Test
+    fun aSessionThatMovedDataDoesNotSilenceThePeer() {
+        val (small, big) = smallThenBig()
+        val peer = PeerKey.of(big.second)
+        assertIs<Decision.Connect>(decide(small.first, small.second, big.first, big.second, mono = 0, fast = true))
+        policy.onCompleted(peer, nowMono = 1_000, empty = false, initiated = true)
+        assertIs<Decision.Connect>(decide(small.first, small.second, big.first, big.second, mono = 30_000, fast = true))
     }
 
     @Test
