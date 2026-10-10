@@ -1,6 +1,7 @@
 package app.kinsight.feature.onboarding
 
 import android.Manifest
+import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -9,6 +10,7 @@ import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -25,8 +27,10 @@ import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.kinsight.core.data.AppGraph
+import app.kinsight.core.data.Graph
 import app.kinsight.core.data.GroupState
 import app.kinsight.core.data.Role
 import app.kinsight.core.model.proto.DeviceRole
@@ -36,6 +40,9 @@ import app.kinsight.core.usage.AppOpsUsageAccess
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 internal fun readEnv(context: Context) = Env(
@@ -48,24 +55,48 @@ internal fun readEnv(context: Context) = Env(
 internal fun unrestrictedBattery(context: Context): Boolean =
     context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName)
 
-internal fun openBatterySettings(context: Context) {
+/** Starts the first intent that some settings app accepts; a missing or protected screen is never fatal. */
+internal fun startFirst(context: Context, vararg intents: Intent): Boolean = intents.any { intent ->
     try {
-        context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        true
     } catch (e: ActivityNotFoundException) {
-        runCatching {
-            context.startActivity(
-                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            )
-        }
+        false
+    } catch (e: SecurityException) {
+        false
     }
 }
 
+private fun appDetails(context: Context) = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri())
+
+internal fun openAppSettings(context: Context) {
+    startFirst(context, appDetails(context))
+}
+
+internal fun openBatterySettings(context: Context) {
+    startFirst(context, Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS), appDetails(context))
+}
+
 internal fun openUsageAccessSettings(context: Context) {
-    try {
-        context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS, "package:${context.packageName}".toUri()))
-    } catch (e: ActivityNotFoundException) {
-        runCatching { context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
-    }
+    startFirst(
+        context,
+        Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS, "package:${context.packageName}".toUri()),
+        Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS),
+        appDetails(context),
+    )
+}
+
+/** True when a Nearby permission is still missing and Android will not ask again (denied for good). */
+internal fun nearbyBlocked(activity: Activity?, context: Context): Boolean = activity != null &&
+    BlePermissions.missing(context).any { !activity.shouldShowRequestPermissionRationale(it) }
+
+/** [OnboardingGroup] over the app graph. */
+internal class GraphOnboardingGroup(private val graph: Graph) : OnboardingGroup {
+    override val state: Flow<GroupState> get() = graph.group.state
+
+    override suspend fun createGroup(name: String) = graph.group.createGroup(name)
+
+    override suspend fun consentRecorded(): Boolean = graph.settingsRepository.usageSettings.first().consentAtMs != null
 }
 
 /**
@@ -91,9 +122,10 @@ fun OnboardingRoute(
     pairContent: @Composable (invite: Invite, name: String, consent: Boolean, onJoined: () -> Unit, onBack: () -> Unit) -> Unit,
 ) {
     val context = LocalContext.current
+    val activity = LocalActivity.current
     val vm: OnboardingViewModel = viewModel {
         val g = AppGraph.get(context)
-        OnboardingViewModel(g.prefs, g.group, Build.MODEL)
+        OnboardingViewModel(g.prefs, GraphOnboardingGroup(g), Build.MODEL, createSavedStateHandle())
     }
     // A deep link (system camera or adb) arrives at any time: apply it once, then the app forgets it.
     LaunchedEffect(initialInvite) {
@@ -109,17 +141,22 @@ fun OnboardingRoute(
         vm.env = readEnv(context)
         unrestricted = unrestrictedBattery(context)
         if (state.step == Step.USAGE_ACCESS && vm.env.usageAccessGranted) vm.next()
+        if (state.step == Step.NEARBY && vm.env.nearbyGranted) vm.next()
     }
     val nearby = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         vm.env = readEnv(context)
-        if (vm.env.nearbyGranted || state.path == Path.CREATE) vm.next() else vm.show(OnboardingMessage.NEARBY_REQUIRED)
+        when {
+            vm.env.nearbyGranted || state.path == Path.CREATE -> vm.next()
+            nearbyBlocked(activity, context) -> vm.show(OnboardingMessage.NEARBY_BLOCKED)
+            else -> vm.show(OnboardingMessage.NEARBY_REQUIRED)
+        }
     }
     val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         vm.env = readEnv(context)
         vm.next()
     }
     BackHandler(enabled = state.step != Step.WELCOME && state.step != Step.DONE) { vm.back() }
-    val child = state.invite?.role == DeviceRole.CHILD
+    val child = state.role == DeviceRole.CHILD
     val inviteError = when (message) {
         OnboardingMessage.INVALID_INVITE -> stringResource(R.string.onb_scan_invalid)
         OnboardingMessage.UNSUPPORTED_INVITE -> stringResource(R.string.onb_scan_unsupported)
@@ -136,7 +173,12 @@ fun OnboardingRoute(
             agreeLabel = stringResource(R.string.onb_agree),
             onAgree = { nearby.launch(BlePermissions.REQUIRED.toTypedArray()) },
             onNotNow = { if (state.path == Path.CREATE) vm.next() else vm.show(OnboardingMessage.NEARBY_REQUIRED) },
-            note = if (message == OnboardingMessage.NEARBY_REQUIRED) stringResource(R.string.onb_nearby_required) else null,
+            note = when (message) {
+                OnboardingMessage.NEARBY_REQUIRED -> stringResource(R.string.onb_nearby_required)
+                OnboardingMessage.NEARBY_BLOCKED -> stringResource(R.string.onb_nearby_blocked)
+                else -> null
+            },
+            onOpenSettings = if (message == OnboardingMessage.NEARBY_BLOCKED) ({ openAppSettings(context) }) else null,
         )
         Step.SCAN -> ScanScreen(
             message = inviteError ?: if (message == OnboardingMessage.SCANNER_UNAVAILABLE) stringResource(R.string.onb_scan_unavailable) else null,
@@ -150,7 +192,7 @@ fun OnboardingRoute(
         )
         // OnboardingFlow puts CONSENT only on a child invite's path.
         Step.CONSENT -> ConsentScreen(state.invite?.adminName.orEmpty(), onAgree = { vm.consent(true) }, onNotNow = { vm.consent(false) })
-        Step.PAIR -> pairContent(state.invite!!, state.name.trim(), child && state.consent, vm::next, vm::back)
+        Step.PAIR -> state.invite?.let { pairContent(it, state.name.trim(), child && state.consent, vm::next, vm::back) }
         Step.USAGE_ACCESS -> DisclosureScreen(
             title = stringResource(R.string.onb_usage_title),
             body = stringResource(R.string.onb_usage_body),
@@ -170,6 +212,7 @@ fun OnboardingRoute(
         Step.BATTERY -> BatteryScreen(BatteryGuide.vendor(Build.MANUFACTURER), unrestricted, { openBatterySettings(context) }, vm::next)
         Step.DONE -> DoneScreen(
             child = child,
+            admin = state.path == Path.CREATE,
             message = if (message == OnboardingMessage.CREATE_FAILED) stringResource(R.string.onb_create_failed) else null,
             onDone = { vm.finish(onFinished) },
         )
@@ -187,6 +230,7 @@ fun ConsentRoute(onDone: () -> Unit) {
     val graph = remember { AppGraph.get(context) }
     val group by graph.group.state.collectAsState(initial = GroupState.Loading)
     val scope = rememberCoroutineScope()
+    var failed by remember { mutableStateOf(false) }
     val current = group
     if (current is GroupState.Loading) return
     val recipients = consentRecipients(current)
@@ -198,11 +242,19 @@ fun ConsentRoute(onDone: () -> Unit) {
         recipients = recipients,
         onAgree = {
             scope.launch {
-                runCatching { graph.settingsRepository.consentAndShare() }
-                onDone()
+                failed = false
+                try {
+                    graph.settingsRepository.consentAndShare()
+                    onDone()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    failed = true
+                }
             }
         },
         onNotNow = onDone,
+        error = if (failed) stringResource(R.string.onb_consent_failed) else null,
     )
 }
 

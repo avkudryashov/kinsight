@@ -18,8 +18,8 @@
     <string name="onb_parent_body">This phone shows the screen time of the children in your family group. It does not share its own screen time with anyone.</string>
     <string name="onb_parent_privacy">Data moves only between your family\'s phones over Bluetooth. Nothing goes to the internet, to servers or to us.</string>
     <string name="onb_consent_title">What your family will see</string>
-    <string name="onb_consent_body">Kinsight counts how much time this phone spends in each app, how often it is unlocked and at what hours it is used. Kinsight sends this over Bluetooth to the parents\' phones in your family group: %1$s. They will see this time for today and past days. Counting happens in the background, even when Kinsight is closed.</string>
-    <string name="onb_consent_body_group">Kinsight counts how much time this phone spends in each app, how often it is unlocked and at what hours it is used. Kinsight sends this over Bluetooth to the phones of every parent in your family group. They will see this time for today and past days. Counting happens in the background, even when Kinsight is closed.</string>
+    <string name="onb_consent_body">Kinsight counts how much time this phone spends in each app, how often it is unlocked and at what hours it is used. Kinsight sends this over Bluetooth to the phones of every parent in your family group, including %1$s, and parents who join later. They will see this time for today and past days. Counting happens in the background, even when Kinsight is closed.</string>
+    <string name="onb_consent_body_group">Kinsight counts how much time this phone spends in each app, how often it is unlocked and at what hours it is used. Kinsight sends this over Bluetooth to the phones of every parent in your family group, including parents who join later. They will see this time for today and past days. Counting happens in the background, even when Kinsight is closed.</string>
     <string name="onb_consent_backlog">When you agree, the first sending also includes up to the last 7 days of screen time that this phone has already recorded.</string>
     <string name="onb_consent_privacy">Nothing goes to the internet, to servers or to us. While sharing is on, a notification is always shown on this phone.</string>
     <string name="onb_consent_pause">You can pause sharing in two taps. Your family will see the pause, and the time during the pause will be sent once you resume. Sharing cannot be hidden, only openly stopped.</string>
@@ -57,4 +57,9 @@
     <string name="onb_done_body_child">This phone is in your family group.</string>
     <string name="onb_done_open">Open Kinsight</string>
     <string name="onb_create_failed">Could not create the group. Open Settings → Diagnostics on this phone.</string>
+    <string name="onb_consent_child">Your parents will see how much time you spend on your phone and in which apps.</string>
+    <string name="onb_consent_failed">Could not turn on sharing. Try again, or open Settings → Diagnostics on this phone.</string>
+    <string name="onb_open_settings">Open app settings</string>
+    <string name="onb_nearby_blocked">Nearby devices is turned off for Kinsight and Android will not ask again. Open the app\'s settings, then Permissions → Nearby devices → Allow.</string>
+    <string name="onb_done_body_joined_parent">This phone is in your family group. It shows your children\'s screen time once their phones sync.</string>
 </resources>

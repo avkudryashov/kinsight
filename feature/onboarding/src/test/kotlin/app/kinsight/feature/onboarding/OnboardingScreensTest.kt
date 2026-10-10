@@ -24,7 +24,8 @@ class OnboardingScreensTest {
     fun consentNamesTheRecipientAndTheBacklog() {
         var agreed = false
         rule.setContent { KinsightTheme(dynamicColor = false) { ConsentScreen("Mom", onAgree = { agreed = true }, onNotNow = {}) } }
-        rule.onNodeWithText("Mom", substring = true).assertExists()
+        rule.onNodeWithText("including Mom, and parents who join later", substring = true).assertExists()
+        rule.onNodeWithText("Your parents will see", substring = true).assertExists()
         rule.onNodeWithText("last 7 days", substring = true).performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("a notification is always shown", substring = true).performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("Your family will see the pause", substring = true).performScrollTo().assertIsDisplayed()
@@ -38,7 +39,7 @@ class OnboardingScreensTest {
     @Test
     fun consentWithoutKnownParentsStillSaysWhoSees() {
         rule.setContent { KinsightTheme(dynamicColor = false) { ConsentScreen("", onAgree = {}, onNotNow = {}) } }
-        rule.onNodeWithText("every parent in your family group", substring = true).assertExists()
+        rule.onNodeWithText("including parents who join later", substring = true).assertExists()
     }
 
     @Test
@@ -62,11 +63,43 @@ class OnboardingScreensTest {
 
     @Test
     @Config(qualifiers = "ru")
-    fun russianConsentUsesSoglasenAndNeSeichas() {
+    fun russianConsentUsesPrinimayuAndNeSeichas() {
         rule.setContent { KinsightTheme(dynamicColor = false) { ConsentScreen("Мама", onAgree = {}, onNotNow = {}) } }
-        rule.onNodeWithText("Мама", substring = true).assertExists()
-        rule.onNodeWithText("последние 7 дней", substring = true).assertExists()
-        rule.onNodeWithText("Согласен").assertExists()
+        rule.onNodeWithText("в том числе Мама, и тех, кто вступит позже", substring = true).assertExists()
+        rule.onNodeWithText("Твои родители увидят", substring = true).assertExists()
+        rule.onNodeWithText("не более чем за 7 последних дней", substring = true).assertExists()
+        rule.onNodeWithText("Принимаю").assertExists()
         rule.onNodeWithText("Не сейчас").assertExists()
+    }
+
+    @Test
+    fun consentShowsAnError() {
+        rule.setContent { KinsightTheme(dynamicColor = false) { ConsentScreen("Mom", onAgree = {}, onNotNow = {}, error = "Could not turn on sharing") } }
+        rule.onNodeWithText("Could not turn on sharing").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun aJoiningParentIsNotToldToInvite() {
+        rule.setContent { KinsightTheme(dynamicColor = false) { DoneScreen(child = false, admin = false, message = null, onDone = {}) } }
+        rule.onNodeWithText("invite", substring = true, ignoreCase = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun anAdminIsToldToInvite() {
+        rule.setContent { KinsightTheme(dynamicColor = false) { DoneScreen(child = false, admin = true, message = null, onDone = {}) } }
+        rule.onNodeWithText("invite", substring = true, ignoreCase = true).assertExists()
+    }
+
+    @Test
+    fun blockedNearbyOffersAppSettings() {
+        var opened = false
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                DisclosureScreen("Nearby devices", "Body", "Agree", onAgree = {}, onNotNow = {}, note = "Blocked", onOpenSettings = { opened = true })
+            }
+        }
+        rule.onNodeWithTag("onb_open_settings").performClick()
+        rule.waitForIdle()
+        assertTrue(opened)
     }
 }

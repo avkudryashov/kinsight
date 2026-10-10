@@ -26,4 +26,14 @@ class DeviceNamesTest {
             assertFalse(DeviceNames.ok("Kid${bad}phone"), "U+%04X".format(bad.codePointAt(0)))
         }
     }
+
+    @Test
+    fun namesWithoutAVisibleCharacterAreRejected() {
+        for (bad in listOf("\u200D", "\u3164", "\u115F\u3164", "\uFFA0", "\u00A0", "\u3164\u200D\u3164")) {
+            assertFalse(DeviceNames.ok(bad), bad.codePoints().toArray().joinToString { "U+%04X".format(it) })
+        }
+        assertFalse(DeviceNames.ok("Kid\uD800"))
+        assertFalse(DeviceNames.ok("\uDC00Kid"))
+        assertTrue(DeviceNames.ok("\u3164Kid"))
+    }
 }

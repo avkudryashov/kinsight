@@ -99,32 +99,49 @@ internal fun ParentInfoScreen(onNext: () -> Unit) = Page(
 }
 
 /**
- * Research §6.3, a child's phone only: what is collected, who sees it ([recipients], or the group's parents when no
- * name is known yet), background counting, the 7-day backlog of the first collection, the persistent notification,
+ * Research §6.3, a child's phone only: a plain line for the child first, then what is collected, who sees it (every
+ * parent of the group including [recipients], and parents who join later), background counting, the 7-day backlog of the first collection, the persistent notification,
  * an open pause the parents see, Play Protect. Explicit «Agree» / «Not now»; nothing is read before «Agree».
  */
 @Composable
-fun ConsentScreen(recipients: String, onAgree: () -> Unit, onNotNow: () -> Unit) = Page(
+fun ConsentScreen(recipients: String, onAgree: () -> Unit, onNotNow: () -> Unit, error: String? = null) = Page(
     title = stringResource(R.string.onb_consent_title),
     actions = {
         Primary(stringResource(R.string.onb_agree), "onb_agree", onAgree)
         Secondary(stringResource(R.string.onb_not_now), "onb_not_now", onNotNow)
     },
 ) {
+    Body(stringResource(R.string.onb_consent_child))
     Body(if (recipients.isBlank()) stringResource(R.string.onb_consent_body_group) else stringResource(R.string.onb_consent_body, recipients))
     Body(stringResource(R.string.onb_consent_backlog))
     Body(stringResource(R.string.onb_consent_privacy))
     Body(stringResource(R.string.onb_consent_pause))
     Body(stringResource(R.string.onb_consent_protect))
     Body(stringResource(R.string.onb_consent_not_now))
+    error?.let { ErrorNote(it) }
 }
 
-/** A disclosure right before a system request (research §6.1): an app screen, never a lookalike of the system dialog. */
+/**
+ * A disclosure right before a system request (research §6.1): an app screen, never a lookalike of the system dialog.
+ * [onOpenSettings]: the permission was denied for good, so the app's settings page is offered instead.
+ */
 @Composable
-fun DisclosureScreen(title: String, body: String, agreeLabel: String, onAgree: () -> Unit, onNotNow: () -> Unit, note: String? = null) = Page(
+fun DisclosureScreen(
+    title: String,
+    body: String,
+    agreeLabel: String,
+    onAgree: () -> Unit,
+    onNotNow: () -> Unit,
+    note: String? = null,
+    onOpenSettings: (() -> Unit)? = null,
+) = Page(
     title = title,
     actions = {
-        Primary(agreeLabel, "onb_agree", onAgree)
+        if (onOpenSettings != null) {
+            Primary(stringResource(R.string.onb_open_settings), "onb_open_settings", onOpenSettings)
+        } else {
+            Primary(agreeLabel, "onb_agree", onAgree)
+        }
         Secondary(stringResource(R.string.onb_not_now), "onb_not_now", onNotNow)
     },
 ) {
@@ -158,11 +175,19 @@ fun BatteryScreen(vendor: BatteryVendor, unrestricted: Boolean, onOpenSettings: 
 }
 
 @Composable
-internal fun DoneScreen(child: Boolean, message: String?, onDone: () -> Unit) = Page(
+internal fun DoneScreen(child: Boolean, admin: Boolean, message: String?, onDone: () -> Unit) = Page(
     title = stringResource(R.string.onb_done_title),
     actions = { Primary(stringResource(R.string.onb_done_open), "onb_done", onDone) },
 ) {
-    Body(stringResource(if (child) R.string.onb_done_body_child else R.string.onb_done_body_parent))
+    Body(
+        stringResource(
+            when {
+                child -> R.string.onb_done_body_child
+                admin -> R.string.onb_done_body_parent
+                else -> R.string.onb_done_body_joined_parent
+            },
+        ),
+    )
     message?.let { ErrorNote(it) }
 }
 

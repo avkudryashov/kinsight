@@ -70,4 +70,31 @@ class OnboardingFlowTest {
         }
         assertTrue(Step.CONSENT in OnboardingFlow.order(OnboardingState(path = Path.JOIN, invite = invite(DeviceRole.CHILD))))
     }
+
+    @Test
+    fun previousSkipsSkippedStepsAndNeverReturnsToPairing() {
+        val kid = OnboardingState(step = Step.CONSENT, path = Path.JOIN, name = "Kid", invite = invite(DeviceRole.CHILD))
+        assertEquals(Step.NEARBY, OnboardingFlow.previous(kid, none))
+        assertEquals(Step.NAME, OnboardingFlow.previous(kid, all))
+        val after = kid.copy(step = Step.NOTIFICATIONS)
+        assertEquals(Step.NOTIFICATIONS, OnboardingFlow.previous(after, none))
+        val consenting = kid.copy(step = Step.BATTERY, consent = true)
+        assertEquals(Step.BATTERY, OnboardingFlow.previous(consenting, all))
+        assertEquals(Step.NOTIFICATIONS, OnboardingFlow.previous(consenting, none))
+    }
+
+    @Test
+    fun aStepOutsideTheOrderStaysPut() {
+        val s = OnboardingState(step = Step.CONSENT, path = Path.CREATE, name = "Mom")
+        assertEquals(Step.CONSENT, OnboardingFlow.next(s, none))
+    }
+
+    @Test
+    fun theJoinedRoleDrivesTheOrderWithoutAnInvite() {
+        val kid = OnboardingState(step = Step.PAIR, path = Path.JOIN, joinedRole = DeviceRole.CHILD, consent = true)
+        assertEquals(Step.USAGE_ACCESS, OnboardingFlow.next(kid, none))
+        val dad = OnboardingState(step = Step.PAIR, path = Path.JOIN, joinedRole = DeviceRole.PARENT, consent = true)
+        assertFalse(Step.USAGE_ACCESS in OnboardingFlow.order(dad))
+        assertEquals(Step.NOTIFICATIONS, OnboardingFlow.next(dad, none))
+    }
 }
