@@ -98,17 +98,17 @@ class CategoryOverridesTest {
 
     @Test
     fun aClearedWinnerMeansNoOverride() {
-        val set = EntryAuthor(gid, dadKeys, lastSeq = 0).categoryOverride("com.game", wire(AppCategory.GAMES)) // lamport 1
-        val cleared = mom.categoryOverride("com.game", 0) // lamport 4
+        val set = EntryAuthor(gid, dadKeys, lastSeq = 0).categoryOverride("com.game", wire(AppCategory.GAMES), rank = 0)
+        val cleared = mom.categoryOverride("com.game", 0, rank = 1) // a later clear outranks the choice
         assertEquals(emptyMap(), CategoryOverrides.effective(listOf(set, cleared), membership()))
         assertNull(CategoryOverrides.effectiveWithAuthors(listOf(set, cleared), membership())["com.game"])
     }
 
     @Test
     fun departedAndRemovedParentsAndChildrenDoNotCount() {
-        val dadSays = dad.categoryOverride("com.a", wire(AppCategory.GAMES))
+        val momOlder = mom.categoryOverride("com.a", wire(AppCategory.SOCIAL), rank = 0)
+        val dadSays = dad.categoryOverride("com.a", wire(AppCategory.GAMES), rank = 1) // newer: outranks Mom
         val granSays = gran.categoryOverride("com.b", wire(AppCategory.VIDEO))
-        val momOlder = mom.categoryOverride("com.a", wire(AppCategory.SOCIAL))
         val before = listOf(momOlder, dadSays, granSays)
         assertEquals(mapOf("com.a" to AppCategory.GAMES, "com.b" to AppCategory.VIDEO), CategoryOverrides.effective(before, membership()))
 
