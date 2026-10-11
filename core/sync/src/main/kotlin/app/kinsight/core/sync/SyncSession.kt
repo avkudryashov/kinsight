@@ -290,6 +290,7 @@ class SyncSession internal constructor(
                                     invalid++
                                     log("invalid entry from ${peer.id.hex}: ${verdict.reason}")
                                 }
+                                is Verdict.Skipped -> log("skipped ${e!!.author.hex.take(8)}#${e.seq} from ${peer.id.hex}: ${verdict.reason}")
                             }
                         }
                         if (invalid > MAX_INVALID) {

@@ -37,12 +37,13 @@ object CategoryOverrides {
 
     /**
      * The winning entry per package, cleared winners included (a cleared winner hides older choices). Entries with a
-     * category or rank out of range are skipped before choosing (they are invalid on receipt anyway).
+     * negative category or a rank out of range are skipped before choosing (they are skipped on receipt anyway); a
+     * category this build does not know competes normally and reads as the default.
      */
     fun winners(entries: Collection<DecodedEntry>, membership: MembershipState): Map<String, DecodedEntry> =
         entries.asSequence()
             .filter { it.kind == EntryKind.CATEGORY_OVERRIDE && membership.active[it.author]?.isChild == false }
-            .filter { (o(it).category == 0 || fromWire(o(it).category) != null) && o(it).rank in 0..CategoryOverrideRules.MAX_RANK }
+            .filter { o(it).category >= 0 && o(it).rank in 0..CategoryOverrideRules.MAX_RANK }
             .groupBy { o(it).package_name }
             .mapValues { (_, es) -> es.maxWith(compareBy<DecodedEntry>({ o(it).rank }, { it.lamport }, { it.author.hex })) }
 

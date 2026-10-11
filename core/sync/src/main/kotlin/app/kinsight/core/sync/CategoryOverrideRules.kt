@@ -10,9 +10,9 @@ import app.kinsight.core.model.proto.DeviceRole
  */
 object CategoryOverrideRules {
     /**
-     * Largest wire category: `AppCategory` ordinal + 1 (core/data `AppCategory`, 9 entries GAMES..OTHER), 0 = cleared.
-     * core/sync does not depend on core/data; keep this in step when AppCategory grows (a new category also needs a
-     * protocol version bump, since older replicas would reject it as invalid).
+     * Largest wire category this build knows: `AppCategory` ordinal + 1 (core/data `AppCategory`, 9 entries GAMES..OTHER),
+     * 0 = cleared. A larger value comes from a newer app with more categories: valid, read as the default
+     * (CategoryOverrides.fromWire gives null). core/sync does not depend on core/data; keep this in step (tested there).
      */
     const val MAX_CATEGORY = 9
     const val MAX_BODY_BYTES = 1024
@@ -25,8 +25,8 @@ object CategoryOverrideRules {
     const val REMAINDER_PACKAGE = "~other"
 
     /**
-     * Null when valid, otherwise the reason. Author-anchored: the role is looked up by the signing author's id, never
-     * read from the payload. The author must be a parent member (role other than CHILD; unspecified reads as PARENT,
+     * Null when valid, otherwise the reason; a violation is [Verdict.Skipped], never counted against the peer.
+     * Author-anchored: the role is looked up by the signing author's id, never read from the payload. The author must be a parent member (role other than CHILD; unspecified reads as PARENT,
      * spec §4.8); an unknown author and entries past a departed member's cutoff are already invalid in
      * [EntryValidator]. A departed parent's earlier overrides stay valid, so validity never changes with later
      * membership ops (a relayed copy cannot count towards TOO_MANY_INVALID); the read model ignores them (spec §4.4).
@@ -36,7 +36,7 @@ object CategoryOverrideRules {
         val role = membership.roleOf(e.author) ?: return "unknown author"
         if (role == DeviceRole.CHILD) return "category override from a child"
         if (e.bodySize > MAX_BODY_BYTES) return "category override over $MAX_BODY_BYTES bytes"
-        if (o.category !in 0..MAX_CATEGORY) return "category ${o.category} out of range"
+        if (o.category < 0) return "category ${o.category} out of range"
         if (o.rank !in 0..MAX_RANK) return "rank ${o.rank} out of range"
         if (!packageOk(o.package_name)) return "bad package"
         return null

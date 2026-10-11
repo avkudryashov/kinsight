@@ -131,4 +131,13 @@ class CategoryOverridesTest {
         val usage = mom.create { it }
         assertEquals(emptyMap(), CategoryOverrides.effective(listOf(bad, usage), membership()))
     }
+
+    @Test
+    fun aNewerCategoryWinsItsRankAndReadsAsTheDefault() {
+        val old = mom.categoryOverride("com.game", wire(AppCategory.GAMES), rank = 1)
+        val newer = EntryAuthor(gid, dadKeys, lastSeq = 0).categoryOverride("com.game", CategoryOverrideRules.MAX_CATEGORY + 1, rank = 2)
+        assertEquals(newer, CategoryOverrides.winners(listOf(old, newer), membership())["com.game"])
+        assertNull(CategoryOverrides.effective(listOf(old, newer), membership())["com.game"])
+        assertEquals(3L, CategoryOverrides.nextRank(newer))
+    }
 }

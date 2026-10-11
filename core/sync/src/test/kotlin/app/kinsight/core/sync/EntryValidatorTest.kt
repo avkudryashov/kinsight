@@ -143,7 +143,7 @@ class EntryValidatorTest {
             assertEquals(Verdict.Accept, v.check(overrideOf(bob, rank = ok), alreadyAccounted = false), "rank $ok")
         }
         for (bad in listOf(-1L, CategoryOverrideRules.MAX_RANK + 1, Long.MAX_VALUE, Long.MIN_VALUE)) {
-            assertIs<Verdict.Invalid>(v.check(overrideOf(bob, rank = bad), alreadyAccounted = false), "rank $bad")
+            assertIs<Verdict.Skipped>(v.check(overrideOf(bob, rank = bad), alreadyAccounted = false), "rank $bad")
         }
     }
 
@@ -156,8 +156,8 @@ class EntryValidatorTest {
     }
 
     @Test
-    fun categoryOverrideFromChildIsInvalid() {
-        assertIs<Verdict.Invalid>(validator(listOf(addKid)).check(overrideOf(kid), alreadyAccounted = false))
+    fun categoryOverrideFromChildIsSkipped() {
+        assertIs<Verdict.Skipped>(validator(listOf(addKid)).check(overrideOf(kid), alreadyAccounted = false))
     }
 
     @Test
@@ -185,19 +185,20 @@ class EntryValidatorTest {
         val v = validator()
         assertEquals(Verdict.Accept, v.check(overrideOf(bob, pkg = "a".repeat(255)), alreadyAccounted = false))
         for (bad in listOf("", "~other", "a/b", "a|b", "a b", "a\tb", "a\nb", "a".repeat(256), "é".repeat(128))) {
-            assertIs<Verdict.Invalid>(v.check(overrideOf(bob, pkg = bad), alreadyAccounted = false), "package '$bad'")
+            assertIs<Verdict.Skipped>(v.check(overrideOf(bob, pkg = bad), alreadyAccounted = false), "package '$bad'")
         }
     }
 
     @Test
     fun categoryOverrideCategoryRange() {
         val v = validator()
-        for (ok in 0..CategoryOverrideRules.MAX_CATEGORY) {
+        // Above MAX_CATEGORY: a category of a newer app, valid, read as the default (CategoryOverrides.fromWire).
+        for (ok in listOf(0, 1, CategoryOverrideRules.MAX_CATEGORY, CategoryOverrideRules.MAX_CATEGORY + 1, Int.MAX_VALUE)) {
             assertEquals(Verdict.Accept, v.check(overrideOf(bob, category = ok), alreadyAccounted = false), "category $ok")
         }
         assertEquals(9, CategoryOverrideRules.MAX_CATEGORY)
-        for (bad in listOf(-1, 10, Int.MAX_VALUE, Int.MIN_VALUE)) {
-            assertIs<Verdict.Invalid>(v.check(overrideOf(bob, category = bad), alreadyAccounted = false), "category $bad")
+        for (bad in listOf(-1, Int.MIN_VALUE)) {
+            assertIs<Verdict.Skipped>(v.check(overrideOf(bob, category = bad), alreadyAccounted = false), "category $bad")
         }
     }
 
@@ -217,7 +218,7 @@ class EntryValidatorTest {
         assertEquals(Verdict.Accept, v.check(fits, alreadyAccounted = false))
         val big = padded(1_000)
         assertTrue(big.bodySize > 1024)
-        assertIs<Verdict.Invalid>(v.check(big, alreadyAccounted = false))
+        assertIs<Verdict.Skipped>(v.check(big, alreadyAccounted = false))
     }
 
     @Test
