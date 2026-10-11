@@ -1,5 +1,6 @@
 package app.kinsight.feature.devicedetail
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.kinsight.core.data.AppList
@@ -12,14 +13,18 @@ import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.data.UsageRepository
 import app.kinsight.core.model.DeviceId
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 
 /** Days of apps the «app» picker offers (spec §9.7, stage 5b): the child's apps of the last 30 days. */
 internal const val PICKER_DAYS = 30L
@@ -71,27 +76,50 @@ data class ThresholdsState(val childName: String, val canEdit: Boolean, val rule
  * without «Undo», or when the view model is cleared first (on [commitScope], which outlives it): the alert planner
  * drops a removed rule's «already notified» markers, so removing at once and restoring on «Undo» could notify twice
  * the same day.
+ *
+ * Final fix item 5: the pending deletes and the end of their window live in [saved], so a recreated screen (rotation
+ * or process death) offers their «Undo» again ([pendingDeletes]), and one whose window passed meanwhile is committed.
+ * Every storage write (save, commit) runs on [writes], one serial lane on [commitScope], so a delete committed just
+ * before a save of the same target can never land after it.
  */
 class ThresholdsViewModel internal constructor(
     private val source: ThresholdSource,
     private val child: DeviceId,
     private val commitScope: CoroutineScope,
+    private val saved: SavedStateHandle = SavedStateHandle(),
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val writes: CoroutineContext = EmptyCoroutineContext,
 ) : ViewModel() {
-    constructor(usage: UsageRepository, child: DeviceId, commitScope: CoroutineScope) :
-        this(RepositoryThresholdSource(usage, child), child, commitScope)
+    constructor(usage: UsageRepository, child: DeviceId, commitScope: CoroutineScope, saved: SavedStateHandle) :
+        this(RepositoryThresholdSource(usage, child), child, commitScope, saved, writes = ThresholdWrites.lane)
 
-    /** Ids deleted on screen but not yet removed from storage. */
-    private val pending = MutableStateFlow<Set<String>>(emptySet())
+    /** Deleted on screen, «Undo» still offered: id to the end of its window (wall clock ms). */
+    private val pending: MutableStateFlow<Map<String, Long>>
 
-    val state: StateFlow<ThresholdsState?> = combine(source.rules(), source.viewerIsParent(), source.apps(), pending) { all, parent, list, hidden ->
-        val rules = all.filter { it.id !in hidden }
-        val apps = list?.apps.orEmpty().filter { it.packageName != Categories.REMAINDER_PACKAGE }
-        val labels = apps.associate { it.packageName to it.label }
-        val mine = rules.filter { it.child == child }.sortedWith(
-            compareBy<ThresholdRule>({ order(it.target) }, { (it.target as? ThresholdTarget.App)?.let { t -> labels[t.packageName] ?: t.packageName } }),
-        )
-        ThresholdsState(list?.member?.name.orEmpty(), parent, mine, apps)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    /** Window over, the storage remove queued on [writes]: still hidden until it is done. */
+    private val committing = MutableStateFlow<Set<String>>(emptySet())
+
+    init {
+        val (live, passed) = restore().entries.partition { it.value > clock() }
+        pending = MutableStateFlow(live.associate { it.key to it.value })
+        persist()
+        passed.forEach { remove(it.key) }
+    }
+
+    /** The deletes whose «Undo» the screen offers (each with its own snackbar), also after a recreation. */
+    val pendingDeletes: StateFlow<Set<String>> =
+        pending.map { it.keys }.stateIn(viewModelScope, SharingStarted.Eagerly, pending.value.keys)
+
+    val state: StateFlow<ThresholdsState?> =
+        combine(source.rules(), source.viewerIsParent(), source.apps(), pending, committing) { all, parent, list, open, queued ->
+            val rules = all.filter { it.id !in open && it.id !in queued }
+            val apps = list?.apps.orEmpty().filter { it.packageName != Categories.REMAINDER_PACKAGE }
+            val labels = apps.associate { it.packageName to it.label }
+            val mine = rules.filter { it.child == child }.sortedWith(
+                compareBy<ThresholdRule>({ order(it.target) }, { (it.target as? ThresholdTarget.App)?.let { t -> labels[t.packageName] ?: t.packageName } }),
+            )
+            ThresholdsState(list?.member?.name.orEmpty(), parent, mine, apps)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val canEdit get() = state.value?.canEdit == true
 
@@ -100,44 +128,89 @@ class ThresholdsViewModel internal constructor(
         if (!canEdit) return false
         val rule = ThresholdRule.of(child, target, limitMs) ?: return false
         // A rule of the same target saved inside its delete's «Undo» window: the delete is off ([commitDelete] returns).
-        pending.update { it - rule.id }
-        // On [commitScope]: leaving the screen right away must not cancel the write.
-        commitScope.launch { source.set(rule) }
+        setPending { it - rule.id }
+        // On [commitScope]: leaving the screen right away must not cancel the write; after any queued remove.
+        commitScope.launch(writes) { source.set(rule) }
         return true
     }
 
     /** Hides [rule] while its «Undo» is offered; storage is untouched until [commitDelete]. */
     fun delete(rule: ThresholdRule) {
         if (!canEdit || rule.child != child) return
-        pending.update { it + rule.id }
+        val until = clock() + UNDO_WINDOW_MS
+        setPending { it + (rule.id to until) }
     }
 
-    /** The «Undo» window of [rule] ended without «Undo»: remove it from storage. */
-    fun commitDelete(rule: ThresholdRule) {
-        if (rule.id !in pending.value) return
-        commitScope.launch {
-            source.remove(rule.id)
-            pending.update { it - rule.id }
-        }
+    /** The «Undo» window of rule [id] ended without «Undo»: remove it from storage. */
+    fun commitDelete(id: String) {
+        if (id !in pending.value) return
+        setPending { it - id }
+        remove(id)
     }
 
-    /** Shows a just deleted [rule] again (the snackbar's «Undo»); it was never removed. */
-    fun undo(rule: ThresholdRule) {
-        pending.update { it - rule.id }
+    fun commitDelete(rule: ThresholdRule) = commitDelete(rule.id)
+
+    /** Shows a just deleted rule [id] again (the snackbar's «Undo»); it was never removed. */
+    fun undo(id: String) {
+        setPending { it - id }
     }
+
+    fun undo(rule: ThresholdRule) = undo(rule.id)
 
     /** Leaving the screen before a snackbar went: its delete stands. */
     override fun onCleared() {
-        val ids = pending.value
+        val ids = pending.value.keys
         if (ids.isEmpty()) return
-        commitScope.launch { ids.forEach { source.remove(it) } }
+        commitScope.launch(writes) { ids.forEach { source.remove(it) } }
     }
+
+    private fun remove(id: String) {
+        committing.update { it + id }
+        commitScope.launch(writes) {
+            try {
+                source.remove(id)
+            } finally {
+                committing.update { it - id }
+            }
+        }
+    }
+
+    private fun setPending(change: (Map<String, Long>) -> Map<String, Long>) {
+        pending.update(change)
+        persist()
+    }
+
+    /** As «end of window|id» lines: a Bundle keeps a string list; an id never holds the separator first. */
+    private fun persist() {
+        saved[KEY_PENDING] = ArrayList(pending.value.map { (id, until) -> "$until|$id" })
+    }
+
+    private fun restore(): Map<String, Long> = saved.get<ArrayList<String>>(KEY_PENDING).orEmpty().mapNotNull { line ->
+        val cut = line.indexOf('|')
+        val until = line.take(cut.coerceAtLeast(0)).toLongOrNull() ?: return@mapNotNull null
+        line.substring(cut + 1).takeIf { it.isNotEmpty() }?.let { it to until }
+    }.toMap()
 
     private fun order(t: ThresholdTarget): Int = when (t) {
         ThresholdTarget.Total -> -1
         is ThresholdTarget.Category -> t.category.ordinal
         is ThresholdTarget.App -> Int.MAX_VALUE
     }
+
+    companion object {
+        /** How long a delete's «Undo» is offered: the snackbar's long duration. */
+        const val UNDO_WINDOW_MS = 10_000L
+
+        private const val KEY_PENDING = "thr_pending_deletes"
+    }
+}
+
+/**
+ * The one serial lane for threshold writes (both screens), on the app scope: storage edits are queued in the order
+ * the user made them, so an older delete never removes a rule saved after it.
+ */
+internal object ThresholdWrites {
+    val lane: CoroutineContext = Dispatchers.Default.limitedParallelism(1)
 }
 
 /** The value picker's grid (spec §9.7): 15 minutes to 12 hours in 15-minute steps. */

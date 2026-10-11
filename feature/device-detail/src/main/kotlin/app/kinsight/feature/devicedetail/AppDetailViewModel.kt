@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 import java.time.LocalDate
 import java.time.temporal.WeekFields
 import java.util.Locale
@@ -80,8 +82,12 @@ class AppDetailViewModel internal constructor(
         writeScope: CoroutineScope? = null,
     ) : this(RepositoryAppSource(usage, id, packageName), saved, weekFields, initial, writeScope = writeScope)
 
-    /** Limit writes run here (the app's scope in production), so leaving the screen at once does not cancel them. */
+    /**
+     * Limit writes run here (the app's scope in production), so leaving the screen at once does not cancel them, on the
+     * one serial lane of threshold writes ([ThresholdWrites]) shared with the thresholds screen.
+     */
     private val writes: CoroutineScope = writeScope ?: viewModelScope
+    private val lane: CoroutineContext = if (writeScope != null) ThresholdWrites.lane else EmptyCoroutineContext
 
     private val nav = RangeNavigator(viewModelScope, source::today, source::app, saved, weekFields, initial, ticks, restoreFirst = true)
 
@@ -111,12 +117,12 @@ class AppDetailViewModel internal constructor(
     fun setThreshold(limitMs: Long) {
         val d = detail.value?.takeIf(::canSetThreshold) ?: return
         val rule = ThresholdRule.of(d.member.id, ThresholdTarget.App(d.packageName), limitMs) ?: return
-        writes.launch { source.setThreshold(rule) }
+        writes.launch(lane) { source.setThreshold(rule) }
     }
 
     fun removeThreshold() {
         val d = detail.value?.takeIf(::canSetThreshold) ?: return
-        writes.launch { source.removeThreshold(ThresholdRule.idOf(d.member.id, ThresholdTarget.App(d.packageName))) }
+        writes.launch(lane) { source.removeThreshold(ThresholdRule.idOf(d.member.id, ThresholdTarget.App(d.packageName))) }
     }
 }
 

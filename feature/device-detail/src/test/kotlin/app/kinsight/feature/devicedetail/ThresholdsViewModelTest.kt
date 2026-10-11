@@ -11,11 +11,19 @@ import app.kinsight.core.data.Role
 import app.kinsight.core.data.ThresholdRule
 import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.model.DeviceId
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -63,15 +71,19 @@ class ThresholdsViewModelTest {
 
         override fun apps(): Flow<AppList?> = list
 
-        var writes = 0
+        val writes = java.util.concurrent.atomic.AtomicInteger()
+
+        /** A slow storage remove (blocking), to show the order of writes. */
+        @Volatile var removeDelayMs = 0L
 
         override suspend fun set(rule: ThresholdRule) {
-            writes++
+            writes.incrementAndGet()
             rules.value = rules.value.filter { it.id != rule.id } + rule
         }
 
         override suspend fun remove(id: String) {
-            writes++
+            if (removeDelayMs > 0) Thread.sleep(removeDelayMs)
+            writes.incrementAndGet()
             rules.value = rules.value.filter { it.id != id }
         }
     }
@@ -155,7 +167,7 @@ class ThresholdsViewModelTest {
         vm.undo(r)
         assertEquals(listOf(r), vm.state.value!!.rules)
         assertEquals(listOf(r), source.rules.value)
-        assertEquals(0, source.writes)
+        assertEquals(0, source.writes.get())
     }
 
     @Test
@@ -196,6 +208,72 @@ class ThresholdsViewModelTest {
         vm.delete(r)
         store.clear() // the screen was left before the snackbar was dismissed
         assertEquals(listOf(keep), source.rules.value)
+    }
+
+    /** A process death inside the «Undo» window: the handle's copy is what the recreated view model gets. */
+    private fun recreated(saved: SavedStateHandle) = SavedStateHandle(saved.keys().associateWith { saved.get<Any>(it) })
+
+    @Test
+    fun aPendingDeleteSurvivesRecreationAndIsOfferedAgain() = runTest(dispatcher) {
+        val source = FakeSource()
+        val r = rule(ThresholdTarget.Total, 3 * hour)
+        source.rules.value = listOf(r)
+        val saved = SavedStateHandle()
+        val first = ThresholdsViewModel(source, kid.id, backgroundScope, saved, clock = { 1_000L })
+        backgroundScope.launch { first.state.collect {} }
+        first.delete(r)
+
+        val again = ThresholdsViewModel(source, kid.id, backgroundScope, recreated(saved), clock = { 5_000L })
+        backgroundScope.launch { again.state.collect {} }
+        assertEquals(emptyList(), again.state.value!!.rules, "still hidden")
+        assertEquals(setOf(r.id), again.pendingDeletes.value, "its snackbar is shown again")
+        assertEquals(listOf(r), source.rules.value)
+        again.undo(r.id)
+        assertEquals(listOf(r), again.state.value!!.rules)
+        assertEquals(emptySet(), again.pendingDeletes.value)
+    }
+
+    @Test
+    fun aPendingDeleteWhoseWindowPassedIsCommittedOnRecreation() = runTest(dispatcher) {
+        val source = FakeSource()
+        val r = rule(ThresholdTarget.Total, 3 * hour)
+        source.rules.value = listOf(r)
+        val saved = SavedStateHandle()
+        val first = ThresholdsViewModel(source, kid.id, backgroundScope, saved, clock = { 1_000L })
+        backgroundScope.launch { first.state.collect {} }
+        first.delete(r)
+
+        val late = 1_000L + ThresholdsViewModel.UNDO_WINDOW_MS + 1
+        val again = ThresholdsViewModel(source, kid.id, backgroundScope, recreated(saved), clock = { late })
+        backgroundScope.launch { again.state.collect {} }
+        assertEquals(emptyList(), source.rules.value)
+        assertEquals(emptySet(), again.pendingDeletes.value, "no snackbar for a window that passed")
+    }
+
+    /** Commits and saves run on one serial lane: a re-added rule is never removed by the older delete's late write. */
+    @Test
+    fun aSaveAfterACommittedDeleteIsWrittenAfterIt() = runBlocking<Unit> {
+        val source = FakeSource().apply { removeDelayMs = 200 }
+        val r = rule(ThresholdTarget.Total, 3 * hour)
+        source.rules.value = listOf(r)
+        val app = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val store = ViewModelStore()
+        try {
+            val vm = ViewModelProvider.create(
+                store,
+                viewModelFactory { initializer { ThresholdsViewModel(source, kid.id, app, writes = ThresholdWrites.lane) } },
+            )[ThresholdsViewModel::class]
+            app.launch { vm.state.collect {} }
+            withTimeout(5_000) { while (vm.state.value?.canEdit != true) delay(5) }
+            vm.delete(r)
+            vm.commitDelete(r)
+            assertTrue(vm.save(ThresholdTarget.Total, 2 * hour))
+            withTimeout(5_000) { while (source.writes.get() < 2) delay(5) }
+            assertEquals(listOf(rule(ThresholdTarget.Total, 2 * hour)), source.rules.value)
+        } finally {
+            app.coroutineContext.job.cancelAndJoin()
+            store.clear() // the view model's own scope ends before Main is reset
+        }
     }
 
     @Test

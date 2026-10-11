@@ -40,10 +40,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.key
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -60,6 +62,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.kinsight.core.data.AppCategory
 import app.kinsight.core.data.AppGraph
@@ -70,39 +73,62 @@ import app.kinsight.core.designsystem.component.AppIcon
 import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.durationText
 import app.kinsight.core.model.DeviceId
-import kotlinx.coroutines.launch
 
 /** The daily limits of child [id] (spec §9.7, stage 5b), opened from the child's detail on a parent's phone. */
 @Composable
 fun ThresholdsRoute(id: DeviceId, onBack: () -> Unit) {
     val graph = AppGraph.get(LocalContext.current)
-    val vm: ThresholdsViewModel = viewModel(key = "thresholds-${id.hex}") { ThresholdsViewModel(graph.usage, id, graph.scope) }
+    val vm: ThresholdsViewModel = viewModel(key = "thresholds-${id.hex}") { ThresholdsViewModel(graph.usage, id, graph.scope, createSavedStateHandle()) }
     val state by vm.state.collectAsStateWithLifecycle()
-    state?.let { ThresholdsScreen(it, onSave = { t, ms -> vm.save(t, ms) }, onDelete = vm::delete, onUndo = vm::undo, onCommitDelete = vm::commitDelete, onBack = onBack) } ?: Loading()
+    val pending by vm.pendingDeletes.collectAsStateWithLifecycle()
+    state?.let {
+        ThresholdsScreen(
+            it,
+            pending = pending,
+            onSave = { t, ms -> vm.save(t, ms) },
+            onDelete = vm::delete,
+            onUndo = { r -> vm.undo(r) },
+            onCommitDelete = { r -> vm.commitDelete(r) },
+            onBack = onBack,
+        )
+    } ?: Loading()
 }
 
 /**
  * The child's rules (target and limit; tap to change the limit, delete with «Undo» in a snackbar) and «Add limit»: the
  * day total, a category or one of the child's apps of the last 30 days (searchable), then the limit in 15-minute steps
- * (−/+ buttons, the value read aloud as it changes). [onDelete] only hides a rule; [onCommitDelete] follows when its
- * snackbar goes without «Undo» ([onUndo]). A child's phone only reads them ([ThresholdsState.canEdit]).
+ * (−/+ buttons, the value read aloud as it changes). [onDelete] only hides a rule; each id in [pending] (deleted, not
+ * yet committed) has its snackbar, also after a recreation: [onCommitDelete] follows when it goes without «Undo»
+ * ([onUndo]). A child's phone only reads them ([ThresholdsState.canEdit]).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ThresholdsScreen(
     state: ThresholdsState,
+    pending: Set<String>,
     onSave: (ThresholdTarget, Long) -> Unit,
     onDelete: (ThresholdRule) -> Unit,
-    onUndo: (ThresholdRule) -> Unit,
-    onCommitDelete: (ThresholdRule) -> Unit,
+    onUndo: (String) -> Unit,
+    onCommitDelete: (String) -> Unit,
     onBack: () -> Unit,
 ) {
     val snackbar = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
     var adding by rememberSaveable { mutableStateOf(false) }
     var editing by rememberSaveable { mutableStateOf<String?>(null) }
     val removed = stringResource(R.string.thr_deleted)
     val undo = stringResource(R.string.thr_undo)
+    // One snackbar per pending delete, queued by the host. Leaving the screen cancels them (the view model commits
+    // what is left); a rotation shows them again.
+    val undoNow by rememberUpdatedState(onUndo)
+    val commitNow by rememberUpdatedState(onCommitDelete)
+    for (id in pending) {
+        key(id) {
+            LaunchedEffect(id) {
+                val result = snackbar.showSnackbar(removed, actionLabel = undo, duration = SnackbarDuration.Long)
+                if (result == SnackbarResult.ActionPerformed) undoNow(id) else commitNow(id)
+            }
+        }
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -134,13 +160,7 @@ fun ThresholdsScreen(
                     trailingContent = if (state.canEdit) {
                         {
                             IconButton(
-                                onClick = {
-                                    onDelete(r)
-                                    scope.launch {
-                                        val result = snackbar.showSnackbar(removed, actionLabel = undo, duration = SnackbarDuration.Long)
-                                        if (result == SnackbarResult.ActionPerformed) onUndo(r) else onCommitDelete(r)
-                                    }
-                                },
+                                onClick = { onDelete(r) },
                                 modifier = Modifier.size(48.dp).testTag("thr_delete_${r.id}"),
                             ) { Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.thr_delete, name)) }
                         }

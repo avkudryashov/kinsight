@@ -1,5 +1,9 @@
 package app.kinsight.feature.devicedetail
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -44,17 +48,20 @@ class ThresholdsScreenTest {
 
     private val saved = mutableListOf<Pair<ThresholdTarget, Long>>()
     private val deleted = mutableListOf<ThresholdRule>()
-    private val undone = mutableListOf<ThresholdRule>()
-    private val committed = mutableListOf<ThresholdRule>()
+    private val undone = mutableListOf<String>()
+    private val committed = mutableListOf<String>()
 
-    private fun show(rules: List<ThresholdRule>, canEdit: Boolean = true) = rule.setContent {
+    /** Like the view model: a delete is pending until «Undo» or the end of its window. */
+    private fun show(rules: List<ThresholdRule>, canEdit: Boolean = true, pendingAtStart: Set<String> = emptySet()) = rule.setContent {
+        var pending by remember { mutableStateOf(pendingAtStart) }
         KinsightTheme(dynamicColor = false) {
             ThresholdsScreen(
                 ThresholdsState("Kid", canEdit, rules, apps),
+                pending = pending,
                 onSave = { t, ms -> saved += t to ms },
-                onDelete = { deleted += it },
-                onUndo = { undone += it },
-                onCommitDelete = { committed += it },
+                onDelete = { deleted += it; pending = pending + it.id },
+                onUndo = { undone += it; pending = pending - it },
+                onCommitDelete = { committed += it; pending = pending - it },
                 onBack = {},
             )
         }
@@ -82,8 +89,8 @@ class ThresholdsScreenTest {
         rule.onNodeWithText("Limit removed").assertExists()
         rule.onNodeWithText("Undo").performClick()
         rule.waitForIdle()
-        assertEquals(listOf(games), undone)
-        assertEquals(emptyList<ThresholdRule>(), committed)
+        assertEquals(listOf(games.id), undone)
+        assertEquals(emptyList<String>(), committed)
     }
 
     @Test
@@ -91,12 +98,22 @@ class ThresholdsScreenTest {
         show(listOf(total, games))
         rule.onNodeWithTag("thr_delete_${games.id}").performClick()
         rule.onNodeWithText("Limit removed").assertExists()
-        assertEquals(emptyList<ThresholdRule>(), committed)
+        assertEquals(emptyList<String>(), committed)
         rule.mainClock.advanceTimeBy(15_000)
         rule.waitForIdle()
         rule.onNodeWithText("Limit removed").assertDoesNotExist()
-        assertEquals(listOf(games), committed)
-        assertEquals(emptyList<ThresholdRule>(), undone)
+        assertEquals(listOf(games.id), committed)
+        assertEquals(emptyList<String>(), undone)
+    }
+
+    /** Final fix item 5: a delete still pending after a recreation offers its «Undo» again, then commits. */
+    @Test
+    fun aPendingDeleteIsOfferedAgainAfterRecreation() {
+        show(listOf(total), pendingAtStart = setOf(games.id))
+        rule.onNodeWithText("Limit removed").assertExists()
+        rule.mainClock.advanceTimeBy(15_000)
+        rule.waitForIdle()
+        assertEquals(listOf(games.id), committed)
     }
 
     @Test
