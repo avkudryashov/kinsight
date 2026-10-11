@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -122,8 +123,10 @@ fun DeviceDetailRoute(
             now = System.currentTimeMillis()
         }
     }
-    detail?.let { d ->
-        DeviceDetailScreen(
+    val loaded by vm.loaded.collectAsStateWithLifecycle()
+    val d = detail
+    when {
+        d != null -> DeviceDetailScreen(
             d, vm::select, onAllApps, onBack,
             onPrevious = vm::back, onNext = vm::forward, onOpenDay = vm::openDay,
             onOpenApp = onOpenApp?.let { open -> { pkg: String -> open(pkg, d.range) } },
@@ -132,7 +135,9 @@ fun DeviceDetailRoute(
             onThresholds = onThresholds,
             nowMs = now,
         )
-    } ?: Loading()
+        loaded -> MissingDevice(onBack)
+        else -> Loading()
+    }
 }
 
 /** The full list of [range]: the light app list flow (UsageRepository.apps), not a whole detail per log change. */
@@ -146,6 +151,16 @@ fun AllAppsRoute(id: DeviceId, range: DetailRange, onBack: () -> Unit, onOpenApp
 
 @Composable
 internal fun Loading() = Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+
+/** U12: the device is not (or no longer) a member here, e.g. an old notification or widget link: say so, offer Back. */
+@Composable
+internal fun MissingDevice(onBack: () -> Unit) = Screen(stringResource(R.string.det_missing_title), onBack) { padding ->
+    EmptyState(
+        stringResource(R.string.det_missing_title),
+        stringResource(R.string.det_missing_body),
+        Modifier.padding(padding).testTag("det_missing"),
+    ) { Button(onBack, Modifier.testTag("det_missing_back")) { Text(stringResource(R.string.det_back)) } }
+}
 
 @Composable
 internal fun periodLabel(p: Period) = stringResource(

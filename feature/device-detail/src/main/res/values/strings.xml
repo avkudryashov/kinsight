@@ -134,4 +134,6 @@
     <string name="det_data_at">Data as of %1$s</string>
     <string name="det_data_stale">Data as of %1$s, may be out of date</string>
     <string name="thr_presets">Quick choice</string>
+    <string name="det_missing_title">This phone is no longer in the group</string>
+    <string name="det_missing_body">Its data is not on this phone. It may have left the family group or been removed.</string>
 </resources>

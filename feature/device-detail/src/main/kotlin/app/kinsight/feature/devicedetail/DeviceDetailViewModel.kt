@@ -67,6 +67,7 @@ class DeviceDetailViewModel internal constructor(
     val range: StateFlow<DetailRange> = nav.range
 
     val detail: StateFlow<DeviceDetail?> = nav.detail
+    val loaded: StateFlow<Boolean> = nav.loaded
 
     /** The device's thresholds on a parent's phone (the «Limits» entry and the total's line); null on a child's. */
     val thresholds: StateFlow<List<ThresholdRule>?> = combine(source.viewerIsParent(), source.thresholds()) { parent, rules ->

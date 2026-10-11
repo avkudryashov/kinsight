@@ -142,4 +142,6 @@
     <string name="det_data_at">Данные на %1$s</string>
     <string name="det_data_stale">Данные на %1$s, могли устареть</string>
     <string name="thr_presets">Быстрый выбор</string>
+    <string name="det_missing_title">Этот телефон больше не в группе</string>
+    <string name="det_missing_body">Его данных на этом телефоне нет. Возможно, он вышел из семейной группы или его исключили.</string>
 </resources>

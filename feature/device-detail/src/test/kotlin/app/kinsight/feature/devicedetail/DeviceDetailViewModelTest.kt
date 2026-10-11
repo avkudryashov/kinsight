@@ -16,6 +16,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
@@ -187,5 +188,26 @@ class DeviceDetailViewModelTest {
         assertEquals(null, vm.thresholds.value, "a child's phone: no entry, no line")
         source.parent.value = true
         assertEquals(listOf(total), vm.thresholds.value)
+    }
+
+    private fun source(detail: Flow<DeviceDetail?>) = object : DetailSource {
+        override fun today(): LocalDate = sat
+
+        override fun detail(range: DetailRange): Flow<DeviceDetail?> = detail
+    }
+
+    @Test
+    fun anUnknownDeviceIsMissingNotLoading() = runTest(dispatcher) {
+        val vm = DeviceDetailViewModel(source(flowOf(null)), SavedStateHandle(), sunFirst, ticks = ticks)
+        backgroundScope.launch { vm.detail.collect {} }
+        assertEquals(null, vm.detail.value)
+        assertEquals(true, vm.loaded.value)
+    }
+
+    @Test
+    fun beforeTheFirstViewItIsStillLoading() = runTest(dispatcher) {
+        val vm = DeviceDetailViewModel(source(MutableSharedFlow()), SavedStateHandle(), sunFirst, ticks = ticks)
+        backgroundScope.launch { vm.detail.collect {} }
+        assertEquals(false, vm.loaded.value)
     }
 }

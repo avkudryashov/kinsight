@@ -749,7 +749,8 @@ class SyncService : Service() {
         private const val NOTIFICATION_ID = 1
         private const val REQUEST_STOP = 10
         private const val REQUEST_REPOST = 11
-        private const val FAST_MS = 60_000L
+        /** One fast-mode window after «Sync now» (also how long Overview says it is looking, U6). */
+        const val FAST_MS = 60_000L
 
         @Volatile
         var instance: SyncService? = null

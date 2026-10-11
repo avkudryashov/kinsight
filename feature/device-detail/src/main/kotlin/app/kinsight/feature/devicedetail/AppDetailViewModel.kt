@@ -101,6 +101,7 @@ class AppDetailViewModel internal constructor(
     val range: StateFlow<DetailRange> = nav.range
 
     val detail: StateFlow<AppDetail?> = nav.detail
+    val loaded: StateFlow<Boolean> = nav.loaded
 
     /** This app's limit («Notify if more than…»). */
     val threshold: StateFlow<ThresholdRule?> = source.threshold().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)

@@ -25,6 +25,7 @@ import app.kinsight.core.data.TodayComparison
 import app.kinsight.core.designsystem.theme.KinsightTheme
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.transport.ble.ServiceState
+import app.kinsight.core.transport.ble.SyncService
 import app.kinsight.core.transport.ble.SyncProblem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -491,5 +492,40 @@ class DashboardScreenTest {
     fun noNewParentBannerWithoutNewParents() {
         show(childUi(Sharing.On))
         rule.onNodeWithTag("dash_new_parent").assertDoesNotExist()
+    }
+
+    private fun showLive(service: () -> ServiceStatus) = rule.setContent {
+        KinsightTheme(dynamicColor = false) {
+            DashboardScreen(
+                DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), emptyList()), service(), true), now, {},
+                onPause = {}, onResume = {}, onConsent = {}, onStart = {}, onSyncNow = {}, onInviteChild = {}, onOpenSettings = {},
+                wallClock = { now },
+            )
+        }
+    }
+
+    @Test
+    fun aPullSaysItIsLookingUntilANewerSyncArrives() {
+        var service by mutableStateOf(running.copy(lastSyncMs = now - hour))
+        showLive { service }
+        rule.onNodeWithTag("dash_searching").assertDoesNotExist()
+        rule.onNodeWithTag("dash_list").performTouchInput { swipeDown(startY = top + 10f, endY = bottom, durationMillis = 600) }
+        rule.waitForIdle()
+        rule.onNodeWithTag("dash_searching").assertExists()
+        rule.onNodeWithText("Looking for your family's phones", substring = true).assertExists()
+        service = running.copy(lastSyncMs = now + 1_000)
+        rule.waitForIdle()
+        rule.onNodeWithTag("dash_searching").assertDoesNotExist()
+    }
+
+    @Test
+    fun theSearchEndsWithTheFastWindow() {
+        showLive { running.copy(lastSyncMs = now - hour) }
+        rule.onNodeWithTag("dash_list").performTouchInput { swipeDown(startY = top + 10f, endY = bottom, durationMillis = 600) }
+        rule.waitForIdle()
+        rule.onNodeWithTag("dash_searching").assertExists()
+        rule.mainClock.advanceTimeBy(SyncService.FAST_MS + 1_000)
+        rule.waitForIdle()
+        rule.onNodeWithTag("dash_searching").assertDoesNotExist()
     }
 }

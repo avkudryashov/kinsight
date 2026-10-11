@@ -57,4 +57,5 @@
     <string name="dash_new_parent">New in your family group: %1$s. They can see your screen time.</string>
     <string name="dash_new_parent_body">Every parent of your family group sees it. Settings → Who sees my data lists everyone.</string>
     <string name="dash_new_parent_ok">Got it</string>
+    <string name="dash_searching">Looking for your family\'s phones…</string>
 </resources>

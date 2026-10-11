@@ -62,12 +62,20 @@ internal class RangeNavigator<T : RangedView>(
 
     val range: StateFlow<DetailRange> = _range.asStateFlow()
 
+    private val _loaded = MutableStateFlow(false)
+
+    /** The first view has arrived, null or not: a null after it means «no such device» (U12), before it «loading». */
+    val loaded: StateFlow<Boolean> = _loaded.asStateFlow()
+
     /** The viewer's date, re-read on every tick; a change resubscribes the view so today, known days and the child's today are fresh. */
     private val dates: Flow<LocalDate> = ticks.map { viewerToday() }.onStart { emit(viewerToday()) }.distinctUntilChanged()
 
     val detail: StateFlow<T?> = combine(_range, dates) { r, _ -> r }
         .flatMapLatest { load(it) }
-        .onEach { reanchor(it) }
+        .onEach {
+            reanchor(it)
+            _loaded.value = true
+        }
         .stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
 
     init {

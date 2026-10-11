@@ -57,4 +57,5 @@
     <string name="dash_new_parent">Новые родители в вашей группе: %1$s. Они видят ваше экранное время.</string>
     <string name="dash_new_parent_body">Его видят все родители вашей семейной группы. Полный список: Настройки → Кто видит мои данные.</string>
     <string name="dash_new_parent_ok">Понятно</string>
+    <string name="dash_searching">Ищем телефоны семьи…</string>
 </resources>

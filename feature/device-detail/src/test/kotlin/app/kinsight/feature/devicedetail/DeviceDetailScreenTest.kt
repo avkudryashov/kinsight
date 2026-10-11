@@ -565,4 +565,14 @@ class DeviceDetailScreenTest {
         rule.onNode(hasContentDescription("Oct 7: 20 min", substring = true) and hasClickAction()).assertExists()
         rule.onNode(hasContentDescription("Oct 7", substring = true) and hasContentDescription("Open", substring = true)).assertDoesNotExist()
     }
+
+    @Test
+    fun aMissingDeviceSaysSoAndOffersBack() {
+        var back = 0
+        rule.setContent { KinsightTheme(dynamicColor = false) { MissingDevice(onBack = { back++ }) } }
+        rule.onNodeWithTag("det_missing").assertExists()
+        rule.onNodeWithText("Its data is not on this phone", substring = true).assertExists()
+        rule.onNodeWithTag("det_missing_back").performClick()
+        assertEquals(1, back)
+    }
 }

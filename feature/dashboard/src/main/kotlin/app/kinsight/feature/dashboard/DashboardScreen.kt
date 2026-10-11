@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -36,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,6 +78,7 @@ import app.kinsight.core.designsystem.component.relativeTime
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.transport.ble.ServiceState
 import app.kinsight.core.transport.ble.SyncProblem
+import app.kinsight.core.transport.ble.SyncService
 import app.kinsight.core.usage.UsageAccessSettings
 import kotlinx.coroutines.delay
 import java.time.format.TextStyle
@@ -127,6 +131,7 @@ fun DashboardScreen(
     onInviteChild: () -> Unit,
     onOpenSettings: () -> Unit,
     onAcknowledgeParents: (Set<DeviceId>) -> Unit = {},
+    wallClock: () -> Long = System::currentTimeMillis,
 ) {
     val d = ui.dashboard
     if (d == null) {
@@ -153,6 +158,18 @@ fun DashboardScreen(
             refreshing = false
         }
     }
+    // U6: the spinner only acknowledges the pull; the line says what really happens until a newer sync or the window ends.
+    var searchSince by rememberSaveable { mutableStateOf<Long?>(null) }
+    LaunchedEffect(searchSince) {
+        val since = searchSince ?: return@LaunchedEffect
+        delay(SyncService.FAST_MS)
+        if (searchSince == since) searchSince = null
+    }
+    val searching = stillSearching(searchSince, ui.service?.lastSyncMs)
+    val syncNow = {
+        searchSince = wallClock()
+        onSyncNow()
+    }
     // While the user's Stop holds, «Sync now» does nothing (the start honours the Stop): no pull, no action; the banner's
     // Start is the way back.
     val canSync = attention != SyncAttention.STOPPED
@@ -164,7 +181,7 @@ fun DashboardScreen(
                 if (canSync) {
                     customActions = listOf(
                         CustomAccessibilityAction(syncNowLabel) {
-                            onSyncNow()
+                            syncNow()
                             true
                         },
                     )
@@ -176,6 +193,7 @@ fun DashboardScreen(
         ) {
             item { Text(stringResource(R.string.dash_title), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() }) }
             attention?.let { a -> item { AttentionBanner(a, onStart, onOpenSettings) } }
+            if (searching) item { Searching() }
             // Not the user's fault nor fixable here: a neutral note, never the error banner.
             updateText?.let { text -> item { UpdateNotice(text) } }
             if (child && ui.newParents.isNotEmpty()) item { NewParentBanner(ui.newParents, onAcknowledgeParents) }
@@ -198,7 +216,7 @@ fun DashboardScreen(
             isRefreshing = refreshing,
             onRefresh = {
                 refreshing = true
-                onSyncNow()
+                syncNow()
             },
             modifier = Modifier.fillMaxSize(),
             content = list,
@@ -206,6 +224,19 @@ fun DashboardScreen(
     } else {
         Box(Modifier.fillMaxSize(), content = list)
     }
+}
+
+/** U6: a sync was asked for and no newer one has finished yet. */
+internal fun stillSearching(sinceMs: Long?, lastSyncMs: Long?): Boolean = sinceMs != null && (lastSyncMs == null || lastSyncMs <= sinceMs)
+
+@Composable
+private fun Searching() = Row(
+    Modifier.fillMaxWidth().testTag("dash_searching").semantics { liveRegion = LiveRegionMode.Polite },
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(12.dp),
+) {
+    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+    Text(stringResource(R.string.dash_searching), style = MaterialTheme.typography.bodyMedium)
 }
 
 /** A sync problem the user has to act on. Running, waiting, syncing and starting are normal and show nothing. */

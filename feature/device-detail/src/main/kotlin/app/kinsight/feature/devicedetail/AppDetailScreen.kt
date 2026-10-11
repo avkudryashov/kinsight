@@ -77,15 +77,19 @@ fun AppDetailRoute(id: DeviceId, packageName: String, range: DetailRange, onBack
     val settings by graph.settingsRepository.usageSettings.collectAsStateWithLifecycle(initialValue = UsageSettings())
     val threshold by vm.threshold.collectAsStateWithLifecycle()
     val changedBy by vm.categoryChangedBy.collectAsStateWithLifecycle()
-    app?.let {
-        AppDetailScreen(
-            it, vm::select, onBack,
+    val loaded by vm.loaded.collectAsStateWithLifecycle()
+    val a = app
+    when {
+        a != null -> AppDetailScreen(
+            a, vm::select, onBack,
             onPrevious = vm::back, onNext = vm::forward, onOpenDay = vm::openDay, onCategory = vm::setCategory,
             detailRetentionDays = settings.detailRetentionDays,
             categoryChangedBy = changedBy,
             threshold = threshold, onThreshold = vm::setThreshold, onRemoveThreshold = vm::removeThreshold,
         )
-    } ?: Loading()
+        loaded -> MissingDevice(onBack)
+        else -> Loading()
+    }
 }
 
 /**
