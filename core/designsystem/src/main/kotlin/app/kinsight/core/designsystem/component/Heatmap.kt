@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -61,7 +62,9 @@ fun Heatmap(
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val rowHeight = if (style.lineHeight.isSp) with(density) { style.lineHeight.toDp() } else 16.dp
-    val labelWidth = with(density) { (names.maxOf { measurer.measure(it, style).size.width }).toDp() } + 8.dp
+    // U16: the row names are measured once per label set and style, not on every recomposition.
+    val widestRow = remember(names, style, measurer) { names.maxOf { measurer.measure(it, style).size.width } }
+    val labelWidth = with(density) { widestRow.toDp() } + 8.dp
     Column(modifier.clearAndSetSemantics { contentDescription = summary }, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         grid.forEachIndexed { d, row ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

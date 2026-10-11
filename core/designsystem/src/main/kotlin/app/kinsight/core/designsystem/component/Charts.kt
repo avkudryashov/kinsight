@@ -323,9 +323,11 @@ private fun ChartLabels(names: List<String>, anchor: Int, bold: Int?, endInset: 
     val style = MaterialTheme.typography.labelSmall
     val color = MaterialTheme.colorScheme.onSurfaceVariant
     val measurer = rememberTextMeasurer()
+    val boldStyle = style.copy(fontWeight = FontWeight.Bold)
+    // U16: measured once per label set and style, not on every recomposition (the dashboard ticks every 30 s).
+    val widest = remember(names, boldStyle, measurer) { names.maxOf { measurer.measure(it, boldStyle).size.width } }
     BoxWithConstraints(Modifier.fillMaxWidth().padding(end = endInset).clearAndSetSemantics {}) {
         val slotPx = constraints.maxWidth.toFloat() / names.size
-        val widest = names.maxOf { measurer.measure(it, style.copy(fontWeight = FontWeight.Bold)).size.width }
         val step = spacedStep(labelStep(widest.toFloat(), slotPx), labelSpacing(names))
         Layout(
             content = {
