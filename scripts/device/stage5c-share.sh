@@ -38,8 +38,9 @@ home() {
   # Back out of nested screens (detail, app) until the bottom navigation shows.
   local d=$1
   $ADB -s "$d" shell am start -n $PKG/.MainActivity >/dev/null 2>&1 || true
-  for _ in $(seq 6); do has "$d" 'resource-id="nav_overview"' && return 0; $ADB -s "$d" shell input keyevent BACK; sleep 1; done
-  has "$d" 'resource-id="nav_overview"'
+  # The bottom bar stays visible on nested screens and reselecting a tab does not pop it, so wait for a tab root.
+  for _ in $(seq 6); do has "$d" 'resource-id="(dash_list|grp_list|set_list)"' && return 0; $ADB -s "$d" shell input keyevent BACK; sleep 1; done
+  has "$d" 'resource-id="(dash_list|grp_list|set_list)"'
 }
 tap() { tap_re "$1" "resource-id=\"$2\"" "${3:-60}"; }
 # The top-apps rows sit below the charts: swipe up (at most 8 times) until <regex> is in the dump.
