@@ -7,9 +7,9 @@ enum class AppCategory { GAMES, SOCIAL, VIDEO, AUDIO, PHOTOS, NEWS, MAPS, PRODUC
 data class CategoryTotal(val category: AppCategory, val totalMs: Long)
 
 /**
- * Which [AppCategory] an app belongs to: the parent's local override first, then the child's `AppCatalog.category`
- * (`ApplicationInfo.category`, written raw by the catalog publisher), then for an undefined category a built-in table
- * of popular packages, else [AppCategory.OTHER]. The `~other` remainder bucket is always Other.
+ * Which [AppCategory] an app belongs to: the family's shared override first (stage 5c, [CategoryOverrides]), then
+ * the child's `AppCatalog.category` (`ApplicationInfo.category`, written raw by the catalog publisher), then for an
+ * undefined category a built-in table of popular packages, else [AppCategory.OTHER]. The `~other` remainder bucket is always Other.
  *
  * Catalog values: the publisher writes `ApplicationInfo.category` as is, so `CATEGORY_UNDEFINED` arrives as -1 (a
  * non-default proto3 int32, so it survives the wire) and 0 really is `CATEGORY_GAME`. An app without a catalog entry

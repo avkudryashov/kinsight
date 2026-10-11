@@ -64,7 +64,10 @@ class AppPrefs(private val store: DataStore<Preferences>) {
         store.edit { it[LAST_PRUNE] = date }
     }
 
-    /** The parent's own category choices per package (spec §9.3, stage 5a): local, never in the log, not synced. */
+    /**
+     * The parent's local category choices of stage 5a (spec §9.3). Since stage 5c only the migration source
+     * (UsageRepository.migrateLocalCategories): the app reads and writes the shared CategoryOverride entries instead.
+     */
     val categoryOverrides: Flow<Map<String, AppCategory>> = store.data.map { decodeOverrides(it[CATEGORY_OVERRIDES]) }.distinctUntilChanged()
 
     /** [category] null clears the override. */
@@ -75,6 +78,11 @@ class AppPrefs(private val store: DataStore<Preferences>) {
             if (category == null) m.remove(packageName) else m[packageName] = category
             if (m.isEmpty()) it.remove(CATEGORY_OVERRIDES) else it[CATEGORY_OVERRIDES] = encodeOverrides(m)
         }
+    }
+
+    /** After the migration has published them (stage 5c). */
+    suspend fun clearCategoryOverrides() {
+        store.edit { it.remove(CATEGORY_OVERRIDES) }
     }
 
     /**

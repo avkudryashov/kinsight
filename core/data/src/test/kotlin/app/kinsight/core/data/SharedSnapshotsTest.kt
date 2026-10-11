@@ -41,7 +41,7 @@ class SharedSnapshotsTest {
     fun manyCollectorsShareOneLoadPerChange() = runBlocking<Unit> {
         d.group.createGroup("Mom")
         val snapshots = snapshots()
-        val usage = UsageRepository(snapshots, d.prefs)
+        val usage = UsageRepository(snapshots, d.prefs, d.appendOwn)
         val dashboard = AtomicReference<DashboardState?>()
         val parent = AtomicReference<Boolean?>()
         val rules = AtomicReference<List<ThresholdRule>?>()

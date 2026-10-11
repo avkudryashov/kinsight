@@ -134,7 +134,8 @@ class TestDevice(
         forget = reset::forgetGroup,
         leaveTimeoutMs = leaveTimeoutMs,
     )
-    val usage = UsageRepository(snapshots, prefs)
+    val appendOwn: OwnAppend = { build -> pipeline.appendOwn(build = build) }
+    val usage = UsageRepository(snapshots, prefs, appendOwn)
 
     fun store() = RoomEntryStore(db, groups.read()!!.groupId)
 

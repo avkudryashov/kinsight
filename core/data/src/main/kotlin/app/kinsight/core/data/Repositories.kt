@@ -10,10 +10,13 @@ import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
+import app.kinsight.core.model.MembershipLimits
 import app.kinsight.core.model.grantAdminEntry
 import app.kinsight.core.model.leaveGroupEntry
 import app.kinsight.core.model.removeMemberEntry
+import app.kinsight.core.sync.CategoryOverrideRules
 import app.kinsight.core.sync.SyncPolicy
+import app.kinsight.core.model.proto.CategoryOverride
 import app.kinsight.core.transport.ble.GroupConfig
 import app.kinsight.core.transport.ble.GroupStore
 import app.kinsight.core.transport.ble.ServiceSnapshot
@@ -43,6 +46,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalDate
@@ -280,6 +285,7 @@ class GroupRepository(
 class UsageRepository(
     private val snapshots: Snapshots,
     private val prefs: AppPrefs,
+    private val appendOwn: OwnAppend,
     private val date: () -> LocalDate = LocalDate::now,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
@@ -290,11 +296,88 @@ class UsageRepository(
     /** The viewer's local date, the bound of forward navigation; screens anchor their first range on it. */
     fun today(): LocalDate = date()
 
-    /** The parent's local category choices (spec §9.3, stage 5a); never signed or synced. */
-    val categoryOverrides: Flow<Map<String, AppCategory>> = prefs.categoryOverrides
+    /**
+     * The family's shared category overrides (spec §4.4, stage 5c): derived from the signed CategoryOverride entries in
+     * the shared snapshot ([CategoryOverrides], active parents only). Empty without a group or when removed.
+     */
+    val categoryOverrides: Flow<Map<String, AppCategory>> = snapshots.snapshots.map { s ->
+        (s as? GroupSnapshot.Ready)?.let(CategoryOverrides::effective).orEmpty()
+    }.distinctUntilChanged()
 
-    /** [category] null returns the app to its own (catalog or built-in) category. */
-    suspend fun setCategory(packageName: String, category: AppCategory?) = prefs.setCategory(packageName, category)
+    /** The parent whose entry sets [packageName]'s effective category; null when no override applies. */
+    fun categoryAuthor(packageName: String): Flow<DeviceId?> = snapshots.snapshots.map { s ->
+        (s as? GroupSnapshot.Ready)?.takeUnless { it.removed }
+            ?.let { CategoryOverrides.effectiveWithAuthors(it.categoryOverrides, it.membership)[packageName]?.author }
+    }.distinctUntilChanged()
+
+    /**
+     * Serialises [setCategory] and [migrateLocalCategories] (each a read of the effective map, then an append). Lock
+     * order: this, then the pipeline lock inside [appendOwn]; neither the control nor the state lock is taken here.
+     */
+    private val categoryLock = Mutex()
+
+    /**
+     * Signs a CategoryOverride entry in the own log; [category] null returns the app to its own (catalog or built-in)
+     * category for every parent. Refused (logged, nothing signed) without a group, on a child's phone, for a removed
+     * device and for a package or category receivers would reject (CategoryOverrideRules: an invalid entry would be
+     * relayed and counted invalid at every hop). Choosing what is already effective signs nothing. Runs the local-prefs
+     * migration first, so an old local choice can never undo a newer one.
+     */
+    suspend fun setCategory(packageName: String, category: AppCategory?): Unit = categoryLock.withLock {
+        migrateLocked()
+        val wire = CategoryOverrides.wire(category)
+        if (!CategoryOverrideRules.packageOk(packageName) || wire !in 0..CategoryOverrideRules.MAX_CATEGORY) {
+            Log.w(TAG, "category override refused: invalid package or category")
+            return@withLock
+        }
+        val ready = parentSnapshot() ?: run {
+            Log.w(TAG, "category override refused: not a parent of a group")
+            return@withLock
+        }
+        val winners = CategoryOverrides.winners(ready.categoryOverrides, ready.membership)
+        val current = winners[packageName]?.let { CategoryOverrides.fromWire(it.body.category_override!!.category) }
+        if (current == category) return@withLock
+        val above = winners[packageName]?.lamport ?: 0L
+        if (!appendOwn { a -> listOf(a.categoryOverrideEntry(packageName, wire, above)) }) Log.w(TAG, "category override: no group to sign in")
+    }
+
+    /**
+     * One-time move of the stage 5a local overrides into the shared log (spec §4.4 «Переход»), run at app start on a
+     * parent's phone. Each local choice that is valid, not already effective and not already this device's own live
+     * entry is signed (all in one append), then the prefs are cleared. Crash-safe: prefs are cleared only after the
+     * append committed; a crash in between leaves prefs whose choices are now own entries, so the rerun signs nothing
+     * (even when another parent has changed the app since) and just clears. Without a group, on a child's phone or
+     * when the append fails, nothing is cleared.
+     */
+    suspend fun migrateLocalCategories(): Unit = categoryLock.withLock { migrateLocked() }
+
+    private suspend fun migrateLocked() {
+        val local = prefs.categoryOverrides.first()
+        if (local.isEmpty()) return
+        val ready = parentSnapshot() ?: return
+        val winners = CategoryOverrides.winners(ready.categoryOverrides, ready.membership)
+        val effective = CategoryOverrides.effective(ready.categoryOverrides, ready.membership)
+        val own = ready.categoryOverrides.filter { it.author == ready.self }.associateBy { it.body.category_override!!.package_name }
+        val publish = local.filter { (pkg, c) ->
+            val wire = CategoryOverrides.wire(c)
+            CategoryOverrideRules.packageOk(pkg) && wire in 1..CategoryOverrideRules.MAX_CATEGORY &&
+                effective[pkg] != c && own[pkg]?.body?.category_override?.category != wire
+        }
+        if (publish.isNotEmpty()) {
+            val ok = appendOwn { a ->
+                publish.entries.sortedBy { it.key }.map { (pkg, c) -> a.categoryOverrideEntry(pkg, CategoryOverrides.wire(c), winners[pkg]?.lamport ?: 0L) }
+            }
+            if (!ok) return
+            Log.i(TAG, "published ${publish.size} local category overrides")
+        }
+        prefs.clearCategoryOverrides()
+    }
+
+    /** A fresh read (not the shared flow, which may lag a just-committed append) when this phone is an active parent. */
+    private suspend fun parentSnapshot(): GroupSnapshot.Ready? {
+        val ready = snapshots.load(emptyMap()) as? GroupSnapshot.Ready ?: return null
+        return ready.takeIf { ready.membership.active[ready.self]?.isChild == false }
+    }
 
     /**
      * The parent's daily limits (spec §9.7, stage 5b) of devices that are children of the current group; rules of a
@@ -345,6 +428,21 @@ class UsageRepository(
                 SnapshotViews.app(it, id, packageName, range, today(), clock(), overrides = o, details = details)
             }
         }.distinctUntilChanged()
+
+    private companion object {
+        const val TAG = "KinsightUsage"
+    }
+}
+
+/**
+ * A CategoryOverride whose Lamport orders after [above] (the package's current winner): EntryAuthor only observes
+ * effective membership Lamports, so without this a parent's change could lose to the very choice it replaces.
+ */
+private fun EntryAuthor.categoryOverrideEntry(packageName: String, wire: Int, above: Long): DecodedEntry = create {
+    it.copy(
+        category_override = CategoryOverride(package_name = packageName, category = wire),
+        lamport = maxOf(it.lamport, minOf(above + 1, MembershipLimits.MAX_LAMPORT)),
+    )
 }
 
 data class ServiceStatus(
