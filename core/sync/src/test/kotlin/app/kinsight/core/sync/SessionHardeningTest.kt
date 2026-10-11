@@ -2,10 +2,15 @@ package app.kinsight.core.sync
 
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
+import app.kinsight.core.model.DeviceKeys
+import app.kinsight.core.model.addMember
 import app.kinsight.core.model.proto.AppTotal
 import app.kinsight.core.model.proto.BatchAck
+import app.kinsight.core.model.proto.DeviceRole
+import app.kinsight.core.model.proto.Done
 import app.kinsight.core.model.proto.EntryBatch
 import app.kinsight.core.model.proto.Hello
+import app.kinsight.core.model.proto.MembershipOffer
 import app.kinsight.core.model.proto.Reject
 import app.kinsight.core.model.proto.SyncMessage
 import app.kinsight.core.model.proto.UsageSummary
@@ -17,6 +22,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import okio.ByteString
 import okio.ByteString.Companion.toByteString
 import java.io.IOException
 import kotlin.test.Test
@@ -38,6 +44,64 @@ class SessionHardeningTest {
         // Batches + acks in flight, plus control messages (hello, announce, done, offers, reject).
         val controlMargin = 8
         assertTrue(SyncSession.SEND_WINDOW * 2 + controlMargin < SyncSession.INBOX_CAPACITY)
+    }
+
+    /**
+     * Plays [member] against [host]'s honest session with a hand-made Hello: a stale membership hash (so the host offers
+     * its membership, as to a phone that missed an op) and [wantsForeign]. Returns the host's result and every message
+     * the host sent after its Hello.
+     */
+    private suspend fun actAs(member: Node, host: Node, wantsForeign: Boolean): Pair<SessionResult, List<SyncMessage>> = coroutineScope {
+        val (sa, sb) = MemoryPipe.pair()
+        val prologue = SecureChannel.prologue(host.store.groupId)
+        val session = async { SyncSession(host.store, host.policy).run(SecureChannel.accept(sb, host.keys.dh, prologue)) }
+        val ch = SecureChannel.initiate(sa, member.keys.dh, prologue)
+        val hello = assertNotNull(ch.next().hello)
+        ch.put(SyncMessage(hello = Hello(protocol_version = PROTOCOL_VERSION, group_id = hello.group_id, membership_hash = ByteString.EMPTY, wants_foreign_entries = wantsForeign)))
+        val got = mutableListOf<SyncMessage>()
+        while (true) {
+            val m = ch.next()
+            got += m
+            if (assertNotNull(m.membership).more.not()) break
+        }
+        ch.put(SyncMessage(membership = MembershipOffer(entries = emptyList(), more = false)))
+        val announce = ch.next()
+        assertNotNull(announce.vector_announce)
+        got += announce
+        ch.put(SyncMessage(vector_announce = VectorAnnounce(vector = member.store.versionVector().toProto())))
+        while (true) {
+            val m = ch.next()
+            got += m
+            if (m.batch != null) ch.put(SyncMessage(ack = BatchAck(vector = member.store.versionVector().toProto())))
+            if (m.done != null) break
+        }
+        ch.put(SyncMessage(done = Done()))
+        ch.put(SyncMessage(done = Done())) // bye: the host's closing handshake ends at once
+        session.await() to got
+    }
+
+    @Test
+    fun aChildAskingForForeignEntriesGetsMembershipButNoBatch() = runBlocking<Unit> {
+        val (parent, other, child) = buildGroup(3, role = { if (it == 2) DeviceRole.CHILD else DeviceRole.PARENT })
+        parent.publish(other.author.summary(TODAY.toString(), 1)) // another member's data the parent would relay
+        parent.publish(parent.author.categoryOverride("com.example.game", 1))
+        val late = DeviceKeys.generate()
+        val add = parent.author.addMember(late.sign.publicKey, late.dh.publicKey, "late", DeviceRole.CHILD)
+        parent.publish(add)
+        val (result, got) = withTimeout(30.seconds) { actAs(child, parent, wantsForeign = true) }
+        assertEquals(0, assertIs<SessionResult.Completed>(result).sentBatches)
+        assertTrue(got.none { it.batch != null }, "a child got ${got.count { it.batch != null }} batches")
+        val offered = got.mapNotNull { it.membership }.flatMap { it.entries }.map { DecodedEntry.decode(it.toByteArray()) }
+        assertTrue(add in offered, "the child must still receive the membership op")
+    }
+
+    @Test
+    fun aParentAskingForForeignEntriesStillGetsThem() = runBlocking<Unit> {
+        val (parent, other, child) = buildGroup(3, role = { if (it == 2) DeviceRole.CHILD else DeviceRole.PARENT })
+        parent.publish(child.author.summary(TODAY.toString(), 1))
+        val (result, got) = withTimeout(30.seconds) { actAs(other, parent, wantsForeign = true) }
+        assertTrue(assertIs<SessionResult.Completed>(result).sentBatches >= 1)
+        assertTrue(got.any { it.batch != null })
     }
 
     @Test

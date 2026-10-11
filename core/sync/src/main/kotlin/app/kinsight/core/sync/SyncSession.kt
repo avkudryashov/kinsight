@@ -189,7 +189,10 @@ class SyncSession(
         val window = Semaphore(SEND_WINDOW)
         val sender = launch {
             try {
-                val n = sendData(ch, membership, peerVector, hello.wants_foreign_entries, peer.id, window)
+                // S-H1: the role decides, not the peer's flag. A CHILD takes only membership (spec §4.8), and that already
+                // went both ways in the offer exchange above, so a child gets no batch at all, whatever its Hello says.
+                val peerTakesForeign = hello.wants_foreign_entries && !peer.isChild
+                val n = sendData(ch, membership, peerVector, peerTakesForeign, peer.id, window)
                 send(ch, SyncMessage(done = Done()))
                 sentTotal.complete(n)
             } catch (e: IOException) {
