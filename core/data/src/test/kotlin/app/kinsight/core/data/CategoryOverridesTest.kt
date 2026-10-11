@@ -61,10 +61,31 @@ class CategoryOverridesTest {
     fun theRankSaturatesAtTheCap() {
         val top = mom.categoryOverride("com.a", wire(AppCategory.GAMES), rank = CategoryOverrideRules.MAX_RANK)
         assertEquals(CategoryOverrideRules.MAX_RANK, CategoryOverrides.nextRank(top))
+        assertEquals(true, CategoryOverrides.atCap(top))
+        assertEquals(false, CategoryOverrides.atCap(mom.categoryOverride("com.a", wire(AppCategory.GAMES), rank = CategoryOverrideRules.MAX_RANK - 1)))
+        assertEquals(false, CategoryOverrides.atCap(null))
     }
 
     @Test
-    fun theHighestRankWinsBeforeLamport() {
+    fun twoParentsAtTheCapConvergeOnTheAuthor() {
+        val max = CategoryOverrideRules.MAX_RANK
+        val moms = EntryAuthor(gid, momKeys, lastSeq = 5, lastLamport = 1).categoryOverride("com.cap", wire(AppCategory.NEWS), rank = max)
+        val dads = EntryAuthor(gid, dadKeys, lastSeq = 5, lastLamport = 900).categoryOverride("com.cap", wire(AppCategory.MAPS), rank = max)
+        val expected = if (momKeys.deviceId.hex > dadKeys.deviceId.hex) {
+            EffectiveCategory(AppCategory.NEWS, momKeys.deviceId)
+        } else {
+            EffectiveCategory(AppCategory.MAPS, dadKeys.deviceId)
+        }
+        assertEquals(expected, CategoryOverrides.effectiveWithAuthors(listOf(moms, dads), membership())["com.cap"])
+        assertEquals(expected, CategoryOverrides.effectiveWithAuthors(listOf(dads, moms), membership())["com.cap"])
+        // The loser's next change saturates at the cap too, so it still loses: the reason for the warning.
+        val winner = CategoryOverrides.winners(listOf(moms, dads), membership())["com.cap"]
+        assertEquals(max, CategoryOverrides.nextRank(winner))
+        assertEquals(true, CategoryOverrides.atCap(winner))
+    }
+
+    @Test
+    fun theHighestRankWinsWhateverTheLamport() {
         // Dad's entry has a far higher Lamport, but Mom's change was made on top of rank 1: rank decides first.
         val dads = EntryAuthor(gid, dadKeys, lastSeq = 0, lastLamport = 1_000).categoryOverride("com.game", wire(AppCategory.VIDEO), rank = 1)
         val moms = mom.categoryOverride("com.game", wire(AppCategory.GAMES), rank = 2)

@@ -21,12 +21,16 @@ data class EffectiveCategory(val category: AppCategory, val author: DeviceId)
  * override. Every parent computes the same map from the same entries.
  *
  * `rank` = the winner's rank + 1 when the entry was written ([nextRank]), so a change always orders after the choice it
- * replaces; concurrent changes of the same winner tie on rank and fall back to the author hex. Lamport takes no part (S-L5): an author sets its own, and a huge one must not win a tie.
+ * replaces; concurrent changes of the same winner tie on rank and fall back to the author hex. Lamport takes no part
+ * (S-L5): an author sets its own, and a huge one must not win a tie.
  */
 object CategoryOverrides {
     /** The rank of a new entry over [winner] (the package's current winner, if any); saturates at MAX_RANK. */
     fun nextRank(winner: DecodedEntry?): Long =
         minOf((winner?.let { o(it).rank } ?: 0L) + 1, CategoryOverrideRules.MAX_RANK)
+
+    /** Whether [winner] already sits at MAX_RANK: a new entry then ties on rank and wins only by the author hex. */
+    fun atCap(winner: DecodedEntry?): Boolean = winner != null && o(winner).rank >= CategoryOverrideRules.MAX_RANK
 
     /** Wire value: ordinal + 1, 0 = cleared. Kept equal to CategoryOverrideRules.MAX_CATEGORY at the top (tested). */
     fun wire(c: AppCategory?): Int = c?.let { it.ordinal + 1 } ?: 0

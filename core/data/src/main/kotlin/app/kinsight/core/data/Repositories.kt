@@ -373,6 +373,7 @@ class UsageRepository(
         // Wire values, not AppCategory: a newer app's category reads as null here and must not equal "default".
         if ((winners[packageName]?.body?.category_override?.category ?: 0) == wire) return@withLock
         val rank = CategoryOverrides.nextRank(winners[packageName])
+        if (CategoryOverrides.atCap(winners[packageName])) Log.w(TAG, "category override at the rank cap: it wins only by author order")
         if (!appendOwn { a -> listOf(a.categoryOverrideEntry(packageName, wire, rank)) }) Log.w(TAG, "category override: no group to sign in")
     }
 
