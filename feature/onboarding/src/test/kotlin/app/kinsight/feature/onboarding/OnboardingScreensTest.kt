@@ -6,6 +6,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertLeftPositionInRootIsEqualTo
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
@@ -190,6 +193,21 @@ class OnboardingScreensTest {
             }
         }
         rule.onNodeWithTag("onb_step").assertTextEquals("Step 3 of 8")
+    }
+
+    @Test
+    @Config(qualifiers = "w900dp-h800dp")
+    fun aWidePageIsCentredWithTheStepAboveTheTitle() {
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                CompositionLocalProvider(LocalStepProgress provides StepProgress(3, 8)) { ParentInfoScreen(onNext = {}) }
+            }
+        }
+        // A 640 dp column centred in 900 dp, plus the page's own 24 dp gutter.
+        rule.onNodeWithTag("onb_step").assertLeftPositionInRootIsEqualTo(154.dp)
+        val step = rule.onNodeWithTag("onb_step").getUnclippedBoundsInRoot()
+        val title = rule.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading)).getUnclippedBoundsInRoot()
+        assertTrue(step.bottom <= title.top)
     }
 
     @Test

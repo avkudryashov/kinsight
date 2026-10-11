@@ -47,14 +47,18 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import app.kinsight.core.designsystem.component.CenteredContent
 
 /** The first run's step for [Page] (OnboardingRoute provides it); null elsewhere (consent from Settings, battery guide). */
 internal val LocalStepProgress = staticCompositionLocalOf<StepProgress?> { null }
 
 /** One onboarding page: a heading, scrollable text, actions at the bottom; edge-to-edge safe. */
 @Composable
-internal fun Page(title: String, actions: @Composable ColumnScope.() -> Unit, body: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 24.dp, vertical = 16.dp)) {
+internal fun Page(title: String, actions: @Composable ColumnScope.() -> Unit, body: @Composable ColumnScope.() -> Unit) = CenteredContent(
+    Modifier.windowInsetsPadding(WindowInsets.safeDrawing),
+) {
+    // The step header stays the first child of the scrolling column, above the heading, out of the fixed actions.
+    Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp)) {
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
