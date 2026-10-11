@@ -5,6 +5,7 @@ import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.Membership
+import app.kinsight.core.model.MembershipLimits
 import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.addMember
 import app.kinsight.core.model.leaveGroupEntry
@@ -47,20 +48,19 @@ class CategoryOverridesTest {
     }
 
     @Test
-    fun theHighestLamportWinsThenTheAuthor() {
-        val a = mom.categoryOverride("com.game", wire(AppCategory.GAMES)) // lamport 4
-        val b = EntryAuthor(gid, dadKeys, lastSeq = 0).categoryOverride("com.game", wire(AppCategory.PRODUCTIVITY)) // lamport 1
-        assertEquals(mapOf("com.game" to AppCategory.GAMES), CategoryOverrides.effective(listOf(b, a), membership()))
-        val later = EntryAuthor(gid, dadKeys, lastSeq = 1, lastLamport = 10).categoryOverride("com.game", wire(AppCategory.VIDEO))
-        val eff = CategoryOverrides.effectiveWithAuthors(listOf(a, b, later), membership())
-        assertEquals(EffectiveCategory(AppCategory.VIDEO, dadKeys.deviceId), eff["com.game"])
-
-        // Equal Lamport: the larger author hex wins, whichever order the entries come in.
-        val x = EntryAuthor(gid, momKeys, lastSeq = 5, lastLamport = 20).categoryOverride("com.tie", wire(AppCategory.NEWS))
-        val y = EntryAuthor(gid, dadKeys, lastSeq = 5, lastLamport = 20).categoryOverride("com.tie", wire(AppCategory.MAPS))
+    fun onAnEqualRankTheAuthorDecidesNeverTheLamport() {
+        // S-L5: a parent cannot win a tie by signing a huge Lamport value.
+        val loud = EntryAuthor(gid, momKeys, lastSeq = 5, lastLamport = MembershipLimits.MAX_LAMPORT - 1).categoryOverride("com.tie", wire(AppCategory.NEWS))
+        val quiet = EntryAuthor(gid, dadKeys, lastSeq = 5, lastLamport = 1).categoryOverride("com.tie", wire(AppCategory.MAPS))
         val winner = if (momKeys.deviceId.hex > dadKeys.deviceId.hex) AppCategory.NEWS else AppCategory.MAPS
-        assertEquals(winner, CategoryOverrides.effective(listOf(x, y), membership())["com.tie"])
-        assertEquals(winner, CategoryOverrides.effective(listOf(y, x), membership())["com.tie"])
+        assertEquals(winner, CategoryOverrides.effective(listOf(loud, quiet), membership())["com.tie"])
+        assertEquals(winner, CategoryOverrides.effective(listOf(quiet, loud), membership())["com.tie"])
+    }
+
+    @Test
+    fun theRankSaturatesAtTheCap() {
+        val top = mom.categoryOverride("com.a", wire(AppCategory.GAMES), rank = CategoryOverrideRules.MAX_RANK)
+        assertEquals(CategoryOverrideRules.MAX_RANK, CategoryOverrides.nextRank(top))
     }
 
     @Test
@@ -75,7 +75,7 @@ class CategoryOverridesTest {
 
     @Test
     fun concurrentChangesOnTheSameRankConvergeEverywhere() {
-        // Both parents changed the same winner (rank 3) before seeing each other: rank ties, then (Lamport, author).
+        // Both parents changed the same winner (rank 3) before seeing each other: rank ties, then the author.
         val es = listOf(
             EntryAuthor(gid, momKeys, lastSeq = 5, lastLamport = 7).categoryOverride("com.game", wire(AppCategory.NEWS), rank = 4),
             EntryAuthor(gid, dadKeys, lastSeq = 5, lastLamport = 7).categoryOverride("com.game", wire(AppCategory.MAPS), rank = 4),

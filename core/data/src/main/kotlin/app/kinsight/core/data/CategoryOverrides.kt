@@ -16,13 +16,12 @@ data class EffectiveCategory(val category: AppCategory, val author: DeviceId)
 
 /**
  * The family's shared category overrides (spec §4.4, stage 5c), derived from `CategoryOverride` entries. Per package
- * the entry of an ACTIVE parent with the largest (rank, Lamport, author hex) wins; entries of departed or removed
+ * the entry of an ACTIVE parent with the largest (rank, author hex) wins; entries of departed or removed
  * parents (still valid on receipt), of children and of unknown authors never count. A winner with category 0 clears the
  * override. Every parent computes the same map from the same entries.
  *
  * `rank` = the winner's rank + 1 when the entry was written ([nextRank]), so a change always orders after the choice it
- * replaces; concurrent changes of the same winner tie on rank and fall back to (Lamport, author). Rank, not Lamport:
- * EntryAuthor observes membership Lamports only, and other parents' overrides must never move an author's clock.
+ * replaces; concurrent changes of the same winner tie on rank and fall back to the author hex. Lamport takes no part (S-L5): an author sets its own, and a huge one must not win a tie.
  */
 object CategoryOverrides {
     /** The rank of a new entry over [winner] (the package's current winner, if any); saturates at MAX_RANK. */
@@ -45,7 +44,7 @@ object CategoryOverrides {
             .filter { it.kind == EntryKind.CATEGORY_OVERRIDE && membership.active[it.author]?.isChild == false }
             .filter { o(it).category >= 0 && o(it).rank in 0..CategoryOverrideRules.MAX_RANK }
             .groupBy { o(it).package_name }
-            .mapValues { (_, es) -> es.maxWith(compareBy<DecodedEntry>({ o(it).rank }, { it.lamport }, { it.author.hex })) }
+            .mapValues { (_, es) -> es.maxWith(compareBy<DecodedEntry>({ o(it).rank }, { it.author.hex })) }
 
     fun effectiveWithAuthors(entries: Collection<DecodedEntry>, membership: MembershipState): Map<String, EffectiveCategory> =
         winners(entries, membership).mapNotNull { (pkg, e) -> fromWire(o(e).category)?.let { pkg to EffectiveCategory(it, e.author) } }.toMap()

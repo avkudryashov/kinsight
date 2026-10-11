@@ -138,11 +138,11 @@ class EntryValidatorTest {
     @Test
     fun categoryOverrideRankRange() {
         val v = validator()
-        assertEquals(1L shl 53, CategoryOverrideRules.MAX_RANK)
+        assertEquals(1L shl 20, CategoryOverrideRules.MAX_RANK)
         for (ok in listOf(0L, 1L, CategoryOverrideRules.MAX_RANK)) {
             assertEquals(Verdict.Accept, v.check(overrideOf(bob, rank = ok), alreadyAccounted = false), "rank $ok")
         }
-        for (bad in listOf(-1L, CategoryOverrideRules.MAX_RANK + 1, Long.MAX_VALUE, Long.MIN_VALUE)) {
+        for (bad in listOf(-1L, CategoryOverrideRules.MAX_RANK + 1, 1L shl 53, Long.MAX_VALUE, Long.MIN_VALUE)) {
             assertIs<Verdict.Skipped>(v.check(overrideOf(bob, rank = bad), alreadyAccounted = false), "rank $bad")
         }
     }
