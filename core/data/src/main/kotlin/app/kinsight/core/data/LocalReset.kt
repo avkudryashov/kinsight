@@ -38,8 +38,9 @@ sealed interface ResetStatus {
  * 1. the sync service stops (so no session writes into the wiped database);
  * 2. [forgetGroupFiles] (in the app SyncGraph.forgetGroup: group file and transport state under the transport state
  *    lock), outside the pipeline lock: once the group file is gone the pipeline has no target and publishes nothing;
- * 3. under the usage pipeline lock: database tables, usage settings; for a new identity also the keys
- *    ([wipeIdentity], blocking, on [io], after the data). Nothing in there takes the transport state lock.
+ * 3. under the usage pipeline lock: for a new identity first the keys ([wipeIdentity], blocking, on [io]), then
+ *    database tables and usage settings. A [marker] brackets the identity reset; [finishInterruptedReset] runs a
+ *    cut-short one again at the next start (audit A-4). Nothing in there takes the transport state lock.
  *
  * Wipes run one at a time (a [Mutex]) and report [status]. The screens start them with [launchResetIdentity] /
  * [launchForgetGroup] on [scope] (the app scope): a call while one runs returns the running job instead of starting
@@ -54,6 +55,7 @@ class LocalReset(
     private val sync: SyncControl,
     private val wipeIdentity: () -> Unit,
     private val snapshots: Snapshots,
+    private val marker: ResetMarker,
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) {
@@ -75,14 +77,25 @@ class LocalReset(
 
     /** «Сбросить идентичность и пересопрячь»: a new device as far as the group is concerned. */
     suspend fun resetIdentity(): Unit = tracked(ResetKind.NEW_IDENTITY) {
+        withContext(io) { marker.set() }
         sync.stopAndWait()
         forgetGroupFiles()
         pipeline.exclusive {
-            wipeData()
+            // Keys before data: a crash in between leaves a new identity over stale data (wiped at the next start or
+            // by the next join), never the old keys over an emptied log.
             withContext(io) { wipeIdentity() }
+            wipeData()
         }
         prefs.reset()
         snapshots.invalidate()
+        withContext(io) { marker.clear() }
+    }
+
+    /** At process start: an identity reset that was cut short (crash, kill) runs again from the start. */
+    suspend fun finishInterruptedReset(): Boolean {
+        if (!withContext(io) { marker.exists() }) return false
+        resetIdentity()
+        return true
     }
 
     /** [resetIdentity] on the app scope; joins a wipe already running (of either kind). Failures go to [status]. */

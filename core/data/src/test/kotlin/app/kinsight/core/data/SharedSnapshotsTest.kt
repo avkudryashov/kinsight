@@ -76,7 +76,7 @@ class SharedSnapshotsTest {
         val last = AtomicReference<GroupSnapshot?>()
         val job = d.scope.launch { snapshots.snapshots.collect { last.set(it) } }
         waitUntil("ready") { last.get() is GroupSnapshot.Ready }
-        val reset = LocalReset(d.db, d.pipeline, { d.groups.delete(); d.transport.clear() }, d.settings, d.prefs, d.sync, {}, snapshots, scope = d.scope)
+        val reset = LocalReset(d.db, d.pipeline, { d.groups.delete(); d.transport.clear() }, d.settings, d.prefs, d.sync, {}, snapshots, d.resetMarker, scope = d.scope)
         reset.forgetGroup()
         waitUntil("the wipe reached the collector") { last.get() == GroupSnapshot.NoGroup }
         job.cancel()

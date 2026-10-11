@@ -39,6 +39,7 @@ class LocalResetStatusTest {
         sync = gatedSync,
         wipeIdentity = { wipes.incrementAndGet() },
         snapshots = d.snapshots,
+        marker = d.resetMarker,
         scope = d.scope,
     )
 

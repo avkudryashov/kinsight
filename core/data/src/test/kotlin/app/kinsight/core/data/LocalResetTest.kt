@@ -4,6 +4,7 @@ import kotlinx.coroutines.runBlocking
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -32,12 +33,30 @@ class LocalResetTest {
     }
 
     @Test
-    fun resetIdentityWipesFirstThenForgetsTheKeys() = runBlocking<Unit> {
+    fun resetIdentityForgetsTheKeysBeforeTheData() = runBlocking<Unit> {
         d.prefs.setDeviceName("Pixel")
         d.group.createGroup("Pixel")
         d.reset.resetIdentity()
-        assertEquals(listOf(true), d.identityResets) // the database was already empty when the keys went
+        // Keys first: a crash after them leaves a new identity, never the old keys over an emptied log (audit A-4).
+        assertEquals(listOf(false), d.identityResets)
+        assertTrue(d.db.entryDao().all().isEmpty())
         assertEquals(Prefs(), d.prefs.current())
         assertFalse(d.groups.exists())
+        assertFalse(d.resetMarker.exists())
+    }
+
+    @Test
+    fun anInterruptedResetIsFinishedAtTheNextStart() = runBlocking<Unit> {
+        d.group.createGroup("Pixel")
+        d.identityWipeFails = IllegalStateException("killed")
+        assertFailsWith<IllegalStateException> { d.reset.resetIdentity() }
+        assertTrue(d.resetMarker.exists())
+        assertFalse(d.groups.exists())
+        d.identityWipeFails = null
+        assertTrue(d.reset.finishInterruptedReset())
+        assertFalse(d.resetMarker.exists())
+        assertTrue(d.db.entryDao().all().isEmpty())
+        assertEquals(1, d.identityResets.size)
+        assertFalse(d.reset.finishInterruptedReset()) // nothing pending any more
     }
 }

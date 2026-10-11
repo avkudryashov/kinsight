@@ -50,6 +50,7 @@ open class KinsightApplication : Application() {
             }
         }
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            attempt("reset recovery") { AppGraph.get(app).reset.finishInterruptedReset() }
             attempt("sharing reconcile") { UsageGraph.pipeline(app).reconcileSharing() }
             attempt("join recovery") { AppGraph.get(app).pairing.finishInterruptedJoin() }
             attempt("force stops") { SyncGraph.checkForceStops(app) }

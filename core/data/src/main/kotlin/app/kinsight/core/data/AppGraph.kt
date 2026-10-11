@@ -46,6 +46,7 @@ class Graph internal constructor(app: Context) {
         sync = sync,
         wipeIdentity = { DeviceIdentity.resetBlocking(app) },
         snapshots = snapshots,
+        marker = ResetMarker(java.io.File(app.noBackupFilesDir, ResetMarker.FILE_NAME)),
         scope = scope,
     )
     val pairing = PairingCoordinator(

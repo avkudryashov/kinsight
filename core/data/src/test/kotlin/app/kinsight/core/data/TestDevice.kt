@@ -109,6 +109,8 @@ class TestDevice(
     )
     val snapshots = Snapshots(db, groups, keyProvider, transport, scope = scope)
     val identityResets: MutableList<Boolean> = Collections.synchronizedList(mutableListOf()) // was the database empty when the identity went
+    var identityWipeFails: Exception? = null
+    val resetMarker = ResetMarker(File(dir, ResetMarker.FILE_NAME))
     val reset = LocalReset(
         db = db,
         pipeline = pipeline,
@@ -119,8 +121,9 @@ class TestDevice(
         settings = settings,
         prefs = prefs,
         sync = sync,
-        wipeIdentity = { identityResets += runBlocking { db.entryDao().all().isEmpty() } },
+        wipeIdentity = { identityWipeFails?.let { throw it }; identityResets += runBlocking { db.entryDao().all().isEmpty() } },
         snapshots = snapshots,
+        marker = resetMarker,
     )
     val group = GroupRepository(
         snapshots = snapshots,
