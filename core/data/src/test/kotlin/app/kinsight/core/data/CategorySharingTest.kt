@@ -222,19 +222,23 @@ class CategorySharingTest {
     fun aCrashBeforePrefsAreClearedNeitherDuplicatesNorLoses() = runBlocking<Unit> {
         mom.group.createGroup("Mom")
         mom.prefs.setCategory("com.game", AppCategory.GAMES)
-        // The previous run appended the entry and died before clearing prefs.
-        mom.pipeline.appendOwn { a -> listOf(a.categoryOverride("com.game", CategoryOverrides.wire(AppCategory.GAMES))) }
-        // Since then Dad chose another category: the rerun must not undo his later choice.
+        // The previous run appended the entry (at the rank the migration signs: no winner, 0 + 1) and died before
+        // clearing prefs.
+        val migrated = CategoryOverrides.nextRank(null)
+        mom.pipeline.appendOwn { a -> listOf(a.categoryOverride("com.game", CategoryOverrides.wire(AppCategory.GAMES), rank = migrated)) }
+        // Since then Dad chose another category over hers (his phone ranks it one above her winner): the rerun must
+        // not undo his later choice. Ranks are pinned so the outcome never rests on which random key's hex is larger.
         val dadKeys = DeviceKeys.generate()
         mom.pipeline.appendOwn { a -> listOf(a.addMember(dadKeys.sign.publicKey, dadKeys.dh.publicKey, "Dad", DeviceRole.PARENT)) }
         val dad = EntryAuthor(mom.groups.read()!!.groupId, dadKeys, lastSeq = 0, lastLamport = 50)
-        mom.store().applyBatch(listOf(dad.categoryOverride("com.game", CategoryOverrides.wire(AppCategory.VIDEO))))
+        mom.store().applyBatch(listOf(dad.categoryOverride("com.game", CategoryOverrides.wire(AppCategory.VIDEO), rank = migrated + 1)))
         val seq = mom.store().authorState(mom.keys.deviceId).lastSeq
 
         mom.usage.migrateLocalCategories()
         assertEquals(seq, mom.store().authorState(mom.keys.deviceId).lastSeq, "own entry already says so: not signed again")
         assertEquals(emptyMap(), mom.prefs.categoryOverrides.first())
         mom.usage.overridesWhere { it == mapOf("com.game" to AppCategory.VIDEO) }
+        assertEquals(dadKeys.deviceId, withTimeout(10_000) { mom.usage.categoryAuthor("com.game").first { it != null } })
     }
 
     @Test
