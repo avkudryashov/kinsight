@@ -1,5 +1,6 @@
 package app.kinsight.feature.group
 
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.lifecycle.Lifecycle
@@ -10,6 +11,7 @@ import app.kinsight.core.data.Role
 import app.kinsight.core.designsystem.theme.KinsightTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -41,6 +43,13 @@ class InviteRouteTest {
     private fun show() = rule.setContent {
         val vm: InviteViewModel = viewModel { InviteViewModel(opener, { "Mom" }, Role.CHILD) }
         KinsightTheme(dynamicColor = false) { InviteRoute(vm, Role.CHILD, onClose = {}) }
+    }
+
+    @Test
+    fun theInviteRouteKeepsTheQrOutOfScreenshots() {
+        show()
+        rule.waitForIdle()
+        assertTrue(rule.activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0)
     }
 
     @Test

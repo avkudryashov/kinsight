@@ -57,6 +57,18 @@ class PairingScreensTest {
         rule.setContent { KinsightTheme(dynamicColor = false) { JoinScreen(state, "Mom", onRetry, onBack) } }
 
     @Test
+    fun theWindowIsSecureOnlyWhileTheInviteIsComposed() {
+        val window = rule.activity.window
+        var shown by mutableStateOf(true)
+        rule.setContent { if (shown) SecureWindow() }
+        rule.waitForIdle()
+        assertTrue(window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0)
+        shown = false
+        rule.waitForIdle()
+        assertFalse(window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0)
+    }
+
+    @Test
     fun inviteShowsTheQrAndTheCountdown() {
         invite(InviteState.Showing(uri, now + 125_000))
         rule.onNodeWithContentDescription("Invitation QR code").assertExists()

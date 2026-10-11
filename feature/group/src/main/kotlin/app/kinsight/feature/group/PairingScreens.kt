@@ -256,6 +256,21 @@ internal fun KeepScreenBright() {
 }
 
 /**
+ * FLAG_SECURE while composed (audit S-L7): the invite QR carries a live token, so it stays out of screenshots, screen
+ * recordings and the recents thumbnail. A flag the window already had is left as it was.
+ */
+@Composable
+internal fun SecureWindow() {
+    val activity = LocalActivity.current ?: return
+    DisposableEffect(activity) {
+        val window = activity.window
+        val already = window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose { if (!already) window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+    }
+}
+
+/**
  * The invite screen. The invite lives only while the screen is visible: stopping (leaving, the app going to the
  * background) closes it and its radio; coming back opens a fresh code. A configuration change keeps it.
  */
@@ -279,6 +294,7 @@ internal fun InviteRoute(vm: InviteViewModel, role: Role, onClose: () -> Unit) {
         vm.resume()
         onStopOrDispose { if (activity?.isChangingConfigurations != true) vm.close() }
     }
+    SecureWindow() // every invite state: Added and Expired still show the screen the token was on
     if (state is InviteState.Showing || state is InviteState.Confirm) KeepScreenBright()
     InviteScreen(
         state,

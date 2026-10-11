@@ -122,6 +122,7 @@ class GroupScreenTest {
         rule.onNodeWithContentDescription("Actions for Kid").performClick()
         rule.onNodeWithText("Remove from group").performClick()
         rule.waitForIdle()
+        rule.onNodeWithText("can still recognise your family's phones nearby", substring = true).assertExists()
         assertEquals(null, removed)
         rule.onNodeWithTag("grp_confirm").assertTextEquals("Remove").performClick()
         rule.waitForIdle()
