@@ -1,5 +1,6 @@
 package app.kinsight.core.designsystem.component
 
+import androidx.annotation.VisibleForTesting
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -441,9 +442,11 @@ private fun AverageNote(text: String) =
     Text(text, Modifier.clearAndSetSemantics {}, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
 /** The limit a chart draws as a line; for tests only (TalkBack reads the limit's label in the summary). */
+@VisibleForTesting
 val ChartLimitLine = SemanticsPropertyKey<Long>("ChartLimitLine")
 
 /** The average a chart draws as a dashed line; for tests only (the summary states the average for TalkBack). */
+@VisibleForTesting
 val ChartAverageLine = SemanticsPropertyKey<Long>("ChartAverageLine")
 
 /** Records the [limit] and [average] lines a chart topped at [max] actually draws. */

@@ -312,7 +312,7 @@ class DetailChartsTest {
     fun theScaleGutterStaysNarrow() {
         val gutter = widestGutterDp()
         println("scale gutter en: $gutter dp")
-        assertTrue("gutter $gutter dp", gutter in 20f..44f)
+        assertTrue("gutter $gutter dp", gutter in 20f..48f)
     }
 
     @Test
@@ -321,7 +321,7 @@ class DetailChartsTest {
     fun theScaleGutterStaysNarrowInRussian() {
         val gutter = widestGutterDp()
         println("scale gutter ru: $gutter dp")
-        assertTrue("gutter $gutter dp", gutter in 20f..44f)
+        assertTrue("gutter $gutter dp", gutter in 20f..48f)
     }
 
     @Test

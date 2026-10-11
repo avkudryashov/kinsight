@@ -261,6 +261,10 @@ class ThresholdsScreenTest {
         rule.onNodeWithTag("thr_plus").performTouchInput { up() }
         rule.waitForIdle()
         rule.onNodeWithTag("thr_value").assertTextEquals("3 h 45 min")
+        // Released: no further steps, however long the clock runs.
+        rule.mainClock.advanceTimeBy(10 * HOLD_REPEAT_MS + HOLD_DELAY_MS)
+        rule.waitForIdle()
+        rule.onNodeWithTag("thr_value").assertTextEquals("3 h 45 min")
     }
 
     @Test
