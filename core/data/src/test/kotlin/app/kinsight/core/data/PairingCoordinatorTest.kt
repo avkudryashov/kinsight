@@ -81,7 +81,10 @@ class PairingCoordinatorTest {
         val join = kidPairing.join(scope, qr, "Kid", consent = true)
         val confirm = assertIs<InviteState.Confirm>(invite.state.awaitFirst { it is InviteState.Confirm })
         assertEquals("Kid" to Role.CHILD, confirm.name to confirm.role)
-        assertEquals(JoinState.Waiting("Mom"), join.state.awaitFirst { it is JoinState.Waiting })
+        val waiting = assertIs<JoinState.Waiting>(join.state.awaitFirst { it is JoinState.Waiting })
+        assertEquals("Mom", waiting.adminName)
+        assertEquals(6, confirm.code.length)
+        assertEquals(confirm.code, waiting.code) // the admin compares exactly what the guest's screen shows
         invite.confirm()
         assertEquals(JoinState.Joined, join.state.awaitFirst { it is JoinState.Joined || it is JoinState.Failed })
         assertEquals(InviteState.Added("Kid"), invite.state.awaitFirst { it is InviteState.Added })

@@ -49,7 +49,8 @@
     <string name="inv_problem_retrying">Bluetooth is busy, retrying. Keep this screen open.</string>
     <string name="inv_problem">Other phones may not find this phone right now. Turn Bluetooth off and on, then make a new code.</string>
     <string name="inv_confirm_title">Add “%1$s” as a %2$s?</string>
-    <string name="inv_confirm_body">Confirm only if this is the phone in front of you.</string>
+    <string name="inv_confirm_code">Code on the guest\'s phone: %1$s</string>
+    <string name="inv_confirm_body">Add only if the phone in front of you shows the same digits.</string>
     <string name="inv_confirm">Add</string>
     <string name="inv_decline">Decline</string>
     <string name="inv_added">“%1$s” is in the group. Its first data arrives within a few minutes while the phones are close.</string>
@@ -60,7 +61,8 @@
     <string name="join_title">Joining the family group</string>
     <string name="join_searching">Looking for %1$s\'s phone. Keep it close, with the invitation open.</string>
     <string name="join_connecting">Connecting…</string>
-    <string name="join_waiting">Waiting for %1$s to confirm on their phone.</string>
+    <string name="join_waiting">Waiting for %1$s to confirm on their phone. Their screen shows the same code.</string>
+    <string name="join_code">Code to compare: %1$s</string>
     <string name="join_saving">Saving…</string>
     <string name="join_joined">You are in the family group.</string>
     <string name="join_cancel">Cancel</string>

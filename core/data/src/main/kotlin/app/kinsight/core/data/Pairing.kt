@@ -64,7 +64,8 @@ sealed interface InviteState {
     /** [problem]: a standing radio problem while hosting (PairingHostHandle.problem); the QR stays usable. */
     data class Showing(val uri: String, val expiresAtMs: Long, val problem: RadioProblem? = null) : InviteState
 
-    data class Confirm(val uri: String, val expiresAtMs: Long, val name: String, val role: Role) : InviteState
+    /** [code]: the channel's SAS (PairingSas) the guest's screen shows; the admin adds only when they match. */
+    data class Confirm(val uri: String, val expiresAtMs: Long, val name: String, val role: Role, val code: String = "") : InviteState
 
     data class Added(val name: String) : InviteState
 
@@ -78,7 +79,8 @@ sealed interface JoinState {
 
     data object Connecting : JoinState
 
-    data class Waiting(val adminName: String) : JoinState
+    /** [code]: this channel's SAS, the same digits the admin's confirmation shows. */
+    data class Waiting(val adminName: String, val code: String = "") : JoinState
 
     data object Saving : JoinState
 
@@ -324,7 +326,7 @@ class PairingCoordinator(
                 o = opened ?: return HostDecision.Reject(PairReject.Reason.REASON_UNSPECIFIED)
                 if (ended) return HostDecision.Reject(refusal(o))
                 decision = d
-                move(InviteState.Confirm(o.uri, o.expiresAtMs, joiner.displayName, role))
+                move(InviteState.Confirm(o.uri, o.expiresAtMs, joiner.displayName, role, joiner.sas))
             }
             val accepted = try {
                 d.await()
@@ -407,7 +409,7 @@ class PairingCoordinator(
                 val k = keys()
                 val stream = link.dial(invite.advertTag, dialTimeout)
                 _state.value = JoinState.Connecting
-                val result = PairingGuest(invite, k, deviceName).join(stream) { _state.value = JoinState.Waiting(invite.adminName) }
+                val result = PairingGuest(invite, k, deviceName).join(stream) { sas -> _state.value = JoinState.Waiting(invite.adminName, sas) }
                 when (result) {
                     is GuestResult.Rejected -> fail(result.reason.toFailure())
                     is GuestResult.Joined -> {

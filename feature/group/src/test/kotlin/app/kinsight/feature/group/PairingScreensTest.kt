@@ -12,6 +12,7 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -262,5 +263,18 @@ class PairingScreensTest {
         rule.waitForIdle()
         assertEquals(before, window.attributes.screenBrightness)
         assertFalse(window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0)
+    }
+
+    @Test
+    fun confirmationShowsTheGuestsCodeToCompare() {
+        invite(InviteState.Confirm(uri, now + 60_000, "Kid's phone", Role.CHILD, code = "012345"))
+        rule.onNodeWithTag("inv_code").assertTextContains("012 345", substring = true)
+        rule.onNodeWithText("same digits", substring = true).assertExists()
+    }
+
+    @Test
+    fun waitingShowsTheCodeTheAdminCompares() {
+        join(JoinState.Waiting("Mom", code = "012345"))
+        rule.onNodeWithTag("join_code").assertTextContains("012 345", substring = true)
     }
 }

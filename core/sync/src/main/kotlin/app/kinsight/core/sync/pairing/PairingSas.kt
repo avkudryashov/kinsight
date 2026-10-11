@@ -6,6 +6,9 @@ import app.kinsight.core.crypto.Primitives
  * Short authentication string of one pairing channel (audit S-M1): six digits both phones derive from the Noise
  * handshake hash. The admin adds the guest only when its screen shows the same digits as the phone in front of it, so
  * someone who saw the QR and connected first cannot pass as the invited phone. Local only: nothing new on the wire.
+ *
+ * Modulo bias: the first 4 bytes mod 10^6 (2^32 mod 10^6 = 967296) favour some codes by at most 1 in 4294, which is
+ * acceptable for a 6-digit SAS.
  */
 object PairingSas {
     const val DIGITS = 6

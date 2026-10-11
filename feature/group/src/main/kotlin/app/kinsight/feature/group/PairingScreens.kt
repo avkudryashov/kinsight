@@ -51,6 +51,7 @@ import app.kinsight.core.data.Role
 import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.QrCode
 import app.kinsight.core.sync.pairing.Invite
+import app.kinsight.core.sync.pairing.PairingSas
 import app.kinsight.core.transport.ble.RadioProblem
 
 fun PairFailure.messageRes(): Int = when (this) {
@@ -113,13 +114,22 @@ fun InviteScreen(
                 modifier = Modifier.dialogTestTags(), // its own window: the root flag does not reach it
                 title = { Text(stringResource(R.string.inv_confirm_title, state.name, roleLabel(state.role))) },
                 text = {
-                    if (confirming) {
-                        Row(Modifier.testTag("inv_adding"), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(Modifier.size(24.dp))
-                            Text(stringResource(R.string.inv_adding))
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (state.code.isNotEmpty()) {
+                            Text(
+                                stringResource(R.string.inv_confirm_code, PairingSas.display(state.code)),
+                                style = MaterialTheme.typography.titleLarge,
+                                modifier = Modifier.testTag("inv_code"),
+                            )
                         }
-                    } else {
-                        Text(stringResource(R.string.inv_confirm_body))
+                        if (confirming) {
+                            Row(Modifier.testTag("inv_adding"), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(Modifier.size(24.dp))
+                                Text(stringResource(R.string.inv_adding))
+                            }
+                        } else {
+                            Text(stringResource(R.string.inv_confirm_body))
+                        }
                     }
                 },
                 confirmButton = {
@@ -195,7 +205,17 @@ fun JoinScreen(state: JoinState, adminName: String, onRetry: () -> Unit, onBack:
     when (state) {
         JoinState.Searching -> Progress(stringResource(R.string.join_searching, adminName))
         JoinState.Connecting -> Progress(stringResource(R.string.join_connecting))
-        is JoinState.Waiting -> Progress(stringResource(R.string.join_waiting, state.adminName))
+        is JoinState.Waiting -> {
+            Progress(stringResource(R.string.join_waiting, state.adminName))
+            if (state.code.isNotEmpty()) {
+                Text(
+                    stringResource(R.string.join_code, PairingSas.display(state.code)),
+                    style = MaterialTheme.typography.headlineMedium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.testTag("join_code"),
+                )
+            }
+        }
         JoinState.Saving -> Progress(stringResource(R.string.join_saving))
         JoinState.Joined -> Text(stringResource(R.string.join_joined), textAlign = TextAlign.Center)
         is JoinState.Failed -> {

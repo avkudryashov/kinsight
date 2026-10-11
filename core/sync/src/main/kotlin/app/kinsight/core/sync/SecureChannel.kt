@@ -16,9 +16,13 @@ class SecureChannel private constructor(
     private val stream: ByteStream,
     private val transport: NoiseTransport,
     val remoteStaticKey: ByteArray,
-    /** The completed handshake's hash, equal on both ends of this channel only (pairing derives its SAS from it). */
-    val handshakeHash: ByteArray,
+    handshakeHash: ByteArray,
 ) {
+    private val hash = handshakeHash.copyOf()
+
+    /** The completed handshake's hash, equal on both ends of this channel only (pairing derives its SAS from it). */
+    val handshakeHash: ByteArray get() = hash.copyOf()
+
     private val writeLock = Mutex()
 
     /** Safe to call from several coroutines; encryption order equals frame order. */
