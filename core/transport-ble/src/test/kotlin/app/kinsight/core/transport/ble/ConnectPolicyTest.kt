@@ -92,6 +92,45 @@ class ConnectPolicyTest {
     }
 
     @Test
+    fun normalModeSkipsAPeerWhoseLastSessionWasEmptyForUpToAnHour() {
+        val (small, big) = smallThenBig()
+        val peer = PeerKey.of(big.second)
+        assertIs<Decision.Connect>(decide(small.first, small.second, big.first, big.second, mono = 0))
+        policy.onCompleted(peer, nowMono = 1_000, empty = true, initiated = true)
+        assertEquals(Decision.Ignore("cooldown"), decide(small.first, small.second, big.first, big.second, mono = 2_000))
+        assertEquals(
+            Decision.Ignore("nothing new"),
+            decide(small.first, small.second, big.first, big.second, mono = 1_000 + ConnectPolicy.COOLDOWN_MS),
+        )
+        assertEquals(
+            Decision.Ignore("nothing new"),
+            decide(small.first, small.second, big.first, big.second, mono = 1_000 + ConnectPolicy.MAX_SILENCE_MS - 1),
+        )
+        // Liveness: one session per hour even when nothing moves.
+        assertIs<Decision.Connect>(decide(small.first, small.second, big.first, big.second, mono = 1_000 + ConnectPolicy.MAX_SILENCE_MS))
+    }
+
+    @Test
+    fun normalModeDialsAfterTheCooldownWhenOurVectorChanged() {
+        val (small, big) = smallThenBig()
+        val peer = PeerKey.of(big.second)
+        assertIs<Decision.Connect>(decide(small.first, small.second, big.first, big.second, mono = 0))
+        policy.onCompleted(peer, nowMono = 1_000, empty = true, initiated = true)
+        assertIs<Decision.Connect>(
+            decide(small.first, small.second, big.first, big.second, mono = 1_000 + ConnectPolicy.COOLDOWN_MS, selfV = vector(5)),
+        )
+    }
+
+    @Test
+    fun normalModeKeepsDialingAfterASessionThatMovedData() {
+        val (small, big) = smallThenBig()
+        val peer = PeerKey.of(big.second)
+        assertIs<Decision.Connect>(decide(small.first, small.second, big.first, big.second, mono = 0))
+        policy.onCompleted(peer, nowMono = 1_000, empty = false, initiated = true)
+        assertIs<Decision.Connect>(decide(small.first, small.second, big.first, big.second, mono = 1_000 + ConnectPolicy.COOLDOWN_MS))
+    }
+
+    @Test
     fun fastModeLetsTheSmallerTagDialFirstAndTheLargerOneOnlyAfterTheYield() {
         val (small, big) = smallThenBig()
         assertIs<Decision.Prepare>(decide(big.first, big.second, small.first, small.second))

@@ -44,6 +44,8 @@ sealed interface Decision {
  *  - a peer whose last session we initiated moved nothing either way is not dialled again while neither its advertised
  *    vector nor ours changed («nothing new»). This is what ends the loop between a child and a parent: the child
  *    (showOthers off) never takes the parent's own entries, so their vectors never match.
+ * Normal mode applies «nothing new» too, for at most [maxSilenceMs] after that empty session (audit A-3: a child and
+ * a parent at night otherwise ran an empty session every 10 minutes).
  * Times: nowWall for tag windows, nowMono (elapsedRealtime) for cooldowns.
  */
 class ConnectPolicy(
@@ -53,6 +55,7 @@ class ConnectPolicy(
     private val fastYieldMs: Long = FAST_YIELD_MS,
     private val fastSpacingMs: Long = FAST_SPACING_MS,
     private val fastMaxFailures: Int = FAST_MAX_FAILURES,
+    private val maxSilenceMs: Long = MAX_SILENCE_MS,
 ) {
     private val retryAt = HashMap<PeerKey, Long>()
     private val blockedUntil = HashMap<PeerKey, Long>()
@@ -112,6 +115,12 @@ class ConnectPolicy(
             return connect(peer, s, sig, nowMono)
         }
         if ((retryAt[peer] ?: Long.MIN_VALUE) > nowMono) return Decision.Ignore("cooldown")
+        // A-3: the last session we dialled moved nothing and neither vector changed since: wait, but at most
+        // [maxSilenceMs] after it, so the pair still meets once in a while (peer seen, liveness).
+        val quietSince = lastSession[peer]
+        if (noopSig[peer]?.contentEquals(sig) == true && quietSince != null && nowMono - quietSince < maxSilenceMs) {
+            return Decision.Ignore("nothing new")
+        }
         return when (weConnect) {
             null -> Decision.Ignore("tag tie")
             true -> connect(peer, s, sig, nowMono)
@@ -177,5 +186,6 @@ class ConnectPolicy(
         const val FAST_YIELD_MS = 5_000L
         const val FAST_SPACING_MS = 5_000L
         const val FAST_MAX_FAILURES = 3
+        const val MAX_SILENCE_MS = 60 * 60_000L
     }
 }
