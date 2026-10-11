@@ -47,6 +47,11 @@ class LiveSetTest {
         assertNull(of(9, Heartbeat(live_upto = 5, live_deltas = listOf(1L, 0L)))) // not strictly ascending
         assertNull(of(9, Heartbeat(live_upto = 5, live_deltas = listOf(3L, 3L)))) // past upTo
         assertNull(of(9_999, Heartbeat(live_upto = 9_000, live_deltas = List(LiveSet.MAX_SEQS + 1) { 1L })))
+        // uint64 values at or above 2^63 decode as negative Longs.
+        assertNull(of(9, Heartbeat(live_upto = -1, live_deltas = listOf(1L))))
+        assertNull(of(9, Heartbeat(live_upto = 5, live_floor = -1, live_deltas = listOf(2L))))
+        assertNull(of(9, Heartbeat(live_upto = 5, live_deltas = listOf(-1L))))
+        assertNull(of(9, Heartbeat(live_upto = 5, live_deltas = listOf(1L, Long.MIN_VALUE))))
     }
 
     @Test

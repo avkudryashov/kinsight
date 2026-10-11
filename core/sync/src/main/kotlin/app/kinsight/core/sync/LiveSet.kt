@@ -54,7 +54,9 @@ class LiveSet(val floor: Long, val upTo: Long, val seqs: LongArray) {
 /**
  * Accounts every seq of [author] that [set] declares dead. While everything below is accounted, dead runs move the
  * contiguous vector in one step (completeAuthor); above the first live seq still missing here, dead seqs are accounted
- * one by one, at most [LiveSet.MAX_SPARSE] per call (a later statement does the rest). Monotone and idempotent; two
+ * one by one, at most [LiveSet.MAX_SPARSE] per call. Every call starts again from the first missing live seq, so a
+ * repeated or later statement re-accounts the same first [LiveSet.MAX_SPARSE] seqs; it gets further only once the missing
+ * live seqs below arrive (or the author closes the gap) and move the contiguous vector. Monotone and idempotent; two
  * store calls, each atomic.
  */
 suspend fun EntryStore.accountLiveSet(author: DeviceId, set: LiveSet) {
