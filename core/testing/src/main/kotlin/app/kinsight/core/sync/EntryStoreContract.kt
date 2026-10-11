@@ -231,4 +231,39 @@ abstract class EntryStoreContract {
         assertEquals(6L, store.versionVector()[keys.deviceId])
         assertFalse(store.isAccounted(keys.deviceId, 7))
     }
+
+    @Test
+    fun liveSetAccountsDeadSeqsUpToTheFirstMissingLiveOne() = runTest {
+        store.applyBatch(listOf(genesis.entry)) // 1
+        author.summary("2026-10-08", 1) // 2: superseded at the author
+        val s3 = author.summary("2026-10-08", 2) // 3
+        val d4 = author.detail("2026-10-08") // 4: missing here
+        author.summary("2026-10-07", 1) // 5: superseded
+        val s6 = author.summary("2026-10-07", 2) // 6
+        store.applyBatch(listOf(s3, s6))
+        store.accountLiveSet(keys.deviceId, LiveSet(0, 6, longArrayOf(1, 3, 4, 6)))
+        assertEquals(3L, store.versionVector()[keys.deviceId])
+        assertTrue(store.isAccounted(keys.deviceId, 5))
+        store.applyBatch(listOf(d4))
+        assertEquals(6L, store.versionVector()[keys.deviceId])
+    }
+
+    /** Task 5 review I3: the sparse accounting of one statement stays linear (a generous bound, it runs on the host). */
+    @Test
+    fun liveSetAccountsMaxSparseDeadSeqsQuickly() = runTest {
+        store.applyBatch(listOf(genesis.entry)) // 1; 2 is live and missing, 3..4100 dead, 4101 live
+        val started = System.nanoTime()
+        store.accountLiveSet(keys.deviceId, LiveSet(0, 4101, longArrayOf(1, 2, 4101)))
+        val tookMs = (System.nanoTime() - started) / 1_000_000
+        assertTrue(tookMs < 2_000, "accounting ${LiveSet.MAX_SPARSE} sparse seqs took $tookMs ms")
+        assertEquals(1L, store.versionVector()[keys.deviceId])
+        assertTrue(store.isAccounted(keys.deviceId, 2L + LiveSet.MAX_SPARSE))
+        assertFalse(store.isAccounted(keys.deviceId, 3L + LiveSet.MAX_SPARSE))
+        val s2 = author.summary("2026-10-08", 1)
+        val started2 = System.nanoTime()
+        store.applyBatch(listOf(s2)) // contig crosses every sparse seq in one advance
+        val took2Ms = (System.nanoTime() - started2) / 1_000_000
+        assertTrue(took2Ms < 2_000, "advancing over ${LiveSet.MAX_SPARSE} sparse seqs took $took2Ms ms")
+        assertEquals(2L + LiveSet.MAX_SPARSE, store.versionVector()[keys.deviceId])
+    }
 }

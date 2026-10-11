@@ -47,6 +47,10 @@ interface EntryDao {
 
     @Query("SELECT MAX(seq) FROM entries WHERE author = :author")
     suspend fun maxSeq(author: String): Long?
+
+    /** One author's stored seqs, ascending, of every kind (its live set when it is the local author, audit A-2). */
+    @Query("SELECT seq FROM entries WHERE author = :author ORDER BY seq")
+    suspend fun seqs(author: String): List<Long>
 }
 
 @Dao

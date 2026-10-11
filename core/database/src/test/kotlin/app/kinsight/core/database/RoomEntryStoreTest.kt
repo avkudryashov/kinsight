@@ -142,4 +142,17 @@ class RoomEntryStoreTest {
         opened.removeLast().close()
         assertEquals(expected, open().categoryOverrides().toSet())
     }
+
+    @Test
+    fun ownLiveSeqsListsOnlyThatAuthorsStoredSeqs() = runTest {
+        val store = open()
+        store.applyBatch(listOf(genesis.entry))
+        author.summary("2026-10-08", 1) // 2, never stored (superseded at the author)
+        val s3 = author.summary("2026-10-08", 2)
+        val d4 = author.detail("2026-10-08")
+        store.applyBatch(listOf(s3, d4))
+        val other = DeviceKeys.generate()
+        store.applyBatch(listOf(EntryAuthor(genesis.groupId, other, lastSeq = 0).summary("2026-10-08", 9)))
+        assertEquals(listOf(1L, 3L, 4L), store.ownLiveSeqs(keys.deviceId))
+    }
 }

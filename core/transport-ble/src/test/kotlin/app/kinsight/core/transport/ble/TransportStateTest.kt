@@ -1,6 +1,8 @@
 package app.kinsight.core.transport.ble
 
+import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.EntryKind
+import app.kinsight.core.sync.LiveSet
 import app.kinsight.core.sync.PROTOCOL_VERSION
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -93,7 +95,7 @@ class TransportStateTest {
         val group = TestGroup.create(1)
         val d = group.devices[0]
         val appended = mutableListOf<app.kinsight.core.model.DecodedEntry>()
-        val append: suspend ((app.kinsight.core.model.EntryAuthor) -> List<app.kinsight.core.model.DecodedEntry>) -> Boolean =
+        val append: suspend (suspend (EntryAuthor) -> List<app.kinsight.core.model.DecodedEntry>) -> Boolean =
             { build -> appended += build(d.author); true }
         fun beats(version: String) = Heartbeats(state, version, append, clock = { now })
 
@@ -118,5 +120,24 @@ class TransportStateTest {
         val beats = Heartbeats(state, "0.1.0", append = { false }, clock = { now })
         assertFalse(beats.emitIfDue())
         assertNull(state.heartbeat())
+    }
+
+    @Test
+    fun heartbeatSignsTheOwnLiveSetAndFollowsTheOwnLog() = runBlocking {
+        val group = TestGroup.create(1)
+        val author = EntryAuthor(group.groupId, group.devices[0].keys, lastSeq = 10)
+        val appended = mutableListOf<app.kinsight.core.model.DecodedEntry>()
+        var log = OwnLog(liveSeqs = listOf(1, 2, 5), heartbeatSeq = 2)
+        val beats = Heartbeats(state, "0.1.0", append = { build -> appended += build(author); true }, ownLog = { log }, clock = { now })
+
+        assertTrue(beats.emitIfDue()) // first one
+        val set = LiveSet.of(appended.last())!!
+        assertEquals(5L, set.upTo)
+        assertEquals(listOf(1L, 5L), set.seqs.toList()) // the superseded Heartbeat 2 is not live
+        log = OwnLog(listOf(1, 5, 11), heartbeatSeq = 11) // the new Heartbeat is the newest own entry
+        assertFalse(beats.emitIfDue())
+        log = OwnLog(listOf(1, 5, 11, 12), heartbeatSeq = 11) // a new own entry since
+        assertTrue(beats.emitIfDue())
+        assertEquals(2, appended.size)
     }
 }

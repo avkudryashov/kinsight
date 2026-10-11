@@ -103,10 +103,12 @@ class UsagePipeline(
     /**
      * Signs and stores own entries that are not usage (Heartbeat, MembershipOp, LEFT_GROUP) under the same lock and
      * through the same appendOwn as usage, so two EntryAuthors never race on a seq. [build] gets a fresh author right
-     * after the stored author state and returns the entries to append (consecutive seqs). [to] overrides the target,
-     * for the genesis of a group whose file does not exist yet. Returns false when there is no group.
+     * after the stored author state and returns the entries to append (consecutive seqs). [build] runs under the lock,
+     * so what it reads of the own log (a Heartbeat's live set, A-2) stays true until its entries are stored; it may
+     * read Room but must not call back into this pipeline. [to] overrides the target, for the genesis of a group whose
+     * file does not exist yet. Returns false when there is no group.
      */
-    suspend fun appendOwn(to: PublishTarget? = null, build: (EntryAuthor) -> List<DecodedEntry>): Boolean = mutex.withLock {
+    suspend fun appendOwn(to: PublishTarget? = null, build: suspend (EntryAuthor) -> List<DecodedEntry>): Boolean = mutex.withLock {
         val t = to ?: target() ?: return@withLock false
         val store = RoomEntryStore(db, t.groupId)
         val state = store.authorState(t.keys.deviceId)

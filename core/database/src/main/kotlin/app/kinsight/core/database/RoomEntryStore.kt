@@ -40,12 +40,14 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
     }
 
     override suspend fun applyBatch(entries: List<DecodedEntry>, seen: Map<DeviceId, Set<Long>>): Unit = db.write {
+        val touched = HashSet<String>()
         entries.forEachIndexed { i, e ->
             insert(e)
-            account(e.author.hex, e.seq)
+            account(e.author.hex, e.seq, touched)
             faultInjector?.invoke(i)
         }
-        for ((author, seqs) in seen) for (seq in seqs) account(author.hex, seq)
+        for ((author, seqs) in seen) for (seq in seqs) account(author.hex, seq, touched)
+        touched.forEach { advance(it) }
         faultInjector?.invoke(SEEN_ACCOUNTED)
     }
 
@@ -63,6 +65,12 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
     }
 
     override suspend fun liveEntries(): List<DecodedEntry> = entryDao.allBytes().map(DecodedEntry::decode)
+
+    /**
+     * The stored seqs of [author], ascending, whatever their kind: for the local author, the live set its next
+     * Heartbeat signs (A-2). Read it under the pipeline lock, so no own append slips in before that Heartbeat.
+     */
+    suspend fun ownLiveSeqs(author: DeviceId): List<Long> = entryDao.seqs(author.hex)
 
     /** Live UsageSummary entries of every author (the v1 screens read only these, spec §9.3). */
     suspend fun summaries(): List<DecodedEntry> = entryDao.bytesOfKind(EntryKinds.USAGE_SUMMARY).map(DecodedEntry::decode)
@@ -102,12 +110,14 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
         require(entries.all { it.author == author && it.groupId == groupId }) { "own entries must share author and group" }
         val a = author.hex
         var state = authorStateLocked(a)
+        val touched = HashSet<String>()
         for (e in entries) {
             check(e.seq == state.lastSeq + 1) { "own entry seq ${e.seq} does not follow ${state.lastSeq}" }
             insert(e)
-            account(a, e.seq)
+            account(a, e.seq, touched)
             state = AuthorState(e.seq, maxOf(state.lastLamport, e.lamport))
         }
+        touched.forEach { advance(it) }
         authorDao.set(AuthorStateRow(a, state.lastSeq, state.lastLamport))
         alsoInTransaction()
     }
@@ -125,10 +135,15 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
         return AuthorState(maxOf(row?.lastSeq ?: 0L, known), maxOf(row?.lastLamport ?: 0L, stored))
     }
 
-    private suspend fun account(author: String, seq: Long) {
+    /**
+     * Marks [seq] accounted without moving contig; the caller runs [advance] once per [touched] author after the
+     * batch. Advancing per seq would rescan every pending row each time: quadratic for a live set's
+     * [app.kinsight.core.sync.LiveSet.MAX_SPARSE] dead seqs (Task 5 review I3).
+     */
+    private suspend fun account(author: String, seq: Long, touched: MutableSet<String>) {
         if (seq < 1 || vector.isAccounted(author, seq)) return
         vector.addAbove(AboveRow(author, seq))
-        advance(author)
+        touched += author
     }
 
     /** Moves contig over the accounted seqs directly above it (all stored seqs are > contig). */
