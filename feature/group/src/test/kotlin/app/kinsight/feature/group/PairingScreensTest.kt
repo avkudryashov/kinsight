@@ -277,4 +277,19 @@ class PairingScreensTest {
         join(JoinState.Waiting("Mom", code = "012345"))
         rule.onNodeWithTag("join_code").assertTextContains("012 345", substring = true)
     }
+
+    @Test
+    fun confirmationWithoutACodeDoesNotPretendToCompare() {
+        invite(InviteState.Confirm(uri, now + 60_000, "Kid's phone", Role.CHILD, code = ""))
+        rule.onNodeWithTag("inv_code").assertDoesNotExist()
+        rule.onNodeWithText("same digits", substring = true).assertDoesNotExist()
+        rule.onNodeWithText("could not be shown", substring = true).assertExists()
+    }
+
+    @Test
+    fun waitingWithoutACodeDoesNotPretendToCompare() {
+        join(JoinState.Waiting("Mom", code = ""))
+        rule.onNodeWithTag("join_code").assertDoesNotExist()
+        rule.onNodeWithText("same code", substring = true).assertDoesNotExist()
+    }
 }

@@ -50,6 +50,7 @@
     <string name="inv_problem">Другие телефоны сейчас могут не найти этот. Выключите и снова включите Bluetooth, затем создайте новый код.</string>
     <string name="inv_confirm_title">Добавить «%1$s» как телефон %2$s?</string>
     <string name="inv_confirm_code">Код на телефоне гостя: %1$s</string>
+    <string name="inv_confirm_body_nocode">Не удалось показать код. Если вы не уверены, что это телефон перед вами, откажитесь и создайте новое приглашение.</string>
     <string name="inv_confirm_body">Добавляйте, только если на телефоне перед вами те же цифры.</string>
     <string name="inv_confirm">Добавить</string>
     <string name="inv_decline">Отклонить</string>
@@ -62,6 +63,7 @@
     <string name="join_searching">Ищем телефон «%1$s». Держите его рядом, с открытым приглашением.</string>
     <string name="join_connecting">Подключение…</string>
     <string name="join_waiting">Ждём подтверждения на телефоне «%1$s». На его экране тот же код.</string>
+    <string name="join_waiting_nocode">Ждём подтверждения на телефоне «%1$s». Код показать не удалось; если вы сомневаетесь, отмените и начните заново.</string>
     <string name="join_code">Код для сверки: %1$s</string>
     <string name="join_saving">Сохранение…</string>
     <string name="join_joined">Вы в семейной группе.</string>

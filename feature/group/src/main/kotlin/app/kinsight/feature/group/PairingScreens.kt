@@ -116,10 +116,11 @@ fun InviteScreen(
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         if (state.code.isNotEmpty()) {
+                            val spoken = stringResource(R.string.inv_confirm_code, state.code.toList().joinToString(", "))
                             Text(
                                 stringResource(R.string.inv_confirm_code, PairingSas.display(state.code)),
                                 style = MaterialTheme.typography.titleLarge,
-                                modifier = Modifier.testTag("inv_code"),
+                                modifier = Modifier.testTag("inv_code").semantics { contentDescription = spoken },
                             )
                         }
                         if (confirming) {
@@ -128,7 +129,7 @@ fun InviteScreen(
                                 Text(stringResource(R.string.inv_adding))
                             }
                         } else {
-                            Text(stringResource(R.string.inv_confirm_body))
+                            Text(stringResource(if (state.code.isEmpty()) R.string.inv_confirm_body_nocode else R.string.inv_confirm_body))
                         }
                     }
                 },
@@ -206,13 +207,14 @@ fun JoinScreen(state: JoinState, adminName: String, onRetry: () -> Unit, onBack:
         JoinState.Searching -> Progress(stringResource(R.string.join_searching, adminName))
         JoinState.Connecting -> Progress(stringResource(R.string.join_connecting))
         is JoinState.Waiting -> {
-            Progress(stringResource(R.string.join_waiting, state.adminName))
+            Progress(stringResource(if (state.code.isEmpty()) R.string.join_waiting_nocode else R.string.join_waiting, state.adminName))
             if (state.code.isNotEmpty()) {
+                val spoken = stringResource(R.string.join_code, state.code.toList().joinToString(", "))
                 Text(
                     stringResource(R.string.join_code, PairingSas.display(state.code)),
                     style = MaterialTheme.typography.headlineMedium,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.testTag("join_code"),
+                    modifier = Modifier.testTag("join_code").semantics { contentDescription = spoken },
                 )
             }
         }
