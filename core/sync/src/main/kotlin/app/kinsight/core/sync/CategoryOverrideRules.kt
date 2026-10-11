@@ -26,10 +26,11 @@ object CategoryOverrideRules {
 
     /**
      * Null when valid, otherwise the reason; a violation is [Verdict.Skipped], never counted against the peer.
-     * Author-anchored: the role is looked up by the signing author's id, never read from the payload. The author must be a parent member (role other than CHILD; unspecified reads as PARENT,
-     * spec §4.8); an unknown author and entries past a departed member's cutoff are already invalid in
-     * [EntryValidator]. A departed parent's earlier overrides stay valid, so validity never changes with later
-     * membership ops (a relayed copy cannot count towards TOO_MANY_INVALID); the read model ignores them (spec §4.4).
+     * Author-anchored: the role is looked up by the signing author's id, never read from the payload. The author must
+     * be a parent member (role other than CHILD; unspecified reads as PARENT, spec §4.8); an unknown author and entries
+     * past a departed member's cutoff are already invalid in [EntryValidator]. A departed parent's earlier overrides
+     * stay valid, so validity never changes with later membership ops (a relayed copy cannot count towards
+     * TOO_MANY_INVALID); the read model ignores them (spec §4.4).
      */
     fun violation(e: DecodedEntry, membership: MembershipState): String? {
         val o = e.body.category_override ?: return "not a category override"

@@ -64,5 +64,12 @@ class MixedVersionTest {
         assertTrue(receiver.store.liveEntries().none { it in bad }, "skipped entries are not stored")
         // Not accounted: the gap stays for the author to close (the relay is not the author, so no completeAuthor).
         assertFalse(receiver.store.isAccounted(author.keys.deviceId, bad.first().seq), "a skipped seq stays a gap")
+        // A direct session with the author (its own log holds them) closes the gap (spec §5 step 5), storing none.
+        author.publish(*bad.toTypedArray())
+        val (ra, rv2) = syncPair(author, receiver)
+        assertIs<SessionResult.Completed>(ra)
+        assertIs<SessionResult.Completed>(rv2)
+        assertTrue(bad.all { receiver.store.isAccounted(author.keys.deviceId, it.seq) }, "the author closes the gap")
+        assertTrue(receiver.store.liveEntries().none { it in bad }, "still not stored")
     }
 }

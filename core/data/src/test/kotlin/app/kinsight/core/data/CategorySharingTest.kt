@@ -137,6 +137,29 @@ class CategorySharingTest {
     }
 
     @Test
+    fun clearingANewerCategoryWinnerSignsAClear() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val dadKeys = DeviceKeys.generate()
+        mom.pipeline.appendOwn { a -> listOf(a.addMember(dadKeys.sign.publicKey, dadKeys.dh.publicKey, "Dad", DeviceRole.PARENT)) }
+        val dad = EntryAuthor(mom.groups.read()!!.groupId, dadKeys, lastSeq = 0)
+        // Dad's phone runs a newer app with a category this build does not know: it wins and reads as the default.
+        // A known choice in the same batch marks when the snapshot holds both (the newer one has no visible effect).
+        mom.store().applyBatch(
+            listOf(
+                dad.categoryOverride("com.game", CategoryOverrideRules.MAX_CATEGORY + 1, rank = 1),
+                dad.categoryOverride("com.marker", CategoryOverrides.wire(AppCategory.NEWS)),
+            ),
+        )
+        mom.usage.overridesWhere { it == mapOf("com.marker" to AppCategory.NEWS) }
+        assertNull(mom.usage.categoryAuthor("com.game").first(), "the newer category reads as the default")
+
+        mom.usage.setCategory("com.game", null)
+        val hers = overrideEntries(mom).single { it.author == mom.keys.deviceId }.body.category_override!!
+        assertEquals(0, hers.category, "a clear is signed so every phone, newer ones included, drops the newer category")
+        assertEquals(2L, hers.rank)
+    }
+
+    @Test
     fun aChildsPhoneRefusesToSign() = runBlocking<Unit> {
         val kid = TestDevice().also { devices += it }
         val genesis = GroupGenesis.create(mom.keys, "Mom")

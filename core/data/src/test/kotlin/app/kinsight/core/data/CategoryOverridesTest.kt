@@ -126,7 +126,7 @@ class CategoryOverridesTest {
     }
 
     @Test
-    fun otherKindsAndUnknownCategoriesAreIgnored() {
+    fun otherKindsIgnoredAndUnknownCategoriesReadAsDefault() {
         val bad: DecodedEntry = mom.categoryOverride("com.a", CategoryOverrideRules.MAX_CATEGORY + 5)
         val usage = mom.create { it }
         assertEquals(emptyMap(), CategoryOverrides.effective(listOf(bad, usage), membership()))

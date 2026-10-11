@@ -339,8 +339,9 @@ class UsageRepository(
     /**
      * Signs a CategoryOverride entry in the own log; [category] null returns the app to its own (catalog or built-in)
      * category for every parent. Refused (logged, nothing signed) without a group, on a child's phone, for a removed
-     * device and for a package or category receivers would reject (CategoryOverrideRules: an invalid entry would be
-     * relayed and counted invalid at every hop). Choosing what is already effective signs nothing. Runs the local-prefs
+     * device and for a package or category receivers would reject (CategoryOverrideRules: receivers would skip it, not
+     * counted, never applied). Choosing what the winner already holds (same wire value) signs nothing; a winner with
+     * a category from a newer app reads as the default here, but choosing the default still signs a clear. Runs the local-prefs
      * migration first, so an old local choice can never undo a newer one.
      */
     suspend fun setCategory(packageName: String, category: AppCategory?): Unit = categoryLock.withLock {
@@ -355,8 +356,8 @@ class UsageRepository(
             return@withLock
         }
         val winners = CategoryOverrides.winners(ready.categoryOverrides, ready.membership)
-        val current = winners[packageName]?.let { CategoryOverrides.fromWire(it.body.category_override!!.category) }
-        if (current == category) return@withLock
+        // Wire values, not AppCategory: a newer app's category reads as null here and must not equal "default".
+        if ((winners[packageName]?.body?.category_override?.category ?: 0) == wire) return@withLock
         val rank = CategoryOverrides.nextRank(winners[packageName])
         if (!appendOwn { a -> listOf(a.categoryOverrideEntry(packageName, wire, rank)) }) Log.w(TAG, "category override: no group to sign in")
     }
