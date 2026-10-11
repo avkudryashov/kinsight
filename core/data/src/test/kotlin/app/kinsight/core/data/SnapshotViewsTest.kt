@@ -55,6 +55,20 @@ class SnapshotViewsTest {
         assertNull(members[0].lastSeenMs)
     }
 
+    /** Final fix item 6: a removed child, or one that signed LEFT_GROUP, is no longer an active member of its app screen. */
+    @Test
+    fun anAppOfADepartedOrLeftChildIsInactive() {
+        val day = DetailRange(Period.DAY, today, today)
+        assertTrue(SnapshotViews.app(ready(momKeys), kidKeys.deviceId, "com.x", day, today, noonMs)!!.active)
+        val removal = mom.removeMemberEntry(kidKeys.deviceId, lastSeq = 0)
+        assertFalse(SnapshotViews.app(ready(momKeys, listOf(removal)), kidKeys.deviceId, "com.x", day, today, noonMs)!!.active)
+        val left = kid.create { it.copy(state_event = StateEvent(kind = StateEvent.Kind.LEFT_GROUP)) }
+        val leaving = ready(momKeys).let { r ->
+            GroupSnapshot.Ready(r.groupId, r.self, r.membership, r.summaries, r.catalog, r.events + left, r.heartbeats, r.peerSeen)
+        }
+        assertFalse(SnapshotViews.app(leaving, kidKeys.deviceId, "com.x", day, today, noonMs)!!.active)
+    }
+
     @Test
     fun removedSelfYieldsRemoved() {
         val removal = mom.removeMemberEntry(kidKeys.deviceId, lastSeq = 0)

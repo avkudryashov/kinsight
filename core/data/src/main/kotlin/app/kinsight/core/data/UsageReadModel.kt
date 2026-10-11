@@ -334,6 +334,7 @@ object UsageReadModel {
         overrides: Map<String, AppCategory>,
         viewerIsParent: Boolean = false,
         nowMs: Long? = null,
+        active: Boolean = true,
     ): AppDetail {
         val own = surfaced(member, byDate)
         val ownDetails = surfaced(member, details)
@@ -370,6 +371,7 @@ object UsageReadModel {
             canGoForward = range.end.isBefore(today),
             today = today,
             defaultCategory = Categories.of(packageName, c?.category, emptyMap()),
+            active = active,
         )
     }
 

@@ -120,5 +120,8 @@ class AppDetailViewModel internal constructor(
     }
 }
 
-/** A parent's phone (as for the category: not `~other`) and a child's app: «Notify if more than…» is offered. */
-internal fun canSetThreshold(app: AppDetail): Boolean = app.canChangeCategory && app.member.role == Role.CHILD
+/**
+ * A parent's phone (as for the category: not `~other`) and an app of a child that is still an active member (not
+ * removed, no LEFT_GROUP): «Notify if more than…» is offered.
+ */
+internal fun canSetThreshold(app: AppDetail): Boolean = app.canChangeCategory && app.member.role == Role.CHILD && app.active

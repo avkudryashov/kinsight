@@ -50,6 +50,7 @@ class AppDetailViewModelTest {
 
         var viewerToday = sat
         var canChange = true
+        var active = true
         val limit = MutableStateFlow<ThresholdRule?>(null)
 
         override fun threshold(): Flow<ThresholdRule?> = limit
@@ -69,7 +70,7 @@ class AppDetailViewModelTest {
             AppDetail(
                 kid, pkg, range, "Game", null, o[pkg] ?: AppCategory.GAMES, o.containsKey(pkg), days, days.sumOf { it.totalMs },
                 hours = null, rank = 1, canChangeCategory = canChange,
-                canGoBack = known.any { it.isBefore(range.start) }, canGoForward = range.end.isBefore(viewerToday), today = viewerToday, defaultCategory = AppCategory.GAMES,
+                canGoBack = known.any { it.isBefore(range.start) }, canGoForward = range.end.isBefore(viewerToday), today = viewerToday, defaultCategory = AppCategory.GAMES, active = active,
             )
         }
 
@@ -164,6 +165,16 @@ class AppDetailViewModelTest {
         assertEquals(2 * hour, vm.threshold.value?.limitMs)
         vm.removeThreshold()
         assertNull(vm.threshold.value)
+    }
+
+    /** Final fix item 6: a child that left or was removed gets no new limit (and «Notify if more than…» is hidden). */
+    @Test
+    fun noAppLimitForAChildThatIsNoLongerActive() = runTest(dispatcher) {
+        val source = FakeSource().apply { active = false }
+        val vm = vm(source, week(sat))
+        assertFalse(canSetThreshold(vm.detail.value!!))
+        vm.setThreshold(3_600_000L)
+        assertNull(source.limit.value)
     }
 
     @Test

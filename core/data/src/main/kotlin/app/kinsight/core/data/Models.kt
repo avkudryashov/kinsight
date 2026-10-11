@@ -231,6 +231,8 @@ class AppDetail(
     override val today: LocalDate?,
     /** What «Default» returns to: the category without the parent's override (catalog, built-in table, else Other). */
     val defaultCategory: AppCategory,
+    /** The child is still an active member: not removed and no LEFT_GROUP (a limit is offered only then). */
+    val active: Boolean = true,
 ) : RangedView {
     val period: Period get() = range.period
 
@@ -241,6 +243,6 @@ class AppDetail(
 
     private fun fields(): List<Any?> = listOf(
         member, packageName, range, label, category, overridden, days, totalMs, hours, rank, canChangeCategory, canGoBack,
-        canGoForward, today, defaultCategory,
+        canGoForward, today, defaultCategory, active,
     )
 }

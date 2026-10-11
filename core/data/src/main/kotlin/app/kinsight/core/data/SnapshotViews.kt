@@ -127,7 +127,7 @@ object SnapshotViews {
 
     /**
      * App [packageName] of active or departed member [id] over [range]; null for an unknown device. Only a parent
-     * viewer may change its category.
+     * viewer may change its category; [AppDetail.active] is false for a member that was removed or signed LEFT_GROUP.
      */
     fun app(
         s: GroupSnapshot.Ready,
@@ -141,6 +141,7 @@ object SnapshotViews {
     ): AppDetail? {
         val member = s.membership.active[id] ?: s.membership.departed[id]?.member ?: return null
         val viewer = s.membership.active[s.self]
+        val left = UsageReadModel.sharing(UsageReadModel.events(s.events).filter { it.author == id }, departed = id !in s.membership.active) == Sharing.Left
         return UsageReadModel.app(
             member = view(s, member, nowMs),
             byDate = UsageReadModel.summaries(s.summaries)[id],
@@ -152,6 +153,7 @@ object SnapshotViews {
             overrides = overrides,
             viewerIsParent = viewer?.role?.toRole() == Role.PARENT,
             nowMs = nowMs,
+            active = !left,
         )
     }
 
