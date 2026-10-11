@@ -41,6 +41,17 @@ interface EntryDao {
     @Query("SELECT bytes FROM entries WHERE kind = :kind ORDER BY author, seq")
     suspend fun bytesOfKind(kind: Int): List<ByteArray>
 
+    /**
+     * StateEvents (LEFT_GROUP excluded: membership) that ended before [beforeMs], except each author's newest of every
+     * event kind (audit A-6). [stateEvent] is EntryKinds.STATE_EVENT.
+     */
+    @Query(
+        "DELETE FROM entries WHERE kind = :stateEvent AND membership = 0 AND event_to_ms < :beforeMs " +
+            "AND EXISTS (SELECT 1 FROM entries n WHERE n.kind = :stateEvent AND n.author = entries.author " +
+            "AND n.event_kind = entries.event_kind AND n.seq > entries.seq)",
+    )
+    suspend fun pruneStateEvents(stateEvent: Int, beforeMs: Long): Int
+
     /** Entries whose supersede key lies in [from, to] (inclusive, by the unique key index), e.g. one author's details of a date range. */
     @Query("SELECT bytes FROM entries WHERE supersede_key BETWEEN :from AND :to ORDER BY supersede_key")
     suspend fun bytesBySupersedeKeyRange(from: String, to: String): List<ByteArray>
@@ -160,6 +171,9 @@ interface UsageDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun setCatalogHash(row: CatalogStateRow)
+
+    @Query("DELETE FROM catalog_state WHERE package_name = :packageName")
+    suspend fun deleteCatalogHash(packageName: String)
 
     @Query("DELETE FROM pending_usage WHERE date < :before")
     suspend fun pruneUsage(before: String)

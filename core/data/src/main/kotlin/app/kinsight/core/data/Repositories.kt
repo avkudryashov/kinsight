@@ -533,13 +533,14 @@ class ServiceRepository(
     }
 }
 
-/** Applies the retention settings to the local log now (spec §4.7). */
+/** Applies the retention settings to the local log now (spec §4.7), and prunes old events and catalog (A-6). */
 class Pruner(
     private val db: KinsightDatabase,
     private val groups: GroupStore,
     private val settings: SettingsStore,
     private val keys: suspend () -> DeviceKeys,
     private val io: CoroutineDispatcher = Dispatchers.IO,
+    private val clock: () -> Long = System::currentTimeMillis,
 ) {
     suspend fun prune() {
         val group = withContext(io) { groups.read() } ?: return
@@ -549,7 +550,9 @@ class Pruner(
             detailRetentionDays = s.detailRetentionDays.toLong(),
             summaryRetentionDays = s.summaryRetentionDays.toLong(),
         )
-        RoomEntryStore(db, group.groupId).prune(policy)
+        val store = RoomEntryStore(db, group.groupId)
+        store.prune(policy)
+        store.pruneHistory(policy.summaryRetentionDays, clock(), policy.self)
     }
 }
 

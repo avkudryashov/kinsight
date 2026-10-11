@@ -22,6 +22,7 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
     private val entryDao = db.entryDao()
     private val vector = db.vectorDao()
     private val authorDao = db.authorDao()
+    private val usageDao = db.usageDao()
 
     /** Test hook, called inside the [applyBatch] transaction after each entry with its index, then once with -1 after the seen accounting. */
     internal var faultInjector: ((Int) -> Unit)? = null
@@ -97,6 +98,30 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
         }
     }
 
+    /**
+     * Local history beyond the summary retention (audit A-6), next to [prune]; RoomEntryStore only, never part of the
+     * sync contract. StateEvents that ended before it go, except each author's newest per event kind; AppCatalog
+     * entries older than it go when no live UsageSummary of the same author names the package any more. For [self]'s
+     * own catalog the publisher's hash goes too, so the app is described again if it comes back. The pruned seqs stay
+     * accounted in the vector: no peer sends them again.
+     */
+    suspend fun pruneHistory(summaryRetentionDays: Long, nowMs: Long, self: DeviceId): Unit = db.write {
+        val before = nowMs - summaryRetentionDays * DAY_MS
+        entryDao.pruneStateEvents(EntryKinds.STATE_EVENT, before)
+        val named = HashMap<DeviceId, MutableSet<String>>()
+        for (bytes in entryDao.bytesOfKind(EntryKinds.USAGE_SUMMARY)) {
+            val s = DecodedEntry.decode(bytes)
+            s.body.usage_summary!!.apps.mapTo(named.getOrPut(s.author) { HashSet() }) { it.package_name }
+        }
+        for (bytes in entryDao.bytesOfKind(EntryKinds.APP_CATALOG)) {
+            val c = DecodedEntry.decode(bytes)
+            val pkg = c.body.app_catalog!!.package_name
+            if (c.body.created_at_ms >= before || pkg in named[c.author].orEmpty()) continue
+            entryDao.delete(c.author.hex, c.seq)
+            if (c.author == self) usageDao.deleteCatalogHash(pkg)
+        }
+    }
+
     suspend fun authorState(author: DeviceId): AuthorState = db.write { authorStateLocked(author.hex) }
 
     /**
@@ -124,6 +149,7 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
 
     private companion object {
         const val SEEN_ACCOUNTED = -1
+        const val DAY_MS = 86_400_000L
     }
 
     private suspend fun authorStateLocked(a: String): AuthorState {

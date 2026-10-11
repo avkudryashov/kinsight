@@ -4,6 +4,9 @@ import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.proto.AppCatalog
+import app.kinsight.core.model.proto.AppTotal
+import app.kinsight.core.model.proto.StateEvent
+import app.kinsight.core.model.proto.UsageSummary
 import app.kinsight.core.sync.SyncPolicy
 import app.kinsight.core.sync.categoryOverride
 import app.kinsight.core.sync.detail
@@ -154,5 +157,43 @@ class RoomEntryStoreTest {
         val other = DeviceKeys.generate()
         store.applyBatch(listOf(EntryAuthor(genesis.groupId, other, lastSeq = 0).summary("2026-10-08", 9)))
         assertEquals(listOf(1L, 3L, 4L), store.ownLiveSeqs(keys.deviceId))
+    }
+
+    @Test
+    fun historyPruningKeepsTheNewestEventPerKindAndCatalogStillNamed() = runTest {
+        val db = KinsightDatabaseFactory.open(HostContext(), path).also { opened += it }
+        val store = RoomEntryStore(db, genesis.groupId)
+        val day = 86_400_000L
+        val now = 400 * day
+        val old = now - 40 * day // retention below: 30 days
+        fun event(kind: StateEvent.Kind, to: Long) = author.create { it.copy(state_event = StateEvent(kind = kind, from_ms = to, to_ms = to)) }
+        val oldPause = event(StateEvent.Kind.SHARING_PAUSED, old) // a newer pause follows: pruned
+        val oldBt = event(StateEvent.Kind.BLUETOOTH_OFF, old) // a newer one follows: pruned
+        val newestPause = event(StateEvent.Kind.SHARING_PAUSED, old + day) // old, but the newest pause: kept
+        val left = event(StateEvent.Kind.LEFT_GROUP, old - day) // membership: never pruned
+        val recentBt = event(StateEvent.Kind.BLUETOOTH_OFF, now - day)
+
+        val kidKeys = DeviceKeys.generate()
+        var t = old
+        val kid = EntryAuthor(genesis.groupId, kidKeys, lastSeq = 0, clock = { t })
+        val summary = kid.create {
+            it.copy(usage_summary = UsageSummary(local_date = "2026-10-08", zone_id = "UTC", total_ms = 60_000, apps = listOf(AppTotal("com.example.maps", 60_000))))
+        }
+        fun catalog(pkg: String) = kid.create { it.copy(app_catalog = AppCatalog(package_name = pkg, label = pkg)) }
+        val maps = catalog("com.example.maps") // old but still named by a summary: kept
+        val chat = catalog("com.example.chat") // old and named by nothing: pruned
+        t = now - day
+        val game = catalog("com.example.game") // named by nothing but recent: kept
+        store.applyBatch(listOf(genesis.entry, oldPause, oldBt, newestPause, left, recentBt, summary, maps, chat, game))
+        db.usageDao().setCatalogHash(CatalogStateRow("com.example.chat", "h1"))
+        db.usageDao().setCatalogHash(CatalogStateRow("com.example.maps", "h2"))
+
+        store.pruneHistory(summaryRetentionDays = 30, nowMs = now, self = kidKeys.deviceId)
+
+        assertEquals(listOf(newestPause, left, recentBt), store.stateEvents())
+        assertEquals(listOf(maps, game), store.catalog())
+        assertEquals(null, db.usageDao().catalogHash("com.example.chat")) // described again if the app comes back
+        assertEquals("h2", db.usageDao().catalogHash("com.example.maps"))
+        assertTrue(store.isAccounted(keys.deviceId, oldPause.seq)) // a peer never sends it again
     }
 }
