@@ -189,6 +189,27 @@ class SessionHardeningTest {
             assertTrue(seen.any { it.reject?.reason == Reject.Reason.TOO_MANY_INVALID }, "no reject among ${seen.size} messages")
         }
     }
+
+    @Test
+    fun anAbsurdOwnSeqFromAPeerIsIgnored() = runBlocking<Unit> {
+        val (a, b) = buildGroup(2)
+        val (sa, sb) = MemoryPipe.pair()
+        val prologue = SecureChannel.prologue(b.store.groupId)
+        coroutineScope {
+            val session = async { SyncSession(b.store, b.policy).run(SecureChannel.accept(sb, b.keys.dh, prologue)) }
+            val ch = SecureChannel.initiate(sa, a.keys.dh, prologue)
+            val hello = assertNotNull(ch.next().hello)
+            ch.put(SyncMessage(hello = Hello(protocol_version = PROTOCOL_VERSION, group_id = hello.group_id, membership_hash = hello.membership_hash, wants_foreign_entries = false)))
+            assertNotNull(ch.next().vector_announce)
+            val huge = app.kinsight.core.model.proto.VectorItem(author_id = b.keys.deviceId.bytes().toByteString(), seq = SyncSession.MAX_OWN_SEQ_JUMP + 1)
+            ch.put(SyncMessage(vector_announce = VectorAnnounce(vector = listOf(huge))))
+            ch.put(SyncMessage(done = Done()))
+            while (ch.next().done == null) Unit
+            ch.put(SyncMessage(done = Done()))
+            assertIs<SessionResult.Completed>(session.await())
+        }
+        assertEquals(0L, b.store.versionVector()[b.keys.deviceId])
+    }
 }
 
 private suspend fun SecureChannel.next(): SyncMessage = SyncMessage.ADAPTER.decode(receive())

@@ -135,4 +135,16 @@ class RoomAuthorStateTest {
         assertEquals(21L, store.versionVector()[keys.deviceId])
         assertEquals(21L, store.authorState(keys.deviceId).lastSeq)
     }
+
+    @Test
+    fun completingOurOwnLogMovesTheNextSeqPastIt() = runTest {
+        val store = open()
+        store.applyBatch(listOf(genesis.entry))
+        store.completeAuthor(keys.deviceId, 50)
+        assertEquals(50L, store.authorState(keys.deviceId).lastSeq)
+        val e = author(store).summary("2026-10-08", 1)
+        assertEquals(51L, e.seq)
+        store.appendOwn(listOf(e))
+        assertEquals(51L, store.versionVector()[keys.deviceId])
+    }
 }

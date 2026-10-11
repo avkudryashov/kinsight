@@ -439,6 +439,18 @@ class SyncSessionTest {
         assertEquals(SessionResult.TooManyInvalid(a.keys.deviceId), rb)
         assertTrue(b.store.liveEntries().none { it.body.usage_summary != null })
     }
+
+    @Test
+    fun aWipedDeviceDoesNotReuseItsOwnSeqs() = runBlocking<Unit> {
+        val (a, b) = buildGroup(2)
+        b.publish(*(1..5).map { b.author.summary(TODAY.minusDays(it.toLong()).toString(), it.toLong()) }.toTypedArray())
+        syncPair(a, b)
+        assertEquals(5L, a.store.versionVector()[b.keys.deviceId])
+        // b lost its database but kept its keys (a reset cut short, then a Rewelcome into a freshly wiped database).
+        b.store = InMemoryEntryStore(b.store.groupId).also { it.storeMembership(a.store.membershipEntries()) }
+        assertIs<SessionResult.Completed>(syncPair(a, b).second)
+        assertEquals(5L, b.store.versionVector()[b.keys.deviceId], "b must not hand out seqs 1..5 again")
+    }
 }
 
 private fun EntryAuthor.addMember(k: DeviceKeys, name: String = "extra"): DecodedEntry = create {

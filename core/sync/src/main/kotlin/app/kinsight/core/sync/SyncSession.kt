@@ -210,11 +210,25 @@ class SyncSession internal constructor(
         }
 
         // Authenticated both ways: only now exchange vectors.
-        send(ch, SyncMessage(vector_announce = VectorAnnounce(vector = store.versionVector().toProto())))
+        val ourVector = store.versionVector()
+        send(ch, SyncMessage(vector_announce = VectorAnnounce(vector = ourVector.toProto())))
         val announceMsg = receive(ch)
         announceMsg.reject?.let { return@coroutineScope SessionResult.Rejected(it.reason, byPeer = true) }
         val announce = announceMsg.vector_announce ?: throw ProtocolException("expected vector announce")
         val peerVector = VersionVector.fromProto(announce.vector)
+        // A-4: an authenticated member holding our own log above what we hold means our database lost entries while our
+        // keys survived. Account those seqs, which also lifts our author state past them (RoomEntryStore.authorState),
+        // so we never sign a seq the family already holds. Bounded: a bogus peer cannot fling our counter to the end.
+        val ownSeen = peerVector[policy.self]
+        val ownHeld = ourVector[policy.self]
+        if (ownSeen > ownHeld) {
+            if (ownSeen - ownHeld <= MAX_OWN_SEQ_JUMP) {
+                store.completeAuthor(policy.self, ownSeen)
+                log("own log seen at $ownSeen by ${peer.id.hex}, held $ownHeld: those seqs are not reused")
+            } else {
+                log("ignored own seq $ownSeen from ${peer.id.hex} (held $ownHeld)")
+            }
+        }
 
         val validator = EntryValidator(store.groupId, membership, policy)
         val sentTotal = CompletableDeferred<Int>()
@@ -446,6 +460,9 @@ class SyncSession internal constructor(
 
     companion object {
         const val MAX_INVALID = 10
+
+        /** Largest own-seq lift one session accepts from a peer's vector (A-4); about 90 years of honest writes. */
+        const val MAX_OWN_SEQ_JUMP = 10_000_000L
 
         /** Messages buffered between the dedicated reader and the main loop. */
         const val INBOX_CAPACITY = 64
