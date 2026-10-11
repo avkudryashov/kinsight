@@ -14,17 +14,21 @@ import com.google.zxing.qrcode.QRCodeReader
  * Null when the frame holds no readable QR code.
  */
 internal object QrDecode {
-    private val hints = mapOf(
-        DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE),
-        DecodeHintType.TRY_HARDER to true,
-    )
+    // No TRY_HARDER: this runs per frame; the live analyzer uses STRATEGY_KEEP_ONLY_LATEST, so a slow frame drops the rest.
+    private val hints = mapOf(DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE))
 
     fun decode(y: ByteArray, rowStride: Int, width: Int, height: Int): String? {
-        val data = if (y.size >= rowStride * height) y else y.copyOf(rowStride * height)
-        val source = PlanarYUVLuminanceSource(data, rowStride, height, 0, 0, width, height, false)
+        if (width <= 0 || height <= 0 || rowStride < width) return null
+        // The last row needs only [width] bytes; anything shorter than that is not a frame.
+        if (y.size < rowStride.toLong() * (height - 1) + width) return null
+        val full = rowStride.toLong() * height
         return try {
+            val data = if (y.size >= full) y else y.copyOf(full.toInt())
+            val source = PlanarYUVLuminanceSource(data, rowStride, height, 0, 0, width, height, false)
             QRCodeReader().decode(BinaryBitmap(HybridBinarizer(source)), hints).text
         } catch (e: ReaderException) {
+            null
+        } catch (e: IllegalArgumentException) {
             null
         }
     }

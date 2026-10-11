@@ -5,6 +5,7 @@ import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.sync.pairing.Invite
+import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -47,5 +48,28 @@ class QrDecodeTest {
     @Test
     fun aBlankFrameDecodesToNothing() {
         assertNull(QrDecode.decode(ByteArray(200 * 200) { 0x7f }, 200, 200, 200))
+    }
+
+    @Test
+    fun garbageBytesDecodeToNothing() {
+        assertNull(QrDecode.decode(Random(1).nextBytes(200 * 200), 200, 200, 200))
+    }
+
+    @Test
+    fun degenerateFramesDecodeToNothing() {
+        val f = frame(invite.toUri())
+        assertNull(QrDecode.decode(f.y, f.width - 1, f.width, f.height)) // rowStride < width
+        assertNull(QrDecode.decode(f.y.copyOf(100), f.rowStride, f.width, f.height)) // short buffer
+        assertNull(QrDecode.decode(f.y, f.rowStride, 0, f.height))
+        assertNull(QrDecode.decode(f.y, f.rowStride, f.width, -1))
+    }
+
+    @Test
+    fun aRotatedFrameStillDecodes() {
+        val f = frame(invite.toUri(), padding = 0)
+        val n = f.width
+        val rot = ByteArray(n * n)
+        for (r in 0 until n) for (c in 0 until n) rot[c * n + (n - 1 - r)] = f.y[r * n + c]
+        assertEquals(invite.toUri(), QrDecode.decode(rot, n, n, n))
     }
 }
