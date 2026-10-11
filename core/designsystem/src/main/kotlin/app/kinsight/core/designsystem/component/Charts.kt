@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -32,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
@@ -46,6 +48,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.drawText
@@ -121,11 +124,13 @@ fun BarChart(
 /**
  * Stacked vertical bars on Canvas (spec §9.8): bar i is the sum of [stacks][i], segment j drawn bottom-up in
  * [colors][j] (wrapping). A bar with nothing draws a faint baseline so the day still reads as a day. TalkBack reads
- * [summary]; with [onBarClick] every bar for which [barClickable] holds (not a future day) is a semantics node described
- * by [barDescription] (its day and value) with the click action [barActionLabel]; [scrub] (a month's narrow bars, U9):
- * a tap or a horizontal drag selects the nearest bar and a 48 dp tooltip with its description opens it. The [highlight]ed bar gets a bold label and a thin underline,
- * and no bar is faded (colour is never the only cue); label thinning counts from [labelAnchor], else from it, else from
- * the last bar. A [limit] (same unit as the segments, e.g. a daily limit) draws a dashed line with [limitLabel] on a
+ * [summary]; with [onBarClick] every bar for which [barClickable] holds (not a future day) is a semantics node
+ * described by [barDescription] (its day and value) with the click action [barActionLabel]. With [scrub] (a month's
+ * narrow bars, U9) a tap or a horizontal drag selects the nearest bar: it gets a primary outline, its node is selected,
+ * and a 48 dp tooltip with its description and a caret pointing at it opens it. The scrub owns horizontal drags over
+ * the chart, so a screen's swipe paging works only outside it (its arrows always work). A new [selectionKey] (e.g. the
+ * range's first day) clears the selection. The [highlight]ed bar gets a bold label and a thin underline, and no bar is
+ * faded (colour is never the only cue); label thinning counts from [labelAnchor], else from it, else from the last bar. A [limit] (same unit as the segments, e.g. a daily limit) draws a dashed line with [limitLabel] on a
  * chip at the left and raises the scale to it, so the line is always on the chart; TalkBack reads the label after
  * [summary]. [scale], [average] and [averageLabel] work as in [BarChart].
  */
@@ -149,6 +154,7 @@ fun StackedBarChart(
     average: Long? = null,
     averageLabel: String? = null,
     scrub: Boolean = false,
+    selectionKey: Any? = null,
 ) {
     val bars = stacks.map { stack -> stack.map { it.coerceAtLeast(0L) } }
     val names = chartLabels(labels, bars.size)
@@ -160,6 +166,9 @@ fun StackedBarChart(
     val grid = rememberGrid(max, scale, height)
     val limitText = rememberLimitText(limitLabel)
     val described = limitSummary(summary, limitLabel)
+    var selected by remember(bars.size, selectionKey) { mutableStateOf<Int?>(null) }
+    val shown = selected?.takeIf { scrub && onBarClick != null && it in bars.indices && barClickable(it) }
+    val selectColor = MaterialTheme.colorScheme.primary
     val outer = if (onBarClick == null) {
         Modifier.clearAndSetSemantics { contentDescription = described; chartLines(limit, average, max) }
     } else {
@@ -179,6 +188,7 @@ fun StackedBarChart(
                     val left = layout.left(i)
                     if (barMarked(i, marked)) drawRoundRect(markColor, Offset(left, size.height - mark), Size(bar, mark), CornerRadius(mark / 2))
                     val total = stack.sum()
+                    if (i == shown) drawSelection(left, bar, floor, if (total == 0L) 0f else floor * total.toFloat() / max, selectColor)
                     if (total == 0L) {
                         val line = 2.dp.toPx()
                         drawRoundRect(baseline, Offset(left, floor - line), Size(bar, line), CornerRadius(line / 2))
@@ -202,7 +212,6 @@ fun StackedBarChart(
             }
             if (onBarClick != null) {
                 val clickable by rememberUpdatedState(barClickable)
-                var selected by remember(bars.size) { mutableStateOf<Int?>(null) }
                 // One node per bar for TalkBack and switch access; a pointer target only where bars are wide enough.
                 // The same slots as the bars: the scale gutter on the right is no target.
                 Row(Modifier.matchParentSize().padding(end = grid.gutterDp)) {
@@ -214,6 +223,7 @@ fun StackedBarChart(
                                 slot.semantics {
                                     contentDescription = barDescription(i)
                                     role = Role.Button
+                                    if (i == shown) this.selected = true
                                     onClick(label = barActionLabel) {
                                         onBarClick(i)
                                         true
@@ -239,7 +249,7 @@ fun StackedBarChart(
                                 }
                             },
                     )
-                    selected?.let { i ->
+                    shown?.let { i ->
                         BarTooltip(i, bars.size, barDescription(i), barActionLabel, Modifier.matchParentSize().padding(end = grid.gutterDp)) {
                             onBarClick(i)
                         }
@@ -252,7 +262,20 @@ fun StackedBarChart(
     }
 }
 
-/** The selected month bar's value over the chart (U9): the 48 dp target that opens its day. */
+/** A 2 dp outline around the selected bar from [floor] up [height] (at least a few dp, so an empty day shows too). */
+private fun DrawScope.drawSelection(left: Float, bar: Float, floor: Float, height: Float, color: Color) {
+    val pad = 2.dp.toPx()
+    val top = floor - height.coerceAtLeast(6.dp.toPx()) - pad
+    drawRoundRect(
+        color,
+        Offset(left - pad, top),
+        Size(bar + 2 * pad, (floor + pad).coerceAtMost(size.height) - top),
+        CornerRadius(4.dp.toPx() + pad),
+        style = Stroke(width = 2.dp.toPx()),
+    )
+}
+
+/** The selected month bar's value over the chart (U9): the 48 dp target that opens its day, with a caret at the bar. */
 @Composable
 private fun BarTooltip(index: Int, count: Int, text: String, actionLabel: String?, modifier: Modifier, onOpen: () -> Unit) {
     Layout(
@@ -268,11 +291,22 @@ private fun BarTooltip(index: Int, count: Int, text: String, actionLabel: String
                     Text(text, style = MaterialTheme.typography.labelLarge, maxLines = 1)
                 }
             }
+            val caretColor = MaterialTheme.colorScheme.inverseSurface
+            Canvas(Modifier.size(12.dp, 6.dp)) {
+                drawPath(Path().apply { moveTo(0f, 0f); lineTo(size.width, 0f); lineTo(size.width / 2, size.height); close() }, caretColor)
+            }
         },
         modifier = modifier,
     ) { measurables, c ->
-        val p = measurables.single().measure(c.copy(minWidth = 0, minHeight = 0))
-        layout(c.maxWidth, c.maxHeight) { p.place(tooltipLeft(index, c.maxWidth.toFloat() / count.coerceAtLeast(1), p.width, c.maxWidth), 0) }
+        val loose = c.copy(minWidth = 0, minHeight = 0)
+        val p = measurables[0].measure(loose)
+        val caret = measurables[1].measure(loose)
+        val slot = c.maxWidth.toFloat() / count.coerceAtLeast(1)
+        val caretLeft = (slot * (index + 0.5f) - caret.width / 2f).roundToInt().coerceIn(0, (c.maxWidth - caret.width).coerceAtLeast(0))
+        layout(c.maxWidth, c.maxHeight) {
+            p.place(tooltipLeft(index, slot, p.width, c.maxWidth), 0)
+            caret.place(caretLeft, p.height)
+        }
     }
 }
 

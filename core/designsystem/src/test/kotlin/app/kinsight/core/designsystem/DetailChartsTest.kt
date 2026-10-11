@@ -1,6 +1,9 @@
 package app.kinsight.core.designsystem
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertTextContains
@@ -150,6 +153,38 @@ class DetailChartsTest {
         rule.onNodeWithTag("chart").performTouchInput { swipe(Offset(width * 2.5f / 31, 40.dp.toPx()), Offset(width * 20.5f / 31, 40.dp.toPx())) }
         rule.onNodeWithTag("chart_tooltip").assertTextContains("Day 20: 1 min")
         rule.onNodeWithTag("chart").performTouchInput { click(Offset(width * 29.5f / 31, 40.dp.toPx())) }
+        rule.onNodeWithTag("chart_tooltip").assertDoesNotExist()
+    }
+
+    @Test
+    fun theSelectedMonthBarIsMarked() {
+        showMonth {}
+        rule.onNodeWithTag("chart").performTouchInput { click(Offset(width * 10.5f / 31, 40.dp.toPx())) }
+        rule.onNodeWithContentDescription("Day 10: 1 min").assertIsSelected()
+        rule.onNodeWithContentDescription("Day 3: 1 min").assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.Selected))
+    }
+
+    @Test
+    fun aNewSelectionKeyClearsTheSelection() {
+        val key = mutableStateOf(1)
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                StackedBarChart(
+                    stacks = List(31) { listOf(60_000L) },
+                    colors = colors,
+                    labels = List(31) { "" },
+                    summary = "Month",
+                    modifier = Modifier.width(310.dp).testTag("chart"),
+                    onBarClick = {},
+                    barDescription = { "Day $it" },
+                    scrub = true,
+                    selectionKey = key.value,
+                )
+            }
+        }
+        rule.onNodeWithTag("chart").performTouchInput { click(Offset(width * 10.5f / 31, 40.dp.toPx())) }
+        rule.onNodeWithTag("chart_tooltip").assertExists()
+        key.value = 2
         rule.onNodeWithTag("chart_tooltip").assertDoesNotExist()
     }
 

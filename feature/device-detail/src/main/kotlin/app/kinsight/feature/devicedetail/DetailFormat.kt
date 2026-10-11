@@ -6,9 +6,13 @@ import android.icu.text.NumberFormat
 import android.icu.util.DateInterval
 import android.icu.util.TimeZone
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
+import app.kinsight.core.data.DayTotal
 import app.kinsight.core.data.DetailRange
 import app.kinsight.core.data.Period
+import app.kinsight.core.designsystem.component.formatDuration
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.util.Locale
@@ -31,6 +35,22 @@ internal fun dayTitle(date: LocalDate, today: LocalDate, locale: Locale, todayTe
     today -> todayText
     today.minusDays(1) -> yesterdayText
     else -> skeleton(if (date.year == today.year) "MMMEd" else "yMMMEd", locale, utcMs(date)).capitalized(locale)
+}
+
+/** Each day bar's TalkBack text (U10): «Tue, Oct 6: 2 h 10 min», or the day and «no data»; a tap's action is its label. */
+@Composable
+internal fun rememberBarTexts(days: List<DayTotal>, today: LocalDate, locale: Locale): List<String> {
+    val todayText = stringResource(R.string.det_today)
+    val yesterdayText = stringResource(R.string.det_yesterday)
+    val describe = stringResource(R.string.det_bar_description)
+    val noData = stringResource(R.string.det_bar_no_data)
+    val resources = LocalResources.current
+    return remember(days, today, locale, todayText, yesterdayText, describe, noData, resources) {
+        days.map { d ->
+            val value = if (d.known) formatDuration(resources, d.totalMs) else noData
+            String.format(locale, describe, dayTitle(d.date, today, locale, todayText, yesterdayText), value)
+        }
+    }
 }
 
 /** Day and month in the locale's order and case ("October 6", «6 октября»). */

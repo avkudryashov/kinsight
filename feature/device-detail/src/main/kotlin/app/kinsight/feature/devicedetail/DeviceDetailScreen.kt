@@ -75,8 +75,6 @@ import app.kinsight.core.designsystem.component.ChartScale
 import app.kinsight.core.designsystem.component.EmptyState
 import app.kinsight.core.designsystem.component.PeriodHeader
 import app.kinsight.core.designsystem.component.StackedBarChart
-import app.kinsight.core.designsystem.component.formatDuration
-import androidx.compose.ui.platform.LocalResources
 import app.kinsight.core.designsystem.component.dataMoment
 import app.kinsight.core.designsystem.component.categoryColor
 import app.kinsight.core.designsystem.component.durationText
@@ -445,17 +443,7 @@ private fun DaysChart(detail: DeviceDetail, today: LocalDate, onOpenDay: (LocalD
     val top = detail.categories.take(2).map { stringResource(R.string.det_category_item, categoryName(it.category), durationText(it.totalMs)) }
     val summary = if (top.isEmpty()) daysSummary else "$daysSummary. " + stringResource(R.string.det_categories_summary, top.joinToString(", "))
     val stacks = days.mapIndexed { i, d -> stackOf(detail.dayCategories.getOrNull(i), d) }
-    val todayText = stringResource(R.string.det_today)
-    val yesterdayText = stringResource(R.string.det_yesterday)
-    val describe = stringResource(R.string.det_bar_description)
-    val noData = stringResource(R.string.det_bar_no_data)
-    val resources = LocalResources.current
-    // «Tue, Oct 6: 2 h 10 min» (U10): the day and its value; the action label says what a tap does.
-    val barTexts = remember(days, today, locale, todayText, yesterdayText, describe, noData, resources) {
-        days.map { d ->
-            String.format(locale, describe, dayTitle(d.date, today, locale, todayText, yesterdayText), if (d.known) formatDuration(resources, d.totalMs) else noData)
-        }
-    }
+    val barTexts = rememberBarTexts(days, today, locale)
     StackedBarChart(
         stacks = stacks,
         colors = AppCategory.entries.map { categoryColor(it.ordinal) },
@@ -466,6 +454,7 @@ private fun DaysChart(detail: DeviceDetail, today: LocalDate, onOpenDay: (LocalD
         barDescription = { i -> barTexts[i] },
         barActionLabel = stringResource(R.string.det_open_day_action),
         scrub = detail.period == Period.MONTH,
+        selectionKey = days.firstOrNull()?.date,
         highlight = days.indexOfFirst { it.date == today }.takeIf { it >= 0 },
         barClickable = { i -> !days[i].date.isAfter(today) },
         labelAnchor = if (detail.period == Period.MONTH) 0 else null,
