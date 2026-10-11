@@ -102,7 +102,7 @@ class KinsightWidgetContentTest {
         assertTrue(statusText(context, ChildStatus.Paused(now - 60_000), now).startsWith("Paused since "))
         val noContact = statusText(context, ChildStatus.NoContact(now - 2 * 86_400_000), now)
         assertTrue(noContact, noContact.startsWith("No contact since ") && noContact.contains("Oct 7"))
-        assertEquals("Not sharing", statusText(context, ChildStatus.NotSharing, now))
+        assertEquals("Sharing is off", statusText(context, ChildStatus.NotSharing, now))
         assertEquals("No data yet", statusText(context, ChildStatus.NoData, now))
     }
 

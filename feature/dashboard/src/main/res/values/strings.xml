@@ -10,13 +10,13 @@
     <string name="dash_cancel">Cancel</string>
     <string name="dash_paused_since">Sharing has been paused since %1$s.</string>
     <string name="dash_resume">Resume sharing</string>
-    <string name="dash_not_sharing">This phone does not share. Your family sees that.</string>
+    <string name="dash_not_sharing">Sharing is off on this phone. Your family sees that.</string>
     <string name="dash_turn_on">Turn on sharing</string>
     <string name="dash_stopped">Sync was stopped by you. Your family will see when it was stopped.</string>
     <string name="dash_start">Start sync</string>
     <string name="dash_no_permission">Sync needs the Nearby devices permission. Allow it in the app settings.</string>
     <string name="dash_bluetooth_off">Bluetooth is off. Turn it on to sync.</string>
-    <string name="dash_storage_error">Key storage error: sync cannot run on this phone. In Kinsight settings, open Diagnostics or use “Reset identity and pair again”.</string>
+    <string name="dash_storage_error">Secure storage problem: sync cannot run on this phone. In Kinsight settings, open Diagnostics or use “Disconnect this phone and pair again”.</string>
     <string name="dash_open_kinsight_settings">Open Kinsight settings</string>
     <string name="dash_sync_now">Sync now</string>
     <string name="dash_radio_error">Bluetooth error. Sync will retry by itself.</string>
@@ -37,7 +37,7 @@
     <string name="dash_vs_more">%1$s more than the 7-day average</string>
     <string name="dash_vs_less">%1$s less than the 7-day average</string>
     <string name="dash_card_paused">Sharing paused since %1$s</string>
-    <string name="dash_card_not_sharing">Does not share</string>
+    <string name="dash_card_not_sharing">Sharing is off</string>
     <string name="dash_card_left">Left the group</string>
     <string name="dash_card_not_seen">No contact. Last seen %1$s</string>
     <string name="dash_data_at">Data as of %1$s</string>

@@ -10,7 +10,7 @@
     <string name="wid_paused">Пауза с %1$s</string>
     <string name="wid_no_contact">Нет связи с %1$s</string>
     <string name="wid_updated">Данные на %1$s</string>
-    <string name="wid_not_sharing">Не делится</string>
+    <string name="wid_not_sharing">Обмен выключен</string>
     <string name="wid_no_data">Данных пока нет</string>
     <string name="wid_seen_by">Видят: %1$s</string>
     <string name="wid_no_parents">В группе пока нет родителей</string>

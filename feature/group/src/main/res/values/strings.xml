@@ -17,7 +17,7 @@
     <string name="grp_grant_title">Make %1$s an admin?</string>
     <string name="grp_grant_body">Admins can invite and remove phones. This cannot be undone without pairing that phone again.</string>
     <string name="grp_remove_title">Remove %1$s?</string>
-    <string name="grp_remove_body">The phone stops syncing with the group. To come back it needs a new invitation and a reset of its identity. Until a future update of Kinsight it can still recognise your family\'s phones nearby over Bluetooth.</string>
+    <string name="grp_remove_body">The phone stops syncing with the group. To come back, it has to be disconnected in its own settings (“Disconnect this phone and pair again”) and invited again. Until a future update of Kinsight it can still recognise your family\'s phones nearby over Bluetooth.</string>
     <string name="grp_leave">Leave the group</string>
     <string name="grp_leave_title">Leave the family group?</string>
     <string name="grp_leave_body">Everyone in the group will be told that this phone left. The group\'s data on this phone will be deleted. Data already on their phones stays until their retention ends. Coming back needs a new invitation.</string>
@@ -79,11 +79,11 @@
     <string name="pair_fail_bad_token">This QR code is no longer valid. Ask for a new one.</string>
     <string name="pair_fail_expired">This QR code is no longer valid: it expired. Ask for a new one.</string>
     <string name="pair_fail_declined">The admin declined or closed the invitation.</string>
-    <string name="pair_fail_removed_before">This phone was removed from the group before. Reset its identity in Settings to join again.</string>
+    <string name="pair_fail_removed_before">This phone was removed from the group before. To join again, use “Disconnect this phone and pair again” in Settings.</string>
     <string name="pair_fail_invalid">The invitation or the answer was not valid. If either phone has an older Kinsight, update the app and try again.</string>
     <string name="pair_fail_not_admin">Only an admin can invite.</string>
     <string name="pair_fail_already_in_group">This phone is already in a group. Leave it first.</string>
-    <string name="pair_fail_identity">This phone\'s keys are broken. Reset its identity in Settings.</string>
+    <string name="pair_fail_identity">This phone\'s keys are broken. Use “Disconnect this phone and pair again” in Settings.</string>
     <string name="inv_adding">Adding…</string>
     <string name="inv_expires_soon_spoken">Expires in less than 30 seconds</string>
     <plurals name="inv_expires_spoken">

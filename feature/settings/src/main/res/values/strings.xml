@@ -22,7 +22,7 @@
     <string name="set_sync_syncing">Syncing…</string>
     <string name="set_sync_no_permission">Sync needs the Nearby devices permission. Allow it in the app settings.</string>
     <string name="set_sync_bluetooth_off">Bluetooth is off. Turn it on to sync.</string>
-    <string name="set_sync_key_error">Key storage error: sync cannot run on this phone. Below, under This device, open Diagnostics or use “Reset identity and pair again”.</string>
+    <string name="set_sync_key_error">Secure storage problem: sync cannot run on this phone. Open Diagnostics, or use “Disconnect this phone and pair again” at the end of this page.</string>
     <string name="set_sync_radio_error">Bluetooth error. Sync will retry by itself.</string>
     <string name="set_sync_peer_update">A family phone needs a Kinsight update.</string>
     <string name="set_last_sync">Last sync: %1$s</string>
@@ -43,17 +43,17 @@
     <string name="set_no_contact">Warn when a child is out of contact for</string>
     <string name="set_hours">%1$d h</string>
     <string name="set_notification_settings">Notification settings</string>
-    <string name="set_device">This device</string>
+    <string name="set_device">This phone</string>
     <string name="set_battery">Battery settings</string>
     <string name="set_language">Language</string>
     <string name="set_diagnostics">Diagnostics</string>
     <string name="set_privacy">Privacy policy</string>
-    <string name="set_reset">Reset identity and pair again</string>
-    <string name="set_resetting">Resetting…</string>
-    <string name="set_reset_title">Reset this phone\'s identity?</string>
-    <string name="set_reset_body">This phone gets new keys and is out of the group for good: your family stops getting anything from it, and its old entry stays in their list until an admin removes it. Everything on this phone is deleted: the group, the whole history and the settings. To come back, an admin has to invite this phone and you pair it again from the start. This cannot be undone.</string>
+    <string name="set_reset">Disconnect this phone and pair again</string>
+    <string name="set_resetting">Disconnecting…</string>
+    <string name="set_reset_title">Disconnect this phone?</string>
+    <string name="set_reset_body">This phone leaves the group for good: your family stops getting anything from it, and its old entry stays in their list until an admin removes it. Everything on this phone is deleted: the group, the whole history and the settings. To come back, an admin has to invite this phone and you pair it again from the start. This cannot be undone.</string>
     <string name="set_reset_ack">I understand that this cannot be undone</string>
-    <string name="set_reset_confirm">Reset</string>
+    <string name="set_reset_confirm">Disconnect</string>
     <string name="set_cancel">Cancel</string>
     <string name="set_ok">OK</string>
     <string name="set_back">Back</string>
@@ -62,7 +62,7 @@
     <string name="set_error_sharing">Changing sharing did not finish. Check the switch and try again.</string>
     <string name="set_error_retention">The history setting was not saved, or old history was not removed yet. Try again.</string>
     <string name="set_error_notifications">The notification setting was not saved. Try again.</string>
-    <string name="set_error_reset">The reset did not finish. Part of the data may already be deleted. Try again.</string>
+    <string name="set_error_reset">Disconnecting did not finish. Part of the data may already be deleted. Try again.</string>
     <string name="tr_title">Who sees my data</string>
     <string name="tr_child_who">Your screen time is sent to all parents in your family group, including any who join later. Now:</string>
     <string name="tr_nobody">nobody yet</string>
@@ -78,7 +78,7 @@
     <string name="tr_parent_keep">On this phone: detailed history %1$s, daily totals %2$s.</string>
     <string name="tr_no_internet">Data moves only between your family\'s phones over Bluetooth. Nothing goes to the internet, to servers or to us.</string>
     <string name="rec_key_title">This phone\'s keys cannot be used</string>
-    <string name="rec_key_body">Kinsight never makes new keys silently. To continue, reset the identity and pair this phone again. Details: %1$s</string>
+    <string name="rec_key_body">Kinsight never makes new keys silently. To continue, disconnect this phone and pair it again. Details: %1$s</string>
     <string name="rec_removed_title">This phone is no longer in the group</string>
     <string name="rec_removed_body">An admin removed it, or it left. To join again, start over and scan a new invitation.</string>
     <string name="rec_start_over">Start over</string>
@@ -95,4 +95,7 @@
     <string name="set_shrink">Delete</string>
     <string name="set_usage_access_missing">Screen time is not counted: usage access is off on this phone.</string>
     <string name="set_open_usage_access">Open usage access</string>
+    <string name="set_pause_vs_stop">Pause: your time is kept and sent once you resume. Stop: this phone stops reaching the family. Your family sees both.</string>
+    <string name="set_advanced">Advanced</string>
+    <string name="set_advanced_body">History kept on this phone, diagnostics, disconnecting this phone</string>
 </resources>

@@ -278,7 +278,7 @@ class AppDetailScreenTest {
     @Config(qualifiers = "ru")
     fun aParentWithoutANameIsAnotherParentRu() {
         show(app(overridden = true), changedBy = "  ")
-        rule.onNodeWithTag("app_category_author").assertTextEquals("Изменил: другой родитель")
+        rule.onNodeWithTag("app_category_author").assertTextEquals("Задано: другой родитель")
     }
 
     @Test

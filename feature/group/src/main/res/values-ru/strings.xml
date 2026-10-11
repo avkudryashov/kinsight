@@ -15,15 +15,15 @@
     <string name="grp_make_admin">Сделать администратором</string>
     <string name="grp_remove">Исключить из группы</string>
     <string name="grp_grant_title">Сделать %1$s администратором?</string>
-    <string name="grp_grant_body">Администраторы приглашают и исключают телефоны. Отменить это нельзя без повторного сопряжения.</string>
+    <string name="grp_grant_body">Администраторы приглашают и исключают телефоны. Отменить это нельзя без повторного подключения.</string>
     <string name="grp_remove_title">Исключить %1$s?</string>
-    <string name="grp_remove_body">Телефон перестанет синхронизироваться с группой. Чтобы вернуться, ему нужны новое приглашение и сброс идентичности. До одного из следующих обновлений Kinsight он ещё сможет узнавать телефоны вашей семьи рядом по Bluetooth.</string>
+    <string name="grp_remove_body">Телефон перестанет синхронизироваться с группой. Чтобы вернуться, его нужно отключить в его настройках («Отключить этот телефон и подключить заново») и пригласить снова. До одного из следующих обновлений Kinsight он ещё сможет узнавать телефоны вашей семьи рядом по Bluetooth.</string>
     <string name="grp_leave">Выйти из группы</string>
     <string name="grp_leave_title">Выйти из семейной группы?</string>
     <string name="grp_leave_body">Всем в группе сообщим, что этот телефон вышел. Данные группы на этом телефоне будут удалены. Данные, которые уже есть на их телефонах, хранятся до конца их срока хранения. Вернуться можно только по новому приглашению.</string>
     <string name="grp_leave_sole_admin">Вы единственный администратор. Сначала назначьте администратором другого родителя или исключите остальные телефоны.</string>
     <string name="grp_leaving">Выход: сообщаем семье…</string>
-    <string name="grp_confirm_remove">Удалить</string>
+    <string name="grp_confirm_remove">Исключить</string>
     <string name="grp_confirm_leave">Выйти</string>
     <string name="grp_cancel">Отмена</string>
     <string name="grp_no_group_title">Нет группы</string>
@@ -38,7 +38,7 @@
     <string name="grp_err_leave_not_signed">Не удалось записать выход этого телефона. Ничего не удалено, попробуйте ещё раз.</string>
     <string name="grp_err_leave_wipe_failed">Семья узнала, что этот телефон вышел, но очистить этот телефон не удалось. Нажмите «Начать заново», чтобы закончить.</string>
     <string name="grp_err_grant">Не удалось сделать этого участника администратором.</string>
-    <string name="grp_err_remove">Не удалось удалить этого участника.</string>
+    <string name="grp_err_remove">Не удалось исключить этого участника.</string>
     <!-- Приглашение и вступление (сопряжение) -->
     <string name="grp_role_child">ребёнка</string>
     <string name="grp_role_parent">родителя</string>
@@ -79,11 +79,11 @@
     <string name="pair_fail_bad_token">Этот QR-код больше недействителен. Попросите новый.</string>
     <string name="pair_fail_expired">Этот QR-код больше недействителен: срок истёк. Попросите новый.</string>
     <string name="pair_fail_declined">Администратор отклонил приглашение или закрыл его.</string>
-    <string name="pair_fail_removed_before">Этот телефон раньше исключили из группы. Сбросьте идентичность в настройках, чтобы вступить снова.</string>
+    <string name="pair_fail_removed_before">Этот телефон раньше исключили из группы. Чтобы вступить снова, в настройках нажмите «Отключить этот телефон и подключить заново».</string>
     <string name="pair_fail_invalid">Приглашение или ответ недействительны. Если на одном из телефонов старая версия Kinsight, обновите приложение и повторите.</string>
     <string name="pair_fail_not_admin">Приглашать может только администратор.</string>
     <string name="pair_fail_already_in_group">Этот телефон уже в группе. Сначала выйдите из неё.</string>
-    <string name="pair_fail_identity">Ключи этого телефона повреждены. Сбросьте идентичность в настройках.</string>
+    <string name="pair_fail_identity">Ключи этого телефона повреждены. В настройках нажмите «Отключить этот телефон и подключить заново».</string>
     <string name="inv_adding">Добавляем…</string>
     <string name="inv_expires_soon_spoken">Истекает менее чем через 30 секунд</string>
     <plurals name="inv_expires_spoken">

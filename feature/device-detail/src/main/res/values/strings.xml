@@ -19,7 +19,7 @@
     <string name="det_chart_summary">Average %1$s a day, most on %2$s (%3$s)</string>
     <string name="det_chart_average">Dashed line: average %1$s per day</string>
     <string name="det_paused_note">Sharing has been paused since %1$s. Time during the pause arrives after it is resumed.</string>
-    <string name="det_never_note">This phone does not share its screen time.</string>
+    <string name="det_never_note">Sharing is off on this phone.</string>
     <string name="det_left_note">This phone left the group. Only data received earlier is shown.</string>
     <string name="det_parent_not_shared">Kinsight shares only children\'s screen time, so this phone shows only its events.</string>
     <string name="det_ev_paused">Sharing paused</string>

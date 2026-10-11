@@ -10,13 +10,13 @@
     <string name="dash_cancel">Отмена</string>
     <string name="dash_paused_since">Обмен на паузе с %1$s.</string>
     <string name="dash_resume">Снять паузу</string>
-    <string name="dash_not_sharing">Этот телефон не делится данными. Семья это видит.</string>
+    <string name="dash_not_sharing">Обмен на этом телефоне выключен. Семья это видит.</string>
     <string name="dash_turn_on">Включить обмен</string>
     <string name="dash_stopped">Вы остановили синхронизацию. Семья увидит, когда она была остановлена.</string>
     <string name="dash_start">Запустить синхронизацию</string>
     <string name="dash_no_permission">Для синхронизации нужно разрешение «Устройства поблизости». Разрешите его в настройках приложения.</string>
     <string name="dash_bluetooth_off">Bluetooth выключен. Включите его для синхронизации.</string>
-    <string name="dash_storage_error">Ошибка хранилища ключей: синхронизация на этом телефоне не работает. В настройках Kinsight откройте «Диагностику» или нажмите «Сбросить идентичность и подключить заново».</string>
+    <string name="dash_storage_error">Сбой защищённого хранилища: синхронизация на этом телефоне не работает. В настройках Kinsight откройте «Диагностику» или нажмите «Отключить этот телефон и подключить заново».</string>
     <string name="dash_open_kinsight_settings">Открыть настройки Kinsight</string>
     <string name="dash_sync_now">Синхронизировать сейчас</string>
     <string name="dash_radio_error">Ошибка Bluetooth. Синхронизация повторится сама.</string>
@@ -37,8 +37,8 @@
     <string name="dash_vs_more">На %1$s больше среднего за 7 дней</string>
     <string name="dash_vs_less">На %1$s меньше среднего за 7 дней</string>
     <string name="dash_card_paused">Обмен на паузе с %1$s</string>
-    <string name="dash_card_not_sharing">Не делится данными</string>
-    <string name="dash_card_left">Устройство вышло из группы</string>
+    <string name="dash_card_not_sharing">Обмен выключен</string>
+    <string name="dash_card_left">Телефон вышел из группы</string>
     <string name="dash_card_not_seen">Нет связи. Последний контакт: %1$s</string>
     <string name="dash_data_at">Данные на %1$s</string>
     <string name="dash_data_stale">Данные на %1$s, могли устареть</string>
@@ -52,8 +52,8 @@
     <string name="dash_no_group_title">Нет семейной группы</string>
     <string name="dash_no_group_body">Этот телефон не состоит в семейной группе.</string>
     <string name="dash_update_notice">На одном из телефонов семьи нужно обновить Kinsight. После обновления вы снова будете получать с него данные.</string>
-    <string name="dash_update_self">Обновите Kinsight на этом телефоне, чтобы снова синхронизироваться с устройством «%1$s».</string>
-    <string name="dash_update_peer">Обновите Kinsight на устройстве «%1$s». После обновления синхронизация с ним возобновится.</string>
+    <string name="dash_update_self">Обновите Kinsight на этом телефоне, чтобы снова синхронизироваться с телефоном «%1$s».</string>
+    <string name="dash_update_peer">Обновите Kinsight на телефоне «%1$s». После обновления синхронизация с ним возобновится.</string>
     <string name="dash_new_parent">Новые родители в вашей группе: %1$s. Они видят ваше экранное время.</string>
     <string name="dash_new_parent_body">Его видят все родители вашей семейной группы. Полный список: Настройки → Кто видит мои данные.</string>
     <string name="dash_new_parent_ok">Понятно</string>

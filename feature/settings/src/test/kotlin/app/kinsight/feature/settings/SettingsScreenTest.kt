@@ -161,7 +161,7 @@ class SettingsScreenTest {
         show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running), onReset = { reset = true })
         rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_reset"))
         rule.onNodeWithTag("set_reset").performClick()
-        rule.onNodeWithText("new keys", substring = true).assertExists()
+        rule.onNodeWithText("leaves the group for good", substring = true).assertExists()
         rule.onNodeWithText("pair it again", substring = true).assertExists()
         rule.onNodeWithTag("set_reset_confirm").assertIsNotEnabled().performClick()
         assertFalse(reset)

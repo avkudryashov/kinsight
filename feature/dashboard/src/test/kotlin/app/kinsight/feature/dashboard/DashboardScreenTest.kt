@@ -161,7 +161,7 @@ class DashboardScreenTest {
     fun aRadioErrorShowsABanner() = bannerFor(running.copy(state = ServiceState.RADIO_ERROR), "Bluetooth error")
 
     @Test
-    fun aKeyErrorShowsABanner() = bannerFor(running.copy(state = ServiceState.STORAGE_ERROR), "Key storage error")
+    fun aKeyErrorShowsABanner() = bannerFor(running.copy(state = ServiceState.STORAGE_ERROR), "Secure storage problem")
 
     @Test
     fun aKeyErrorBannerOpensSettings() {
