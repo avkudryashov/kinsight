@@ -16,7 +16,7 @@
     <string name="grp_remove">Eliminar del grupo</string>
     <string name="grp_grant_title">¿Hacer administrador a %1$s?</string>
     <string name="grp_grant_body">Los administradores pueden invitar y eliminar teléfonos. No se puede deshacer sin volver a emparejar ese teléfono.</string>
-    <string name="grp_remove_title">¿Eliminar a %1$s?</string>
+    <string name="grp_remove_title">¿Eliminar «%1$s» del grupo?</string>
     <string name="grp_remove_body">El teléfono deja de sincronizarse con el grupo. Para volver, hay que desconectarlo en sus propios ajustes («Desconectar este teléfono y volver a emparejarlo») e invitarlo de nuevo. Hasta una próxima actualización de Kinsight, todavía podrá reconocer por Bluetooth los teléfonos de tu familia que estén cerca.</string>
     <string name="grp_leave">Salir del grupo</string>
     <string name="grp_leave_title">¿Salir del grupo familiar?</string>
@@ -29,14 +29,14 @@
     <string name="grp_no_group_title">Sin grupo</string>
     <string name="grp_no_group_body">Este teléfono no está en ningún grupo familiar.</string>
     <string name="grp_removed_title">Ya no está en el grupo</string>
-    <string name="grp_removed_body">Este teléfono se ha eliminado del grupo familiar o ha salido de él.</string>
+    <string name="grp_removed_body">Este teléfono ha sido eliminado del grupo familiar o ha salido de él.</string>
     <string name="grp_unavailable_title">No se puede mostrar el grupo</string>
     <string name="grp_err_title">No ha funcionado</string>
     <string name="grp_ok">Aceptar</string>
     <string name="grp_err_leave_no_group">Este teléfono ya no es miembro activo de un grupo familiar, así que no hay nada de lo que salir.</string>
     <string name="grp_err_leave_sole_admin">No se ha permitido la salida: todavía hay otros teléfonos en el grupo y este teléfono es su único administrador. Haz administrador a otro adulto o elimina los demás teléfonos, y luego sal.</string>
     <string name="grp_err_leave_not_signed">No se ha podido registrar la salida de este teléfono. No se ha borrado nada; inténtalo de nuevo.</string>
-    <string name="grp_err_leave_wipe_failed">Tu familia ya sabe que este teléfono ha salido, pero no se ha podido borrar este teléfono. Toca «Empezar de nuevo» para terminar.</string>
+    <string name="grp_err_leave_wipe_failed">Tu familia ya sabe que este teléfono ha salido, pero no se han podido borrar sus datos. Toca «Empezar de nuevo» para terminar.</string>
     <string name="grp_err_grant">No se ha podido hacer administrador a este miembro.</string>
     <string name="grp_err_remove">No se ha podido eliminar a este miembro.</string>
     <!-- Invitación y unión (emparejamiento) -->

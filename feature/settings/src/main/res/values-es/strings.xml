@@ -97,7 +97,7 @@
     <string name="set_open_usage_access">Abrir acceso a datos de uso</string>
     <string name="set_pause_vs_stop">Pausar: tu tiempo se guarda y se envía cuando reanudes. Detener: este teléfono deja de conectar con la familia; tu tiempo también se guarda. Tu familia ve ambas cosas.</string>
     <string name="set_advanced">Avanzado</string>
-    <string name="set_advanced_body">Historial guardado en este teléfono, diagnóstico, desconectar este teléfono</string>
+    <string name="set_advanced_body">Historial guardado en este teléfono, diagnóstico y desconexión del teléfono</string>
     <string name="set_expanded">Desplegado</string>
     <string name="set_collapsed">Contraído</string>
 </resources>

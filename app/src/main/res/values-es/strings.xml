@@ -26,7 +26,7 @@
     <string name="channel_thresholds_description">Un menor ha superado un límite diario que has fijado (solo es un aviso, no se bloquea nada)</string>
     <string name="alert_public_threshold">Límite diario superado</string>
     <string name="alert_threshold_total">%1$s: %2$s hoy (límite %3$s)</string>
-    <string name="alert_threshold_target">%1$s: %2$s %3$s hoy (límite %4$s)</string>
+    <string name="alert_threshold_target">%1$s: %3$s hoy en %2$s (límite %4$s)</string>
     <string name="alert_threshold_body">Toca para ver el tiempo de pantalla de hoy.</string>
     <string name="nav_overview">Vista general</string>
     <string name="nav_group">Grupo</string>

@@ -7,10 +7,10 @@
     <string name="wid_today">Hoy</string>
     <string name="wid_no_children">Aún no hay menores</string>
     <string name="wid_no_data_today">Sin datos hoy</string>
-    <string name="wid_paused">En pausa desde %1$s</string>
-    <string name="wid_no_contact">Sin contacto desde %1$s</string>
+    <string name="wid_paused">En pausa: %1$s</string>
+    <string name="wid_no_contact">Sin contacto: %1$s</string>
     <string name="wid_updated">Actualizado: %1$s</string>
-    <string name="wid_not_sharing">Intercambio desactivado</string>
+    <string name="wid_not_sharing">No comparte</string>
     <string name="wid_no_data">Aún sin datos</string>
     <string name="wid_seen_by">Lo ven: %1$s</string>
     <string name="wid_no_parents">Aún no hay adultos en el grupo</string>

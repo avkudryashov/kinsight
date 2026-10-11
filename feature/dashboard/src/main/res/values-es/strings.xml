@@ -55,7 +55,7 @@
     <string name="dash_update_notice">Un teléfono de la familia necesita actualizar Kinsight. La sincronización con él se reanuda tras la actualización.</string>
     <string name="dash_update_self">Actualiza Kinsight en este teléfono para volver a sincronizar con %1$s.</string>
     <string name="dash_update_peer">Actualiza Kinsight en %1$s. La sincronización con él se reanuda tras la actualización.</string>
-    <string name="dash_new_parent">Nuevo en tu grupo familiar: %1$s. Puede ver tu tiempo de pantalla.</string>
+    <string name="dash_new_parent">Tu tiempo de pantalla ya es visible para: %1$s.</string>
     <string name="dash_new_parent_body">Lo ven todos los adultos de tu grupo familiar. En Ajustes → Quién ve mis datos aparecen todos.</string>
     <string name="dash_new_parent_ok">Entendido</string>
     <string name="dash_searching">Buscando los teléfonos de tu familia…</string>
