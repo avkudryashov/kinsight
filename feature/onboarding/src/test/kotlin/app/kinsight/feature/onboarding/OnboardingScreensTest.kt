@@ -7,6 +7,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -33,7 +38,7 @@ class OnboardingScreensTest {
         rule.onNodeWithTag("onb_consent_more").performScrollTo().performClick()
         rule.onNodeWithText("every parent in your family group (currently Mom) and parents who join later", substring = true).assertExists()
         rule.onNodeWithText("Your parents will see", substring = true).assertExists()
-        rule.onNodeWithText("last 7 days", substring = true).performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("last 7 days of screen time", substring = true).performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("If you hide it, sharing pauses", substring = true).performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("Your family will see the pause", substring = true).performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("Play Protect", substring = true).performScrollTo().assertIsDisplayed()
@@ -202,5 +207,40 @@ class OnboardingScreensTest {
     fun aPageOutsideTheFirstRunHasNoStep() {
         rule.setContent { KinsightTheme(dynamicColor = false) { ConsentScreen("Mom", onAgree = {}, onNotNow = {}) } }
         rule.onNodeWithTag("onb_step").assertDoesNotExist()
+    }
+
+    @Test
+    fun theDetailsToggleSaysWhetherItIsOpen() {
+        rule.setContent { KinsightTheme(dynamicColor = false) { ConsentScreen("Mom", onAgree = {}, onNotNow = {}) } }
+        val more = rule.onNodeWithTag("onb_consent_more")
+        more.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Collapsed"))
+        more.performScrollTo().performClick()
+        more.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Expanded"))
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun theDetailsToggleStateInRussian() {
+        rule.setContent { KinsightTheme(dynamicColor = false) { ConsentScreen("Мама", onAgree = {}, onNotNow = {}) } }
+        val more = rule.onNodeWithTag("onb_consent_more")
+        more.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Свёрнуто"))
+        more.performScrollTo().performClick()
+        more.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Развёрнуто"))
+    }
+
+    @Test
+    fun theVisiblePointsMentionTheBacklog() {
+        rule.setContent { KinsightTheme(dynamicColor = false) { ConsentScreen("Mom", onAgree = {}, onNotNow = {}) } }
+        rule.onNodeWithText("What is seen:", substring = true).assert(hasText("last 7 days", substring = true))
+    }
+
+    @Test
+    fun theProgressBarIsSilentForTalkBack() {
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                CompositionLocalProvider(LocalStepProgress provides StepProgress(3, 8)) { ParentInfoScreen(onNext = {}) }
+            }
+        }
+        rule.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.ProgressBarRangeInfo)).assertCountEquals(0)
     }
 }

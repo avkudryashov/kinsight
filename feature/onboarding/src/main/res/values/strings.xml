@@ -64,12 +64,14 @@
     <string name="onb_consent_child">Your parents will see how much time you spend on your phone and in which apps.</string>
     <string name="onb_consent_failed">Could not turn on sharing. Try again, or open Settings → Diagnostics on this phone.</string>
     <string name="onb_step">Step %1$d of %2$d</string>
-    <string name="onb_consent_point_what">What is seen: how long you spend in each app, how often you unlock the phone and at what hours. Kinsight counts this in the background.</string>
+    <string name="onb_consent_point_what">What is seen: how long you spend in each app, how often you unlock the phone and at what hours. Kinsight counts this in the background, and the first sending also includes up to the last 7 days.</string>
     <string name="onb_consent_point_who">Who sees it: every parent of your family group (now %1$s) and parents who join later.</string>
     <string name="onb_consent_point_who_group">Who sees it: every parent of your family group, including parents who join later.</string>
     <string name="onb_consent_point_pause">How to stop: a pause takes two taps on Overview. Your family sees the pause, and while sharing is on a notification is always shown.</string>
     <string name="onb_consent_more">More details</string>
     <string name="onb_consent_less">Fewer details</string>
+    <string name="onb_consent_expanded">Expanded</string>
+    <string name="onb_consent_collapsed">Collapsed</string>
     <string name="onb_open_settings">Open app settings</string>
     <string name="onb_nearby_blocked">Nearby devices is turned off for Kinsight and Android will not ask again. Open the app\'s settings, then Permissions → Nearby devices → Allow.</string>
     <string name="onb_done_body_joined_parent">This phone is in your family group. It shows your children\'s screen time once their phones sync.</string>

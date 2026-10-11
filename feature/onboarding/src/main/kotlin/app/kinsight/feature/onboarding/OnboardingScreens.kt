@@ -41,8 +41,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 
@@ -65,7 +67,8 @@ internal fun Page(title: String, actions: @Composable ColumnScope.() -> Unit, bo
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.testTag("onb_step"),
                     )
-                    LinearProgressIndicator(progress = { p.number.toFloat() / p.total }, modifier = Modifier.fillMaxWidth())
+                    // The text above already says the step: TalkBack reads only that.
+                    LinearProgressIndicator(progress = { p.number.toFloat() / p.total }, modifier = Modifier.fillMaxWidth().clearAndSetSemantics {})
                 }
             }
             Text(title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
@@ -160,7 +163,8 @@ fun ConsentScreen(recipients: String, onAgree: () -> Unit, onNotNow: () -> Unit,
         )
         ConsentPoint(Icons.Filled.Notifications, stringResource(R.string.onb_consent_point_pause))
         TextButton(onPrivacyPolicy, Modifier.testTag("onb_privacy")) { Text(stringResource(R.string.onb_privacy_policy)) }
-        TextButton({ more = !more }, Modifier.testTag("onb_consent_more")) {
+        val moreState = stringResource(if (more) R.string.onb_consent_expanded else R.string.onb_consent_collapsed)
+        TextButton({ more = !more }, Modifier.testTag("onb_consent_more").semantics { stateDescription = moreState }) {
             Text(stringResource(if (more) R.string.onb_consent_less else R.string.onb_consent_more))
         }
         if (more) {
