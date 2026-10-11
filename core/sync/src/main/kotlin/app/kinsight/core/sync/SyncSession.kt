@@ -44,7 +44,16 @@ const val MIN_PROTOCOL_VERSION = 2
 
 sealed interface SessionResult {
     /** [protocolVersion]: the version both sides agreed on in Hello. */
-    data class Completed(val peer: DeviceId, val received: Int, val sentBatches: Int, val protocolVersion: Int) : SessionResult
+    data class Completed(val peer: DeviceId, val received: Int, val sentBatches: Int, val protocolVersion: Int) : SessionResult {
+        /**
+         * Both vectors (canonical bytes) as exchanged at the start of the session; the transport's «nothing new» rule
+         * keys on them. Outside equals on purpose (arrays); empty when not recorded.
+         */
+        var ourVector: ByteArray = ByteArray(0)
+            internal set
+        var peerVector: ByteArray = ByteArray(0)
+            internal set
+    }
     data class Rejected(val reason: Reject.Reason, val byPeer: Boolean) : SessionResult
     data class TooManyInvalid(val peer: DeviceId) : SessionResult
     data class Failed(val cause: Throwable) : SessionResult
@@ -348,7 +357,10 @@ class SyncSession internal constructor(
                     else -> throw ProtocolException("unexpected message")
                 }
             }
-            val completed = SessionResult.Completed(peer.id, received, sentBatches, agreed)
+            val completed = SessionResult.Completed(peer.id, received, sentBatches, agreed).also {
+                it.ourVector = ourVector.canonicalBytes()
+                it.peerVector = peerVector.canonicalBytes()
+            }
             closingHandshake(ch, inbox)
             completed
         } finally {

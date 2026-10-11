@@ -330,7 +330,13 @@ class SyncEngine(
         val problem = when (result) {
             is SessionResult.Completed -> {
                 val empty = result.received == 0 && result.sentBatches == 0
-                listOfNotNull(primary, secondary).forEach { policy.onCompleted(it, now, empty, initiated = it == initiatedTo) }
+                listOfNotNull(primary, secondary).forEach {
+                    if (it == primary) {
+                        policy.onCompleted(it, now, empty, result.ourVector, result.peerVector)
+                    } else {
+                        policy.onCompleted(it, now)
+                    }
+                }
                 null
             }
             is SessionResult.TooManyInvalid -> {

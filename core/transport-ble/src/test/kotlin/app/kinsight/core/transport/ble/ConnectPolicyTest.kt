@@ -34,10 +34,11 @@ class ConnectPolicyTest {
         mono: Long = 0,
         fast: Boolean = false,
         selfV: ByteArray = vectorOf(self),
+        wall: Long = now,
     ): Decision = policy.decide(
         Sighting(Addr, peer, rssi = -60),
         peerId?.let(PeerKey::of) ?: PeerKey.ofTag(peer.deviceTag),
-        peerId, self, selfV, selfId, key, now, mono, fast,
+        peerId, self, selfV, selfId, key, wall, mono, fast,
     )
 
     /** The vector behind one of our test adverts (the tests build them from vector(1..9) in the current window). */
@@ -91,12 +92,15 @@ class ConnectPolicyTest {
         return if (aFirst) (sa to a) to (sb to b) else (sb to b) to (sa to a)
     }
 
+    /** The canonical vectors of a pair as an empty session exchanged them (ours = [self], theirs = [peer]). */
+    private fun empty(self: AdvertPayload, peer: AdvertPayload, peerId: DeviceId, at: Long) =
+        policy.onCompleted(PeerKey.of(peerId), nowMono = at, empty = true, ourVector = vectorOf(self), peerVector = vectorOf(peer))
+
     @Test
-    fun normalModeSkipsAPeerWhoseLastSessionWasEmptyForUpToAnHour() {
+    fun normalModeSkipsAPeerWhoseLastSessionWasEmptyForUpToTheCeiling() {
         val (small, big) = smallThenBig()
-        val peer = PeerKey.of(big.second)
         assertIs<Decision.Connect>(decide(small.first, small.second, big.first, big.second, mono = 0))
-        policy.onCompleted(peer, nowMono = 1_000, empty = true, initiated = true)
+        empty(small.first, big.first, big.second, at = 1_000)
         assertEquals(Decision.Ignore("cooldown"), decide(small.first, small.second, big.first, big.second, mono = 2_000))
         assertEquals(
             Decision.Ignore("nothing new"),
@@ -106,18 +110,59 @@ class ConnectPolicyTest {
             Decision.Ignore("nothing new"),
             decide(small.first, small.second, big.first, big.second, mono = 1_000 + ConnectPolicy.MAX_SILENCE_MS - 1),
         )
-        // Liveness: one session per hour even when nothing moves.
+        // Liveness: one session per ceiling even when nothing moves.
         assertIs<Decision.Connect>(decide(small.first, small.second, big.first, big.second, mono = 1_000 + ConnectPolicy.MAX_SILENCE_MS))
+    }
+
+    @Test
+    fun normalModeKeepsSkippingAcrossWindowBoundariesUntilTheCeiling() {
+        val (small, big) = smallThenBig()
+        empty(small.first, big.first, big.second, at = 0)
+        // Real clock: the advertised vector tags rotate every 15 min window, the vectors behind them do not.
+        for (minutes in listOf(16L, 31L, 39L)) {
+            val wall = now + minutes * minute
+            val d = decide(
+                advert(small.second, vectorOf(small.first).let { ByteBuffer.wrap(it).int }, at = wall), small.second,
+                advert(big.second, ByteBuffer.wrap(vectorOf(big.first)).int, at = wall), big.second,
+                mono = minutes * minute, wall = wall, selfV = vectorOf(small.first),
+            )
+            assertEquals(Decision.Ignore("nothing new"), d, "after $minutes min")
+        }
+        val wall = now + 40 * minute
+        assertActs(
+            decide(
+                advert(small.second, ByteBuffer.wrap(vectorOf(small.first)).int, at = wall), small.second,
+                advert(big.second, ByteBuffer.wrap(vectorOf(big.first)).int, at = wall), big.second,
+                mono = 40 * minute, wall = wall, selfV = vectorOf(small.first),
+            ),
+        )
     }
 
     @Test
     fun normalModeDialsAfterTheCooldownWhenOurVectorChanged() {
         val (small, big) = smallThenBig()
-        val peer = PeerKey.of(big.second)
-        assertIs<Decision.Connect>(decide(small.first, small.second, big.first, big.second, mono = 0))
-        policy.onCompleted(peer, nowMono = 1_000, empty = true, initiated = true)
+        empty(small.first, big.first, big.second, at = 1_000)
         assertIs<Decision.Connect>(
             decide(small.first, small.second, big.first, big.second, mono = 1_000 + ConnectPolicy.COOLDOWN_MS, selfV = vector(5)),
+        )
+    }
+
+    @Test
+    fun normalModeActsAfterTheCooldownWhenThePeersVectorChanged() {
+        val (small, big) = smallThenBig()
+        empty(small.first, big.first, big.second, at = 1_000)
+        val moved = advert(big.second, 7)
+        assertActs(decide(small.first, small.second, moved, big.second, mono = 1_000 + ConnectPolicy.COOLDOWN_MS))
+    }
+
+    @Test
+    fun theSkipHoldsWhenTheRolesFlipAfterTagRotation() {
+        val (small, big) = smallThenBig()
+        // The empty session was dialled by `small`; the side that was the responder now has the smaller tag.
+        empty(big.first, small.first, small.second, at = 1_000)
+        assertEquals(
+            Decision.Ignore("nothing new"),
+            decide(big.first, big.second, small.first, small.second, mono = 1_000 + ConnectPolicy.COOLDOWN_MS),
         )
     }
 
@@ -125,9 +170,14 @@ class ConnectPolicyTest {
     fun normalModeKeepsDialingAfterASessionThatMovedData() {
         val (small, big) = smallThenBig()
         val peer = PeerKey.of(big.second)
-        assertIs<Decision.Connect>(decide(small.first, small.second, big.first, big.second, mono = 0))
-        policy.onCompleted(peer, nowMono = 1_000, empty = false, initiated = true)
+        policy.onCompleted(peer, nowMono = 1_000, empty = false, ourVector = vectorOf(small.first), peerVector = vectorOf(big.first))
         assertIs<Decision.Connect>(decide(small.first, small.second, big.first, big.second, mono = 1_000 + ConnectPolicy.COOLDOWN_MS))
+    }
+
+    @Test
+    fun theCeilingStaysBelowTheSmallestNoContactSetting() {
+        // noContactHours = 1 (AppPrefs 1..168): gap = ceiling + scan batching and session time must stay under it.
+        assertTrue(ConnectPolicy.MAX_SILENCE_MS + 15 * minute <= 60 * minute)
     }
 
     @Test
@@ -200,7 +250,7 @@ class ConnectPolicyTest {
         // A child (showOthers off) never takes a parent's own entries: the vectors never match (emulator run, 1 empty
         // session per second for the whole fast minute).
         assertIs<Decision.Connect>(decide(small.first, small.second, big.first, big.second, mono = 0, fast = true))
-        policy.onCompleted(peer, nowMono = 1_000, empty = true, initiated = true)
+        empty(small.first, big.first, big.second, at = 1_000)
         assertEquals(
             Decision.Ignore("nothing new"),
             decide(small.first, small.second, big.first, big.second, mono = 30_000, fast = true),
@@ -218,7 +268,7 @@ class ConnectPolicyTest {
         val (small, big) = smallThenBig()
         val peer = PeerKey.of(big.second)
         assertIs<Decision.Connect>(decide(small.first, small.second, big.first, big.second, mono = 0, fast = true))
-        policy.onCompleted(peer, nowMono = 1_000, empty = false, initiated = true)
+        policy.onCompleted(peer, nowMono = 1_000, empty = false, ourVector = vectorOf(small.first), peerVector = vectorOf(big.first))
         assertIs<Decision.Connect>(decide(small.first, small.second, big.first, big.second, mono = 30_000, fast = true))
     }
 

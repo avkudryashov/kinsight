@@ -41,11 +41,13 @@ sealed interface Decision {
  *    cooldown, so somebody has to); an unresolved tag tie dials at once;
  *  - at least [fastSpacingMs] between two dials to the same peer and after any session with it;
  *  - after [fastMaxFailures] failed dials in a row the normal cooldown and backoff apply again until [onFastStart];
- *  - a peer whose last session we initiated moved nothing either way is not dialled again while neither its advertised
+ *  - a peer whose last session (either side dialled) moved nothing either way is not dialled again while neither its
  *    vector nor ours changed («nothing new»). This is what ends the loop between a child and a parent: the child
  *    (showOthers off) never takes the parent's own entries, so their vectors never match.
  * Normal mode applies «nothing new» too, for at most [maxSilenceMs] after that empty session (audit A-3: a child and
- * a parent at night otherwise ran an empty session every 10 minutes).
+ * a parent at night otherwise ran an empty session every 10 minutes). «Unchanged» does not depend on the window: the
+ * advertised vector tag rotates every window (§6.1), so the session's two canonical vectors are stored and the advert
+ * is compared with the tag of the stored peer vector for the window the group tag matched.
  * Times: nowWall for tag windows, nowMono (elapsedRealtime) for cooldowns.
  */
 class ConnectPolicy(
@@ -64,9 +66,8 @@ class ConnectPolicy(
     private val lastSession = HashMap<PeerKey, Long>()
     private val yieldSince = HashMap<PeerKey, Long>()
 
-    /** Our vector and the peer's advertised vector tag at the last Connect, and those of a session that moved nothing. */
-    private val dialSig = HashMap<PeerKey, ByteArray>()
-    private val noopSig = HashMap<PeerKey, ByteArray>()
+    /** Our vector and the peer's vector (canonical bytes) of the last session that moved nothing, either side dialling. */
+    private val noop = HashMap<PeerKey, Pair<ByteArray, ByteArray>>()
 
     @Synchronized
     fun decide(
@@ -88,7 +89,10 @@ class ConnectPolicy(
             return Decision.Ignore("in sync")
         }
         if (isBlocked(peer, nowMono)) return Decision.Ignore("blocked")
-        val sig = selfVector + s.payload.vectorTag
+        val unchanged = noop[peer]?.let { (ours, theirs) ->
+            ours.contentEquals(selfVector) &&
+                s.payload.vectorTag.contentEquals(DiscoveryTags.vectorTag(discoveryKey, window, theirs))
+        } == true
         val ours = self.deviceTagValue
         val theirs = s.payload.deviceTagValue
         val weConnect: Boolean? = when {
@@ -97,7 +101,7 @@ class ConnectPolicy(
             else -> null // unresolved tie
         }
         if (fast && (failuresInRow[peer] ?: 0) < fastMaxFailures) {
-            if (noopSig[peer]?.contentEquals(sig) == true) return Decision.Ignore("nothing new")
+            if (unchanged) return Decision.Ignore("nothing new")
             val recent = maxOf(lastDial[peer] ?: Long.MIN_VALUE, lastSession[peer] ?: Long.MIN_VALUE)
             if (recent != Long.MIN_VALUE && nowMono - recent < fastSpacingMs) return Decision.Ignore("fast spacing")
             if (weConnect == false) {
@@ -112,25 +116,23 @@ class ConnectPolicy(
                     return Decision.Prepare(peer)
                 }
             }
-            return connect(peer, s, sig, nowMono)
+            return connect(peer, s, nowMono)
         }
         if ((retryAt[peer] ?: Long.MIN_VALUE) > nowMono) return Decision.Ignore("cooldown")
         // A-3: the last session we dialled moved nothing and neither vector changed since: wait, but at most
         // [maxSilenceMs] after it, so the pair still meets once in a while (peer seen, liveness).
-        val quietSince = lastSession[peer]
-        if (noopSig[peer]?.contentEquals(sig) == true && quietSince != null && nowMono - quietSince < maxSilenceMs) {
+        if (unchanged && nowMono - lastSession.getValue(peer) < maxSilenceMs) {
             return Decision.Ignore("nothing new")
         }
         return when (weConnect) {
             null -> Decision.Ignore("tag tie")
-            true -> connect(peer, s, sig, nowMono)
+            true -> connect(peer, s, nowMono)
             false -> Decision.Prepare(peer)
         }
     }
 
-    private fun connect(peer: PeerKey, s: Sighting, sig: ByteArray, nowMono: Long): Decision {
+    private fun connect(peer: PeerKey, s: Sighting, nowMono: Long): Decision {
         lastDial[peer] = nowMono
-        dialSig[peer] = sig
         return Decision.Connect(peer, s.address)
     }
 
@@ -139,17 +141,23 @@ class ConnectPolicy(
 
     /**
      * A finished (or rejected) session: next one with this peer after the cooldown. [empty]: nothing moved either way;
-     * [initiated]: we dialled it (so the sighting it was decided on is known).
+     * [ourVector] and [peerVector] (canonical bytes, as exchanged in the session) are kept when [empty], whoever dialled.
      */
     @Synchronized
-    fun onCompleted(peer: PeerKey, nowMono: Long, empty: Boolean = false, initiated: Boolean = false) {
+    fun onCompleted(
+        peer: PeerKey,
+        nowMono: Long,
+        empty: Boolean = false,
+        ourVector: ByteArray? = null,
+        peerVector: ByteArray? = null,
+    ) {
         later(peer, nowMono + cooldownMs)
         failuresInRow.remove(peer)
         lastSession[peer] = nowMono
-        if (!empty) {
-            noopSig.remove(peer)
-        } else if (initiated) {
-            dialSig[peer]?.let { noopSig[peer] = it }
+        if (empty && ourVector != null && peerVector != null) {
+            noop[peer] = ourVector to peerVector
+        } else {
+            noop.remove(peer)
         }
     }
 
@@ -186,6 +194,6 @@ class ConnectPolicy(
         const val FAST_YIELD_MS = 5_000L
         const val FAST_SPACING_MS = 5_000L
         const val FAST_MAX_FAILURES = 3
-        const val MAX_SILENCE_MS = 60 * 60_000L
+        const val MAX_SILENCE_MS = 40 * 60_000L
     }
 }
