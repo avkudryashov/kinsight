@@ -14,6 +14,7 @@ import app.kinsight.core.data.AlertMarkers
 import app.kinsight.core.data.AlertPlan
 import app.kinsight.core.data.AlertPlanner
 import app.kinsight.core.data.AppGraph
+import app.kinsight.core.data.CategoryOverrides
 import app.kinsight.core.data.GroupSnapshot
 import app.kinsight.core.data.Role
 import app.kinsight.core.transport.ble.BlePermissions
@@ -46,12 +47,12 @@ object AlertsRun {
         if (snapshot.removed) return@serialized
         val prefs = g.prefs.current()
         val nowMs = System.currentTimeMillis()
-        // Threshold rules and category overrides are the parent's local preferences (stage 5b); the planner evaluates
-        // only rules of active children.
+        // Threshold rules are the parent's local preferences (stage 5b); category overrides are the family's shared
+        // entries in the snapshot (stage 5c). The planner evaluates only rules of active children.
         val input = clampJoined(
             AlertPlanner.input(
                 snapshot, prefs, g.prefs.alertMarkers(), nowMs, ZoneId.systemDefault(),
-                thresholds = g.prefs.thresholds.first(), overrides = g.prefs.categoryOverrides.first(),
+                thresholds = g.prefs.thresholds.first(), overrides = CategoryOverrides.effective(snapshot),
             ),
         )
         AlertChannels.ensure(context)
