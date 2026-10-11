@@ -190,9 +190,8 @@ class SessionHardeningTest {
         }
     }
 
-    @Test
-    fun anAbsurdOwnSeqFromAPeerIsIgnored() = runBlocking<Unit> {
-        val (a, b) = buildGroup(2)
+    /** One session where [a] announces [ownSeen] as [b]'s own log, then both finish; [b]'s own vector afterwards. */
+    private suspend fun announceOwn(a: Node, b: Node, ownSeen: Long): Long {
         val (sa, sb) = MemoryPipe.pair()
         val prologue = SecureChannel.prologue(b.store.groupId)
         coroutineScope {
@@ -201,14 +200,37 @@ class SessionHardeningTest {
             val hello = assertNotNull(ch.next().hello)
             ch.put(SyncMessage(hello = Hello(protocol_version = PROTOCOL_VERSION, group_id = hello.group_id, membership_hash = hello.membership_hash, wants_foreign_entries = false)))
             assertNotNull(ch.next().vector_announce)
-            val huge = app.kinsight.core.model.proto.VectorItem(author_id = b.keys.deviceId.bytes().toByteString(), seq = SyncSession.MAX_OWN_SEQ_JUMP + 1)
-            ch.put(SyncMessage(vector_announce = VectorAnnounce(vector = listOf(huge))))
+            val own = app.kinsight.core.model.proto.VectorItem(author_id = b.keys.deviceId.bytes().toByteString(), seq = ownSeen)
+            ch.put(SyncMessage(vector_announce = VectorAnnounce(vector = listOf(own))))
             ch.put(SyncMessage(done = Done()))
             while (ch.next().done == null) Unit
             ch.put(SyncMessage(done = Done()))
             assertIs<SessionResult.Completed>(session.await())
         }
-        assertEquals(0L, b.store.versionVector()[b.keys.deviceId])
+        return b.store.versionVector()[b.keys.deviceId]
+    }
+
+    @Test
+    fun anAbsurdOwnSeqFromAPeerIsIgnored() = runBlocking<Unit> {
+        val (a, b) = buildGroup(2)
+        assertEquals(0L, announceOwn(a, b, SyncSession.MAX_OWN_SEQ_JUMP + 1))
+    }
+
+    @Test
+    fun anOwnSeqExactlyAtTheJumpLimitIsAccepted() = runBlocking<Unit> {
+        val (a, b) = buildGroup(2)
+        assertEquals(SyncSession.MAX_OWN_SEQ_JUMP, announceOwn(a, b, SyncSession.MAX_OWN_SEQ_JUMP))
+        // The limit is per session and relative to what we hold: the next session may lift by as much again.
+        assertEquals(2 * SyncSession.MAX_OWN_SEQ_JUMP, announceOwn(a, b, 2 * SyncSession.MAX_OWN_SEQ_JUMP))
+    }
+
+    @Test
+    fun anOwnSeqAtOrBelowWhatWeHoldChangesNothing() = runBlocking<Unit> {
+        val (a, b) = buildGroup(2)
+        assertEquals(5L, announceOwn(a, b, 5))
+        assertEquals(5L, announceOwn(a, b, 3))
+        assertEquals(5L, announceOwn(a, b, 5))
+        assertEquals(5L, announceOwn(a, b, 0))
     }
 }
 
