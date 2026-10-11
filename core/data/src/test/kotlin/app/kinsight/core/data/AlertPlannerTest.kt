@@ -438,16 +438,16 @@ class AlertPlannerTest {
     }
 
     @Test
-    fun openProblemsAreTheUnresolvedPausesAndHiddenNotifications() {
+    fun openProblemsAreTheAnnouncedUnresolvedPausesAndHiddenNotifications() {
         fun e(seq: Long, kind: StateEvent.Kind) = ev(kid, seq, kind)
-        assertEquals(
-            listOf(Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 3_000, kid.id)),
-            AlertPlanner.openProblems(input(events = listOf(e(1, StateEvent.Kind.SHARING_PAUSED), e(2, StateEvent.Kind.SHARING_RESUMED), e(3, StateEvent.Kind.SHARING_PAUSED)))),
-        )
-        assertEquals(emptyList(), AlertPlanner.openProblems(input(events = listOf(e(1, StateEvent.Kind.SHARING_PAUSED), e(2, StateEvent.Kind.SHARING_RESUMED)))))
+        fun told(seq: Long) = AlertMarkers(knownParents = setOf(mom.id), initialized = true, notifiedSeq = mapOf(kid.id to seq))
+        val pauseAgain = listOf(e(1, StateEvent.Kind.SHARING_PAUSED), e(2, StateEvent.Kind.SHARING_RESUMED), e(3, StateEvent.Kind.SHARING_PAUSED))
+        assertEquals(listOf(Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 3_000, kid.id)), AlertPlanner.openProblems(input(events = pauseAgain, markers = told(3))))
+        assertEquals(emptyList(), AlertPlanner.openProblems(input(events = pauseAgain, markers = told(2))), "not said yet: the plan says it, with sound")
+        assertEquals(emptyList(), AlertPlanner.openProblems(input(events = pauseAgain.take(2), markers = told(2))))
         assertEquals(
             listOf(StateEvent.Kind.NOTIFICATION_HIDDEN),
-            AlertPlanner.openProblems(input(events = listOf(e(1, StateEvent.Kind.NOTIFICATION_HIDDEN), e(2, StateEvent.Kind.BLUETOOTH_OFF)))).map { it.kind },
+            AlertPlanner.openProblems(input(events = listOf(e(1, StateEvent.Kind.NOTIFICATION_HIDDEN), e(2, StateEvent.Kind.BLUETOOTH_OFF)), markers = told(2))).map { it.kind },
         )
     }
 }

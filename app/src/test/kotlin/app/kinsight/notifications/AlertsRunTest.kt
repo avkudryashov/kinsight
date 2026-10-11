@@ -238,15 +238,28 @@ class AlertsRunTest {
     }
 
     @Test
-    fun theUpgradeRepostsOpenProblemsSilentlyOnTheNewChannel() {
+    fun theUpgradeRepostsOpenProblemsSilentlyOnTheNewChannel() = runBlocking<Unit> {
         AlertChannels.ensure(context, Role.PARENT)
-        AlertsRun.repostOpen(context, input(events = listOf(paused(1), resumed(2), paused(3))))
+        val told = AlertMarkers(initialized = true, notifiedSeq = mapOf(kid.id to 3L))
+        val i = input(events = listOf(paused(1), resumed(2), paused(3)), markers = told)
+        AlertsRun.deliver(context, i, AlertPlanner.plan(i), AlertsRun.reopened(i)) {}
         val posted = alerts().single()
         assertEquals(AlertChannels.IMPORTANT, posted.channelId)
         assertEquals("silent: the parent was told before", androidx.core.app.NotificationCompat.GROUP_ALERT_SUMMARY, posted.groupAlertBehavior)
-        nm.cancelAll()
-        AlertsRun.repostOpen(context, input(self = kidSelf, members = listOf(momOther, kidSelf), events = listOf(paused(1))))
-        assertTrue(shadowOf(nm).allNotifications.isEmpty())
+        assertTrue(AlertsRun.reopened(input(self = kidSelf, members = listOf(momOther, kidSelf), events = listOf(paused(1)), markers = told)).isEmpty())
+    }
+
+    /** A resolve in the same pass as a fresh post of that child keeps the post and its summary (N1). */
+    @Test
+    fun aResolveDoesNotDropTheSummaryOfAGroupPostedInThisPass() {
+        val stopped = Alert.Integrity("Kid", StateEvent.Kind.SYNC_STOPPED, 1_000, kid.id)
+        AlertNotifier.postAll(context, listOf(stopped, Alert.Resolved(kid.id, StateEvent.Kind.SHARING_PAUSED, "Kid")))
+        assertEquals(1, alerts().size)
+        assertEquals(1, shadowOf(nm).allNotifications.count { it.flags and Notification.FLAG_GROUP_SUMMARY != 0 })
+        // The service may not list the fresh post yet: the decision must not depend on the shade then.
+        assertFalse(AlertNotifier.mayDropSummary(setOf(AlertNotifier.idOf(stopped))))
+        assertTrue(AlertNotifier.mayDropSummary(emptySet()))
+        assertTrue(AlertNotifier.mayDropSummary(null))
     }
 
     @Test

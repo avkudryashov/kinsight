@@ -36,23 +36,25 @@ object AlertNotifier {
     /**
      * Posts [alerts] in order, then one group summary per child that still has an alert from this pass (U26: one
      * summary update per group, not per alert, so the per-app rate limit goes to the alerts). Stops at the first alert
-     * that cannot be posted ([canPost]) and returns false; the summaries of what was posted still go up. [silent]: a
-     * re-post that must not sound again (the open problems moved off the 0.7.x channel).
+     * that cannot be posted ([canPost]) and returns false; the summaries of what was posted still go up. [quiet] go
+     * first, silent: re-posts that must not sound again (the open problems moved off the 0.7.x channel); in the same
+     * pass as [alerts], so a resolve among them sees them as this pass's posts.
      */
     @SuppressLint("MissingPermission") // canPost checks it right above the notify calls
-    fun postAll(context: Context, alerts: List<Alert>, silent: Boolean = false): Boolean {
+    fun postAll(context: Context, alerts: List<Alert>, quiet: List<Alert> = emptyList()): Boolean {
+        val silent = quiet.size
         val nm = NotificationManagerCompat.from(context)
         // Per group: the latest alert (the summary's tap target) and the ids this pass left in it. A cancel or a notify
         // reaches NotificationManagerService asynchronously, so this pass keeps its own account.
         val posted = LinkedHashMap<String, Pair<Alert, MutableSet<Int>>>()
         var ok = true
-        for (alert in alerts) {
+        for ((index, alert) in (quiet + alerts).withIndex()) {
             if (alert is Alert.Resolved) {
                 val cancelled = cancelledIds(alert)
                 cancelled.forEach(nm::cancel)
                 for (group in groupsOf(alert)) {
-                    posted[group]?.second?.removeAll(cancelled)
-                    dropEmptySummary(context, group, cancelled)
+                    val left = posted[group]?.second?.apply { removeAll(cancelled) }
+                    if (mayDropSummary(left)) dropEmptySummary(context, group, cancelled)
                 }
                 continue
             }
@@ -64,7 +66,7 @@ object AlertNotifier {
             if (alert is Alert.Integrity && alert.id != null && alert.kind in AlertPlanner.CLOSERS) {
                 nm.cancel(integrityId(alert.device, alert.kind))
             }
-            nm.notify(idOf(alert), build(context, alert, silent))
+            nm.notify(idOf(alert), build(context, alert, silent = index < silent))
             val group = groupOf(alert) ?: continue
             val ids = posted[group]?.second ?: mutableSetOf()
             ids += idOf(alert)
@@ -164,6 +166,13 @@ object AlertNotifier {
         val active = context.getSystemService(NotificationManager::class.java).activeNotifications
         if (isEmptyGroup(active, group, cancelled)) NotificationManagerCompat.from(context).cancel(summaryId(group))
     }
+
+    /**
+     * A resolve may look at the shade only when this pass left no alert in the group ([postedLeft]): the service lists
+     * a fresh post with a delay, and cancelling a summary also cancels its queued children. Otherwise the summary
+     * stays (re-posted at the end of the pass); a childless one goes at the next pass's sweep.
+     */
+    internal fun mayDropSummary(postedLeft: Set<Int>?): Boolean = postedLeft.isNullOrEmpty()
 
     /** No alert of [group] in [active] apart from its summary and the [cancelled] ids. */
     internal fun isEmptyGroup(active: Array<StatusBarNotification>, group: String, cancelled: Set<Int>): Boolean =

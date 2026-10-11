@@ -311,11 +311,13 @@ object AlertPlanner {
 
     /**
      * Each current child's problems still open (a pause or a hidden notification whose latest event of the pair is the
-     * opening one), as alerts; for a re-post after their notifications were lost, not for the markers.
+     * opening one) that were already announced (seq within the child's marker: a newer one is the plan's to say,
+     * with sound), as alerts; for a re-post after their notifications were lost, not for the markers.
      */
     fun openProblems(i: AlertInput): List<Alert.Integrity> =
         i.members.filter { it.role == Role.CHILD && !it.isSelf }.flatMap { child ->
-            val own = i.events.filter { it.author == child.id }
+            val mark = i.markers.notifiedSeq[child.id] ?: 0L
+            val own = i.events.filter { it.author == child.id && it.seq <= mark }
             CLOSERS.mapNotNull { (open, close) ->
                 own.filter { it.kind == open || it.kind == close }.maxByOrNull { it.seq }?.takeIf { it.kind == open }
                     ?.let { Alert.Integrity(child.name, open, it.atMs, child.id, durationOf(it)) }
