@@ -130,7 +130,8 @@ fun BarChart(
  * and a 48 dp tooltip with its description and a caret pointing at it opens it. The scrub owns horizontal drags over
  * the chart, so a screen's swipe paging works only outside it (its arrows always work). A new [selectionKey] (e.g. the
  * range's first day) clears the selection. The [highlight]ed bar gets a bold label and a thin underline, and no bar is
- * faded (colour is never the only cue); label thinning counts from [labelAnchor], else from it, else from the last bar. A [limit] (same unit as the segments, e.g. a daily limit) draws a dashed line with [limitLabel] on a
+ * faded (colour is never the only cue); label thinning counts from [labelAnchor], else from it, else from the last bar.
+ * A [limit] (same unit as the segments, e.g. a daily limit) draws a dashed line with [limitLabel] on a
  * chip at the left and raises the scale to it, so the line is always on the chart; TalkBack reads the label after
  * [summary]. [scale], [average] and [averageLabel] work as in [BarChart].
  */
