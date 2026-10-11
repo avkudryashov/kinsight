@@ -101,6 +101,10 @@ internal fun openUsageAccessSettings(context: Context) {
 internal fun nearbyBlocked(activity: Activity?, context: Context): Boolean = activity != null &&
     BlePermissions.missing(context).any { !activity.shouldShowRequestPermissionRationale(it) }
 
+/** True when the camera request came back denied and Android will not ask again (as [nearbyBlocked]). */
+internal fun cameraBlocked(granted: Boolean, activity: Activity?): Boolean =
+    !granted && activity != null && !activity.shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)
+
 /** [OnboardingGroup] over the app graph. */
 internal class GraphOnboardingGroup(private val graph: Graph) : OnboardingGroup {
     override val state: Flow<GroupState> get() = graph.group.state
@@ -153,7 +157,7 @@ fun OnboardingRoute(
     val blocked by vm.nearbyBlocked.collectAsStateWithLifecycle()
     var unrestricted by remember { mutableStateOf(unrestrictedBattery(context)) }
     var cameraGranted by remember { mutableStateOf(readEnv(context).cameraGranted) }
-    var cameraAsked by rememberSaveable { mutableStateOf(false) }
+    var cameraBlocked by rememberSaveable { mutableStateOf(false) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         unrestricted = unrestrictedBattery(context)
         cameraGranted = readEnv(context).cameraGranted
@@ -167,6 +171,7 @@ fun OnboardingRoute(
     }
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         cameraGranted = granted
+        cameraBlocked = cameraBlocked(granted, activity)
         vm.onCameraResult(readEnv(context))
     }
     if (!restored) {
@@ -202,23 +207,15 @@ fun OnboardingRoute(
             title = stringResource(R.string.onb_camera_title),
             body = stringResource(R.string.onb_camera_body),
             agreeLabel = stringResource(R.string.onb_agree),
-            onAgree = {
-                cameraAsked = true
-                camera.launch(Manifest.permission.CAMERA)
-            },
+            onAgree = { camera.launch(Manifest.permission.CAMERA) },
             onNotNow = vm::next,
         )
         Step.SCAN -> ScanScreen(
             message = inviteError ?: if (message == OnboardingMessage.SCANNER_UNAVAILABLE) stringResource(R.string.onb_scan_unavailable) else null,
             cameraGranted = cameraGranted,
             onAllowCamera = {
-                // Asked before and Android will not ask again: only the app's settings page can allow it now.
-                if (cameraAsked && activity?.shouldShowRequestPermissionRationale(Manifest.permission.CAMERA) == false) {
-                    openAppSettings(context)
-                } else {
-                    cameraAsked = true
-                    camera.launch(Manifest.permission.CAMERA)
-                }
+                // Denied and Android will not ask again: only the app's settings page can allow it now.
+                if (cameraBlocked) openAppSettings(context) else camera.launch(Manifest.permission.CAMERA)
             },
             onBack = vm::back,
         ) {

@@ -35,7 +35,8 @@ internal fun QrScanner(onText: (String) -> Unit, onUnavailable: () -> Unit, modi
     val unavailable by rememberUpdatedState(onUnavailable)
     val analysis = remember { Executors.newSingleThreadExecutor() }
     val providerFuture = remember { ProcessCameraProvider.getInstance(context) }
-    DisposableEffect(owner) {
+    // Unit: the executor and the binding live as long as this composition, never one without the other.
+    DisposableEffect(Unit) {
         onDispose {
             providerFuture.addListener({
                 runCatching { providerFuture.get().unbindAll() }
@@ -54,7 +55,10 @@ internal fun QrScanner(onText: (String) -> Unit, onUnavailable: () -> Unit, modi
                     val preview = Preview.Builder().build().also { it.setSurfaceProvider(view.surfaceProvider) }
                     val frames = ImageAnalysis.Builder().setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build()
                     frames.setAnalyzer(analysis) { image ->
-                        val found = image.use { it.qrText() }
+                        // Raw camera input: whatever ZXing throws skips this frame, never the process.
+                        val found = runCatching { image.use { it.qrText() } }
+                            .onFailure { Log.w(TAG, "frame skipped", it) }
+                            .getOrNull()
                         if (found != null && last.getAndSet(found) != found) view.post { text(found) }
                     }
                     val camera = if (provider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)) {

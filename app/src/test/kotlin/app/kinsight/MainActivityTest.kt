@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.content.pm.FeatureInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.compose.ui.test.hasTestTag
@@ -72,6 +73,15 @@ class MainActivityTest {
         assertEquals(ActivityInfo.LAUNCH_SINGLE_TASK, info.launchMode)
         val meta = app.packageManager.getApplicationInfo(app.packageName, PackageManager.GET_META_DATA).metaData
         assertEquals(null, meta?.getString("com.google.mlkit.vision.DEPENDENCIES"))
+    }
+
+    /** CAMERA would imply a required rear camera: Play would hide Kinsight from phones without one. */
+    @Test
+    fun noCameraFeatureIsRequired() {
+        val features = app.packageManager.getPackageInfo(app.packageName, PackageManager.GET_CONFIGURATIONS).reqFeatures.orEmpty()
+        val camera = features.filter { it.name?.startsWith("android.hardware.camera") == true }
+        assertEquals(setOf("android.hardware.camera", "android.hardware.camera.any"), camera.map { it.name }.toSet())
+        assertEquals(emptyList<String>(), camera.filter { it.flags and FeatureInfo.FLAG_REQUIRED != 0 }.map { it.name })
     }
 
     @Test

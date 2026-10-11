@@ -211,6 +211,31 @@ class OnboardingViewModelTest {
     }
 
     @Test
+    fun aCameraGrantedInSettingsSkipsTheDisclosureOnResume() = runBlocking<Unit> {
+        val vm = vm(FakeGroup(GroupState.NoGroup))
+        vm.onResumed(Env.NOTHING)
+        vm.choose(Path.JOIN)
+        vm.next()
+        val nearbyOnly = Env(nearbyGranted = true, notificationsGranted = false, usageAccessGranted = false)
+        vm.onNearbyResult(nearbyOnly, blocked = false)
+        assertEquals(Step.CAMERA, vm.state.value.step)
+        vm.onResumed(nearbyOnly.copy(cameraGranted = true))
+        assertEquals(Step.SCAN, vm.state.value.step)
+    }
+
+    @Test
+    fun aDeepLinkOnTheCameraDisclosureGoesOnWithoutTheCamera() = runBlocking<Unit> {
+        val vm = vm(FakeGroup(GroupState.NoGroup))
+        vm.onResumed(Env.NOTHING)
+        vm.choose(Path.JOIN)
+        vm.next()
+        vm.onNearbyResult(Env(nearbyGranted = true, notificationsGranted = false, usageAccessGranted = false), blocked = false)
+        assertEquals(Step.CAMERA, vm.state.value.step)
+        assertTrue(vm.onInviteText(invite(DeviceRole.CHILD).toUri()))
+        assertEquals(Step.CONSENT, vm.state.value.step)
+    }
+
+    @Test
     fun aNearbyGrantAdvancesOnce() = runBlocking<Unit> {
         val vm = vm(FakeGroup(GroupState.NoGroup))
         vm.onResumed(Env.NOTHING)

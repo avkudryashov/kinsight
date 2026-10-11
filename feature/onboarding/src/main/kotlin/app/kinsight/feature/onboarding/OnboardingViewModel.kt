@@ -239,7 +239,8 @@ class OnboardingViewModel(
             }
             it.copy(path = Path.JOIN, invite = invite, consent = false, step = step)
         }
-        if (_state.value.step == Step.SCAN) next()
+        // On the camera disclosure too: the system camera app brought the link, the camera is not needed any more.
+        if (_state.value.step == Step.SCAN || _state.value.step == Step.CAMERA) next()
         return true
     }
 

@@ -3,6 +3,10 @@
     <!-- The invite QR scanner (onboarding): CameraX preview and ZXing on the device; no frame is stored or sent. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- A phone without a camera still joins: the invite link opens from the system camera or a deep link. -->
+    <!-- Both: CAMERA otherwise implies android.hardware.camera (a rear camera) as required, and Play would hide the app. -->
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
     <uses-feature
         android:name="android.hardware.camera.any"
         android:required="false" />

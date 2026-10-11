@@ -128,6 +128,19 @@ class OnboardingScreensTest {
     }
 
     @Test
+    fun theRealScannerComposesWithoutACamera() {
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                ScanScreen(message = null, cameraGranted = true, onAllowCamera = {}, onBack = {}) {
+                    QrScanner(onText = {}, onUnavailable = {}) // Robolectric has no camera: onUnavailable may fire, nothing throws
+                }
+            }
+        }
+        rule.waitForIdle()
+        rule.onNodeWithTag("onb_camera").assertExists()
+    }
+
+    @Test
     fun blockedNearbyOffersAppSettings() {
         var opened = false
         rule.setContent {
