@@ -11,4 +11,6 @@
     <string name="ds_moment_with_child">%1$s (child\'s time %2$s)</string>
     <string name="ds_heat_less">Less</string>
     <string name="ds_heat_more">More</string>
+    <!-- Debug placeholder: :app overrides it from kinsight.privacyUrl, and release packaging fails while it is a placeholder. -->
+    <string name="ds_privacy_policy_url" translatable="false">https://kinsight.example/privacy</string>
 </resources>

@@ -48,14 +48,39 @@ android {
     }
 }
 
-// The release manifest gate (audit S-M4): `./gradlew :app:checkReleaseManifestRules` (AGP already owns `checkReleaseManifest`), also run by `check`.
+// The privacy policy address (final review I-3): -Pkinsight.privacyUrl, local.properties `kinsight.privacyUrl` or
+// KINSIGHT_PRIVACY_URL. When set, it overrides the placeholder string core/designsystem ships (app resources win over
+// library ones); debug builds may keep the placeholder, release packaging fails without a real address.
+val privacyUrl: String? = ReleaseGates.privacyUrl(
+    providers.gradleProperty(ReleaseGates.PRIVACY_URL_PROPERTY).orNull,
+    rootProject.file("local.properties"),
+    providers.environmentVariable(ReleaseGates.PRIVACY_URL_ENV).orNull,
+)
+
+// The release gates (audit S-M4, final review I-2, I-3): `./gradlew :app:checkReleaseManifestRules` (AGP already owns
+// `checkReleaseManifest`) and `:app:checkReleasePrivacyUrl`. Every task that produces a release APK or AAB depends on
+// both, and `check` runs the manifest rules too.
 androidComponents {
+    onVariants { variant ->
+        if (privacyUrl != null) {
+            variant.resValues.put(
+                variant.makeResValueKey("string", ReleaseGates.PRIVACY_URL_RESOURCE),
+                com.android.build.api.variant.ResValue(privacyUrl, "privacy policy address"),
+            )
+        }
+    }
     onVariants(selector().withBuildType("release")) { variant ->
-        val gate = tasks.register<CheckReleaseManifestTask>("check${variant.name.replaceFirstChar { it.uppercase() }}ManifestRules") {
+        val name = variant.name.replaceFirstChar { it.uppercase() }
+        val gate = tasks.register<CheckReleaseManifestTask>("check${name}ManifestRules") {
             manifest.set(variant.artifacts.get(com.android.build.api.artifact.SingleArtifact.MERGED_MANIFEST))
             report.set(layout.buildDirectory.file("reports/manifest-check/${variant.name}.txt"))
         }
+        val urlGate = tasks.register<CheckPrivacyUrlTask>("check${name}PrivacyUrl") {
+            if (privacyUrl != null) url.set(privacyUrl)
+        }
         tasks.named("check") { dependsOn(gate) }
+        val packaging = ReleaseGates.packagingTasks(variant.name)
+        tasks.matching { it.name in packaging }.configureEach { dependsOn(gate, urlGate) }
     }
 }
 
