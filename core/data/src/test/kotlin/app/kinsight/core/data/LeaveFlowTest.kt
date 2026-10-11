@@ -57,6 +57,31 @@ class LeaveFlowTest {
         assertTrue(GroupState.Leaving in seen)
     }
 
+    /** The process dies after LEFT_GROUP is committed, before the wipe: the next start reads Removed, «start over» recovers. */
+    @Test
+    fun aCrashBetweenLeftGroupAndTheWipeEndsOnRemovedAndTheResetRecovers() = runBlocking<Unit> {
+        mom.prefs.setDeviceName("Mom")
+        mom.group.createGroup("Mom")
+        val old = mom.keys.deviceId
+        val job = mom.group.leaveAndForget()
+        mom.awaitBaseline()
+        job.cancel() // the kill: the leave job ends during the delivery wait, nothing was wiped
+        job.join()
+        assertTrue(mom.groups.exists())
+        assertTrue(mom.identityResets.isEmpty())
+        assertFalse(mom.resetMarker.exists())
+        assertEquals(old, mom.keys.deviceId)
+        mom.snapshots.invalidate()
+        assertEquals(GroupState.Removed, withTimeout(5_000) { mom.group.state.first { it != GroupState.Loading && it != GroupState.Leaving } })
+        mom.reset.launchResetIdentity(keepName = true).join() // RemovedRoute's «Начать заново»
+        assertEquals(ResetStatus.Idle, mom.reset.status.value)
+        assertFalse(mom.groups.exists())
+        assertTrue(old != mom.keys.deviceId)
+        assertEquals(1, mom.identityResets.size)
+        assertEquals(Prefs(deviceName = "Mom"), mom.prefs.current())
+        assertEquals(GroupState.NoGroup, withTimeout(5_000) { mom.group.state.first { it == GroupState.NoGroup } })
+    }
+
     @Test
     fun aSessionInFlightAtCommitDoesNotCount() = runBlocking<Unit> {
         mom.group.createGroup("Mom")

@@ -416,7 +416,9 @@ class PairingCoordinator(
                     if (freshIdentity) {
                         // Never wipes a group: a device in one has nothing to retry (and is refused below as before).
                         if (withContext(io) { groups.exists() }) return fail(PairFailure.ALREADY_IN_GROUP)
-                        reset.resetIdentity(keepName = true)
+                        // Not cancellable: a Cancel (or leaving the screen) mid-way would cut the reset short and
+                        // leave a blocking RESET_FAILED; it is short, and the cancel takes effect at the dial.
+                        withContext(NonCancellable) { reset.resetIdentity(keepName = true) }
                     } else {
                         reset.finishInterruptedReset()
                     }

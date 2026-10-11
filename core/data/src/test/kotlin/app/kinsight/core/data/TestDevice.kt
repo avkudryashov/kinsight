@@ -112,6 +112,7 @@ class TestDevice(
     val identityResets: MutableList<Boolean> = Collections.synchronizedList(mutableListOf()) // was the database empty when the identity went
     var identityWipeFails: Exception? = null
     var afterKeyWipeFails: Exception? = null // a crash right after the keys went, before the data
+    @Volatile var onKeyWipe: (() -> Unit)? = null // runs (blocking, on io) as the key wipe starts: the marker is set
     val resetMarker = ResetMarker(File(dir, ResetMarker.FILE_NAME))
     val reset = LocalReset(
         db = db,
@@ -123,7 +124,7 @@ class TestDevice(
         settings = settings,
         prefs = prefs,
         sync = sync,
-        wipeIdentity = { identityWipeFails?.let { throw it }; identityResets += runBlocking { db.entryDao().all().isEmpty() }; keys = DeviceKeys.generate(); afterKeyWipeFails?.let { throw it } },
+        wipeIdentity = { onKeyWipe?.invoke(); identityWipeFails?.let { throw it }; identityResets += runBlocking { db.entryDao().all().isEmpty() }; keys = DeviceKeys.generate(); afterKeyWipeFails?.let { throw it } },
         snapshots = snapshots,
         marker = resetMarker,
     )

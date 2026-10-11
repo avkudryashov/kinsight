@@ -248,6 +248,35 @@ class PairingCoordinatorTest {
     }
 
     @Test
+    fun cancellingAFreshIdentityJoinMidResetStillFinishesTheReset() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        kid.prefs.setDeviceName("Kid")
+        val oldKid = kid.keys.deviceId
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        kid.onKeyWipe = {
+            entered.countDown()
+            release.await(10, java.util.concurrent.TimeUnit.SECONDS)
+        }
+        val (_, qr) = openInvite()
+        val join = kidPairing.join(scope, qr, "Kid", consent = false, freshIdentity = true)
+        assertTrue(entered.await(10, java.util.concurrent.TimeUnit.SECONDS))
+        assertTrue(kid.resetMarker.exists()) // mid-reset: a cancellable one would be cut short here
+        join.cancel() // «Отмена», or leaving the screen
+        release.countDown()
+        withTimeout(10_000) { while (kid.resetMarker.exists() || kid.reset.status.value != ResetStatus.Idle) kotlinx.coroutines.delay(10) }
+        assertEquals(ResetStatus.Idle, kid.reset.status.value) // no RESET_FAILED
+        assertTrue(kid.reset.dismissible)
+        assertNotEquals(oldKid, kid.keys.deviceId)
+        assertEquals(1, kid.identityResets.size)
+        assertEquals(Prefs(deviceName = "Kid"), kid.prefs.current())
+        assertFalse(kid.groups.exists())
+        kotlinx.coroutines.delay(200)
+        assertIs<JoinState.Searching>(join.state.value) // the cancel took effect before the dial
+        assertEquals(0, adds(mom))
+    }
+
+    @Test
     fun aFreshIdentityRetryNeverWipesAGroup() = runBlocking<Unit> {
         mom.group.createGroup("Mom")
         kid.group.createGroup("Kid")

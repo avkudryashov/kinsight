@@ -36,4 +36,4 @@ internal fun InvitePreview() = PreviewTheme {
 
 @ThemePreviews
 @Composable
-internal fun JoinPreview() = PreviewTheme { JoinScreen(JoinState.Waiting("Mom"), "Mom", onRetry = {}, onBack = {}) }
+internal fun JoinPreview() = PreviewTheme { JoinScreen(JoinState.Waiting("Mom"), "Mom", onRetry = {}, onResetAndRetry = {}, onBack = {}) }

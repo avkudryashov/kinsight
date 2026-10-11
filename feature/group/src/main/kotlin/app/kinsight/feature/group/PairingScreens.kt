@@ -205,7 +205,7 @@ fun JoinScreen(
     state: JoinState,
     adminName: String,
     onRetry: () -> Unit,
-    onResetAndRetry: () -> Unit = onRetry,
+    onResetAndRetry: () -> Unit,
     onBack: () -> Unit,
 ) = Centered {
     Text(stringResource(R.string.join_title), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
