@@ -22,7 +22,7 @@ object DeviceIdentity {
 
     /**
      * Blocking; never on the main thread. A new identity on the next get(): run inside the usage pipeline lock and
-     * only after the group data is wiped (core/data LocalReset). Throws KeyStorageException.
+     * before the group data is wiped, bracketed by LocalReset's ResetMarker (core/data). Throws KeyStorageException.
      */
     fun resetBlocking(context: Context) {
         val app = context.applicationContext

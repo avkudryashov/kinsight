@@ -22,7 +22,7 @@ import kotlinx.coroutines.launch
  * Wiring at process start: the publish target and the role/consent gate (SyncGraph.install), fast mode for own
  * integrity events (IntegrityFastSync.install), the hourly usage
  * collection, the integrity alerts, and the checks only a fresh process can make: the «share» switch reconciled with
- * the last signed SHARING_* (spec §7), a join interrupted after the welcome finished, force stops since the last
+ * the last signed SHARING_* (spec §7), an identity reset cut short (finished first), a join interrupted after the welcome finished, force stops since the last
  * start (with or without a group: the baseline), a revoked «Nearby devices», and the one-time move of a parent's local
  * category overrides into the shared log (stage 5c). Each check runs on its own, so one
  * failing does not skip the others. Open only so the JVM tests can start WorkManager first (TestKinsightApplication).

@@ -454,6 +454,8 @@ class PairingCoordinator(
          * Steps after the group file are best effort: the device is in the group whatever they do.
          */
         private suspend fun commit(r: GuestResult.Joined): JoinState = commitLock.withLock {
+            // A cut-short identity reset finishes first (old keys over an emptied log would reuse seqs, audit A-4).
+            reset.finishInterruptedReset()
             if (withContext(io) { groups.exists() }) return@withLock JoinState.Failed(PairFailure.ALREADY_IN_GROUP)
             reset.forgetGroup()
             RoomEntryStore(db, invite.groupId).applyBatch(r.membership)

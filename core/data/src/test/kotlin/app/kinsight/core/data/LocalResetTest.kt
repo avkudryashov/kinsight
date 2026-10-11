@@ -6,6 +6,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -52,11 +53,44 @@ class LocalResetTest {
         assertFailsWith<IllegalStateException> { d.reset.resetIdentity() }
         assertTrue(d.resetMarker.exists())
         assertFalse(d.groups.exists())
+        assertTrue(d.db.entryDao().all().isNotEmpty()) // the keys go first: the data is still there
+        assertEquals(ResetStatus.Failed(ResetKind.NEW_IDENTITY, "killed"), d.reset.status.value)
+        d.reset.clearFailure()
+        assertIs<ResetStatus.Failed>(d.reset.status.value) // no dismissing while the marker is pending
         d.identityWipeFails = null
         assertTrue(d.reset.finishInterruptedReset())
         assertFalse(d.resetMarker.exists())
         assertTrue(d.db.entryDao().all().isEmpty())
         assertEquals(1, d.identityResets.size)
         assertFalse(d.reset.finishInterruptedReset()) // nothing pending any more
+    }
+
+    @Test
+    fun aCrashAfterTheKeyWipeIsFinishedAtTheNextStart() = runBlocking<Unit> {
+        d.group.createGroup("Pixel")
+        d.prefs.setDeviceName("Pixel")
+        d.afterKeyWipeFails = IllegalStateException("killed")
+        assertFailsWith<IllegalStateException> { d.reset.resetIdentity() }
+        assertEquals(listOf(false), d.identityResets) // keys gone, data still there
+        assertTrue(d.resetMarker.exists())
+        d.afterKeyWipeFails = null
+        assertTrue(d.reset.finishInterruptedReset())
+        assertFalse(d.resetMarker.exists())
+        assertTrue(d.db.entryDao().all().isEmpty())
+        assertEquals(2, d.identityResets.size)
+        assertEquals(Prefs(), d.prefs.current())
+    }
+
+    @Test
+    fun aFinishedResetWithTheMarkerLeftBehindIsRunAgainHarmlessly() = runBlocking<Unit> {
+        d.group.createGroup("Pixel")
+        d.reset.resetIdentity()
+        d.resetMarker.set()
+        assertTrue(d.reset.finishInterruptedReset())
+        assertFalse(d.resetMarker.exists())
+        assertTrue(d.db.entryDao().all().isEmpty())
+        assertFalse(d.groups.exists())
+        assertEquals(Prefs(), d.prefs.current())
+        assertEquals(ResetStatus.Idle, d.reset.status.value)
     }
 }

@@ -1,5 +1,6 @@
 package app.kinsight.core.data
 
+import app.kinsight.core.keystore.syncDirectory
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -18,10 +19,16 @@ class ResetMarker(private val file: File) {
             out.write(1)
             out.fd.sync()
         }
+        syncParent()
     }
 
     fun clear() {
         if (file.exists() && !file.delete()) throw IOException("cannot delete $file")
+        syncParent()
+    }
+
+    private fun syncParent() {
+        file.absoluteFile.parentFile?.let(::syncDirectory)
     }
 
     companion object {

@@ -69,6 +69,9 @@ class LocalResetStatusTest {
         assertEquals(ResetStatus.Failed(ResetKind.NEW_IDENTITY, "disk full"), reset.status.value)
         assertEquals(0, wipes.get())
         reset.clearFailure()
+        assertEquals(ResetStatus.Failed(ResetKind.NEW_IDENTITY, "disk full"), reset.status.value) // marker pending: retry only
+        d.resetMarker.clear()
+        reset.clearFailure()
         assertEquals(ResetStatus.Idle, reset.status.value)
     }
 

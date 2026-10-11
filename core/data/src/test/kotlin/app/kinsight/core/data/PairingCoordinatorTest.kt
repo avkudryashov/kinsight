@@ -156,6 +156,20 @@ class PairingCoordinatorTest {
     }
 
     @Test
+    fun aPendingResetFinishesBeforeTheJoin() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        kid.resetMarker.set()
+        val (invite, qr) = openInvite()
+        val join = kidPairing.join(scope, qr, "Kid", consent = false)
+        invite.state.awaitFirst { it is InviteState.Confirm }
+        invite.confirm()
+        assertEquals(JoinState.Joined, join.state.awaitFirst { it is JoinState.Joined || it is JoinState.Failed })
+        assertEquals(1, kid.identityResets.size) // the keys were replaced before the join
+        assertFalse(kid.resetMarker.exists())
+        assertEquals(mom.groups.read()!!.groupId, kid.groups.read()!!.groupId)
+    }
+
+    @Test
     fun joinerAlreadyInAGroupFails() = runBlocking<Unit> {
         mom.group.createGroup("Mom")
         kid.group.createGroup("Kid's own group")

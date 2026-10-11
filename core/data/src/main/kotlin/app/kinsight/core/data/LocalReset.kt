@@ -76,7 +76,9 @@ class LocalReset(
     }
 
     /** «Сбросить идентичность и пересопрячь»: a new device as far as the group is concerned. */
-    suspend fun resetIdentity(): Unit = tracked(ResetKind.NEW_IDENTITY) {
+    suspend fun resetIdentity(): Unit = tracked(ResetKind.NEW_IDENTITY) { identityReset() }
+
+    private suspend fun identityReset() {
         withContext(io) { marker.set() }
         sync.stopAndWait()
         forgetGroupFiles()
@@ -94,8 +96,15 @@ class LocalReset(
     /** At process start: an identity reset that was cut short (crash, kill) runs again from the start. */
     suspend fun finishInterruptedReset(): Boolean {
         if (!withContext(io) { marker.exists() }) return false
-        resetIdentity()
-        return true
+        var ran = false
+        tracked(ResetKind.NEW_IDENTITY) {
+            // Re-checked under the mutex: a retry that ran meanwhile has already finished it.
+            if (withContext(io) { marker.exists() }) {
+                identityReset()
+                ran = true
+            }
+        }
+        return ran
     }
 
     /** [resetIdentity] on the app scope; joins a wipe already running (of either kind). Failures go to [status]. */
@@ -106,7 +115,10 @@ class LocalReset(
 
     /** The user has seen the failure: back to [ResetStatus.Idle] (a running wipe is left alone). */
     fun clearFailure() {
-        _status.update { if (it is ResetStatus.Failed) ResetStatus.Idle else it }
+        // A cut-short identity reset cannot be dismissed (audit A-4): only a retry leads out of it.
+        _status.update {
+            if (it is ResetStatus.Failed && !(it.kind == ResetKind.NEW_IDENTITY && marker.exists())) ResetStatus.Idle else it
+        }
     }
 
     private fun launchOnce(block: suspend () -> Unit): Job = synchronized(jobLock) {
