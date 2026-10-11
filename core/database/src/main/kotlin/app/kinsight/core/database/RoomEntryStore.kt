@@ -74,6 +74,10 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
 
     suspend fun catalog(): List<DecodedEntry> = entryDao.bytesBySupersedeKey("/app/%").map(DecodedEntry::decode).filter { it.kind == EntryKind.APP_CATALOG }
 
+    /** Live CategoryOverride entries: each author's latest per package (spec §4.4); never pruned. */
+    suspend fun categoryOverrides(): List<DecodedEntry> =
+        entryDao.bytesBySupersedeKey("/cat/%").map(DecodedEntry::decode).filter { it.kind == EntryKind.CATEGORY_OVERRIDE }
+
     suspend fun heartbeats(): List<DecodedEntry> = entryDao.bytesBySupersedeKey("/hb").map(DecodedEntry::decode).filter { it.kind == EntryKind.HEARTBEAT }
 
     /** Every StateEvent, LEFT_GROUP included (stored as membership), ordered by author and seq. */

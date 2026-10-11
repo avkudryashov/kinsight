@@ -3,6 +3,9 @@ package app.kinsight.core.database
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
+import app.kinsight.core.model.proto.AppCatalog
+import app.kinsight.core.sync.SyncPolicy
+import app.kinsight.core.sync.categoryOverride
 import app.kinsight.core.sync.detail
 import app.kinsight.core.sync.summary
 import kotlinx.coroutines.test.runTest
@@ -115,5 +118,28 @@ class RoomEntryStoreTest {
         assertEquals(listOf("2026-10-01x", "2026-10-03"), got.map { it.body.usage_detail!!.local_date })
         assertEquals(null, got[0].usageDate)
         assertEquals(newer.seq, got[1].seq)
+    }
+
+    @Test
+    fun categoryOverridesSupersedePerAuthorAndPackageAndNeverPrune() = runTest {
+        val store = open()
+        val other = EntryAuthor(genesis.groupId, DeviceKeys.generate(), lastSeq = 0)
+        val first = author.categoryOverride("com.example.game", 1)
+        val catalog = author.create { it.copy(app_catalog = AppCatalog(package_name = "com.example.game", label = "Game")) }
+        val theirs = other.categoryOverride("com.example.game", 3)
+        val second = author.categoryOverride("com.example.game", 0) // cleared: still the author's live entry
+        val otherPkg = author.categoryOverride("com.example.video", 3)
+        store.applyBatch(listOf(genesis.entry, first, catalog, theirs, second, otherPkg))
+        // An older copy arriving late never replaces the newer one.
+        store.applyBatch(listOf(first))
+
+        val expected = setOf(second, otherPkg, theirs)
+        assertEquals(expected, store.categoryOverrides().toSet())
+        assertTrue(first !in store.liveEntries())
+        assertTrue(catalog in store.catalog())
+
+        store.prune(SyncPolicy(keys.deviceId, detailRetentionDays = 0, summaryRetentionDays = 0, today = { LocalDate.of(2100, 1, 1) }))
+        opened.removeLast().close()
+        assertEquals(expected, open().categoryOverrides().toSet())
     }
 }
