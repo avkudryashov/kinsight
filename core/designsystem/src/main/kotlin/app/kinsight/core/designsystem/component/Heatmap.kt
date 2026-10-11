@@ -1,7 +1,13 @@
 package app.kinsight.core.designsystem.component
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.res.stringResource
+import app.kinsight.core.designsystem.R
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -88,6 +94,14 @@ fun Heatmap(
                 Text(label, Modifier.weight(1f), color = labelColor, style = style, maxLines = 1, softWrap = false)
             }
         }
+        // «Less ▫▫▫ More» (U23): what the intensity means, without colour as the only cue.
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.ds_heat_less), color = labelColor, style = style)
+            HEAT_LEGEND.forEach { f ->
+                Spacer(Modifier.padding(horizontal = 2.dp).size(12.dp).background(lerp(empty, full, f), RoundedCornerShape(2.dp)))
+            }
+            Text(stringResource(R.string.ds_heat_more), color = labelColor, style = style)
+        }
     }
 }
 
@@ -99,6 +113,16 @@ internal fun heatHourLabels(labels: List<String>?): List<String> =
 internal fun heatCells(cells: Array<LongArray>): Array<LongArray> =
     Array(DAYS) { d -> LongArray(HOURS) { h -> cells.getOrNull(d)?.getOrNull(h)?.coerceAtLeast(0L) ?: 0L } }
 
-/** Cell intensity 0..1: [value] relative to the grid's [max]; nothing or negative is 0. */
+/** Any time at all is at least this intense (U23), so a light cell never looks empty. */
+internal const val HEAT_MIN_INTENSITY = 0.15f
+
+/** The legend's three cells: the least, the middle and the most. */
+internal val HEAT_LEGEND = listOf(HEAT_MIN_INTENSITY, (HEAT_MIN_INTENSITY + 1f) / 2, 1f)
+
+/** Cell intensity: 0 for nothing (or a negative value), else [HEAT_MIN_INTENSITY]..1 with [value] relative to [max]. */
 internal fun heatIntensity(value: Long, max: Long): Float =
-    if (max <= 0L || value <= 0L) 0f else (value.toDouble() / max).toFloat().coerceIn(0f, 1f)
+    if (max <= 0L || value <= 0L) {
+        0f
+    } else {
+        (HEAT_MIN_INTENSITY + (1 - HEAT_MIN_INTENSITY) * (value.toDouble() / max).toFloat()).coerceIn(HEAT_MIN_INTENSITY, 1f)
+    }

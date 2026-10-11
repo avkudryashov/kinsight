@@ -518,4 +518,27 @@ class DeviceDetailScreenTest {
         show(past)
         rule.onNodeWithTag("det_data_at").assertDoesNotExist()
     }
+
+    private val month = DetailRange(Period.MONTH, today.withDayOfMonth(1), today.withDayOfMonth(31))
+    private val monthDetail = detail.copy(
+        range = month, today = today,
+        days = month.dates().map { if (it.isAfter(today)) DayTotal(it, 0, 0) else DayTotal(it, 20 * 60_000L, 1) },
+        totalMs = 10 * 20 * 60_000L,
+    )
+
+    @Test
+    fun theTotalLimitIsDrawnOnTheMonthToo() {
+        showWithLimits(monthDetail, listOf(totalLimit))
+        rule.onNodeWithTag("det_chart").assert(hasContentDescription("Limit 3 h", substring = true))
+    }
+
+    @Test
+    @Config(qualifiers = "w400dp-h3000dp") // tall enough that every item is composed
+    fun aDaysHourlyChartComesRightUnderItsTotal() {
+        val hours = (0..23).map { h -> HourTotal(h, if (h == 9) 30 * 60_000L else 0L, 0, if (h == 9) mapOf(AppCategory.GAMES to 30 * 60_000L) else emptyMap()) }
+        show(day(today).copy(hours = hours))
+        val hoursY = rule.onNodeWithTag("det_hours").fetchSemanticsNode().positionInRoot.y
+        val appY = rule.onNodeWithTag("det_app_pkg.1").fetchSemanticsNode().positionInRoot.y
+        assertTrue("hours at $hoursY, first app at $appY", hoursY < appY)
+    }
 }

@@ -1,6 +1,14 @@
 package app.kinsight.core.designsystem
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import app.kinsight.core.designsystem.component.ChartScale
+import app.kinsight.core.designsystem.component.HEAT_LEGEND
+import app.kinsight.core.designsystem.component.HEAT_MIN_INTENSITY
+import app.kinsight.core.designsystem.component.barLayout
+import app.kinsight.core.designsystem.component.gridTicks
+import app.kinsight.core.designsystem.component.limitChipOffset
+import app.kinsight.core.designsystem.component.tickLabelTop
 import app.kinsight.core.designsystem.component.CATEGORY_COLOR_COUNT
 import app.kinsight.core.designsystem.component.barAlpha
 import app.kinsight.core.designsystem.component.barMarked
@@ -68,7 +76,7 @@ class ChartMathTest {
         assertEquals(0f, heatIntensity(0L, 100L))
         assertEquals(0f, heatIntensity(-5L, 100L))
         assertEquals(0f, heatIntensity(50L, 0L))
-        assertEquals(0.5f, heatIntensity(50L, 100L))
+        assertEquals(0.575f, heatIntensity(50L, 100L), 0.0001f)
         assertEquals(1f, heatIntensity(100L, 100L))
         assertEquals(1f, heatIntensity(250L, 100L))
     }
@@ -171,5 +179,55 @@ class ChartMathTest {
         assertEquals("Average 3 h", limitSummary("Average 3 h", null))
         assertEquals("Average 3 h. Limit 2 h", limitSummary("Average 3 h", "Limit 2 h"))
         assertEquals("Average 3 h", limitSummary("Average 3 h", ""))
+    }
+
+    @Test
+    fun durationTicksAreTwoOrThreeNiceSteps() {
+        val m = 60_000L
+        assertEquals(listOf(15L, 30, 45).map { it * m }, gridTicks(50 * m, ChartScale.DURATION))
+        assertEquals(listOf(60L, 120, 180).map { it * m }, gridTicks(190 * m, ChartScale.DURATION))
+        assertEquals(listOf(60L, 120).map { it * m }, gridTicks(120 * m, ChartScale.DURATION))
+        assertEquals(listOf(240L, 480, 720).map { it * m }, gridTicks(720 * m, ChartScale.DURATION))
+        assertEquals(listOf(5 * m), gridTicks(7 * m, ChartScale.DURATION), "one line rather than none")
+        assertEquals(emptyList(), gridTicks(3 * m, ChartScale.DURATION))
+        assertEquals(emptyList(), gridTicks(0, ChartScale.DURATION))
+    }
+
+    @Test
+    fun countTicksAreTwoOrThreeNiceSteps() {
+        assertEquals(listOf(2L, 4), gridTicks(4, ChartScale.COUNT))
+        assertEquals(listOf(2L, 4, 6), gridTicks(7, ChartScale.COUNT))
+        assertEquals(listOf(1L, 2, 3), gridTicks(3, ChartScale.COUNT))
+        assertEquals(listOf(1L), gridTicks(1, ChartScale.COUNT))
+        assertEquals(emptyList(), gridTicks(0, ChartScale.COUNT))
+    }
+
+    @Test
+    fun barsLeaveTheGutterToTheScaleLabels() {
+        val l = barLayout(widthPx = 300f, gutterPx = 40f, count = 7)
+        assertEquals(260f, l.barsWidth)
+        assertTrue(l.left(6) + l.bar <= l.barsWidth, "the last bar ends before the gutter")
+        assertTrue(l.left(0) >= 0f)
+        assertEquals(300f, barLayout(300f, 0f, 7).barsWidth)
+        assertEquals(0f, barLayout(30f, 40f, 0).barsWidth, "a gutter wider than the chart leaves no bars, never a negative width")
+    }
+
+    @Test
+    fun tickLabelsAreCentredOnTheirLineAndStayInside() {
+        assertEquals(40f, tickLabelTop(y = 50f, labelHeight = 20f, height = 100f))
+        assertEquals(0f, tickLabelTop(y = 5f, labelHeight = 20f, height = 100f))
+        assertEquals(80f, tickLabelTop(y = 98f, labelHeight = 20f, height = 100f))
+    }
+
+    @Test
+    fun theLimitChipSitsAtTheLeftAboveItsLine() {
+        assertEquals(Offset(2f, 78f), limitChipOffset(y = 100f, chipHeight = 20f, gap = 2f))
+        assertEquals(Offset(2f, 12f), limitChipOffset(y = 10f, chipHeight = 20f, gap = 2f), "no room above: below the line")
+    }
+
+    @Test
+    fun anyTimeInAHeatCellIsVisible() {
+        assertEquals(HEAT_MIN_INTENSITY, heatIntensity(1L, 1_000_000L), 0.001f)
+        assertEquals(listOf(HEAT_MIN_INTENSITY, (HEAT_MIN_INTENSITY + 1f) / 2, 1f), HEAT_LEGEND)
     }
 }

@@ -19,6 +19,7 @@
     <string name="det_events">События</string>
     <string name="det_no_events">Событий нет.</string>
     <string name="det_chart_summary">В среднем %1$s в день, больше всего — %2$s (%3$s)</string>
+    <string name="det_chart_average">Пунктир: в среднем %1$s в день</string>
     <string name="det_paused_note">Обмен на паузе с %1$s. Время за паузу придёт после её снятия.</string>
     <string name="det_never_note">Этот телефон не делится экранным временем.</string>
     <string name="det_left_note">Этот телефон вышел из группы. Показаны только полученные ранее данные.</string>

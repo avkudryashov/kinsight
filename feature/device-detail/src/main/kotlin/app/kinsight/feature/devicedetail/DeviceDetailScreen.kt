@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -70,6 +71,7 @@ import app.kinsight.core.data.UsageReadModel
 import app.kinsight.core.designsystem.component.AppIcon
 import app.kinsight.core.designsystem.component.BarChart
 import app.kinsight.core.designsystem.component.CategoryLegend
+import app.kinsight.core.designsystem.component.ChartScale
 import app.kinsight.core.designsystem.component.EmptyState
 import app.kinsight.core.designsystem.component.PeriodHeader
 import app.kinsight.core.designsystem.component.StackedBarChart
@@ -194,7 +196,8 @@ internal fun SectionTitle(text: String) =
  * «no data» rather than «0 min» (DayTotal.known); a parent's phone has no usage to show at all (Play Stalkerware
  * ruling), only its events. [detailRetentionDays] is how long hourly detail is kept, for the «unavailable» text.
  * [thresholds] (a parent's phone only, else null) adds the «Limits» entry with their count ([onThresholds]) and draws
- * the total's limit: a line on the WEEK chart, a line of text under a DAY's total (its chart is clock hours).
+ * the total's limit: a line on the WEEK and MONTH charts, a line of text under a DAY's total (its chart is clock
+ * hours, which follows the total right away).
  */
 @Composable
 fun DeviceDetailScreen(
@@ -266,8 +269,10 @@ fun DeviceDetailScreen(
                         }
                     }
                 }
-                if (detail.period != Period.DAY) {
-                    item(key = "chart") { DaysChart(detail, today, onOpenDay, limit = totalLimit.takeIf { detail.period == Period.WEEK }) }
+                if (detail.period == Period.DAY) {
+                    timeOfDay(detail, today, detailRetentionDays) // U17: a day's chart is its hours, right under the total
+                } else {
+                    item(key = "chart") { DaysChart(detail, today, onOpenDay, limit = totalLimit) } // U19: the month too
                 }
             } else if (detail.period == Period.DAY) {
                 item(key = "no_data") { Text(stringResource(R.string.det_no_data_day), style = MaterialTheme.typography.titleLarge) }
@@ -313,22 +318,7 @@ fun DeviceDetailScreen(
                     }
                 }
             }
-            if (known) {
-                item(key = "hours_title") { SectionTitle(stringResource(R.string.det_time_of_day)) }
-                val hours = detail.hours
-                val heatmap = detail.heatmap
-                // Without detail: past the viewer's detail retention it was pruned, otherwise it has not arrived yet.
-                val horizon = today.minusDays(detailRetentionDays.toLong())
-                val pruned = detail.days.any { it.known && it.date.isBefore(horizon) }
-                when {
-                    detail.period == Period.DAY && hours != null -> item(key = "hours") { HoursCharts(hours) }
-                    detail.period != Period.DAY && heatmap != null -> item(key = "heatmap") { HeatmapSection(heatmap) }
-                    pruned -> item(key = "hours_unavailable") {
-                        Text(pluralStringResource(R.plurals.det_hours_unavailable, detailRetentionDays, detailRetentionDays))
-                    }
-                    else -> item(key = "hours_not_arrived") { Text(stringResource(R.string.det_hours_not_arrived)) }
-                }
-            }
+            if (known && detail.period != Period.DAY) timeOfDay(detail, today, detailRetentionDays)
         } else {
             item(key = "not_shared") { Text(stringResource(R.string.det_parent_not_shared)) }
         }
@@ -344,6 +334,24 @@ fun DeviceDetailScreen(
         if (detail.events.size > MAX_EVENTS) {
             item(key = "events_more") { Text(stringResource(R.string.det_events_capped, MAX_EVENTS, detail.events.size)) }
         }
+    }
+}
+
+/** Level 4: the hours of a DAY, the heatmap of a WEEK or MONTH, or why there are none (pruned, or not arrived yet). */
+private fun LazyListScope.timeOfDay(detail: DeviceDetail, today: LocalDate, detailRetentionDays: Int) {
+    item(key = "hours_title") { SectionTitle(stringResource(R.string.det_time_of_day)) }
+    val hours = detail.hours
+    val heatmap = detail.heatmap
+    // Without detail: past the viewer's detail retention it was pruned, otherwise it has not arrived yet.
+    val horizon = today.minusDays(detailRetentionDays.toLong())
+    val pruned = detail.days.any { it.known && it.date.isBefore(horizon) }
+    when {
+        detail.period == Period.DAY && hours != null -> item(key = "hours") { HoursCharts(hours) }
+        detail.period != Period.DAY && heatmap != null -> item(key = "heatmap") { HeatmapSection(heatmap) }
+        pruned -> item(key = "hours_unavailable") {
+            Text(pluralStringResource(R.plurals.det_hours_unavailable, detailRetentionDays, detailRetentionDays))
+        }
+        else -> item(key = "hours_not_arrived") { Text(stringResource(R.string.det_hours_not_arrived)) }
     }
 }
 
@@ -421,13 +429,14 @@ private fun DaysChart(detail: DeviceDetail, today: LocalDate, onOpenDay: (LocalD
     }
     val withData = days.filter { it.known }
     val busiest = withData.maxByOrNull { it.totalMs } ?: return
+    val average = withData.sumOf { it.totalMs } / withData.size
     val busiestName = when (detail.period) {
         Period.WEEK -> busiest.date.dayOfWeek.getDisplayName(TextStyle.FULL, locale)
         else -> dayMonth(busiest.date, locale)
     }
     val daysSummary = stringResource(
         R.string.det_chart_summary,
-        durationText(withData.sumOf { it.totalMs } / withData.size),
+        durationText(average),
         busiestName,
         durationText(busiest.totalMs),
     )
@@ -453,6 +462,9 @@ private fun DaysChart(detail: DeviceDetail, today: LocalDate, onOpenDay: (LocalD
         labelAnchor = if (detail.period == Period.MONTH) 0 else null,
         limit = limit,
         limitLabel = limit?.let { stringResource(R.string.det_limit_line, durationText(it)) },
+        scale = ChartScale.DURATION,
+        average = average,
+        averageLabel = stringResource(R.string.det_chart_average, durationText(average)),
     )
 }
 
@@ -480,12 +492,13 @@ private fun HoursCharts(hours: List<HourTotal>) {
             summary = summary,
             modifier = Modifier.testTag("det_hours"),
             labelAnchor = 0,
+            scale = ChartScale.DURATION,
         )
         Text(stringResource(R.string.det_unlocks_by_hour), style = MaterialTheme.typography.labelLarge)
         val mostUnlocks = hours.maxByOrNull { it.unlocks }?.takeIf { it.unlocks > 0 }
         val unlockSummary = mostUnlocks?.let { stringResource(R.string.det_unlocks_summary, hourTime(it.hour, locale, is24), it.unlocks) }
             ?: stringResource(R.string.det_unlocks_none)
-        Box(Modifier.testTag("det_hour_unlocks")) { BarChart(hours.map { it.unlocks.toLong() }, labels, unlockSummary, highlightLast = false, labelAnchor = 0) }
+        Box(Modifier.testTag("det_hour_unlocks")) { BarChart(hours.map { it.unlocks.toLong() }, labels, unlockSummary, highlightLast = false, labelAnchor = 0, scale = ChartScale.COUNT) }
     }
 }
 
@@ -531,7 +544,7 @@ private fun HeatmapSection(heatmap: Heatmap) {
             ?: stringResource(R.string.det_unlocks_none)
         Text(stringResource(R.string.det_unlocks_by_hour_average), style = MaterialTheme.typography.labelLarge)
         Box(Modifier.testTag("det_heatmap_unlocks")) {
-            BarChart(unlocks.map { it.toLong() }, labels, unlockSummary, highlightLast = false, labelAnchor = 0)
+            BarChart(unlocks.map { it.toLong() }, labels, unlockSummary, highlightLast = false, labelAnchor = 0, scale = ChartScale.COUNT)
         }
     }
 }

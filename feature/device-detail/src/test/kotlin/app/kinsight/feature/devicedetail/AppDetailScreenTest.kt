@@ -1,5 +1,6 @@
 package app.kinsight.feature.devicedetail
 
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasClickAction
@@ -281,5 +282,13 @@ class AppDetailScreenTest {
         show(app(overridden = true))
         rule.onNodeWithTag("app_category_author").assertDoesNotExist()
         rule.onNodeWithText("Chosen by you").assertExists()
+    }
+
+    @Test
+    fun theAppsLimitIsDrawnOnItsDays() {
+        val limit = ThresholdRule.of(kid.id, ThresholdTarget.App("com.example.game"), 2 * 3_600_000L)!!
+        showLimit(app(), limit)
+        list.performScrollToNode(hasTestTag("app_chart"))
+        rule.onNodeWithTag("app_chart").assert(hasContentDescription("Limit 2 h", substring = true))
     }
 }

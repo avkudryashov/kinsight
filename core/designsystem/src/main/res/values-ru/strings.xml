@@ -9,4 +9,6 @@
     <string name="ds_period_previous">Предыдущий период</string>
     <string name="ds_period_next">Следующий период</string>
     <string name="ds_moment_with_child">%1$s (у ребёнка %2$s)</string>
+    <string name="ds_heat_less">Меньше</string>
+    <string name="ds_heat_more">Больше</string>
 </resources>

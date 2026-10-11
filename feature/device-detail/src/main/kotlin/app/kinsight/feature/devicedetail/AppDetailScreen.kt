@@ -55,6 +55,7 @@ import app.kinsight.core.data.ThresholdRule
 import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.designsystem.component.AppIcon
 import app.kinsight.core.designsystem.component.BarChart
+import app.kinsight.core.designsystem.component.ChartScale
 import app.kinsight.core.designsystem.component.EmptyState
 import app.kinsight.core.designsystem.component.PeriodHeader
 import app.kinsight.core.designsystem.component.StackedBarChart
@@ -196,7 +197,7 @@ fun AppDetailScreen(
                     }
                 } else if (app.totalMs > 0) {
                     item(key = "days_title") { SectionTitle(stringResource(R.string.app_days_title)) }
-                    item(key = "chart") { AppDays(app, today, onOpenDay) }
+                    item(key = "chart") { AppDays(app, today, onOpenDay, limit = threshold?.limitMs) } // U19: the app's limit on its days
                 }
             }
         }
@@ -303,9 +304,12 @@ private fun Option(text: String, selected: Boolean, tag: String, onClick: () -> 
     Text(text, Modifier.padding(start = 12.dp))
 }
 
-/** The app's time per day of a WEEK or MONTH in its category's colour, today highlighted; a tap opens that day. */
+/**
+ * The app's time per day of a WEEK or MONTH in its category's colour, today highlighted; a tap opens that day. A
+ * [limit] (the app's daily limit) draws its line.
+ */
 @Composable
-private fun AppDays(app: AppDetail, today: LocalDate, onOpenDay: (LocalDate) -> Unit) {
+private fun AppDays(app: AppDetail, today: LocalDate, onOpenDay: (LocalDate) -> Unit, limit: Long? = null) {
     val locale = locale()
     val days = app.days
     val labels = when (app.period) {
@@ -314,13 +318,14 @@ private fun AppDays(app: AppDetail, today: LocalDate, onOpenDay: (LocalDate) -> 
     }
     val withData = days.filter { it.known }
     val busiest = withData.maxByOrNull { it.totalMs } ?: return
+    val average = withData.sumOf { it.totalMs } / withData.size
     val busiestName = when (app.period) {
         Period.WEEK -> busiest.date.dayOfWeek.getDisplayName(TextStyle.FULL, locale)
         else -> dayMonth(busiest.date, locale)
     }
     val summary = stringResource(
         R.string.det_chart_summary,
-        durationText(withData.sumOf { it.totalMs } / withData.size),
+        durationText(average),
         busiestName,
         durationText(busiest.totalMs),
     )
@@ -341,6 +346,11 @@ private fun AppDays(app: AppDetail, today: LocalDate, onOpenDay: (LocalDate) -> 
         highlight = days.indexOfFirst { it.date == today }.takeIf { it >= 0 },
         barClickable = { i -> !days[i].date.isAfter(today) },
         labelAnchor = if (app.period == Period.MONTH) 0 else null,
+        scale = ChartScale.DURATION,
+        average = average,
+        averageLabel = stringResource(R.string.det_chart_average, durationText(average)),
+        limit = limit,
+        limitLabel = limit?.let { stringResource(R.string.det_limit_line, durationText(it)) },
     )
 }
 
@@ -353,5 +363,5 @@ private fun AppHours(hours: List<Long>) {
     val busiest = hours.withIndex().maxByOrNull { it.value }?.takeIf { it.value > 0 }
     val summary = busiest?.let { stringResource(R.string.det_hours_summary, hourTime(it.index, locale, is24), durationText(it.value)) }
         ?: stringResource(R.string.det_hours_none)
-    Box(Modifier.testTag("app_hours")) { BarChart(hours, labels, summary, highlightLast = false, labelAnchor = 0) }
+    Box(Modifier.testTag("app_hours")) { BarChart(hours, labels, summary, highlightLast = false, labelAnchor = 0, scale = ChartScale.DURATION) }
 }

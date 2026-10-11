@@ -9,4 +9,6 @@
     <string name="ds_period_previous">Previous period</string>
     <string name="ds_period_next">Next period</string>
     <string name="ds_moment_with_child">%1$s (child\'s time %2$s)</string>
+    <string name="ds_heat_less">Less</string>
+    <string name="ds_heat_more">More</string>
 </resources>

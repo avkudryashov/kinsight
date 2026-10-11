@@ -9,9 +9,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -21,8 +26,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.text.TextMeasurer
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.layout.Layout
@@ -47,7 +50,9 @@ import kotlin.math.roundToInt
  * trimmed to the bars. When labels do not fit their slots (narrow screen, large font), only every n-th label is
  * shown, counted back from today so today's label always stays. [labelAnchor] is the bar thinning counts from instead
  * (0 for a clock-hour axis, so hour 0 and every 6th stay); null means the last bar. A [limit] (same unit as [values])
- * draws a dashed line labelled [limitLabel] and raises the scale to it; TalkBack reads the label after [summary].
+ * draws a dashed line with [limitLabel] on a chip at the left and raises the scale to it; TalkBack reads the label
+ * after [summary]. A [scale] draws 2 or 3 labelled grid lines in a gutter right of the bars; an [average] a dashed
+ * line, explained by [averageLabel] under the chart (U5).
  */
 @Composable
 fun BarChart(
@@ -60,30 +65,35 @@ fun BarChart(
     labelAnchor: Int? = null,
     limit: Long? = null,
     limitLabel: String? = null,
+    scale: ChartScale? = null,
+    average: Long? = null,
+    averageLabel: String? = null,
 ) {
     val highlight = MaterialTheme.colorScheme.primary
     val normal = MaterialTheme.colorScheme.secondary
     val bars = values.map { it.coerceAtLeast(0L) }
     val names = chartLabels(labels, bars.size)
-    val limitStyle = limitStyle()
-    val measurer = rememberTextMeasurer()
+    val max = scaleMax(bars.maxOrNull() ?: 0L, limit)
+    val grid = rememberGrid(max, scale)
+    val limitText = rememberLimitText(limitLabel)
     Column(modifier.clearAndSetSemantics { contentDescription = limitSummary(summary, limitLabel) }) {
         Canvas(Modifier.fillMaxWidth().height(height)) {
-            val max = scaleMax(bars.maxOrNull() ?: 0L, limit)
-            val slot = size.width / bars.size.coerceAtLeast(1)
-            val bar = slot * 0.6f
+            val layout = barLayout(size.width, grid.gutterPx, bars.size)
+            drawGrid(grid, max, size.height, layout.barsWidth)
             bars.forEachIndexed { i, v ->
                 val h = (size.height * v.toFloat() / max).coerceAtLeast(if (v > 0) 2.dp.toPx() else 0f)
                 drawRoundRect(
                     color = if (highlightLast && i == bars.lastIndex) highlight else normal,
-                    topLeft = Offset(i * slot + (slot - bar) / 2, size.height - h),
-                    size = Size(bar, h),
+                    topLeft = Offset(layout.left(i), size.height - h),
+                    size = Size(layout.bar, h),
                     cornerRadius = CornerRadius(4.dp.toPx()),
                 )
             }
-            limitFraction(limit, max)?.let { drawLimit(size.height * (1 - it), limitLabel, measurer, limitStyle) }
+            limitFraction(average, max)?.let { drawAverage(size.height * (1 - it), layout.barsWidth, grid.averageColor) }
+            limitFraction(limit, max)?.let { drawLimit(size.height * (1 - it), layout.barsWidth, limitText) }
         }
-        ChartLabels(names, anchor = labelAnchor ?: names.lastIndex, bold = if (highlightLast) names.lastIndex else null)
+        ChartLabels(names, anchor = labelAnchor ?: names.lastIndex, bold = if (highlightLast) names.lastIndex else null, endInset = grid.gutterDp)
+        if (average != null && averageLabel != null) AverageNote(averageLabel)
     }
 }
 
@@ -93,8 +103,9 @@ fun BarChart(
  * [summary]; with [onBarClick] every bar for which [barClickable] holds (not a future day) is also its own semantics
  * node with a click action labelled [barClickLabel]. The [highlight]ed bar gets a bold label and a thin underline,
  * and no bar is faded (colour is never the only cue); label thinning counts from [labelAnchor], else from it, else from
- * the last bar. A [limit] (same unit as the segments, e.g. a daily limit) draws a dashed line labelled [limitLabel] and
- * raises the scale to it, so the line is always on the chart; TalkBack reads the label after [summary].
+ * the last bar. A [limit] (same unit as the segments, e.g. a daily limit) draws a dashed line with [limitLabel] on a
+ * chip at the left and raises the scale to it, so the line is always on the chart; TalkBack reads the label after
+ * [summary]. [scale], [average] and [averageLabel] work as in [BarChart].
  */
 @Composable
 fun StackedBarChart(
@@ -111,6 +122,9 @@ fun StackedBarChart(
     labelAnchor: Int? = null,
     limit: Long? = null,
     limitLabel: String? = null,
+    scale: ChartScale? = null,
+    average: Long? = null,
+    averageLabel: String? = null,
 ) {
     val bars = stacks.map { stack -> stack.map { it.coerceAtLeast(0L) } }
     val names = chartLabels(labels, bars.size)
@@ -118,8 +132,9 @@ fun StackedBarChart(
     val baseline = MaterialTheme.colorScheme.outlineVariant
     val markColor = MaterialTheme.colorScheme.onSurface
     val marked = highlight?.takeIf { it in bars.indices }
-    val limitStyle = limitStyle()
-    val measurer = rememberTextMeasurer()
+    val max = scaleMax(bars.maxOfOrNull { it.sum() } ?: 0L, limit)
+    val grid = rememberGrid(max, scale)
+    val limitText = rememberLimitText(limitLabel)
     val described = limitSummary(summary, limitLabel)
     val outer = if (onBarClick == null) {
         Modifier.clearAndSetSemantics { contentDescription = described }
@@ -129,15 +144,15 @@ fun StackedBarChart(
     Column(modifier.then(outer)) {
         Box(Modifier.fillMaxWidth().height(height)) {
             Canvas(Modifier.matchParentSize()) {
-                val max = scaleMax(bars.maxOfOrNull { it.sum() } ?: 0L, limit)
-                val slot = size.width / bars.size.coerceAtLeast(1)
-                val bar = slot * 0.6f
+                val layout = barLayout(size.width, grid.gutterPx, bars.size)
+                val bar = layout.bar
                 val corner = CornerRadius(4.dp.toPx())
                 // Room under the bars for the highlight's underline.
                 val mark = 3.dp.toPx()
                 val floor = if (marked == null) size.height else size.height - mark - 2.dp.toPx()
+                drawGrid(grid, max, floor, layout.barsWidth)
                 bars.forEachIndexed { i, stack ->
-                    val left = i * slot + (slot - bar) / 2
+                    val left = layout.left(i)
                     if (barMarked(i, marked)) drawRoundRect(markColor, Offset(left, size.height - mark), Size(bar, mark), CornerRadius(mark / 2))
                     val total = stack.sum()
                     if (total == 0L) {
@@ -158,10 +173,12 @@ fun StackedBarChart(
                         }
                     }
                 }
-                limitFraction(limit, max)?.let { drawLimit(floor * (1 - it), limitLabel, measurer, limitStyle) }
+                limitFraction(average, max)?.let { drawAverage(floor * (1 - it), layout.barsWidth, grid.averageColor) }
+                limitFraction(limit, max)?.let { drawLimit(floor * (1 - it), layout.barsWidth, limitText) }
             }
             if (onBarClick != null) {
-                Row(Modifier.matchParentSize()) {
+                // The same slots as the bars: the scale gutter on the right is no target.
+                Row(Modifier.matchParentSize().padding(end = grid.gutterDp)) {
                     bars.indices.forEach { i ->
                         val bar = Modifier.weight(1f).fillMaxHeight()
                         if (!barClickable(i)) {
@@ -179,7 +196,8 @@ fun StackedBarChart(
                 }
             }
         }
-        ChartLabels(names, anchor = labelAnchor ?: marked ?: names.lastIndex, bold = marked)
+        ChartLabels(names, anchor = labelAnchor ?: marked ?: names.lastIndex, bold = marked, endInset = grid.gutterDp)
+        if (average != null && averageLabel != null) AverageNote(averageLabel)
     }
 }
 
@@ -190,12 +208,12 @@ fun StackedBarChart(
  * use the width of the n slots it stands for, so it is not cut to one narrow slot; [bold] marks one label.
  */
 @Composable
-private fun ChartLabels(names: List<String>, anchor: Int, bold: Int?) {
+private fun ChartLabels(names: List<String>, anchor: Int, bold: Int?, endInset: Dp = 0.dp) {
     if (names.none { it.isNotEmpty() }) return
     val style = MaterialTheme.typography.labelSmall
     val color = MaterialTheme.colorScheme.onSurfaceVariant
     val measurer = rememberTextMeasurer()
-    BoxWithConstraints(Modifier.fillMaxWidth().clearAndSetSemantics {}) {
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(end = endInset).clearAndSetSemantics {}) {
         val slotPx = constraints.maxWidth.toFloat() / names.size
         val widest = names.maxOf { measurer.measure(it, style.copy(fontWeight = FontWeight.Bold)).size.width }
         val step = spacedStep(labelStep(widest.toFloat(), slotPx), labelSpacing(names))
@@ -230,24 +248,78 @@ private fun ChartLabels(names: List<String>, anchor: Int, bold: Int?) {
     }
 }
 
-private class LimitStyle(val line: Color, val text: TextStyle)
+/** The limit's label measured once per text and theme (U16), with its line and chip colours. */
+private class LimitText(val text: TextLayoutResult?, val line: Color, val chip: Color)
 
 @Composable
-private fun limitStyle() = LimitStyle(
-    MaterialTheme.colorScheme.onSurface,
-    MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold),
+private fun rememberLimitText(label: String?): LimitText {
+    val style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+    val line = MaterialTheme.colorScheme.onSurface
+    val chip = MaterialTheme.colorScheme.surface
+    val measurer = rememberTextMeasurer()
+    return remember(label, style, line, chip) {
+        LimitText(label?.takeIf { it.isNotEmpty() }?.let { measurer.measure(it, style, maxLines = 1) }, line, chip)
+    }
+}
+
+/** A dashed line across the bars at [y]; its label on a surface chip at the left edge, above the line (U18). */
+private fun DrawScope.drawLimit(y: Float, barsWidth: Float, limit: LimitText) {
+    val dash = 4.dp.toPx()
+    drawLine(limit.line, Offset(0f, y), Offset(barsWidth, y), strokeWidth = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(dash, dash)))
+    val text = limit.text ?: return
+    val pad = 4.dp.toPx()
+    val chipHeight = text.size.height + pad
+    val at = limitChipOffset(y, chipHeight, 2.dp.toPx())
+    drawRoundRect(limit.chip, at, Size(text.size.width + 2 * pad, chipHeight), CornerRadius(chipHeight / 2))
+    drawText(text, topLeft = Offset(at.x + pad, at.y + pad / 2))
+}
+
+/** A chart's scale (U5): tick values, their measured labels, the label gutter and the line colours. */
+private class ChartGrid(
+    val ticks: List<Long>,
+    val labels: List<TextLayoutResult>,
+    val gutterPx: Float,
+    val gutterDp: Dp,
+    val lineColor: Color,
+    val averageColor: Color,
 )
 
-/** A dashed line across the chart at [y] with [label] at its end, above it (below when there is no room above). */
-private fun DrawScope.drawLimit(y: Float, label: String?, measurer: TextMeasurer, style: LimitStyle) {
-    val dash = 4.dp.toPx()
-    drawLine(style.line, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(dash, dash)))
-    if (label.isNullOrEmpty()) return
-    val text = measurer.measure(label, style.text, maxLines = 1)
-    val gap = 2.dp.toPx()
-    val top = if (y - gap - text.size.height >= 0) y - gap - text.size.height else y + gap
-    drawText(text, topLeft = Offset((size.width - text.size.width).coerceAtLeast(0f), top))
+@Composable
+private fun rememberGrid(max: Long, scale: ChartScale?): ChartGrid {
+    val resources = LocalResources.current
+    val density = LocalDensity.current
+    val style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val line = MaterialTheme.colorScheme.outlineVariant
+    val average = MaterialTheme.colorScheme.onSurfaceVariant
+    val measurer = rememberTextMeasurer()
+    return remember(max, scale, style, line, average, resources, density) {
+        val ticks = scale?.let { gridTicks(max, it) }.orEmpty()
+        val labels = ticks.map { measurer.measure(tickText(it, scale!!, resources), style, maxLines = 1) }
+        val gutter = labels.maxOfOrNull { it.size.width }?.let { it + with(density) { 4.dp.toPx() } } ?: 0f
+        ChartGrid(ticks, labels, gutter, with(density) { gutter.toDp() }, line, average)
+    }
 }
+
+/** Thin grid lines across the bars and their labels in the gutter right of them, each centred on its line. */
+private fun DrawScope.drawGrid(grid: ChartGrid, max: Long, floor: Float, barsWidth: Float) {
+    grid.ticks.forEachIndexed { i, v ->
+        val y = floor * (1 - v.toFloat() / max.coerceAtLeast(1L))
+        drawLine(grid.lineColor, Offset(0f, y), Offset(barsWidth, y), strokeWidth = 1.dp.toPx())
+        val label = grid.labels[i]
+        drawText(label, topLeft = Offset(barsWidth + 4.dp.toPx(), tickLabelTop(y, label.size.height.toFloat(), size.height)))
+    }
+}
+
+/** The average as a finer dashed line than the limit's. */
+private fun DrawScope.drawAverage(y: Float, barsWidth: Float, color: Color) {
+    val dash = 2.dp.toPx()
+    drawLine(color, Offset(0f, y), Offset(barsWidth, y), strokeWidth = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(3 * dash, 2 * dash)))
+}
+
+/** What the dashed average line is, under the chart; TalkBack has it in the chart's summary already. */
+@Composable
+private fun AverageNote(text: String) =
+    Text(text, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
 /** The top of a chart's scale: the tallest bar or the [limit], whichever is higher, at least 1. */
 internal fun scaleMax(barMax: Long, limit: Long?): Long = maxOf(barMax, limit ?: 0L).coerceAtLeast(1L)
