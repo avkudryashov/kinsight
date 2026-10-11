@@ -4,6 +4,7 @@ import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.proto.AddMember
+import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.MembershipOp
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
@@ -23,7 +24,11 @@ class Node(
  * Node 0 creates the group and adds the others; every node starts with the full membership.
  * Each node's author observes the Lamport values of its own (current) store, as the app does.
  */
-suspend fun buildGroup(size: Int, showOthers: (Int) -> Boolean = { true }): List<Node> {
+suspend fun buildGroup(
+    size: Int,
+    showOthers: (Int) -> Boolean = { true },
+    role: (Int) -> DeviceRole = { DeviceRole.DEVICE_ROLE_UNSPECIFIED },
+): List<Node> {
     var now = 1_000L
     val clock = { ++now }
     val creatorKeys = DeviceKeys.generate()
@@ -38,7 +43,7 @@ suspend fun buildGroup(size: Int, showOthers: (Int) -> Boolean = { true }): List
     val otherKeys = (1 until size).map { DeviceKeys.generate() }
     val adds = otherKeys.mapIndexed { i, k ->
         creator.create {
-            it.copy(membership_op = MembershipOp(add = AddMember(k.sign.publicKey.toByteString(), k.dh.publicKey.toByteString(), "node${i + 1}")))
+            it.copy(membership_op = MembershipOp(add = AddMember(k.sign.publicKey.toByteString(), k.dh.publicKey.toByteString(), "node${i + 1}", role(i + 1))))
         }
     }
     val membership = listOf(genesis.entry) + adds

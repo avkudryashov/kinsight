@@ -1,6 +1,7 @@
 package app.kinsight.core.sync
 
 import app.kinsight.core.model.DecodedEntry
+import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.MembershipLimits
 import app.kinsight.core.model.MembershipState
@@ -26,6 +27,7 @@ class EntryValidator(
         val key = membership.signKeyOf(e.author) ?: return Verdict.Invalid("unknown author")
         if (!membership.acceptsEntryFrom(e.author, e.seq)) return Verdict.Invalid("after membership cutoff")
         if (!e.verifySignature(key)) return Verdict.Invalid("bad signature")
+        if (e.kind == EntryKind.CATEGORY_OVERRIDE) CategoryOverrideRules.violation(e, membership)?.let { return Verdict.Invalid(it) }
         if (!policy.acceptsFromPeers(e)) return Verdict.Unwanted
         if (alreadyAccounted) return Verdict.Duplicate
         if (policy.isExpired(e)) return Verdict.Expired

@@ -1,5 +1,7 @@
 package app.kinsight.core.sync
 
+import app.kinsight.core.model.EntryKind
+import app.kinsight.core.model.proto.DeviceRole
 import io.kotest.property.Arb
 import io.kotest.property.PropTestConfig
 import io.kotest.property.arbitrary.long
@@ -92,6 +94,52 @@ class ConvergenceTest {
                     assertTrue(missing.isEmpty(), "seed=$seed: ${holder.name} misses ${author.name} seqs ${missing.map { it.seq }}")
                 }
             }
+        }
+    }
+
+    @Test
+    fun categoryOverridesReachTheOtherParentNeverTheChild(): Unit = runBlocking {
+        checkAll(PropTestConfig(iterations = 10), Arb.long()) { seed ->
+            val rnd = Random(seed)
+            // node0 and node1 are parents, node2 a child (showOthers off, as the app sets it for children).
+            val nodes = buildGroup(3, showOthers = { it != 2 }, role = { if (it == 2) DeviceRole.CHILD else DeviceRole.PARENT })
+            val (p0, p1, kid) = nodes
+            kid.publish(kid.author.summary(TODAY.toString(), 1))
+            for (i in nodes.indices) for (j in i + 1 until nodes.size) syncPair(nodes[i], nodes[j])
+            val kidVector = kid.store.versionVector()
+            val kidLive = kid.store.liveEntries().toSet()
+
+            val packages = listOf("com.example.a", "com.example.b", "com.example.c")
+            repeat(rnd.nextInt(2, 12)) {
+                val p = if (rnd.nextBoolean()) p0 else p1
+                p.publish(p.author.categoryOverride(packages.random(rnd), rnd.nextInt(0, 10)))
+            }
+            repeat(rnd.nextInt(3, 12)) {
+                val a = nodes.random(rnd)
+                val b = (nodes - a).random(rnd)
+                val faults = if (rnd.nextBoolean()) LinkFaults(rnd.nextLong(100, 5_000)) else LinkFaults()
+                val (ra, rb) = syncPair(a, b, faults)
+                assertTrue(ra !is SessionResult.TooManyInvalid && rb !is SessionResult.TooManyInvalid, "seed=$seed")
+            }
+            repeat(2) {
+                for (i in nodes.indices) for (j in i + 1 until nodes.size) {
+                    val (ra, rb) = syncPair(nodes[i], nodes[j])
+                    assertTrue(ra is SessionResult.Completed && rb is SessionResult.Completed, "seed=$seed: $ra / $rb")
+                }
+            }
+
+            suspend fun overrides(n: Node) = n.store.liveEntries().filter { it.kind == EntryKind.CATEGORY_OVERRIDE }.toSet()
+            val shared = overrides(p0)
+            assertEquals(shared, overrides(p1), "seed=$seed: parents disagree")
+            // One live override per (author, package): the author's latest.
+            assertEquals(overrides(p0).map { it.supersedeKey }.toSet().size, overrides(p0).size, "seed=$seed")
+            for (p in listOf(p0, p1)) {
+                val own = p.store.liveEntries().filter { it.author == p.keys.deviceId && it.kind == EntryKind.CATEGORY_OVERRIDE }
+                assertTrue(own.all { it in shared }, "seed=$seed: ${p.name}'s overrides missing")
+            }
+            assertTrue(overrides(kid).isEmpty(), "seed=$seed: the child got overrides")
+            assertEquals(kidLive, kid.store.liveEntries().toSet(), "seed=$seed: the child's entries changed")
+            assertEquals(kidVector, kid.store.versionVector(), "seed=$seed: the child's vector changed")
         }
     }
 }

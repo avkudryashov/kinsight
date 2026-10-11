@@ -216,6 +216,21 @@ class SyncSessionTest {
     }
 
     @Test
+    fun protocolOneMeetsCurrentCleanlyRejectedWithoutTransfer() = runBlocking {
+        assertEquals(2, PROTOCOL_VERSION)
+        val (old, new) = buildGroup(2)
+        new.publish(new.author.categoryOverride("com.example.game", 1))
+        val before = old.store.liveEntries().toSet()
+        for ((va, vb) in listOf(1 to PROTOCOL_VERSION, PROTOCOL_VERSION to 1)) {
+            val (ra, rb) = syncPair(old, new, versionA = va, versionB = vb)
+            // A version reject, never TOO_MANY_INVALID (which would block the peer for an hour), and nothing crosses.
+            assertEquals(SessionResult.Rejected(Reject.Reason.PROTOCOL_VERSION, byPeer = false), ra)
+            assertEquals(SessionResult.Rejected(Reject.Reason.PROTOCOL_VERSION, byPeer = false), rb)
+            assertEquals(before, old.store.liveEntries().toSet())
+        }
+    }
+
+    @Test
     fun nonMemberIsRejected() = runBlocking {
         val (a, _) = buildGroup(2)
         val strangerKeys = DeviceKeys.generate()

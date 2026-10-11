@@ -33,7 +33,8 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
-const val PROTOCOL_VERSION = 1
+/** 2: CategoryOverride entries (stage 5c); a protocol-1 peer gets PROTOCOL_VERSION in Hello, before any entry. */
+const val PROTOCOL_VERSION = 2
 
 sealed interface SessionResult {
     data class Completed(val peer: DeviceId, val received: Int, val sentBatches: Int) : SessionResult
