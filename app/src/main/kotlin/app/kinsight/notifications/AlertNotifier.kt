@@ -47,7 +47,9 @@ object AlertNotifier {
     }
 
     /**
-     * Alerts once per id (a replacement is silent), and the lock screen shows only a generic title: the child's name
+     * Alerts once per id (a replacement is silent), except a threshold: the planner re-posts it only for a new marker (a
+     * new day of the child, a changed limit), so it sounds even while yesterday's one of the same rule is still in the
+     * shade. The lock screen shows only a generic title: the child's name
      * and the event stay private until the phone is unlocked.
      */
     internal fun build(context: Context, alert: Alert): Notification {
@@ -70,7 +72,7 @@ object AlertNotifier {
             .setStyle(NotificationCompat.BigTextStyle().bigText(t.body))
             .setContentIntent(contentIntent(context, alert))
             .setAutoCancel(true)
-            .setOnlyAlertOnce(true)
+            .setOnlyAlertOnce(alert !is Alert.Threshold)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(public)
             .build()

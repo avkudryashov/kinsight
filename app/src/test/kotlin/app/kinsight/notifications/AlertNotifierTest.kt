@@ -99,6 +99,23 @@ class AlertNotifierTest {
         assertEquals(kid.hex, MainActivity.deviceOf(shadowOf(n.contentIntent).savedIntent))
     }
 
+    /**
+     * A threshold re-posts only on a new marker (a new day, a changed limit): it must sound again even when yesterday's
+     * notification of the same rule is still in the shade. The others keep alerting once per id.
+     */
+    @Test
+    fun aThresholdAlertsAgainWhileTheOthersAlertOnce() {
+        val t = AlertNotifier.build(context, threshold(kid, ThresholdTarget.Total, 4_000_000L))
+        assertEquals(0, t.flags and Notification.FLAG_ONLY_ALERT_ONCE)
+        for (alert in listOf(
+            Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000, kid),
+            Alert.NoContact("Kid", 1_000),
+            Alert.Summary(weekly = false, lines = emptyList()),
+        )) {
+            assertTrue("$alert", AlertNotifier.build(context, alert).flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)
+        }
+    }
+
     @Test
     @Config(qualifiers = "ru")
     fun theThresholdPublicTitleReadsInRussian() {
