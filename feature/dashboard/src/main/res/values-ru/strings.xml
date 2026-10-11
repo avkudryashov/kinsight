@@ -52,6 +52,8 @@
     <string name="dash_no_group_title">Нет семейной группы</string>
     <string name="dash_no_group_body">Этот телефон не состоит в семейной группе.</string>
     <string name="dash_update_notice">На одном из телефонов семьи нужно обновить Kinsight. После обновления вы снова будете получать с него данные.</string>
+    <string name="dash_update_self">Обновите Kinsight на этом телефоне, чтобы снова синхронизироваться с устройством «%1$s».</string>
+    <string name="dash_update_peer">Обновите Kinsight на устройстве «%1$s». После обновления синхронизация с ним возобновится.</string>
     <string name="dash_new_parent">Новые родители в вашей группе: %1$s. Они видят ваше экранное время.</string>
     <string name="dash_new_parent_body">Его видят все родители вашей семейной группы. Полный список: Настройки → Кто видит мои данные.</string>
     <string name="dash_new_parent_ok">Понятно</string>

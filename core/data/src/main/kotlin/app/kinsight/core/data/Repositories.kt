@@ -492,6 +492,8 @@ data class ServiceStatus(
     val problem: SyncProblem?,
     /** The engine's finished-session counter (any outcome); starts over from zero when the service restarts. */
     val finishedSessions: Int = 0,
+    /** Peers refusing us over the protocol version: true when this phone must update (SyncStatus.outdated). */
+    val outdated: Map<DeviceId, Boolean> = emptyMap(),
     /** This child's sync notification is hidden: usage is paused until it is shown again (S-M3). */
     val notificationHidden: Boolean = false,
     /** Usage access (AppOpsManager GET_USAGE_STATS) is granted to this app; re-read with the permissions (U1). */
@@ -530,6 +532,7 @@ class ServiceRepository(
                 syncing = s.sync.syncing,
                 problem = s.sync.lastProblem,
                 finishedSessions = s.sync.finishedSessions,
+                outdated = s.sync.outdated,
                 notificationHidden = hidden,
                 usageAccessGranted = usageAccess(),
             )

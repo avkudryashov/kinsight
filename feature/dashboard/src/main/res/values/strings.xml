@@ -52,6 +52,8 @@
     <string name="dash_no_group_title">No family group</string>
     <string name="dash_no_group_body">This phone is not in a family group.</string>
     <string name="dash_update_notice">A family phone needs a Kinsight update. Sync with it resumes after the update.</string>
+    <string name="dash_update_self">Update Kinsight on this phone to sync with %1$s again.</string>
+    <string name="dash_update_peer">Update Kinsight on %1$s. Sync with it resumes after the update.</string>
     <string name="dash_new_parent">New in your family group: %1$s. They can see your screen time.</string>
     <string name="dash_new_parent_body">Every parent of your family group sees it. Settings → Who sees my data lists everyone.</string>
     <string name="dash_new_parent_ok">Got it</string>

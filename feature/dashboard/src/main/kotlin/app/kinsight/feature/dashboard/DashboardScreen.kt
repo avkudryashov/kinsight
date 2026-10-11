@@ -58,6 +58,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.kinsight.core.data.AppGraph
+import app.kinsight.core.data.DashboardState
 import app.kinsight.core.data.DeviceUsage
 import app.kinsight.core.data.MemberView
 import app.kinsight.core.data.Role as MemberRole
@@ -144,6 +145,7 @@ fun DashboardScreen(
     val needsUsageAccess = child && UsageReadModel.collects(d.selfUsage?.sharing, localConsent = false)
     val attention = SyncAttention.of(ui.service, needsUsageAccess)
     val syncNowLabel = stringResource(R.string.dash_sync_now)
+    val updateText = updateNoticeText(ui.service, d)
     var refreshing by remember { mutableStateOf(false) }
     LaunchedEffect(refreshing) {
         if (refreshing) {
@@ -175,7 +177,7 @@ fun DashboardScreen(
             item { Text(stringResource(R.string.dash_title), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() }) }
             attention?.let { a -> item { AttentionBanner(a, onStart, onOpenSettings) } }
             // Not the user's fault nor fixable here: a neutral note, never the error banner.
-            if (ui.service?.problem == SyncProblem.PEER_NEEDS_UPDATE) item { UpdateNotice() }
+            updateText?.let { text -> item { UpdateNotice(text) } }
             if (child && ui.newParents.isNotEmpty()) item { NewParentBanner(ui.newParents, onAcknowledgeParents) }
             if (child) {
                 item { ChildTransparencyRow(d.parents, d.selfUsage?.sharing ?: Sharing.Never, ui.sharingFailed, onPause, onResume, onConsent) }
@@ -255,8 +257,25 @@ private fun NewParentBanner(parents: List<MemberView>, onOk: (Set<DeviceId>) -> 
     }
 }
 
+/**
+ * A-11: which phone to update, by name; this phone first when it is the one behind. Falls back to the generic text
+ * when the engine reported a version reject without a known member.
+ */
 @Composable
-private fun UpdateNotice() {
+private fun updateNoticeText(service: ServiceStatus?, d: DashboardState): String? {
+    val outdated = service?.outdated.orEmpty()
+    val names = (listOf(d.self) + d.parents + d.children.map { it.member } + listOfNotNull(d.selfUsage?.member)).associate { it.id to it.name }
+    val pick = outdated.entries.filter { it.key in names }.sortedWith(compareByDescending<Map.Entry<DeviceId, Boolean>> { it.value }.thenBy { names.getValue(it.key) }).firstOrNull()
+    return when {
+        pick != null && pick.value -> stringResource(R.string.dash_update_self, names.getValue(pick.key))
+        pick != null -> stringResource(R.string.dash_update_peer, names.getValue(pick.key))
+        outdated.isNotEmpty() || service?.problem == SyncProblem.PEER_NEEDS_UPDATE -> stringResource(R.string.dash_update_notice)
+        else -> null
+    }
+}
+
+@Composable
+private fun UpdateNotice(text: String) {
     Card(
         Modifier.fillMaxWidth().testTag("dash_update_notice"),
         colors = CardDefaults.cardColors(
@@ -264,7 +283,7 @@ private fun UpdateNotice() {
             contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
         ),
     ) {
-        Text(stringResource(R.string.dash_update_notice), Modifier.padding(16.dp))
+        Text(text, Modifier.padding(16.dp))
     }
 }
 

@@ -193,6 +193,19 @@ class DashboardScreenTest {
     }
 
     @Test
+    fun theUpdateNoticeNamesThePhoneToUpdate() {
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), emptyList()), running.copy(problem = SyncProblem.PEER_NEEDS_UPDATE, outdated = mapOf(kid.id to false)), true))
+        rule.onNodeWithTag("dash_update_notice").assertExists()
+        rule.onNodeWithText("Update Kinsight on Kid", substring = true).assertExists()
+    }
+
+    @Test
+    fun theUpdateNoticeAsksForThisPhoneWhenThePeerIsNewer() {
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), emptyList()), running.copy(outdated = mapOf(kid.id to true)), true))
+        rule.onNodeWithText("Update Kinsight on this phone to sync with Kid again", substring = true).assertExists()
+    }
+
+    @Test
     fun aPeerNeedingAnUpdateShowsANeutralNoticeNotABanner() {
         show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), emptyList()), running.copy(problem = SyncProblem.PEER_NEEDS_UPDATE), true))
         rule.onNodeWithTag("dash_update_notice").assertExists()

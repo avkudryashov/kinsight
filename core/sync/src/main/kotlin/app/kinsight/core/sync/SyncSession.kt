@@ -54,7 +54,8 @@ sealed interface SessionResult {
         var peerVector: ByteArray = ByteArray(0)
             internal set
     }
-    data class Rejected(val reason: Reject.Reason, val byPeer: Boolean) : SessionResult
+    /** [peerNewer] (PROTOCOL_VERSION only): true when the peer speaks only newer versions (update this phone), false when only older ones. */
+    data class Rejected(val reason: Reject.Reason, val byPeer: Boolean, val peerNewer: Boolean? = null) : SessionResult
     data class TooManyInvalid(val peer: DeviceId) : SessionResult
     data class Failed(val cause: Throwable) : SessionResult
 }
@@ -173,7 +174,8 @@ class SyncSession internal constructor(
         if (agreed == null) {
             log("version reject: ours $versions, peer ${peerVersions ?: "malformed (protocol_version ${hello.protocol_version}, range ${hello.min_protocol_version}..${hello.max_protocol_version})"}")
             reject(ch, Reject.Reason.PROTOCOL_VERSION)
-            return@coroutineScope SessionResult.Rejected(Reject.Reason.PROTOCOL_VERSION, byPeer = false)
+            val peerNewer = peerVersions?.let { it.first > versions.last }
+            return@coroutineScope SessionResult.Rejected(Reject.Reason.PROTOCOL_VERSION, byPeer = false, peerNewer = peerNewer)
         }
         // Defensive only: groupId is bound into the Noise prologue, so peers of another group already
         // fail the handshake. Kept in case a transport ever authenticates the channel differently.

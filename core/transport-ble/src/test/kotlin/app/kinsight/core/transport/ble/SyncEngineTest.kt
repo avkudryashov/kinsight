@@ -11,6 +11,7 @@ import app.kinsight.core.sync.EntryStore
 import app.kinsight.core.sync.LinkFaults
 import app.kinsight.core.sync.MemoryPipe
 import app.kinsight.core.sync.PROTOCOL_VERSION
+import app.kinsight.core.sync.ProtocolVersions
 import app.kinsight.core.sync.SecureChannel
 import app.kinsight.core.sync.SyncPolicy
 import app.kinsight.core.sync.TODAY
@@ -90,6 +91,7 @@ class SyncEngineTest {
         onLog: (String) -> Unit = {},
         onLinkExhausted: () -> Unit = {},
         syncPolicy: SyncPolicy = d.policy(),
+        versions: () -> IntRange = { ProtocolVersions.SUPPORTED },
         prepare: suspend () -> Unit = {},
     ) = SyncEngine(
         scope = scope,
@@ -105,6 +107,7 @@ class SyncEngineTest {
         sessionTimeout = sessionTimeout,
         prepareTimeout = prepareTimeout,
         connectTimeout = connectTimeout,
+        protocolVersions = versions,
         onLinkExhausted = onLinkExhausted,
     )
 
@@ -130,6 +133,28 @@ class SyncEngineTest {
     /** Sessions reported finished and every gate released, so the next sighting is decided, not dropped as busy. */
     private suspend fun awaitFinished(total: Int, vararg es: SyncEngine) = withTimeout(15.seconds) {
         while (es.sumOf { it.status.value.finishedSessions } < total || es.any { it.busy.value }) delay(20)
+    }
+
+    @Test
+    fun aVersionRejectNamesThePeerUntilASessionWithItSucceeds() = runBlocking<Unit> {
+        val g = TestGroup.create(2)
+        val (d0, d1) = g.devices
+        d0.store.applyBatch(listOf(d0.author.summary(TODAY.toString(), 5)))
+        var v0 = 3..3
+        val e0 = engine(g, d0, versions = { v0 })
+        val e1 = engine(g, d1)
+        seeEachOther("d0", e0, "d1", e1)
+        awaitFinished(2, e0, e1)
+        assertEquals(mapOf(d1.keys.deviceId to false), e0.status.value.outdated) // d1 must update
+        assertEquals(mapOf(d0.keys.deviceId to true), e1.status.value.outdated) // this phone (d1) must update
+
+        v0 = ProtocolVersions.SUPPORTED // "d0 was updated"
+        wall += DiscoveryTags.WINDOW_MS
+        mono += ConnectPolicy.COOLDOWN_MS + 1
+        seeEachOther("d0b", e0, "d1b", e1)
+        awaitFinished(4, e0, e1)
+        assertEquals(emptyMap(), e0.status.value.outdated)
+        assertEquals(emptyMap(), e1.status.value.outdated)
     }
 
     @Test

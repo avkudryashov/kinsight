@@ -7,6 +7,7 @@ import app.kinsight.core.model.Membership
 import app.kinsight.core.model.proto.Reject
 import app.kinsight.core.sync.ByteStream
 import app.kinsight.core.sync.EntryStore
+import app.kinsight.core.sync.ProtocolVersions
 import app.kinsight.core.sync.SecureChannel
 import app.kinsight.core.sync.SessionResult
 import app.kinsight.core.sync.SyncPolicy
@@ -54,6 +55,11 @@ data class SyncStatus(
     val lastSyncWallMs: Long? = null,
     val lastPeer: DeviceId? = null,
     val lastProblem: SyncProblem? = null,
+    /**
+     * Peers that refused us over the protocol version (A-11): true when THIS phone must update to sync with that peer,
+     * false when that peer must. An entry stays until a completed session with that peer; the map lives with the engine.
+     */
+    val outdated: Map<DeviceId, Boolean> = emptyMap(),
 )
 
 /**
@@ -79,6 +85,7 @@ class SyncEngine(
     private val connectTimeout: Duration = CONNECT_TIMEOUT,
     /** [LinkExhaustion.THRESHOLD] dials in a row failed with «No resources»: the owner restarts the radio. */
     private val onLinkExhausted: () -> Unit = {},
+    private val protocolVersions: () -> IntRange = { ProtocolVersions.SUPPORTED },
 ) {
     private val exhaustion = LinkExhaustion()
     private val quiet = LogLimiter(monoClock)
@@ -293,7 +300,7 @@ class SyncEngine(
                     channel.close()
                     SessionResult.Rejected(Reject.Reason.TOO_MANY_INVALID, byPeer = false)
                 } else {
-                    SyncSession(ctx.store, ctx.policy, log = log).run(channel)
+                    SyncSession(ctx.store, ctx.policy, versions = protocolVersions(), log = log).run(channel)
                 }
             }
         } catch (e: TimeoutCancellationException) {
@@ -365,8 +372,16 @@ class SyncEngine(
                 lastSyncWallMs = if (result is SessionResult.Completed) wallClock() else s.lastSyncWallMs,
                 lastPeer = (result as? SessionResult.Completed)?.peer ?: s.lastPeer,
                 lastProblem = problem,
+                outdated = nextOutdated(s.outdated, result, outcome.authenticated),
             )
         }
+    }
+
+    private fun nextOutdated(current: Map<DeviceId, Boolean>, result: SessionResult, peer: DeviceId?): Map<DeviceId, Boolean> = when {
+        result is SessionResult.Completed -> current - result.peer
+        result is SessionResult.Rejected && result.reason == Reject.Reason.PROTOCOL_VERSION && peer != null ->
+            result.peerNewer?.let { current + (peer to it) } ?: current
+        else -> current
     }
 
     private suspend fun prepareIfDue() = prepareLock.withLock {

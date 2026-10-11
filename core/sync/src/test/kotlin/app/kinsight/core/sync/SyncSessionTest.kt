@@ -208,11 +208,11 @@ class SyncSessionTest {
     }
 
     @Test
-    fun protocolVersionMismatchIsRejectedOnBothSides() = runBlocking {
+    fun aVersionRejectTellsEachSideWhoMustUpdate() = runBlocking<Unit> {
         val (a, b) = buildGroup(2)
         val (ra, rb) = syncPair(a, b, versionsA = 1..1, versionsB = 2..2, legacyA = true)
-        assertEquals(SessionResult.Rejected(Reject.Reason.PROTOCOL_VERSION, byPeer = false), ra)
-        assertEquals(SessionResult.Rejected(Reject.Reason.PROTOCOL_VERSION, byPeer = false), rb)
+        assertEquals(SessionResult.Rejected(Reject.Reason.PROTOCOL_VERSION, byPeer = false, peerNewer = true), ra)
+        assertEquals(SessionResult.Rejected(Reject.Reason.PROTOCOL_VERSION, byPeer = false, peerNewer = false), rb)
     }
 
     @Test
@@ -224,8 +224,11 @@ class SyncSessionTest {
         for ((va, vb) in listOf(1..1 to ProtocolVersions.SUPPORTED, ProtocolVersions.SUPPORTED to 1..1)) {
             val (ra, rb) = syncPair(old, new, versionsA = va, versionsB = vb, legacyA = va == 1..1, legacyB = vb == 1..1)
             // A version reject, never TOO_MANY_INVALID (which would block the peer for an hour), and nothing crosses.
-            assertEquals(SessionResult.Rejected(Reject.Reason.PROTOCOL_VERSION, byPeer = false), ra)
-            assertEquals(SessionResult.Rejected(Reject.Reason.PROTOCOL_VERSION, byPeer = false), rb)
+            for (r in listOf(ra, rb)) {
+                val rejected = assertIs<SessionResult.Rejected>(r)
+                assertEquals(Reject.Reason.PROTOCOL_VERSION, rejected.reason)
+                assertEquals(false, rejected.byPeer)
+            }
             assertEquals(before, old.store.liveEntries().toSet())
         }
     }
