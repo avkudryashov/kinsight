@@ -311,6 +311,17 @@ class UsageRepository(
     }.distinctUntilChanged()
 
     /**
+     * The name of the other parent whose entry sets [packageName]'s effective category; null for the viewer's own choice
+     * or no override. An author who has since left is still named (the departed member's record keeps the name).
+     */
+    fun categoryChangedBy(packageName: String): Flow<String?> = snapshots.snapshots.map { s ->
+        (s as? GroupSnapshot.Ready)?.takeUnless { it.removed }?.let {
+            val author = CategoryOverrides.effectiveWithAuthors(it.categoryOverrides, it.membership)[packageName]?.author
+            author?.takeIf { a -> a != it.self }?.let { a -> (it.membership.active[a] ?: it.membership.departed[a]?.member)?.displayName }
+        }
+    }.distinctUntilChanged()
+
+    /**
      * Serialises [setCategory] and [migrateLocalCategories] (each a read of the effective map, then an append). Lock
      * order: this, then the pipeline lock inside [appendOwn]; neither the control nor the state lock is taken here.
      */

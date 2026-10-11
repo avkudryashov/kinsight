@@ -77,11 +77,13 @@ class CategorySharingTest {
         mom.store().applyBatch(listOf(dads))
         mom.usage.overridesWhere { it == mapOf("com.game" to AppCategory.SOCIAL) }
         assertEquals(dadKeys.deviceId, withTimeout(10_000) { mom.usage.categoryAuthor("com.game").first { it != null } })
+        assertEquals("Dad", withTimeout(10_000) { mom.usage.categoryChangedBy("com.game").first { it != null } })
 
         // Mom changes it back: her entry orders after Dad's (Lamport), so it wins.
         mom.usage.setCategory("com.game", AppCategory.GAMES)
         mom.usage.overridesWhere { it == mapOf("com.game" to AppCategory.GAMES) }
         assertEquals(mom.keys.deviceId, withTimeout(10_000) { mom.usage.categoryAuthor("com.game").first { it == mom.keys.deviceId } })
+        assertNull(withTimeout(10_000) { mom.usage.categoryChangedBy("com.game").first { it == null } }, "her own choice names nobody")
         val hers = overrideEntries(mom).single { it.author == mom.keys.deviceId }
         assertEquals(51L, hers.lamport, "orders right after Dad's 50")
         assertEquals(51L, mom.store().authorState(mom.keys.deviceId).lastLamport)
