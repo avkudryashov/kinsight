@@ -63,12 +63,13 @@ import app.kinsight.core.data.MemberView
 import app.kinsight.core.data.Role as MemberRole
 import app.kinsight.core.data.ServiceStatus
 import app.kinsight.core.data.Sharing
+import app.kinsight.core.data.TodayComparison
 import app.kinsight.core.data.UsageReadModel
 import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.BarChart
 import app.kinsight.core.designsystem.component.EmptyState
+import app.kinsight.core.designsystem.component.absoluteMoment
 import app.kinsight.core.designsystem.component.durationText
-import app.kinsight.core.designsystem.component.isJustNow
 import app.kinsight.core.designsystem.component.relativeTime
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.transport.ble.ServiceState
@@ -396,6 +397,8 @@ private fun ChildTransparencyRow(
 
 @Composable
 private fun DeviceCard(u: DeviceUsage, nowMs: Long, noContactMs: Long, onClick: () -> Unit) {
+    // The same list instance between ticks, so the chart skips recomposition (U16).
+    val bars = remember(u.week) { u.week.map { it.totalMs } }
     val locale = LocalConfiguration.current.locales[0]
     val withData = u.week.filter { it.hasData }
     val busiest = withData.maxByOrNull { it.totalMs }
@@ -414,43 +417,64 @@ private fun DeviceCard(u: DeviceUsage, nowMs: Long, noContactMs: Long, onClick: 
             Text(u.member.name, style = MaterialTheme.typography.titleMedium)
             if (u.today.hasData) {
                 Text(durationText(u.today.totalMs), style = MaterialTheme.typography.displaySmall)
-                comparison(u)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             } else {
                 Text(stringResource(R.string.dash_no_data_today), style = MaterialTheme.typography.titleLarge)
             }
-            BarChart(values = u.week.map { it.totalMs }, labels = emptyList(), summary = summary, height = 40.dp)
-            Text(status(u, nowMs, noContactMs), style = MaterialTheme.typography.bodyMedium)
+            u.updatedMs?.let { DataAt(it, nowMs) }
+            if (u.today.hasData) comparison(u)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+            BarChart(values = bars, labels = emptyList(), summary = summary, height = 40.dp)
+            status(u, nowMs, noContactMs)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
         }
     }
 }
 
-/** Text, never colour alone (spec §9.8): within 10 % of the 7-day mean counts as «about the same». */
+/** «Data as of 14:05» under the figure (U3); older than STALE_AFTER_MS it also says it may be out of date. */
 @Composable
-private fun comparison(u: DeviceUsage): String? {
-    val avg = u.averageMs ?: return null
-    val diff = u.today.totalMs - avg
+private fun DataAt(updatedMs: Long, nowMs: Long) {
+    val stale = UsageReadModel.isStale(updatedMs, nowMs)
+    Text(
+        stringResource(if (stale) R.string.dash_data_stale else R.string.dash_data_at, absoluteMoment(LocalContext.current, updatedMs, nowMs)),
+        style = MaterialTheme.typography.bodySmall,
+        color = if (stale) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.testTag("dash_data_at"),
+    )
+}
+
+/** U2: «usual by this time» with hourly detail, whole days only late in the day, else nothing. */
+@Composable
+private fun comparison(u: DeviceUsage): String? = when (val c = u.comparison) {
+    is TodayComparison.ByThisTime -> versus(u.today.totalMs, c.usualMs, R.string.dash_vs_hour_same, R.string.dash_vs_hour_more, R.string.dash_vs_hour_less)
+    is TodayComparison.FullDay -> versus(u.today.totalMs, c.averageMs, R.string.dash_vs_same, R.string.dash_vs_more, R.string.dash_vs_less)
+    null -> null
+}
+
+/** Text, never colour alone (spec §9.8): within 10 % of [usual] counts as «about the same». */
+@Composable
+private fun versus(todayMs: Long, usual: Long, same: Int, more: Int, less: Int): String {
+    val diff = todayMs - usual
     return when {
-        diff == 0L || (avg > 0 && abs(diff) * 10 < avg) -> stringResource(R.string.dash_vs_same)
-        diff > 0 -> stringResource(R.string.dash_vs_more, durationText(diff))
-        else -> stringResource(R.string.dash_vs_less, durationText(-diff))
+        diff == 0L || (usual > 0 && abs(diff) * 10 < usual) -> stringResource(same)
+        diff > 0 -> stringResource(more, durationText(diff))
+        else -> stringResource(less, durationText(-diff))
     }
 }
 
-/** «No contact» uses the same setting and comparison as the alert (AlertPlanner), not a fixed day (preflight C19). */
+/**
+ * «No contact» uses the same setting and comparison as the alert (AlertPlanner), not a fixed day (preflight C19); the
+ * data time is under the figure (U3).
+ */
 @Composable
-private fun status(u: DeviceUsage, nowMs: Long, noContactMs: Long): String = when (val s = u.sharing) {
+private fun status(u: DeviceUsage, nowMs: Long, noContactMs: Long): String? = when (val s = u.sharing) {
     is Sharing.Paused -> stringResource(R.string.dash_card_paused, dateTime(s.sinceMs))
     Sharing.Never -> stringResource(R.string.dash_card_not_sharing)
     Sharing.Left -> stringResource(R.string.dash_card_left)
     Sharing.On -> {
         val seen = u.member.lastSeenMs
-        val updated = u.updatedMs
         when {
             !u.member.isSelf && seen != null && nowMs - seen > noContactMs -> stringResource(R.string.dash_card_not_seen, relativeTime(seen, nowMs))
             !u.member.isSelf && u.collectionOff -> stringResource(R.string.dash_card_collection_off)
-            updated != null && isJustNow(updated, nowMs) -> stringResource(R.string.dash_card_updated_now)
-            updated != null -> stringResource(R.string.dash_card_updated, relativeTime(updated, nowMs))
-            else -> stringResource(R.string.dash_card_no_data)
+            u.updatedMs == null -> stringResource(R.string.dash_card_no_data)
+            else -> null
         }
     }
 }

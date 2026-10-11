@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -20,6 +21,7 @@ import app.kinsight.core.data.MemberView
 import app.kinsight.core.data.Role
 import app.kinsight.core.data.ServiceStatus
 import app.kinsight.core.data.Sharing
+import app.kinsight.core.data.TodayComparison
 import app.kinsight.core.designsystem.theme.KinsightTheme
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.transport.ble.ServiceState
@@ -95,7 +97,7 @@ class DashboardScreenTest {
 
     @Test
     fun parentSeesTheChildCardWithTheComparison() {
-        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 120, 60)), listOf(dad)), running, true))
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 120, 60).copy(comparison = TodayComparison.FullDay(60 * 60_000))), listOf(dad)), running, true))
         rule.onNodeWithText("Kid").assertExists()
         rule.onNodeWithText("2 h").assertExists()
         rule.onNodeWithText("more than", substring = true).assertExists()
@@ -285,32 +287,46 @@ class DashboardScreenTest {
     }
 
     @Test
-    fun withinTheNoContactSettingTheCardReadsUpdated() {
-        val quiet = usage(kid.copy(lastSeenMs = now - 7 * hour), 30, 30)
-        show(DashboardUi(DashboardState(mom, null, listOf(quiet), emptyList()), running, true, noContactHours = 24))
-        rule.onNodeWithText("No contact", substring = true).assertDoesNotExist()
-        rule.onNodeWithText("Updated", substring = true).assertExists()
+    fun theCardComparesWithUsualByThisTime() {
+        val u = usage(kid, 120, 60).copy(comparison = TodayComparison.ByThisTime(60 * 60_000, 3))
+        show(DashboardUi(DashboardState(mom, null, listOf(u), listOf(dad)), running, true))
+        rule.onNodeWithText("1 h more than usual by this time").assertExists()
     }
 
     @Test
-    fun aCardUpdatedMomentsAgoReadsJustNow() {
-        // Emulator run 2 (0.4.1): «Updated 0 minutes ago» next to «Last sync: just now».
-        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30).copy(updatedMs = now - 20_000)), emptyList()), running, true))
-        rule.onNodeWithText("Updated just now").assertExists()
-        rule.onNodeWithText("0 minutes", substring = true).assertDoesNotExist()
+    fun withoutAComparisonTheCardComparesNothing() {
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 120, 60)), listOf(dad)), running, true))
+        rule.onNodeWithText("average", substring = true).assertDoesNotExist()
+        rule.onNodeWithText("usual", substring = true).assertDoesNotExist()
     }
 
     @Test
-    fun aCardUpdatedEarlierReadsInThePast() {
+    fun theFigureSaysWhenItsDataIsFrom() {
         show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30).copy(updatedMs = now - 5 * 60_000)), emptyList()), running, true))
-        rule.onNodeWithText("Updated 5 minutes ago").assertExists()
+        rule.onNodeWithTag("dash_data_at", useUnmergedTree = true).assertTextContains("Data as of", substring = true)
+        rule.onNodeWithText("may be out of date", substring = true).assertDoesNotExist()
+        rule.onNodeWithText("Updated", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun dataOlderThanTwoHoursMayBeOutOfDate() {
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30).copy(updatedMs = now - 3 * hour)), emptyList()), running, true))
+        rule.onNodeWithTag("dash_data_at", useUnmergedTree = true).assertTextContains("may be out of date", substring = true)
     }
 
     @Test
     @Config(qualifiers = "ru")
-    fun aCardUpdatedMomentsAgoReadsJustNowInRussian() {
+    fun freshnessInRussian() {
         show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), emptyList()), running, true))
-        rule.onNodeWithText("Обновлено только что").assertExists()
+        rule.onNodeWithTag("dash_data_at", useUnmergedTree = true).assertTextContains("Данные на", substring = true)
+    }
+
+    @Test
+    fun withinTheNoContactSettingTheCardShowsTheDataTime() {
+        val quiet = usage(kid.copy(lastSeenMs = now - 7 * hour), 30, 30)
+        show(DashboardUi(DashboardState(mom, null, listOf(quiet), emptyList()), running, true, noContactHours = 24))
+        rule.onNodeWithText("No contact", substring = true).assertDoesNotExist()
+        rule.onNodeWithTag("dash_data_at", useUnmergedTree = true).assertExists()
     }
 
     @Test

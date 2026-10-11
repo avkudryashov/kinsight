@@ -136,4 +136,6 @@
     <string name="app_threshold">Уведомлять, если больше…</string>
     <string name="app_threshold_set">Уведомлять, если больше %1$s</string>
     <string name="app_threshold_title">Порог: %1$s</string>
+    <string name="det_data_at">Данные на %1$s</string>
+    <string name="det_data_stale">Данные на %1$s, могли устареть</string>
 </resources>

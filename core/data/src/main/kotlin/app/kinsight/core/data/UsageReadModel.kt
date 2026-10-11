@@ -42,6 +42,16 @@ object UsageReadModel {
      */
     const val COLLECTION_STALE_MS = 24 * 3_600_000L
 
+    /** Without hourly detail today is compared with whole days only once its data is from this hour on (U2). */
+    const val FULL_DAY_FROM_HOUR = 20
+
+    /** Data older than this reads «могли устареть» next to the figure (U3). */
+    const val STALE_AFTER_MS = 2 * 3_600_000L
+
+    private const val MINUTES_PER_DAY = 24 * 60
+
+    fun isStale(updatedMs: Long, nowMs: Long): Boolean = nowMs - updatedMs > STALE_AFTER_MS
+
     /** Most a clock hour holds, one bucket or a whole slot: two runs of the hour on a fall-back day (spec §7). */
     const val MAX_MS_PER_HOUR_SLOT = 2 * 3_600_000L
 
@@ -190,6 +200,41 @@ object UsageReadModel {
         return if (prior.isEmpty()) null else prior.sum() / prior.size
     }
 
+    /**
+     * Today against what is usual by now (U2). The cutoff is the clock time, in the child's own zone (its summary's
+     * zone_id), at which today's summary was written; a summary written on a later date covers the whole day. With
+     * usable hourly detail ([detailOf]) on any of the [n] earlier days: [TodayComparison.ByThisTime], the mean of
+     * those days' [usedBy] the cutoff. Without: [TodayComparison.FullDay] once the cutoff is [FULL_DAY_FROM_HOUR] or
+     * later, else null. Null without a summary of [today] or an unparsable zone (untrusted peer).
+     */
+    fun comparison(own: Map<LocalDate, DecodedEntry>?, ownDetails: Map<LocalDate, DecodedEntry>?, today: LocalDate, n: Int = 7): TodayComparison? {
+        val summary = own?.get(today) ?: return null
+        val zone = summary.body.usage_summary?.zone_id?.let { runCatching { ZoneId.of(it) }.getOrNull() } ?: return null
+        val at = Instant.ofEpochMilli(summary.body.created_at_ms).atZone(zone)
+        val minute = when {
+            at.toLocalDate().isAfter(today) -> MINUTES_PER_DAY
+            at.toLocalDate().isBefore(today) -> return null
+            else -> at.hour * 60 + at.minute
+        }
+        val usual = (1..n).mapNotNull { k -> detailOf(own, ownDetails, today.minusDays(k.toLong()))?.let { usedBy(it, minute) } }
+        if (usual.isNotEmpty()) return TodayComparison.ByThisTime(usual.sum() / usual.size, usual.size)
+        if (minute < FULL_DAY_FROM_HOUR * 60) return null
+        return average(own, today, n)?.let(TodayComparison::FullDay)
+    }
+
+    /**
+     * Time of [detail] before the clock time [minuteOfDay] (0..1440): every earlier clock hour whole plus the elapsed
+     * share of the current one, each hour cut to its real length as in [hours] (a fall-back hour holds up to 2 h, a
+     * skipped spring-forward hour nothing); at most a day.
+     */
+    fun usedBy(detail: UsageDetail, minuteOfDay: Int): Long {
+        val slots = hours(detail, emptyMap(), emptyMap())
+        val m = minuteOfDay.coerceIn(0, MINUTES_PER_DAY)
+        val full = m / 60
+        val partial = if (full < 24) slots[full].totalMs * (m % 60) / 60 else 0L
+        return clampMs(slots.take(full).sumOf { it.totalMs } + partial)
+    }
+
     /** From the author's own events; leaving (or being departed) wins. */
     fun sharing(events: List<EventView>, departed: Boolean): Sharing {
         if (departed || events.any { it.kind == StateEvent.Kind.LEFT_GROUP }) return Sharing.Left
@@ -274,6 +319,8 @@ object UsageReadModel {
         nowMs: Long = System.currentTimeMillis(),
         /** The group's «no contact» window: a child out of range for less than it is not «collection off» (U1). */
         noContactMs: Long = 0,
+        /** The child's UsageDetail per local date, for «usual by this time» (U2). */
+        details: Map<LocalDate, DecodedEntry>? = null,
     ): DeviceUsage {
         val own = surfaced(member, byDate)
         // The child's own day (spec §9.3), as on the detail screen: it can already be tomorrow for the viewer.
@@ -284,7 +331,10 @@ object UsageReadModel {
         val mine = events.filter { it.author == member.id }
         val sharing = sharing(mine, departed)
         val off = member.role == Role.CHILD && collectionOff(sharing, mine, updated, nowMs, maxOf(COLLECTION_STALE_MS, noContactMs))
-        return DeviceUsage(member, week.last(), week, average(own, today), sharing, updated, collectionOff = off)
+        return DeviceUsage(
+            member, week.last(), week, average(own, today), sharing, updated,
+            collectionOff = off, comparison = comparison(own, surfaced(member, details), today),
+        )
     }
 
     fun detail(
@@ -312,6 +362,8 @@ object UsageReadModel {
         dayCategories.forEach { d -> d.forEach { (c, ms) -> categoryTotals.merge(c, ms, Long::plus) } }
         val start = range.start.atStartOfDay(zone).toInstant().toEpochMilli()
         val end = range.end.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val cap = nowMs?.plus(MAX_CLOCK_SKEW_MS) ?: Long.MAX_VALUE
+        val updated = own?.values?.maxOfOrNull { it.body.created_at_ms.coerceAtMost(cap) }
         return DeviceDetail(
             member = member,
             range = range,
@@ -334,6 +386,7 @@ object UsageReadModel {
             },
             heatmap = if (range.period == Period.DAY) null else heatmap(own, ownDetails, range.dates(), today, catalog, overrides, weekFields),
             today = today,
+            updatedMs = updated,
         )
     }
 

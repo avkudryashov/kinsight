@@ -21,6 +21,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.filterNotNull
+import java.time.LocalDate
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Dispatchers
@@ -132,8 +133,11 @@ class Snapshots(
     }
 
     /** [author]'s UsageDetail entries for [range] (level 4); read on demand, the snapshot itself carries none. */
-    suspend fun details(groupId: GroupId, author: DeviceId, range: DetailRange): List<DecodedEntry> = withContext(io) {
-        RoomEntryStore(db, groupId).details(author, range.start, range.end)
+    suspend fun details(groupId: GroupId, author: DeviceId, range: DetailRange): List<DecodedEntry> = details(groupId, author, range.start, range.end)
+
+    /** [author]'s UsageDetail entries of [from]..[to] (also the dashboard's comparison, U2). */
+    suspend fun details(groupId: GroupId, author: DeviceId, from: LocalDate, to: LocalDate): List<DecodedEntry> = withContext(io) {
+        RoomEntryStore(db, groupId).details(author, from, to)
     }
 
     suspend fun load(peerSeen: Map<DeviceId, Long>): GroupSnapshot = withContext(io) {

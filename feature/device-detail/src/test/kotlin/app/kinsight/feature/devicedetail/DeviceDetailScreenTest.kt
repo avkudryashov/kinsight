@@ -500,4 +500,22 @@ class DeviceDetailScreenTest {
         showWithLimits(day(today), listOf(totalLimit))
         rule.onNodeWithTag("det_limit").assertTextEquals("Limit 3 h")
     }
+
+    @Test
+    fun todaysRangeSaysWhenItsDataIsFromAndWhenItIsOld() {
+        val nowMs = 1_760_000_000_000L
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                DeviceDetailScreen(detail.copy(today = today, updatedMs = nowMs - 3 * 3_600_000L), onPeriod = {}, onAllApps = {}, onBack = {}, nowMs = nowMs)
+            }
+        }
+        rule.onNodeWithTag("det_data_at").assertTextContains("may be out of date", substring = true)
+    }
+
+    @Test
+    fun aPastRangeHasNoDataTime() {
+        val past = detail.copy(range = DetailRange(Period.WEEK, today.minusDays(13), today.minusDays(7)), today = today, updatedMs = 1L)
+        show(past)
+        rule.onNodeWithTag("det_data_at").assertDoesNotExist()
+    }
 }

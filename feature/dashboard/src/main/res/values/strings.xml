@@ -40,8 +40,11 @@
     <string name="dash_card_not_sharing">Does not share</string>
     <string name="dash_card_left">Left the group</string>
     <string name="dash_card_not_seen">No contact. Last seen %1$s</string>
-    <string name="dash_card_updated">Updated %1$s</string>
-    <string name="dash_card_updated_now">Updated just now</string>
+    <string name="dash_data_at">Data as of %1$s</string>
+    <string name="dash_data_stale">Data as of %1$s, may be out of date</string>
+    <string name="dash_vs_hour_same">About as usual by this time</string>
+    <string name="dash_vs_hour_more">%1$s more than usual by this time</string>
+    <string name="dash_vs_hour_less">%1$s less than usual by this time</string>
     <string name="dash_card_no_data">No data yet</string>
     <string name="dash_left">You left the group. Nothing is shared any more.</string>
     <string name="dash_sharing_failed">Couldn\'t change sharing. Try again.</string>

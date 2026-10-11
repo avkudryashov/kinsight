@@ -128,4 +128,6 @@
     <string name="app_threshold">Notify if more than…</string>
     <string name="app_threshold_set">Notify if more than %1$s</string>
     <string name="app_threshold_title">Limit for %1$s</string>
+    <string name="det_data_at">Data as of %1$s</string>
+    <string name="det_data_stale">Data as of %1$s, may be out of date</string>
 </resources>

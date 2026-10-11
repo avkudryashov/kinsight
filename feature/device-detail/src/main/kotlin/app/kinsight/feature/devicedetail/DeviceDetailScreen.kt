@@ -63,12 +63,14 @@ import app.kinsight.core.data.Role
 import app.kinsight.core.data.Sharing
 import app.kinsight.core.data.ThresholdRule
 import app.kinsight.core.data.ThresholdTarget
+import app.kinsight.core.data.UsageReadModel
 import app.kinsight.core.designsystem.component.AppIcon
 import app.kinsight.core.designsystem.component.BarChart
 import app.kinsight.core.designsystem.component.CategoryLegend
 import app.kinsight.core.designsystem.component.EmptyState
 import app.kinsight.core.designsystem.component.PeriodHeader
 import app.kinsight.core.designsystem.component.StackedBarChart
+import app.kinsight.core.designsystem.component.absoluteMoment
 import app.kinsight.core.designsystem.component.categoryColor
 import app.kinsight.core.designsystem.component.durationText
 import app.kinsight.core.model.DeviceId
@@ -194,6 +196,7 @@ fun DeviceDetailScreen(
     detailRetentionDays: Int = UsageSettings().detailRetentionDays,
     thresholds: List<ThresholdRule>? = null,
     onThresholds: () -> Unit = {},
+    nowMs: Long = System.currentTimeMillis(),
 ) = Screen(detail.member.name, onBack) { padding ->
     val child = detail.member.role == Role.CHILD
     val totalLimit = thresholds?.firstOrNull { it.target == ThresholdTarget.Total }?.limitMs
@@ -233,6 +236,17 @@ fun DeviceDetailScreen(
                 item(key = "total") {
                     Column {
                         Text(durationText(detail.totalMs), style = MaterialTheme.typography.displaySmall)
+                        // Only a range that holds the child's today: «Data as of 14:05» (U3).
+                        val updated = detail.updatedMs
+                        if (updated != null && !today.isBefore(detail.range.start) && !today.isAfter(detail.range.end)) {
+                            val stale = UsageReadModel.isStale(updated, nowMs)
+                            Text(
+                                stringResource(if (stale) R.string.det_data_stale else R.string.det_data_at, absoluteMoment(LocalContext.current, updated, nowMs)),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (stale) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.testTag("det_data_at"),
+                            )
+                        }
                         Text(pluralStringResource(R.plurals.det_unlocks, detail.unlocks, detail.unlocks))
                         if (detail.period == Period.DAY && totalLimit != null) {
                             Text(stringResource(R.string.det_limit_line, durationText(totalLimit)), Modifier.testTag("det_limit"))

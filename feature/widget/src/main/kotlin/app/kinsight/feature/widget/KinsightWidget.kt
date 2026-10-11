@@ -2,7 +2,6 @@ package app.kinsight.feature.widget
 
 import android.content.Context
 import android.content.Intent
-import android.text.format.DateUtils
 import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -45,6 +44,7 @@ import androidx.glance.text.TextStyle
 import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.Prefs
 import app.kinsight.core.data.ResetStatus
+import app.kinsight.core.designsystem.component.absoluteMoment
 import app.kinsight.core.designsystem.component.formatDuration
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -58,8 +58,6 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
-import java.time.Instant
-import java.time.ZoneId
 
 /**
  * The home-screen widget (spec §9.7, stage 5b): a parent's children with today's time and status, or a child's own
@@ -281,21 +279,10 @@ private fun todayText(context: Context, hasData: Boolean, ms: Long): String =
  * after sessions, so «5 minutes ago» would go stale on the home screen.
  */
 internal fun statusText(context: Context, status: ChildStatus, nowMs: Long): String = when (status) {
-    is ChildStatus.Paused -> context.getString(R.string.wid_paused, moment(context, status.sinceMs, nowMs))
-    is ChildStatus.NoContact -> context.getString(R.string.wid_no_contact, moment(context, status.seenMs, nowMs))
-    is ChildStatus.Updated -> context.getString(R.string.wid_updated, moment(context, status.atMs, nowMs))
+    is ChildStatus.Paused -> context.getString(R.string.wid_paused, absoluteMoment(context, status.sinceMs, nowMs))
+    is ChildStatus.NoContact -> context.getString(R.string.wid_no_contact, absoluteMoment(context, status.seenMs, nowMs))
+    is ChildStatus.Updated -> context.getString(R.string.wid_updated, absoluteMoment(context, status.atMs, nowMs))
     ChildStatus.NotSharing -> context.getString(R.string.wid_not_sharing)
     ChildStatus.NoData -> context.getString(R.string.wid_no_data)
 }
 
-/** «14:05» today, «10 Oct, 14:05» before. */
-private fun moment(context: Context, ms: Long, nowMs: Long): String {
-    val zone = ZoneId.systemDefault()
-    val sameDay = Instant.ofEpochMilli(ms).atZone(zone).toLocalDate() == Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
-    val flags = if (sameDay) {
-        DateUtils.FORMAT_SHOW_TIME
-    } else {
-        DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH or DateUtils.FORMAT_NO_YEAR or DateUtils.FORMAT_SHOW_TIME
-    }
-    return DateUtils.formatDateTime(context, ms, flags)
-}

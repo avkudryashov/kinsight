@@ -3,8 +3,13 @@ package app.kinsight.core.designsystem
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import android.content.Context
+import app.kinsight.core.designsystem.component.absoluteMoment
 import app.kinsight.core.designsystem.component.formatDuration
+import java.time.LocalDate
+import java.time.ZoneId
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
@@ -38,5 +43,16 @@ class DurationsTest {
         assertEquals("2 ч 5 мин", formatDuration(res, 125 * 60_000L))
         assertEquals("<1 мин", formatDuration(res, 59_000))
         assertEquals("3 ч", formatDuration(res, 180 * 60_000L))
+    }
+
+    @Test
+    fun anAbsoluteMomentIsATimeTodayAndADateBefore() {
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        val zone = ZoneId.systemDefault()
+        val now = LocalDate.of(2026, 10, 10).atTime(18, 0).atZone(zone).toInstant().toEpochMilli()
+        val today = absoluteMoment(ctx, now - 3_600_000, now)
+        assertFalse(today, today.contains("Oct"))
+        val before = absoluteMoment(ctx, now - 86_400_000, now)
+        assertTrue(before, before.contains("Oct 9"))
     }
 }

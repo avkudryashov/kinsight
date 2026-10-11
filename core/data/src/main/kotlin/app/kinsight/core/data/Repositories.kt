@@ -297,9 +297,22 @@ class UsageRepository(
         .catch { emit(Prefs().noContactHours * 3_600_000L) }
         .distinctUntilChanged()
 
-    val dashboard: Flow<DashboardState?> = combine(snapshots.snapshots, noContactMs) { s, noContact ->
-        (s as? GroupSnapshot.Ready)?.takeUnless { it.removed }?.let { SnapshotViews.dashboard(it, today(), clock(), noContact) }
-    }
+    /**
+     * The dashboard (spec §9.2). Each shown child's UsageDetail of the last 8 days and tomorrow (a child already on its
+     * next day) is read with every snapshot, so a card compares today with «usual by this time» (U2).
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val dashboard: Flow<DashboardState?> = combine(snapshots.snapshots, noContactMs, ::Pair).mapLatest { (s, noContact) ->
+        val ready = (s as? GroupSnapshot.Ready)?.takeUnless { it.removed } ?: return@mapLatest null
+        val today = today()
+        val shown = if (ready.membership.active[ready.self]?.isChild == true) {
+            listOf(ready.self)
+        } else {
+            ready.membership.active.values.filter { it.isChild }.map { it.id }
+        }
+        val details = shown.associateWith { snapshots.details(ready.groupId, it, today.minusDays(8), today.plusDays(1)) }
+        SnapshotViews.dashboard(ready, today, clock(), noContact, details)
+    }.distinctUntilChanged()
 
     /** The viewer's local date, the bound of forward navigation; screens anchor their first range on it. */
     fun today(): LocalDate = date()

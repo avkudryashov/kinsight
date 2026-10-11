@@ -155,7 +155,18 @@ data class DeviceUsage(
     val updatedMs: Long?,
     /** Sharing is on but the child's phone does not collect (UsageReadModel.collectionOff, U1). */
     val collectionOff: Boolean = false,
+    /** What today's figure is compared with (U2); null: no honest comparison yet. */
+    val comparison: TodayComparison? = null,
 )
+
+/** What a dashboard card compares today with (U2, audit 2026-10-11): never a part day against whole days. */
+sealed interface TodayComparison {
+    /** [usualMs]: the mean, over [days] earlier days with usable hourly detail, of the time used by the same clock time. */
+    data class ByThisTime(val usualMs: Long, val days: Int) : TodayComparison
+
+    /** [averageMs]: the mean of the earlier whole days, offered once today's data is from UsageReadModel.FULL_DAY_FROM_HOUR on. */
+    data class FullDay(val averageMs: Long) : TodayComparison
+}
 
 /**
  * Levels 1 to 3 of spec §9.3 for one [range] (every date of it in [days], oldest first), and the device's events of
@@ -186,6 +197,8 @@ data class DeviceDetail(
      * already there (UsageReadModel.childToday); null when not given (screen tests), the screen then uses the viewer's.
      */
     override val today: LocalDate? = null,
+    /** When the child's newest summary was written (at most MAX_CLOCK_SKEW_MS ahead of now): «Данные на …» (U3). */
+    val updatedMs: Long? = null,
 ) : RangedView {
     val period: Period get() = range.period
 }

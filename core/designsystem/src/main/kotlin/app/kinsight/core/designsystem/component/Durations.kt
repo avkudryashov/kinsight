@@ -1,10 +1,13 @@
 package app.kinsight.core.designsystem.component
 
+import android.content.Context
 import android.content.res.Resources
 import android.text.format.DateUtils
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalResources
 import app.kinsight.core.designsystem.R
+import java.time.Instant
+import java.time.ZoneId
 
 /** "<1 min", "45 min", "3 h", "2 h 5 min" from the locale's resources (spec §9.8). */
 fun formatDuration(resources: Resources, ms: Long): String {
@@ -30,3 +33,17 @@ fun isJustNow(ms: Long, nowMs: Long): Boolean = nowMs - ms < 60_000
 @Composable
 fun relativeTime(ms: Long, nowMs: Long): String =
     DateUtils.getRelativeTimeSpanString(ms, nowMs, DateUtils.MINUTE_IN_MILLIS).toString()
+
+/**
+ * An absolute moment: «14:05» on [nowMs]'s day in [zone], «10 Oct, 14:05» on another day (U3; the widget's form since
+ * stage 5b). It stays true on a screen left open, unlike «5 minutes ago».
+ */
+fun absoluteMoment(context: Context, ms: Long, nowMs: Long, zone: ZoneId = ZoneId.systemDefault()): String {
+    val sameDay = Instant.ofEpochMilli(ms).atZone(zone).toLocalDate() == Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
+    val flags = if (sameDay) {
+        DateUtils.FORMAT_SHOW_TIME
+    } else {
+        DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH or DateUtils.FORMAT_NO_YEAR or DateUtils.FORMAT_SHOW_TIME
+    }
+    return DateUtils.formatDateTime(context, ms, flags)
+}
