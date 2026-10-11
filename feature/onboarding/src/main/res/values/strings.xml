@@ -30,10 +30,13 @@
     <string name="onb_nearby_required">To join a group, Kinsight needs Nearby devices. Tap Agree and allow it, or allow it in the app\'s settings.</string>
     <string name="onb_scan_title">Scan the invitation</string>
     <string name="onb_scan_body">On the admin\'s phone open Group, tap an invite button and scan the QR code shown there. You can also scan it with this phone\'s camera app.</string>
-    <string name="onb_scan_button">Scan QR code</string>
     <string name="onb_scan_invalid">This is not a Kinsight invitation.</string>
     <string name="onb_scan_unsupported">This invitation is from another version of Kinsight. Update Kinsight on both phones.</string>
-    <string name="onb_scan_unavailable">The scanner needs Google Play services. Scan the code with the camera app instead.</string>
+    <string name="onb_scan_unavailable">The camera could not be opened. Scan the code with this phone\'s camera app.</string>
+    <string name="onb_scan_no_camera">Kinsight may not use the camera. Scan the code with this phone\'s camera app, or allow the camera.</string>
+    <string name="onb_camera_title">Camera</string>
+    <string name="onb_camera_body">Kinsight uses the camera only on the next screen, to read the invitation QR code. Nothing is recorded or sent anywhere. Without the camera you can scan the code with this phone\'s camera app.</string>
+    <string name="onb_camera_allow">Allow camera</string>
     <string name="onb_usage_title">Usage access</string>
     <string name="onb_usage_body">To count screen time, Kinsight needs usage access. Kinsight reads which apps were open and when, and sends the totals only to your family\'s phones. Android settings will open next: find Kinsight and turn on Usage access.</string>
     <string name="onb_usage_agree">Agree, open settings</string>

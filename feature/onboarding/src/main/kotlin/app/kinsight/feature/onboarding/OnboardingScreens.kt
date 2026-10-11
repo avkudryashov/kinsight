@@ -1,9 +1,11 @@
 package app.kinsight.feature.onboarding
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -19,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
@@ -149,15 +152,31 @@ fun DisclosureScreen(
     note?.let { ErrorNote(it) }
 }
 
+/**
+ * The invite QR (spec §6.4, §9.4): the live camera when it is allowed; otherwise the way through this phone's camera
+ * app (the invite is a link) and a button to allow the camera. [scanner] is the camera view: the route passes
+ * [QrScanner], tests a stand-in.
+ */
 @Composable
-internal fun ScanScreen(message: String?, onScan: () -> Unit, onBack: () -> Unit) = Page(
+internal fun ScanScreen(
+    message: String?,
+    cameraGranted: Boolean,
+    onAllowCamera: () -> Unit,
+    onBack: () -> Unit,
+    scanner: @Composable () -> Unit,
+) = Page(
     title = stringResource(R.string.onb_scan_title),
     actions = {
-        Primary(stringResource(R.string.onb_scan_button), "onb_scan", onScan)
+        if (!cameraGranted) Primary(stringResource(R.string.onb_camera_allow), "onb_camera_allow", onAllowCamera)
         TextButton(onBack, Modifier.fillMaxWidth()) { Text(stringResource(R.string.onb_back)) }
     },
 ) {
     Body(stringResource(R.string.onb_scan_body))
+    if (cameraGranted) {
+        Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(MaterialTheme.shapes.large).testTag("onb_camera")) { scanner() }
+    } else {
+        Body(stringResource(R.string.onb_scan_no_camera))
+    }
     message?.let { ErrorNote(it) }
 }
 

@@ -60,7 +60,6 @@ class MainActivityTest {
             "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
             "android.permission.SCHEDULE_EXACT_ALARM",
             "android.permission.USE_EXACT_ALARM",
-            "android.permission.CAMERA",
         )
         assertEquals(emptyList<String>(), forbidden.filter { it in requested })
         assertEquals(true, "android.permission.BLUETOOTH_SCAN" in requested) // the check reads the merged manifest
@@ -68,11 +67,11 @@ class MainActivityTest {
 
     /** A deep link must land in the running instance (onNewIntent), never in a second copy of the app. */
     @Test
-    fun mainActivityIsSingleTaskAndTheScannerModuleIsDeclared() {
+    fun mainActivityIsSingleTaskAndNoGoogleScannerIsDeclared() {
         val info = app.packageManager.getActivityInfo(ComponentName(app, MainActivity::class.java), 0)
         assertEquals(ActivityInfo.LAUNCH_SINGLE_TASK, info.launchMode)
         val meta = app.packageManager.getApplicationInfo(app.packageName, PackageManager.GET_META_DATA).metaData
-        assertEquals("barcode_ui", meta.getString("com.google.mlkit.vision.DEPENDENCIES"))
+        assertEquals(null, meta?.getString("com.google.mlkit.vision.DEPENDENCIES"))
     }
 
     @Test

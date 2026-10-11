@@ -7,6 +7,8 @@ android {
 }
 
 dependencies {
-    implementation(libs.code.scanner) // removed in Task 7
     implementation(libs.zxing.core)
+    implementation(libs.camera.camera2)
+    implementation(libs.camera.lifecycle)
+    implementation(libs.camera.view)
 }

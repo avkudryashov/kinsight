@@ -30,10 +30,13 @@
     <string name="onb_nearby_required">Чтобы вступить в группу, Kinsight нужно разрешение «Устройства поблизости». Нажмите «Принимаю» и разрешите его или включите в настройках приложения.</string>
     <string name="onb_scan_title">Отсканируйте приглашение</string>
     <string name="onb_scan_body">На телефоне администратора откройте «Группа», нажмите кнопку приглашения и отсканируйте показанный QR-код. Можно отсканировать его и приложением камеры этого телефона.</string>
-    <string name="onb_scan_button">Сканировать QR-код</string>
     <string name="onb_scan_invalid">Это не приглашение Kinsight.</string>
     <string name="onb_scan_unsupported">Приглашение от другой версии Kinsight. Обновите Kinsight на обоих телефонах.</string>
-    <string name="onb_scan_unavailable">Сканеру нужны сервисы Google Play. Отсканируйте код приложением камеры.</string>
+    <string name="onb_scan_unavailable">Камеру не удалось открыть. Отсканируйте код приложением камеры этого телефона.</string>
+    <string name="onb_scan_no_camera">Kinsight не может использовать камеру. Отсканируйте код приложением камеры этого телефона или разрешите камеру.</string>
+    <string name="onb_camera_title">Камера</string>
+    <string name="onb_camera_body">Kinsight включает камеру только на следующем экране, чтобы прочитать QR-код приглашения. Ничего не записывается и никуда не отправляется. Без камеры код можно отсканировать приложением камеры этого телефона.</string>
+    <string name="onb_camera_allow">Разрешить камеру</string>
     <string name="onb_usage_title">Доступ к истории использования</string>
     <string name="onb_usage_body">Чтобы считать экранное время, Kinsight нужен доступ к истории использования. Kinsight читает, какие приложения были открыты и когда, и отправляет итоги только телефонам вашей семьи. Сейчас откроются настройки Android: найдите Kinsight и включите «Доступ к истории использования».</string>
     <string name="onb_usage_agree">Принимаю, открыть настройки</string>

@@ -27,6 +27,16 @@ class OnboardingFlowTest {
     }
 
     @Test
+    fun joiningAsksForTheCameraRightBeforeTheScanUnlessGrantedOrLinked() {
+        val s = OnboardingState(step = Step.NEARBY, path = Path.JOIN, name = "Kid")
+        assertEquals(Step.CAMERA, OnboardingFlow.next(s, none))
+        assertEquals(Step.SCAN, OnboardingFlow.next(s, none.copy(cameraGranted = true)))
+        assertEquals(Step.NEARBY, OnboardingFlow.previous(s.copy(step = Step.CAMERA), none))
+        assertEquals(Step.CONSENT, OnboardingFlow.next(s.copy(invite = invite(DeviceRole.CHILD)), none))
+        assertFalse(Step.CAMERA in OnboardingFlow.order(OnboardingState(path = Path.CREATE)))
+    }
+
+    @Test
     fun createPathAsksEveryPermissionOnce() {
         val s = OnboardingState(step = Step.NAME, path = Path.CREATE, name = "Mom")
         assertEquals(listOf(Step.NAME, Step.PARENT_INFO, Step.NEARBY, Step.NOTIFICATIONS, Step.BATTERY, Step.DONE), walk(s, none))

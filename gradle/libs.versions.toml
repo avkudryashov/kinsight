@@ -22,7 +22,7 @@ lifecycle = "2.10.0"
 navigation = "2.9.8"
 core-ktx = "1.17.0"
 zxing = "3.5.3"
-code-scanner = "16.1.0"
+camerax = "1.6.2"
 robolectric = "4.16"
 junit4 = "4.13.2"
 androidx-test-core = "1.7.0"
@@ -67,7 +67,9 @@ lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-com
 navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigation" }
 core-ktx = { module = "androidx.core:core-ktx", version.ref = "core-ktx" }
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
-code-scanner = { module = "com.google.android.gms:play-services-code-scanner", version.ref = "code-scanner" }
+camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "camerax" }
+camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camerax" }
+camera-view = { module = "androidx.camera:camera-view", version.ref = "camerax" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 junit4 = { module = "junit:junit", version.ref = "junit4" }
 junit-vintage = { module = "org.junit.vintage:junit-vintage-engine" }

@@ -161,6 +161,7 @@ class OnboardingViewModel(
             Step.NEARBY -> env.nearbyGranted
             Step.NOTIFICATIONS -> env.notificationsGranted
             Step.USAGE_ACCESS -> env.usageAccessGranted
+            Step.CAMERA -> env.cameraGranted
             else -> false
         }
         if (granted) next()
@@ -192,6 +193,13 @@ class OnboardingViewModel(
         this.env = env
         envKnown = true
         if (_state.value.step == Step.NOTIFICATIONS) next()
+    }
+
+    /** The camera request returned, granted or not: the scan step follows (the system camera app works without it). */
+    fun onCameraResult(env: Env) {
+        this.env = env
+        envKnown = true
+        if (_state.value.step == Step.CAMERA) next()
     }
 
     /** A new choice drops whatever an earlier path left: create never carries an invite or a consent. */

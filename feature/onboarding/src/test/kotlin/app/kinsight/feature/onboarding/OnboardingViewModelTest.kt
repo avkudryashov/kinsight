@@ -192,8 +192,23 @@ class OnboardingViewModelTest {
         assertEquals("Pixel 8a", vm(FakeGroup(GroupState.NoGroup), saved).state.value.name)
     }
 
-    private val granted = Env(nearbyGranted = true, notificationsGranted = false, usageAccessGranted = false)
-    private val all = Env(nearbyGranted = true, notificationsGranted = true, usageAccessGranted = true)
+    private val granted = Env(nearbyGranted = true, notificationsGranted = false, usageAccessGranted = false, cameraGranted = true)
+    private val all = Env(nearbyGranted = true, notificationsGranted = true, usageAccessGranted = true, cameraGranted = true)
+
+    @Test
+    fun theCameraStepGoesOnWhateverTheAnswer() = runBlocking<Unit> {
+        val vm = vm(FakeGroup(GroupState.NoGroup))
+        vm.onResumed(Env.NOTHING)
+        vm.choose(Path.JOIN)
+        vm.next()
+        val nearbyOnly = Env(nearbyGranted = true, notificationsGranted = false, usageAccessGranted = false)
+        vm.onNearbyResult(nearbyOnly, blocked = false)
+        assertEquals(Step.CAMERA, vm.state.value.step)
+        vm.onCameraResult(nearbyOnly) // denied: the system camera app still works
+        assertEquals(Step.SCAN, vm.state.value.step)
+        vm.onCameraResult(nearbyOnly.copy(cameraGranted = true)) // a late answer moves nothing
+        assertEquals(Step.SCAN, vm.state.value.step)
+    }
 
     @Test
     fun aNearbyGrantAdvancesOnce() = runBlocking<Unit> {

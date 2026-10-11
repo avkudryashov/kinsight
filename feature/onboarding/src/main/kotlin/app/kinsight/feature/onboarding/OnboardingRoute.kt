@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,9 +44,6 @@ import app.kinsight.core.sync.pairing.Invite
 import app.kinsight.core.transport.ble.BlePermissions
 import app.kinsight.core.usage.AppOpsUsageAccess
 import app.kinsight.core.usage.UsageAccessSettings
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
-import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -58,6 +56,7 @@ internal fun readEnv(context: Context) = Env(
     notificationsGranted = Build.VERSION.SDK_INT < 33 ||
         context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
     usageAccessGranted = AppOpsUsageAccess(context).granted(),
+    cameraGranted = context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED,
 )
 
 internal fun unrestrictedBattery(context: Context): Boolean =
@@ -141,7 +140,6 @@ fun OnboardingRoute(
         val g = AppGraph.get(context)
         OnboardingViewModel(g.prefs, GraphOnboardingGroup(g), Build.MODEL, createSavedStateHandle())
     }
-    LaunchedEffect(Unit) { requestScannerModule(context.applicationContext) }
     // A deep link (system camera or adb) arrives at any time: apply it once, then the app forgets it.
     LaunchedEffect(initialInvite) {
         if (initialInvite != null) {
@@ -154,8 +152,11 @@ fun OnboardingRoute(
     val restored by vm.restored.collectAsStateWithLifecycle()
     val blocked by vm.nearbyBlocked.collectAsStateWithLifecycle()
     var unrestricted by remember { mutableStateOf(unrestrictedBattery(context)) }
+    var cameraGranted by remember { mutableStateOf(readEnv(context).cameraGranted) }
+    var cameraAsked by rememberSaveable { mutableStateOf(false) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         unrestricted = unrestrictedBattery(context)
+        cameraGranted = readEnv(context).cameraGranted
         vm.onResumed(readEnv(context))
     }
     val nearby = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -163,6 +164,10 @@ fun OnboardingRoute(
     }
     val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         vm.onNotificationsResult(readEnv(context))
+    }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        cameraGranted = granted
+        vm.onCameraResult(readEnv(context))
     }
     if (!restored) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -193,16 +198,32 @@ fun OnboardingRoute(
             },
             onOpenSettings = if (blocked) ({ openAppSettings(context) }) else null,
         )
+        Step.CAMERA -> DisclosureScreen(
+            title = stringResource(R.string.onb_camera_title),
+            body = stringResource(R.string.onb_camera_body),
+            agreeLabel = stringResource(R.string.onb_agree),
+            onAgree = {
+                cameraAsked = true
+                camera.launch(Manifest.permission.CAMERA)
+            },
+            onNotNow = vm::next,
+        )
         Step.SCAN -> ScanScreen(
             message = inviteError ?: if (message == OnboardingMessage.SCANNER_UNAVAILABLE) stringResource(R.string.onb_scan_unavailable) else null,
-            onScan = {
-                val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
-                GmsBarcodeScanning.getClient(context, options).startScan()
-                    .addOnSuccessListener { code -> code.rawValue?.let(vm::onInviteText) ?: vm.show(OnboardingMessage.INVALID_INVITE) }
-                    .addOnFailureListener { vm.show(OnboardingMessage.SCANNER_UNAVAILABLE) }
+            cameraGranted = cameraGranted,
+            onAllowCamera = {
+                // Asked before and Android will not ask again: only the app's settings page can allow it now.
+                if (cameraAsked && activity?.shouldShowRequestPermissionRationale(Manifest.permission.CAMERA) == false) {
+                    openAppSettings(context)
+                } else {
+                    cameraAsked = true
+                    camera.launch(Manifest.permission.CAMERA)
+                }
             },
             onBack = vm::back,
-        )
+        ) {
+            QrScanner(onText = { vm.onInviteText(it) }, onUnavailable = { vm.show(OnboardingMessage.SCANNER_UNAVAILABLE) })
+        }
         // OnboardingFlow puts CONSENT only on a child invite's path.
         Step.CONSENT -> ConsentScreen(state.invite?.adminName.orEmpty(), onAgree = { vm.consent(true) }, onNotNow = { vm.consent(false) })
         Step.PAIR -> state.invite?.let { pairContent(it, state.name.trim(), child && state.consent, vm::next, vm::back) }

@@ -1,4 +1,4 @@
-# Release shrinking (R8). Libraries ship their own consumer rules (Room, Wire, Glance, ML Kit, Compose);
+# Release shrinking (R8). Libraries ship their own consumer rules (Room, Wire, Glance, CameraX, Compose);
 # only what they do not cover is here.
 
 # BouncyCastle is used through its lightweight API (core/crypto), no JCE provider registration, so nothing

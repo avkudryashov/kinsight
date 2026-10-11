@@ -1,5 +1,9 @@
 package app.kinsight.feature.onboarding
 
+import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -101,6 +105,26 @@ class OnboardingScreensTest {
     fun anAdminIsToldToInvite() {
         rule.setContent { KinsightTheme(dynamicColor = false) { DoneScreen(child = false, admin = true, message = null, onDone = {}) } }
         rule.onNodeWithText("invite", substring = true, ignoreCase = true).assertExists()
+    }
+
+    @Test
+    fun scanShowsTheCameraWhenAllowedAndTheCameraAppWayOtherwise() {
+        var granted by mutableStateOf(false)
+        var asked = false
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                ScanScreen(message = null, cameraGranted = granted, onAllowCamera = { asked = true }, onBack = {}) { Text("camera stand-in") }
+            }
+        }
+        rule.onNodeWithText("may not use the camera", substring = true).assertExists()
+        rule.onNodeWithTag("onb_camera").assertDoesNotExist()
+        rule.onNodeWithTag("onb_camera_allow").performClick()
+        assertTrue(asked)
+        granted = true
+        rule.waitForIdle()
+        rule.onNodeWithTag("onb_camera").assertExists()
+        rule.onNodeWithText("camera stand-in").assertExists()
+        rule.onNodeWithTag("onb_camera_allow").assertDoesNotExist()
     }
 
     @Test

@@ -1,1 +1,9 @@
-<manifest />
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The invite QR scanner (onboarding): CameraX preview and ZXing on the device; no frame is stored or sent. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- A phone without a camera still joins: the invite link opens from the system camera or a deep link. -->
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false" />
+</manifest>

@@ -5,10 +5,15 @@ import app.kinsight.core.sync.pairing.Invite
 
 enum class Path { CREATE, JOIN }
 
-enum class Step { WELCOME, NAME, PARENT_INFO, NEARBY, SCAN, CONSENT, PAIR, USAGE_ACCESS, NOTIFICATIONS, BATTERY, DONE }
+enum class Step { WELCOME, NAME, PARENT_INFO, NEARBY, CAMERA, SCAN, CONSENT, PAIR, USAGE_ACCESS, NOTIFICATIONS, BATTERY, DONE }
 
 /** What is already granted: those permission steps are skipped (research §6.2: one disclosure right before each request). */
-data class Env(val nearbyGranted: Boolean, val notificationsGranted: Boolean, val usageAccessGranted: Boolean) {
+data class Env(
+    val nearbyGranted: Boolean,
+    val notificationsGranted: Boolean,
+    val usageAccessGranted: Boolean,
+    val cameraGranted: Boolean = false,
+) {
     companion object {
         val NOTHING = Env(nearbyGranted = false, notificationsGranted = false, usageAccessGranted = false)
     }
@@ -29,16 +34,17 @@ data class OnboardingState(
 
 /**
  * Spec §9.4 with the Play disclosure rules (research §6.2). Create: name, what a parent's phone does, Nearby,
- * notifications, battery. Join: name, Nearby (needed to pair), the QR (skipped with a deep link), consent for a child
- * or the parent text, pairing, then usage access (a consenting child only), notifications, battery. Only a child invite
- * ever reaches CONSENT or USAGE_ACCESS: adults never share (Play Stalkerware ruling).
+ * notifications, battery. Join: name, Nearby (needed to pair), the camera disclosure and the QR (both skipped with a
+ * deep link), consent for a child or the parent text, pairing, then usage access (a consenting child only),
+ * notifications, battery. Only a child invite ever reaches CONSENT or USAGE_ACCESS: adults never share (Play
+ * Stalkerware ruling).
  */
 object OnboardingFlow {
     fun order(s: OnboardingState): List<Step> = when (s.path) {
         null -> listOf(Step.WELCOME, Step.NAME)
         Path.CREATE -> listOf(Step.WELCOME, Step.NAME, Step.PARENT_INFO, Step.NEARBY, Step.NOTIFICATIONS, Step.BATTERY, Step.DONE)
         Path.JOIN -> buildList {
-            addAll(listOf(Step.WELCOME, Step.NAME, Step.NEARBY, Step.SCAN))
+            addAll(listOf(Step.WELCOME, Step.NAME, Step.NEARBY, Step.CAMERA, Step.SCAN))
             when (s.role) {
                 DeviceRole.CHILD -> add(Step.CONSENT)
                 DeviceRole.PARENT -> add(Step.PARENT_INFO)
@@ -54,6 +60,7 @@ object OnboardingFlow {
         Step.NEARBY -> env.nearbyGranted
         Step.NOTIFICATIONS -> env.notificationsGranted
         Step.USAGE_ACCESS -> env.usageAccessGranted
+        Step.CAMERA -> env.cameraGranted || s.invite != null || s.joinedRole != null
         Step.SCAN -> s.invite != null || s.joinedRole != null
         else -> false
     }
