@@ -3,26 +3,28 @@ package app.kinsight.feature.settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.kinsight.core.data.AppGraph
@@ -48,17 +50,28 @@ fun TransparencyRoute(onBack: () -> Unit) {
 /**
  * Spec §9.6 «прозрачность» in full: who receives this phone's data, what exactly, how to pause or stop, how long it
  * is kept. The list of parents is a snapshot, not the rule: every parent in the group receives a child's data,
- * including parents who join later, and the text says so.
+ * including parents who join later, and the text says so. U21: a top app bar with Back, as every other screen.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TransparencyScreen(state: GroupState.Ready, usage: UsageSettings, nowMs: Long, onBack: () -> Unit) {
+fun TransparencyScreen(state: GroupState.Ready, usage: UsageSettings, nowMs: Long, onBack: () -> Unit) = Scaffold(
+    topBar = {
+        TopAppBar(
+            title = { Text(stringResource(R.string.tr_title)) },
+            navigationIcon = {
+                IconButton(onBack, Modifier.testTag("tr_back")) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.set_back))
+                }
+            },
+        )
+    },
+) { padding ->
     val child = state.self.role == Role.CHILD
     val parents = state.members.filter { it.role == Role.PARENT && !it.isSelf }
     Column(
-        Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).verticalScroll(rememberScrollState()).padding(24.dp),
+        Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(stringResource(R.string.tr_title), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
         if (child) {
             Text(stringResource(R.string.tr_child_who), style = MaterialTheme.typography.titleMedium)
             if (parents.isEmpty()) Text(stringResource(R.string.tr_nobody))
@@ -78,6 +91,5 @@ fun TransparencyScreen(state: GroupState.Ready, usage: UsageSettings, nowMs: Lon
             Text(stringResource(R.string.tr_parent_keep, detail, summary))
         }
         Text(stringResource(R.string.tr_no_internet))
-        TextButton(onBack) { Text(stringResource(R.string.set_back)) }
     }
 }

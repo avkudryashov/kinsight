@@ -60,11 +60,12 @@ class SettingsScreenTest {
         onConsent: () -> Unit = {},
         onRetention: (Int, Int) -> Unit = { _, _ -> },
         onPrivacyPolicy: () -> Unit = {},
+        onTransparency: () -> Unit = {},
         nowMs: Long = NOW,
     ) = rule.setContent {
         KinsightTheme(dynamicColor = false) {
             SettingsScreen(
-                ui, "0.4.0", onSharing = onSharing, onConsent = onConsent, onTransparency = {},
+                ui, "0.4.0", onSharing = onSharing, onConsent = onConsent, onTransparency = onTransparency,
                 onStopSync = { calls += "stop" }, onStartSync = { calls += "start" },
                 onRetention = onRetention, onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {},
                 onResetIdentity = onReset, onSyncNow = { calls += "syncNow" }, onPrivacyPolicy = onPrivacyPolicy, nowMs = nowMs,
@@ -340,5 +341,61 @@ class SettingsScreenTest {
         showScaled(1f) {}
         rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_mode_weekly"))
         rule.onNodeWithTag("set_mode_list").assertDoesNotExist()
+    }
+
+    @Test
+    fun theTransparencyRowIsTheButton() {
+        var opened = 0
+        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1), Prefs(), running), onTransparency = { opened++ })
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_transparency"))
+        rule.onNodeWithTag("set_transparency").performClick()
+        assertEquals(1, opened)
+        rule.onNodeWithText("Open").assertDoesNotExist() // no separate button under the row any more
+    }
+
+    @Test
+    fun aChildsAdultItemsWaitUnderAdvanced() {
+        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1), Prefs(), running))
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_advanced"))
+        rule.onNodeWithTag("set_reset").assertDoesNotExist()
+        rule.onNodeWithTag("set_detail_30").assertDoesNotExist()
+        rule.onNodeWithTag("set_advanced").performClick()
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_detail_30"))
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_reset"))
+        rule.onNodeWithTag("set_reset").assertTextEquals("Disconnect this phone and pair again")
+    }
+
+    @Test
+    fun aParentHasNoAdvancedGroup() {
+        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running))
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_reset"))
+        rule.onNodeWithTag("set_advanced").assertDoesNotExist()
+    }
+
+    @Test
+    fun aChildIsToldPauseFromStop() {
+        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1), Prefs(), running))
+        rule.onNodeWithText("Pause: your time is kept", substring = true).assertExists()
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun russianTermsFollowTheGlossary() {
+        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1), Prefs(), running))
+        rule.onNodeWithText("Обмен экранным временем").assertExists()
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_advanced"))
+        rule.onNodeWithText("Дополнительно").assertExists()
+        rule.onNodeWithText("Этот телефон").assertExists()
+    }
+
+    @Test
+    fun theTransparencyScreenHasATopBarWithBack() {
+        var back = 0
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) { TransparencyScreen(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), 2L, onBack = { back++ }) }
+        }
+        rule.onNodeWithText("Who sees my data").assertExists()
+        rule.onNodeWithTag("tr_back").performClick()
+        assertEquals(1, back)
     }
 }

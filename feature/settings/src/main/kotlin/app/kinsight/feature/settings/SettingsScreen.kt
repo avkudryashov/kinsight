@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -22,9 +23,14 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -105,7 +111,8 @@ private enum class Ask { PAUSE, STOP, RESET, SHRINK }
  * Spec §4.7, §4.8, §9.6, §9.7. Only a child's phone has a «share» switch (Play Stalkerware ruling: an adult's usage is
  * never shared); a parent's says so instead. Turning sharing off asks first and says the pause is open (signed, the
  * parents are told) and the paused time is sent later. Nothing here starts sync on its own: a user's Stop holds until
- * the Start button. The identity reset needs an explicit acknowledgement; its failure is shown, never swallowed.
+ * the Start button. Disconnecting this phone needs an explicit acknowledgement; its failure is shown, never swallowed.
+ * On a child's phone retention, diagnostics and the disconnect button wait under «Advanced» (U22).
  */
 @Composable
 fun SettingsScreen(
@@ -139,6 +146,29 @@ fun SettingsScreen(
         } else {
             onRetention(d, s)
         }
+    }
+    val child = role == Role.CHILD
+    var advanced by rememberSaveable { mutableStateOf(false) }
+    val retentionSection: LazyListScope.() -> Unit = {
+        section(R.string.set_retention) {
+            Text(stringResource(R.string.set_retention_detail))
+            Choices(RetentionRules.DETAIL, ui.usage.detailRetentionDays, "set_detail", { stringResource(R.string.set_days, it) }) {
+                retention(RetentionRules.withDetail(it, ui.usage.summaryRetentionDays))
+            }
+            Text(stringResource(R.string.set_retention_summary))
+            Choices(RetentionRules.SUMMARY, ui.usage.summaryRetentionDays, "set_summary", { stringResource(R.string.set_days, it) }) {
+                retention(RetentionRules.withSummary(ui.usage.detailRetentionDays, it))
+            }
+        }
+    }
+    val adultActions: @Composable () -> Unit = {
+        TextButton(onDiagnostics) { Text(stringResource(R.string.set_diagnostics)) }
+        OutlinedButton(
+            onClick = { ask = Ask.RESET },
+            enabled = !ui.resetting,
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            modifier = Modifier.fillMaxWidth().testTag("set_reset"),
+        ) { Text(stringResource(if (ui.resetting) R.string.set_resetting else R.string.set_reset)) }
     }
     LazyColumn(
         Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).testTag("set_list"),
@@ -187,6 +217,7 @@ fun SettingsScreen(
                         Text(stringResource(R.string.set_open_usage_access))
                     }
                 }
+                if (child) Text(stringResource(R.string.set_pause_vs_stop), style = MaterialTheme.typography.bodySmall)
                 if (role == Role.PARENT) Text(stringResource(R.string.set_not_shared), style = MaterialTheme.typography.bodyMedium)
             }
         }
@@ -226,23 +257,16 @@ fun SettingsScreen(
             Role.PARENT, null -> Unit // a parent's «not shared» sentence is in the sync section
         }
         item {
+            // U21: the row is the button (no separate «Open» under it).
             ListItem(
                 headlineContent = { Text(stringResource(R.string.set_transparency)) },
                 supportingContent = { Text(stringResource(R.string.set_transparency_body)) },
-                modifier = Modifier.testTag("set_transparency"),
+                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
+                modifier = Modifier.clickable(onClickLabel = stringResource(R.string.set_open), role = SemanticsRole.Button, onClick = onTransparency)
+                    .testTag("set_transparency"),
             )
-            TextButton(onTransparency) { Text(stringResource(R.string.set_open)) }
         }
-        section(R.string.set_retention) {
-            Text(stringResource(R.string.set_retention_detail))
-            Choices(RetentionRules.DETAIL, ui.usage.detailRetentionDays, "set_detail", { stringResource(R.string.set_days, it) }) {
-                retention(RetentionRules.withDetail(it, ui.usage.summaryRetentionDays))
-            }
-            Text(stringResource(R.string.set_retention_summary))
-            Choices(RetentionRules.SUMMARY, ui.usage.summaryRetentionDays, "set_summary", { stringResource(R.string.set_days, it) }) {
-                retention(RetentionRules.withSummary(ui.usage.detailRetentionDays, it))
-            }
-        }
+        if (!child) retentionSection()
         if (role == Role.PARENT) {
             section(R.string.set_notifications) {
                 Text(stringResource(R.string.set_summaries))
@@ -269,15 +293,24 @@ fun SettingsScreen(
                     context.open(Intent(Settings.ACTION_APP_LOCALE_SETTINGS, "package:${context.packageName}".toUri()))
                 }) { Text(stringResource(R.string.set_language)) }
             }
-            TextButton(onDiagnostics) { Text(stringResource(R.string.set_diagnostics)) }
             TextButton(onPrivacyPolicy, Modifier.testTag("set_privacy")) { Text(stringResource(R.string.set_privacy)) }
-            OutlinedButton(
-                onClick = { ask = Ask.RESET },
-                enabled = !ui.resetting,
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                modifier = Modifier.fillMaxWidth().testTag("set_reset"),
-            ) { Text(stringResource(if (ui.resetting) R.string.set_resetting else R.string.set_reset)) }
+            if (!child) adultActions()
             Text(stringResource(R.string.set_version, appVersion), style = MaterialTheme.typography.bodySmall)
+        }
+        // U22: on a child's phone what is for adults waits under «Advanced».
+        if (child) {
+            item {
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.set_advanced)) },
+                    supportingContent = { Text(stringResource(R.string.set_advanced_body)) },
+                    trailingContent = { Icon(if (advanced) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown, contentDescription = null) },
+                    modifier = Modifier.clickable(role = SemanticsRole.Button) { advanced = !advanced }.testTag("set_advanced"),
+                )
+            }
+            if (advanced) {
+                retentionSection()
+                item { Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) { adultActions() } }
+            }
         }
     }
     when (ask) {
