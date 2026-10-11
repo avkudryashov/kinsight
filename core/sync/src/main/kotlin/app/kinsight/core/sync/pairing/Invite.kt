@@ -5,7 +5,9 @@ import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.proto.DeviceRole
+import app.kinsight.core.sync.MIN_PROTOCOL_VERSION
 import app.kinsight.core.sync.PROTOCOL_VERSION
+import app.kinsight.core.sync.ProtocolVersions
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -17,11 +19,13 @@ class UnsupportedInviteVersionException(message: String) : InvalidInviteExceptio
 
 /**
  * The QR content of an invitation (spec §6.4): `kinsight://pair/1/<base64url>` over
- * format (1) | protocol version (u16 BE) | groupId (16) | admin Ed25519 key (32) | admin X25519 key (32) |
- * token (16) | role (1) | name length (1) | admin name (UTF-8, at most [MAX_NAME_BYTES]).
- * The token lives [LIFETIME_MS] on the admin's side; the invite itself carries no expiry. [parse] refuses text over
- * [MAX_TEXT_CHARS], a blank admin name or one with control/bidi characters, and throws [UnsupportedInviteVersionException]
- * for another `kinsight://pair/N/` format or a protocol version other than PROTOCOL_VERSION.
+ * format (1) | highest protocol version (u16 BE) | groupId (16) | admin Ed25519 key (32) | admin X25519 key (32) |
+ * token (16) | role (1) | name length (1) | admin name (UTF-8, at most [MAX_NAME_BYTES]) | [lowest protocol version (u16 BE)].
+ * The lowest version is written only when it differs from the highest, so an invite of a 2..2 admin is byte for byte
+ * the 0.7.2 layout (a 0.7.2 parser refuses trailing bytes). The token lives [LIFETIME_MS] on the admin's side; the
+ * invite itself carries no expiry. [parse] refuses text over [MAX_TEXT_CHARS], a blank admin name or one with
+ * control/bidi characters, and throws [UnsupportedInviteVersionException] for another `kinsight://pair/N/` format or a
+ * protocol range that does not overlap ours.
  */
 class Invite(
     val protocolVersion: Int,
@@ -31,9 +35,11 @@ class Invite(
     val token: ByteArray,
     val role: DeviceRole,
     val adminName: String,
+    val minProtocolVersion: Int = protocolVersion,
 ) {
     init {
-        require(protocolVersion in 0..0xffff) { "bad protocol version $protocolVersion" }
+        require(protocolVersion in 1..0xffff) { "bad protocol version $protocolVersion" }
+        require(minProtocolVersion in 1..protocolVersion) { "bad protocol range $minProtocolVersion..$protocolVersion" }
         require(adminSignKey.size == 32 && adminDhKey.size == 32) { "admin keys must be 32 bytes" }
         require(token.size == TOKEN_BYTES) { "token must be $TOKEN_BYTES bytes" }
         require(role == DeviceRole.PARENT || role == DeviceRole.CHILD) { "invite role must be PARENT or CHILD" }
@@ -59,6 +65,7 @@ class Invite(
             d.writeByte(role.value)
             d.writeByte(name.size)
             d.write(name)
+            if (minProtocolVersion != protocolVersion) d.writeShort(minProtocolVersion)
         }
         return out.toByteArray()
     }
@@ -78,7 +85,7 @@ class Invite(
 
         fun create(groupId: GroupId, admin: DeviceKeys, role: DeviceRole, adminName: String): Invite = Invite(
             PROTOCOL_VERSION, groupId, admin.sign.publicKey, admin.dh.publicKey,
-            Primitives.randomBytes(TOKEN_BYTES), role, truncateName(PairingNames.strip(adminName).trim()),
+            Primitives.randomBytes(TOKEN_BYTES), role, truncateName(PairingNames.strip(adminName).trim()), MIN_PROTOCOL_VERSION,
         )
 
         /** The longest prefix of [name] (whole code points) that fits [maxBytes] of UTF-8. */
@@ -116,15 +123,20 @@ class Invite(
             val input = DataInputStream(bytes.inputStream())
             if (input.readUnsignedByte() != FORMAT) throw InvalidInviteException("unknown invite format")
             val protocol = input.readUnsignedShort()
-            if (protocol != PROTOCOL_VERSION) throw UnsupportedInviteVersionException("protocol $protocol, this app speaks $PROTOCOL_VERSION")
             val group = ByteArray(16).also { input.readFully(it) }
             val sign = ByteArray(32).also { input.readFully(it) }
             val dh = ByteArray(32).also { input.readFully(it) }
             val token = ByteArray(TOKEN_BYTES).also { input.readFully(it) }
             val role = DeviceRole.fromValue(input.readUnsignedByte()) ?: throw InvalidInviteException("unknown role")
             val name = ByteArray(input.readUnsignedByte()).also { input.readFully(it) }
+            // Optional tail: the admin's lowest version. A single stray byte fails here (EOF) as before.
+            val min = if (input.available() > 0) input.readUnsignedShort() else protocol
             if (input.read() != -1) throw InvalidInviteException("trailing bytes")
-            Invite(protocol, GroupId.fromBytes(group), sign, dh, token, role, name.decodeToString(throwOnInvalidSequence = true))
+            if (min < 1 || min > protocol) throw InvalidInviteException("bad protocol range $min..$protocol")
+            if (ProtocolVersions.negotiate(ProtocolVersions.SUPPORTED, min..protocol) == null) {
+                throw UnsupportedInviteVersionException("protocols $min..$protocol, this app speaks ${ProtocolVersions.SUPPORTED}")
+            }
+            Invite(protocol, GroupId.fromBytes(group), sign, dh, token, role, name.decodeToString(throwOnInvalidSequence = true), min)
         } catch (e: InvalidInviteException) {
             throw e
         } catch (e: Exception) {

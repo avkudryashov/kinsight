@@ -4,6 +4,7 @@ import app.kinsight.core.crypto.Primitives
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.proto.DeviceRole
+import app.kinsight.core.sync.MIN_PROTOCOL_VERSION
 import app.kinsight.core.sync.PROTOCOL_VERSION
 import java.util.Base64
 import kotlin.test.Test
@@ -98,5 +99,36 @@ class InviteTest {
     @Test
     fun createStripsUnsafeCharacters() {
         assertEquals("Mom", Invite.create(genesis.groupId, admin, DeviceRole.CHILD, " Mo\u202Em\u0000\u2069 ").adminName)
+    }
+
+    @Test
+    fun currentInvitesKeepThe072Layout() {
+        // min = max = 2: no range tail, so a 0.7.2 phone (strict about trailing bytes) still parses our invites.
+        assertEquals(MIN_PROTOCOL_VERSION, invite.minProtocolVersion)
+        assertEquals(PROTOCOL_VERSION, invite.protocolVersion)
+        assertEquals(1 + 2 + 16 + 32 + 32 + 16 + 1 + 1 + "Mom".encodeToByteArray().size, invite.encode().size)
+    }
+
+    @Test
+    fun anOverlappingRangeIsAccepted() {
+        val wider = Invite(PROTOCOL_VERSION + 1, invite.groupId, invite.adminSignKey, invite.adminDhKey, invite.token, invite.role, invite.adminName, minProtocolVersion = PROTOCOL_VERSION)
+        val back = Invite.parse(wider.toUri())
+        assertEquals(PROTOCOL_VERSION, back.minProtocolVersion)
+        assertEquals(PROTOCOL_VERSION + 1, back.protocolVersion)
+        assertEquals(invite.encode().size + 2, wider.encode().size)
+    }
+
+    @Test
+    fun aDisjointRangeIsUnsupported() {
+        val newer = Invite(PROTOCOL_VERSION + 2, invite.groupId, invite.adminSignKey, invite.adminDhKey, invite.token, invite.role, invite.adminName, minProtocolVersion = PROTOCOL_VERSION + 1)
+        assertFailsWith<UnsupportedInviteVersionException> { Invite.parse(newer.toUri()) }
+    }
+
+    @Test
+    fun aMinimumAboveTheMaximumIsInvalid() {
+        val enc = Base64.getUrlEncoder().withoutPadding()
+        val tail = byteArrayOf(0, (PROTOCOL_VERSION + 1).toByte()) // min 3 over max 2
+        assertFailsWith<InvalidInviteException> { Invite.parse(Invite.PREFIX + enc.encodeToString(invite.encode() + tail)) }
+        assertFailsWith<InvalidInviteException> { Invite.parse(Invite.PREFIX + enc.encodeToString(invite.encode() + tail + byteArrayOf(0))) }
     }
 }
