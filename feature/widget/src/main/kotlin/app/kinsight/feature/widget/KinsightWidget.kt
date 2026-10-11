@@ -139,6 +139,9 @@ internal object WidgetMetrics {
     const val COMPACT_NAME_SP = 13f
     const val COMPACT_STATUS_SP = 11f
 
+    /** The one line of the 2×1 empty and no-children states. */
+    const val COMPACT_LINE_SP = 13f
+
     /** 12 dp around the list; 4 dp above and below the 2×1 line, which is 40 dp high at its minimum. */
     fun verticalPadding(compact: Boolean): Dp = if (compact) 4.dp else 12.dp
 
@@ -170,11 +173,16 @@ internal fun WidgetContent(state: WidgetState, nowMs: Long, links: WidgetLinks) 
         verticalAlignment = if (compact) Alignment.CenterVertically else Alignment.Top,
     ) {
         when (state) {
-            WidgetState.Empty -> Empty()
+            WidgetState.Empty -> Empty(compact)
             is WidgetState.Child -> Child(state, compact)
             is WidgetState.Parent -> if (state.children.isEmpty()) {
-                Line(context.getString(R.string.wid_no_children), "wid_no_children", bold = true)
-                Line(context.getString(R.string.wid_open_app), "wid_open")
+                // 2×1: one line, two would clip at 40 dp; the whole widget still opens the app.
+                if (compact) {
+                    Line(context.getString(R.string.wid_no_children), "wid_no_children", bold = true, sp = WidgetMetrics.COMPACT_LINE_SP)
+                } else {
+                    Line(context.getString(R.string.wid_no_children), "wid_no_children", bold = true)
+                    Line(context.getString(R.string.wid_open_app), "wid_open")
+                }
             } else if (compact) {
                 ChildLine(state.children.first(), nowMs, links, compact = true)
             } else {
@@ -193,8 +201,13 @@ internal fun WidgetContent(state: WidgetState, nowMs: Long, links: WidgetLinks) 
 }
 
 @Composable
-private fun Empty() {
+private fun Empty(compact: Boolean) {
     val context = LocalContext.current
+    if (compact) {
+        // 2×1: «Open Kinsight» alone, one line that fits 40 dp.
+        Line(context.getString(R.string.wid_open_app), "wid_empty", bold = true, sp = WidgetMetrics.COMPACT_LINE_SP)
+        return
+    }
     Line(context.getString(R.string.wid_app_name), "wid_empty", bold = true)
     Line(context.getString(R.string.wid_open_app), "wid_open")
 }
@@ -248,13 +261,13 @@ private fun ChildLine(row: ChildRow, nowMs: Long, links: WidgetLinks, compact: B
 
 
 @Composable
-private fun Line(text: String, tag: String, bold: Boolean = false) {
+private fun Line(text: String, tag: String, bold: Boolean = false, sp: Float? = null) {
     Text(
         text = text,
         style = TextStyle(
             color = if (bold) GlanceTheme.colors.onSurface else GlanceTheme.colors.onSurfaceVariant,
             fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
-            fontSize = if (bold) 16.sp else 13.sp,
+            fontSize = sp?.sp ?: if (bold) 16.sp else 13.sp,
         ),
         modifier = GlanceModifier.semantics { testTag = tag },
     )

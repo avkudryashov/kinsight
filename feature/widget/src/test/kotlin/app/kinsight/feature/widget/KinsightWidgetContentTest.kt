@@ -119,6 +119,24 @@ class KinsightWidgetContentTest {
         assertEquals(48f, WidgetMetrics.rowMinHeight(compact = false).value)
     }
 
+    /** Re-review item 3: the 2×1 empty and no-children states are one 13 sp line, so they fit 40 dp as well. */
+    @Test
+    fun compactEmptyAndNoChildrenAreOneLine(): Unit = runGlanceAppWidgetUnitTest {
+        setContext(context)
+        setAppWidgetSize(KinsightWidget.COMPACT)
+        provideComposable {
+            GlanceTheme {
+                WidgetContent(WidgetState.Empty, now, links)
+                WidgetContent(WidgetState.Parent(emptyList(), more = 0), now, links)
+            }
+        }
+        onNode(hasTestTag("wid_empty")).assertExists()
+        onNode(hasTestTag("wid_no_children")).assertExists()
+        onNode(hasTestTag("wid_open")).assertDoesNotExist()
+        val needed = 2 * WidgetMetrics.verticalPadding(compact = true).value + WidgetMetrics.lineHeightDp(WidgetMetrics.COMPACT_LINE_SP)
+        assertTrue("compact line needs $needed dp", needed <= KinsightWidget.COMPACT.height.value)
+    }
+
     @Test
     fun compactParentRowStillShowsTheChild(): Unit = runGlanceAppWidgetUnitTest {
         setContext(context)
