@@ -1,5 +1,6 @@
 package app.kinsight.feature.devicedetail
 
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -12,6 +13,7 @@ import app.kinsight.core.data.ThresholdRule
 import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.data.UsageRepository
 import app.kinsight.core.model.DeviceId
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
@@ -110,7 +112,16 @@ class AppDetailViewModel internal constructor(
     /** Only when [AppDetail.canChangeCategory] (a parent, not `~other`); null clears the override. */
     fun setCategory(category: AppCategory?) {
         if (detail.value?.canChangeCategory != true) return
-        viewModelScope.launch { source.setCategory(category) }
+        viewModelScope.launch {
+            try {
+                source.setCategory(category)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Signing or storing the shared entry failed: nothing changed, the screen keeps the effective category.
+                Log.w(TAG, "setCategory failed", e)
+            }
+        }
     }
 
     /** Only where [canSetThreshold]; a limit [ThresholdRule.of] refuses is ignored. */
@@ -123,6 +134,10 @@ class AppDetailViewModel internal constructor(
     fun removeThreshold() {
         val d = detail.value?.takeIf(::canSetThreshold) ?: return
         writes.launch(lane) { source.removeThreshold(ThresholdRule.idOf(d.member.id, ThresholdTarget.App(d.packageName))) }
+    }
+
+    private companion object {
+        const val TAG = "KinsightAppDetail"
     }
 }
 

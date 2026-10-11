@@ -74,7 +74,10 @@ class AppDetailViewModelTest {
             )
         }
 
+        var failWrites = false
+
         override suspend fun setCategory(category: AppCategory?) {
+            if (failWrites) throw IllegalStateException("disk full")
             overrides.value = if (category == null) overrides.value - pkg else overrides.value + (pkg to category)
         }
     }
@@ -149,6 +152,17 @@ class AppDetailViewModelTest {
         vm.setCategory(null) // «По умолчанию»
         assertEquals(AppCategory.GAMES, vm.detail.value!!.category)
         assertFalse(vm.detail.value!!.overridden)
+    }
+
+    @Test
+    fun aFailedCategoryWriteIsLoggedNotThrown() = runTest(dispatcher) {
+        val source = FakeSource().apply { failWrites = true }
+        val vm = vm(source, week(sat))
+        vm.setCategory(AppCategory.SOCIAL) // an uncaught throw here would fail the test (and crash the app)
+        assertEquals(AppCategory.GAMES, vm.detail.value!!.category)
+        source.failWrites = false
+        vm.setCategory(AppCategory.SOCIAL) // the screen still works
+        assertEquals(AppCategory.SOCIAL, vm.detail.value!!.category)
     }
 
     @Test
