@@ -423,6 +423,25 @@ class UsageReadModelTest {
     }
 
     @Test
+    fun aHiddenNotificationIsTheCauseNotCollectionOff() {
+        val day = 24 * 3_600_000L
+        val consent = event(StateEvent.Kind.SHARING_RESUMED, createdMs = noonToday - 3 * day)
+        val hidden = event(StateEvent.Kind.NOTIFICATION_HIDDEN, createdMs = noonToday - 2 * day)
+        val shown = event(StateEvent.Kind.NOTIFICATION_SHOWN, createdMs = noonToday - day - 60_000)
+        val stale = null // no summary since the consent three days ago
+        val open = UsageReadModel.usage(member, stale, UsageReadModel.events(listOf(consent, hidden)), today, nowMs = noonToday)
+        assertTrue(open.notificationHidden, "hidden two days ago, never shown again")
+        assertFalse(open.collectionOff, "the phone collects; it holds the time back")
+        val closed = UsageReadModel.usage(member, stale, UsageReadModel.events(listOf(consent, hidden, shown)), today, nowMs = noonToday)
+        assertFalse(closed.notificationHidden)
+        assertTrue(closed.collectionOff, "shown again a day ago and still nothing: collection is off")
+        val revoked = event(StateEvent.Kind.USAGE_ACCESS_REVOKED, createdMs = noonToday - 60_000)
+        assertTrue(UsageReadModel.usage(member, stale, UsageReadModel.events(listOf(consent, hidden, revoked)), today, nowMs = noonToday).collectionOff, "a revoke still says collection is off")
+        val paused = event(StateEvent.Kind.SHARING_PAUSED, createdMs = noonToday - day)
+        assertFalse(UsageReadModel.usage(member, stale, UsageReadModel.events(listOf(consent, hidden, paused)), today, nowMs = noonToday).notificationHidden, "a pause says itself")
+    }
+
+    @Test
     fun collectionOffCountsFromTheLatestSummary() {
         val day = 24 * 3_600_000L
         assertTrue(UsageReadModel.collectionOff(Sharing.On, emptyList(), updatedMs = noonToday - day - 1, nowMs = noonToday))

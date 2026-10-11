@@ -155,6 +155,8 @@ data class DeviceUsage(
     val updatedMs: Long?,
     /** Sharing is on but the child's phone does not collect (UsageReadModel.collectionOff, U1). */
     val collectionOff: Boolean = false,
+    /** Sharing is on but the child hid Kinsight's notification, so its phone holds the time back (S-M3, M-1). */
+    val notificationHidden: Boolean = false,
     /** What today's figure is compared with (U2); null: no honest comparison yet. */
     val comparison: TodayComparison? = null,
     /** The zone_id of the child's latest summary (untrusted, may not parse): its own clock next to «Данные на …» (U3). */

@@ -29,6 +29,7 @@
     <string name="dash_usage_access_missing">Kinsight cannot count screen time: usage access is off on this phone. Until it is on, your family gets no data.</string>
     <string name="dash_open_usage_access">Open usage access</string>
     <string name="dash_card_collection_off">Screen time collection is off on the child\'s phone</string>
+    <string name="dash_card_notification_hidden">The notification is hidden on the child\'s phone: sharing is paused</string>
     <string name="dash_open_bluetooth">Bluetooth settings</string>
     <string name="dash_no_data_today">No data today</string>
     <string name="dash_week_summary">Last 7 days: %1$s in total, most on %2$s</string>

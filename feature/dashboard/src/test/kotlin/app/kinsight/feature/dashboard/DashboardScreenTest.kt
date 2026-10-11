@@ -457,6 +457,23 @@ class DashboardScreenTest {
     }
 
     @Test
+    fun theParentsCardNamesAHiddenNotification() {
+        val hidden = usage(kid, 30, 30).copy(updatedMs = now - 30 * hour, notificationHidden = true)
+        show(DashboardUi(DashboardState(mom, null, listOf(hidden), emptyList()), running, true))
+        rule.onNodeWithText("The notification is hidden on the child's phone: sharing is paused").assertExists()
+        rule.onNodeWithText("collection is off", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun theRussianParentsCardNamesAHiddenNotification() {
+        val hidden = usage(kid, 30, 30).copy(notificationHidden = true)
+        show(DashboardUi(DashboardState(mom, null, listOf(hidden), emptyList()), running, true))
+        rule.onNodeWithText("На телефоне ребёнка скрыто уведомление: обмен приостановлен").assertExists()
+        rule.onNodeWithText("Сбор данных не включён", substring = true).assertDoesNotExist()
+    }
+
+    @Test
     fun noContactStillWinsOverCollectionOff() {
         val quiet = usage(kid.copy(lastSeenMs = now - 30 * hour), 30, 30).copy(collectionOff = true)
         show(DashboardUi(DashboardState(mom, null, listOf(quiet), emptyList()), running, true, noContactHours = 24))

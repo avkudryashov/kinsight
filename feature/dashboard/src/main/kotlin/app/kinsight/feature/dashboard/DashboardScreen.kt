@@ -525,6 +525,7 @@ private fun status(u: DeviceUsage, nowMs: Long, noContactMs: Long): String? = wh
         when {
             !u.member.isSelf && seen != null && nowMs - seen > noContactMs -> stringResource(R.string.dash_card_not_seen, relativeTime(seen, nowMs))
             !u.member.isSelf && u.collectionOff -> stringResource(R.string.dash_card_collection_off)
+            !u.member.isSelf && u.notificationHidden -> stringResource(R.string.dash_card_notification_hidden)
             u.updatedMs == null -> stringResource(R.string.dash_card_no_data)
             else -> null
         }
