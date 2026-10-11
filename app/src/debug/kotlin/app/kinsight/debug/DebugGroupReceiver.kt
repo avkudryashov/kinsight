@@ -9,6 +9,7 @@ import app.kinsight.core.data.AppGraph
 import app.kinsight.core.database.KinsightDatabaseFactory
 import app.kinsight.core.database.RoomEntryStore
 import app.kinsight.core.keystore.DeviceIdentity
+import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.proto.Heartbeat
 import app.kinsight.core.model.proto.StateEvent
@@ -76,8 +77,14 @@ class DebugGroupReceiver : BroadcastReceiver() {
         val store = RoomEntryStore(KinsightDatabaseFactory.shared(c), group.groupId)
         val role = Membership.compute(group.groupId, store.membershipEntries())?.roleOf(self)
         val vector = store.versionVector().entries.toSortedMap().entries.joinToString(",") { "${it.key.hex}:${it.value}" }
-        val btOff = store.entriesAfter(self, 0, Int.MAX_VALUE).count { it.body.state_event?.kind == StateEvent.Kind.BLUETOOTH_OFF }
-        return "group=${group.groupId.hex} self=${self.hex} vector=$vector btOff=$btOff role=$role service=$service"
+        val own = store.entriesAfter(self, 0, Int.MAX_VALUE)
+        val btOff = own.count { it.body.state_event?.kind == StateEvent.Kind.BLUETOOTH_OFF }
+        val usageKinds = setOf(EntryKind.USAGE_SUMMARY, EntryKind.USAGE_DETAIL, EntryKind.APP_CATALOG)
+        val usageSeq = own.filter { it.kind in usageKinds }.maxOfOrNull { it.seq } ?: 0L
+        val hidden = SyncGraph.state(c).notificationHiddenSinceMs() != null
+        val hiddenEvents = store.stateEvents().count { it.body.state_event?.kind == StateEvent.Kind.NOTIFICATION_HIDDEN }
+        return "group=${group.groupId.hex} self=${self.hex} vector=$vector btOff=$btOff role=$role service=$service " +
+            "usageSeq=$usageSeq hidden=$hidden hiddenEvents=$hiddenEvents"
     }
 
     companion object {

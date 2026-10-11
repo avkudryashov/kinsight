@@ -10,6 +10,8 @@ P=$1
 C=$2
 Q=$3
 APK=$4
+# Mixed-version runs: Q_APK overrides the second parent's APK (e.g. dist/kinsight-0.7.2-debug.apk).
+Q_APK=${Q_APK:-$APK}
 PKG=app.kinsight
 RX=$PKG/.debug.DebugGroupReceiver
 
@@ -60,10 +62,14 @@ chip() {
 }
 CHILD_NAME=$($ADB -s "$C" shell getprop ro.product.model | tr -d '\r')
 dbg() { $ADB -s "$1" shell am broadcast -n $RX -a "app.kinsight.debug.$2" | sed -n 's/.*data="\(.*\)"$/\1/p'; }
+install_on() { # downgrade allowed; a signature mismatch falls back to uninstall + install
+  $ADB -s "$1" install -r -d "$2" >/dev/null || { $ADB -s "$1" uninstall $PKG >/dev/null || true; $ADB -s "$1" install "$2" >/dev/null; }
+}
 
 echo "== second parent: install and grant"
-$ADB -s "$Q" install -r "$APK" >/dev/null
+install_on "$Q" "$Q_APK"
 $ADB -s "$Q" shell pm clear $PKG >/dev/null
+$ADB -s "$Q" logcat -b all -c # per-run logs on the new device; the other two keep stage4-pair.sh's
 for p in BLUETOOTH_SCAN BLUETOOTH_ADVERTISE BLUETOOTH_CONNECT POST_NOTIFICATIONS; do
   $ADB -s "$Q" shell pm grant $PKG android.permission.$p
 done
@@ -131,13 +137,18 @@ for _ in $(seq 60); do
   wait_for "$Q" 'resource-id="det_' 10 || continue
   scroll_to "$Q" 'resource-id="det_app_[^"]*"' || true
   tap_re "$Q" "resource-id=\"det_app_[^\"]*\"" 10 || continue
-  if chip "$Q" | grep -qE "$TARGET_RE" && dump "$Q" | grep -qE 'Changed by|Изменил'; then
+  if chip "$Q" | grep -qE "$TARGET_RE" && dump "$Q" | grep -qE 'Changed by|Задано:|Изменил'; then
     SHARED=1
     echo "shared category on the second parent after $(($(date +%s) - T0)) s"
     break
   fi
   $ADB -s "$Q" shell input keyevent BACK
 done
-[ "$SHARED" = 1 ] || { echo "category not shared: need $TARGET_RE and «Changed by|Изменил» on the second parent" >&2; exit 1; }
+[ "$SHARED" = 1 ] || { echo "category not shared: need $TARGET_RE and «Changed by|Задано:» on the second parent" >&2; exit 1; }
+for d in "$P" "$C" "$Q"; do
+  n=$($ADB -s "$d" logcat -d -s KinsightSync | grep -c 'PROTOCOL_VERSION' || true)
+  echo "$d version rejects: $n"
+  [ "$n" -eq 0 ] || { echo "a version reject in a family that should interoperate" >&2; exit 1; }
+done
 for d in "$P" "$C" "$Q"; do echo "$d crashes: $($ADB -s "$d" logcat -d -b crash | grep -c "Process: $PKG," || true)"; done
 echo "PASS"
