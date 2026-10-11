@@ -13,6 +13,6 @@
     <string name="kinsight_never_synced">Todavía no se ha sincronizado</string>
     <string name="kinsight_peers">Se sincroniza con: %1$s</string>
     <string name="kinsight_sharing_paused">El intercambio está en pausa: no se envía el tiempo de pantalla nuevo</string>
-    <string name="kinsight_shared_with">Tu tiempo de pantalla lo ven: %1$s</string>
+    <string name="kinsight_shared_with">Ven tu tiempo de pantalla: %1$s</string>
     <string name="kinsight_action_stop">Detener</string>
 </resources>

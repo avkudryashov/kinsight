@@ -5,12 +5,12 @@
     <string name="alert_public_integrity">Kinsight: un evento en el teléfono de un menor</string>
     <string name="alert_public_summary">Resumen del tiempo de pantalla</string>
     <string name="alert_paused">%1$s: intercambio en pausa</string>
-    <string name="alert_access_revoked">%1$s: acceso al uso desactivado</string>
+    <string name="alert_access_revoked">%1$s: acceso a datos de uso desactivado</string>
     <string name="alert_left">%1$s: el teléfono ha salido del grupo familiar</string>
     <string name="alert_sync_stopped">%1$s: se ha detenido la sincronización</string>
     <string name="alert_notification_hidden">%1$s: la notificación de sincronización está oculta</string>
-    <string name="alert_nearby_off">%1$s: se ha desactivado el permiso «Dispositivos cercanos»</string>
-    <string name="alert_force_stopped">%1$s: se ha forzado la detención de Kinsight</string>
+    <string name="alert_nearby_off">%1$s: permiso «Dispositivos cercanos» desactivado</string>
+    <string name="alert_force_stopped">%1$s: Kinsight detenido forzosamente</string>
     <string name="alert_bluetooth_off">%1$s: se ha desactivado el Bluetooth</string>
     <string name="alert_data_gap">%1$s: falta parte del historial de tiempo de pantalla</string>
     <string name="alert_clock_changed">%1$s: se ha cambiado la hora del teléfono</string>
@@ -46,7 +46,7 @@
     <string name="channel_transparency_description">Alguien nuevo puede ver tu tiempo de pantalla</string>
     <string name="alert_public_transparency">Kinsight: quién ve tus datos</string>
     <string name="alert_advice_paused">El tiempo de la pausa se envía cuando se reanuda el intercambio.</string>
-    <string name="alert_advice_access_revoked">Pide que se vuelva a activar el acceso al uso: Ajustes de Android → Acceso al uso → Kinsight.</string>
+    <string name="alert_advice_access_revoked">Pide que se vuelva a activar el acceso a datos de uso: Ajustes de Android → Acceso a datos de uso → Kinsight.</string>
     <string name="alert_advice_left">Para volver a ver su tiempo de pantalla, invita de nuevo a este teléfono.</string>
     <string name="alert_advice_sync_stopped">La sincronización se reinicia en Kinsight, en el teléfono del menor: Ajustes → Iniciar la sincronización.</string>
     <string name="alert_advice_notification_hidden">Pide que se vuelvan a permitir las notificaciones de Kinsight en el teléfono del menor.</string>

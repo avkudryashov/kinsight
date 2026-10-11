@@ -50,7 +50,7 @@
     <string name="inv_problem">Puede que ahora los otros teléfonos no encuentren este. Desactiva y vuelve a activar el Bluetooth, y luego crea un código nuevo.</string>
     <string name="inv_confirm_title">¿Añadir «%1$s» como teléfono de un %2$s?</string>
     <string name="inv_confirm_code">Código en el teléfono invitado: %1$s</string>
-    <string name="inv_confirm_body_nocode">No se ha podido mostrar el código. Si no estás seguro de que sea el teléfono que tienes delante, rechaza y crea una invitación nueva.</string>
+    <string name="inv_confirm_body_nocode">No se ha podido mostrar el código. Si tienes dudas de que sea el teléfono que tienes delante, rechaza y crea una invitación nueva.</string>
     <string name="inv_confirm_body">Añádelo solo si el teléfono que tienes delante muestra los mismos dígitos.</string>
     <string name="inv_confirm">Añadir</string>
     <string name="inv_decline">Rechazar</string>
@@ -59,7 +59,7 @@
     <string name="inv_expired">La invitación ha caducado.</string>
     <string name="inv_new_code">Código nuevo</string>
     <string name="inv_cancel">Cancelar</string>
-    <string name="join_title">Uniéndose al grupo familiar</string>
+    <string name="join_title">Uniéndote al grupo familiar</string>
     <string name="join_searching">Buscando el teléfono «%1$s». Mantenlo cerca, con la invitación abierta.</string>
     <string name="join_connecting">Conectando…</string>
     <string name="join_waiting">Esperando la confirmación en el teléfono «%1$s». En su pantalla aparece el mismo código.</string>
@@ -79,7 +79,7 @@
     <string name="pair_fail_bad_token">Este código QR ya no es válido. Pide uno nuevo.</string>
     <string name="pair_fail_expired">Este código QR ya no es válido: ha caducado. Pide uno nuevo.</string>
     <string name="pair_fail_declined">El administrador ha rechazado o cerrado la invitación.</string>
-    <string name="pair_fail_removed_before">Este teléfono ya se eliminó del grupo anteriormente. Para volver a unirte, usa «Desconectar este teléfono y volver a emparejarlo» en Ajustes.</string>
+    <string name="pair_fail_removed_before">Este teléfono ya se había eliminado del grupo. Para volver a unirte, usa «Desconectar este teléfono y volver a emparejarlo» en Ajustes.</string>
     <string name="pair_fail_invalid">La invitación o la respuesta no eran válidas. Si alguno de los teléfonos tiene una versión antigua de Kinsight, actualiza la aplicación y vuelve a intentarlo.</string>
     <string name="pair_fail_not_admin">Solo un administrador puede invitar.</string>
     <string name="pair_fail_already_in_group">Este teléfono ya está en un grupo. Sal de él primero.</string>

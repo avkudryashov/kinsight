@@ -25,10 +25,10 @@
     <string name="det_ev_paused">Intercambio en pausa</string>
     <string name="det_ev_resumed">Intercambio reanudado</string>
     <string name="det_ev_started">Intercambio iniciado</string>
-    <string name="det_ev_access_off">Acceso al uso desactivado</string>
-    <string name="det_ev_access_on">Acceso al uso activado</string>
-    <string name="det_ev_clock_forward">Hora adelantada %1$s</string>
-    <string name="det_ev_clock_back">Hora atrasada %1$s</string>
+    <string name="det_ev_access_off">Acceso a datos de uso desactivado</string>
+    <string name="det_ev_access_on">Acceso a datos de uso activado</string>
+    <string name="det_ev_clock_forward">Reloj adelantado %1$s</string>
+    <string name="det_ev_clock_back">Reloj atrasado %1$s</string>
     <string name="det_ev_bluetooth_off">Bluetooth desactivado durante %1$s</string>
     <string name="det_ev_gap">Sin datos durante %1$s</string>
     <string name="det_ev_left">Ha salido del grupo</string>
@@ -52,7 +52,7 @@
     <string name="det_bar_no_data">sin datos</string>
     <string name="det_open_day_action">Abrir día</string>
     <string name="det_categories">Categorías</string>
-    <string name="det_category_share">%1$s · %2$d%%</string>
+    <string name="det_category_share">%1$s · %2$d %%</string>
     <string name="det_cat_games">Juegos</string>
     <string name="det_cat_social">Redes sociales y mensajería</string>
     <string name="det_cat_video">Vídeo</string>
@@ -114,7 +114,7 @@
     <string name="thr_edit">Cambiar el límite</string>
     <string name="thr_target_total">Total al día</string>
     <string name="thr_delete">Borrar el límite: %1$s</string>
-    <string name="thr_deleted">Límite eliminado</string>
+    <string name="thr_deleted">Límite borrado</string>
     <string name="thr_undo">Deshacer</string>
     <string name="thr_kind_total">Total al día</string>
     <string name="thr_kind_category">Una categoría</string>
@@ -132,7 +132,7 @@
     <string name="app_threshold_set">Avisar si supera %1$s</string>
     <string name="app_threshold_title">Límite para %1$s</string>
     <string name="det_data_at">Actualizado: %1$s</string>
-    <string name="det_data_stale">Actualizado: %1$s; los datos pueden estar desactualizados</string>
+    <string name="det_data_stale">Actualizado: %1$s; puede que no esté al día</string>
     <string name="thr_presets">Elección rápida</string>
     <string name="det_missing_title">Este teléfono ya no está en el grupo</string>
     <string name="det_missing_body">Sus datos no están en este teléfono. Puede que haya salido del grupo familiar o que lo hayan eliminado.</string>

@@ -38,8 +38,8 @@
     <string name="onb_camera_title">Cámara</string>
     <string name="onb_camera_body">Kinsight usa la cámara solo en la siguiente pantalla, para leer el código QR de la invitación. No se graba ni se envía nada. Sin la cámara, puedes escanear el código con la aplicación de cámara de este teléfono.</string>
     <string name="onb_camera_allow">Permitir la cámara</string>
-    <string name="onb_usage_title">Acceso al uso</string>
-    <string name="onb_usage_body">Para contar el tiempo de pantalla, Kinsight necesita el acceso al uso. Kinsight lee qué aplicaciones se abrieron y cuándo, y envía los totales solo a los teléfonos de tu familia. A continuación se abrirán los ajustes de Android: busca Kinsight y activa el acceso al uso.</string>
+    <string name="onb_usage_title">Acceso a datos de uso</string>
+    <string name="onb_usage_body">Para contar el tiempo de pantalla, Kinsight necesita el acceso a datos de uso. Kinsight lee qué aplicaciones se abrieron y cuándo, y envía los totales solo a los teléfonos de tu familia. A continuación se abrirán los ajustes de Android: busca Kinsight y permite el acceso a datos de uso.</string>
     <string name="onb_usage_agree">Aceptar y abrir ajustes</string>
     <string name="onb_notifications_title">Notificaciones</string>
     <string name="onb_notifications_body_child">Mientras el intercambio está activado, Kinsight siempre muestra una notificación que indica quién ve tu tiempo de pantalla. Kinsight también te avisa cuando se une un nuevo adulto. Si desactivas las notificaciones, tu familia verá que la notificación está desactivada en este teléfono. Mientras las notificaciones estén desactivadas, el intercambio sigue en pausa y tu familia lo ve en pausa; el tiempo de la pausa se envía cuando las permitas.</string>
@@ -48,14 +48,14 @@
     <string name="onb_battery_body">Algunos teléfonos detienen las aplicaciones en segundo plano. Deja que Kinsight funcione sin restricciones de batería para que los teléfonos de tu familia sigan sincronizados.</string>
     <string name="onb_battery_open">Abrir los ajustes de batería</string>
     <string name="onb_battery_ok">Kinsight ya funciona sin restricciones de batería.</string>
-    <string name="onb_battery_samsung">Ajustes → Batería → Límites de uso en segundo plano → Aplicaciones que nunca se suspenden → añade Kinsight. Además: Ajustes → Aplicaciones → Kinsight → Batería → Sin restricciones.</string>
-    <string name="onb_battery_google">Ajustes → Aplicaciones → Kinsight → Uso de batería de las aplicaciones → Sin restricciones.</string>
+    <string name="onb_battery_samsung">Ajustes → Batería → Límites de uso en segundo plano → Aplicaciones que nunca entran en suspensión → añade Kinsight. Además: Ajustes → Aplicaciones → Kinsight → Batería → Sin restricciones.</string>
+    <string name="onb_battery_google">Ajustes → Aplicaciones → Kinsight → Uso de batería de la aplicación → Sin restricciones.</string>
     <string name="onb_battery_xiaomi">Ajustes → Aplicaciones → Administrar aplicaciones → Kinsight: activa el Inicio automático y pon el Ahorro de batería en Sin restricciones.</string>
     <string name="onb_battery_huawei">Ajustes → Batería → Inicio de aplicaciones → Kinsight → Gestionar manualmente: permite el inicio automático, el inicio secundario y la ejecución en segundo plano.</string>
     <string name="onb_battery_oneplus">Ajustes → Batería → Optimización de batería → Kinsight → No optimizar. Además: Ajustes → Aplicaciones → Kinsight → Batería → Permitir actividad en segundo plano.</string>
     <string name="onb_battery_oppo">Ajustes → Batería → Más ajustes → Optimizar el uso de la batería → Kinsight → No optimizar. Además, permite la actividad en segundo plano de Kinsight.</string>
     <string name="onb_battery_vivo">Ajustes → Batería → Gestión del consumo en segundo plano → Kinsight → Permitir.</string>
-    <string name="onb_battery_other">Toca el botón de abajo y luego: Información de la aplicación → Uso de batería de las aplicaciones → Sin restricciones. La ruta exacta depende del fabricante del teléfono.</string>
+    <string name="onb_battery_other">Toca el botón de abajo y luego: Información de la aplicación → Uso de batería de la aplicación → Sin restricciones. La ruta exacta depende del fabricante del teléfono.</string>
     <string name="onb_done_title">Todo listo</string>
     <string name="onb_done_body_parent">Siguiente paso: invita al teléfono de un menor desde la pestaña «Grupo».</string>
     <string name="onb_done_body_child">Este teléfono está en tu grupo familiar.</string>
@@ -67,7 +67,7 @@
     <string name="onb_consent_point_what">Qué se ve: cuánto tiempo pasas en cada aplicación, cuántas veces desbloqueas el teléfono y a qué horas. Kinsight lo cuenta en segundo plano, y el primer envío incluye también hasta los últimos 7 días.</string>
     <string name="onb_consent_point_who">Quién lo ve: todos los adultos de tu grupo familiar (ahora %1$s) y los que se unan más adelante.</string>
     <string name="onb_consent_point_who_group">Quién lo ve: todos los adultos de tu grupo familiar, incluidos los que se unan más adelante.</string>
-    <string name="onb_consent_point_pause">Cómo pararlo: una pausa son dos toques en «Vista general». Tu familia ve la pausa, y mientras el intercambio está activado siempre se muestra una notificación.</string>
+    <string name="onb_consent_point_pause">Cómo pararlo: basta con dos toques en «Vista general». Tu familia ve la pausa, y mientras el intercambio está activado siempre se muestra una notificación.</string>
     <string name="onb_consent_more">Más detalles</string>
     <string name="onb_consent_less">Menos detalles</string>
     <string name="onb_consent_expanded">Desplegado</string>

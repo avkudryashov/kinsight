@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="dash_title">Vista general</string>
-    <string name="dash_shared_with">Tu tiempo de pantalla lo ven: %1$s</string>
+    <string name="dash_shared_with">Ven tu tiempo de pantalla: %1$s</string>
     <string name="dash_shared_with_nobody">Todavía no hay ningún adulto en el grupo.</string>
     <string name="dash_pause_hint">Puedes pausar el intercambio cuando quieras, pero los adultos de tu familia reciben un aviso.</string>
     <string name="dash_pause">Pausar el intercambio</string>
@@ -26,8 +26,8 @@
     <string name="dash_open_app_settings">Abrir los ajustes de la aplicación</string>
     <string name="dash_notification_hidden">Notificación oculta: el intercambio está en pausa. Activa las notificaciones de Kinsight.</string>
     <string name="dash_open_notification_settings">Ajustes de notificaciones</string>
-    <string name="dash_usage_access_missing">Kinsight no puede contar el tiempo de pantalla: el acceso al uso está desactivado en este teléfono. Hasta que lo actives, tu familia no recibe datos.</string>
-    <string name="dash_open_usage_access">Abrir el acceso al uso</string>
+    <string name="dash_usage_access_missing">Kinsight no puede contar el tiempo de pantalla: el acceso a datos de uso está desactivado en este teléfono. Hasta que lo actives, tu familia no recibe datos.</string>
+    <string name="dash_open_usage_access">Abrir acceso a datos de uso</string>
     <string name="dash_card_collection_off">El recuento del tiempo de pantalla está desactivado en el teléfono del menor</string>
     <string name="dash_card_notification_hidden">La notificación está oculta en el teléfono del menor: el intercambio está en pausa</string>
     <string name="dash_open_bluetooth">Ajustes de Bluetooth</string>
@@ -42,10 +42,10 @@
     <string name="dash_card_left">Ha salido del grupo</string>
     <string name="dash_card_not_seen">Sin contacto. Visto por última vez %1$s</string>
     <string name="dash_data_at">Actualizado: %1$s</string>
-    <string name="dash_data_stale">Actualizado: %1$s; los datos pueden estar desactualizados</string>
-    <string name="dash_vs_hour_same">Más o menos como normalmente a esta hora</string>
-    <string name="dash_vs_hour_more">%1$s más que normalmente a esta hora</string>
-    <string name="dash_vs_hour_less">%1$s menos que normalmente a esta hora</string>
+    <string name="dash_data_stale">Actualizado: %1$s; puede que no esté al día</string>
+    <string name="dash_vs_hour_same">Más o menos lo habitual a estas horas</string>
+    <string name="dash_vs_hour_more">%1$s más de lo habitual a estas horas</string>
+    <string name="dash_vs_hour_less">%1$s menos de lo habitual a estas horas</string>
     <string name="dash_card_no_data">Todavía no hay datos</string>
     <string name="dash_left">Has salido del grupo. Ya no se comparte nada.</string>
     <string name="dash_sharing_failed">No se ha podido cambiar el intercambio. Inténtalo de nuevo.</string>

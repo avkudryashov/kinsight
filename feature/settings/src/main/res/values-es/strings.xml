@@ -37,7 +37,7 @@
     <string name="set_days">%1$d d</string>
     <string name="set_notifications">Notificaciones</string>
     <string name="set_summaries">Resumen</string>
-    <string name="set_summary_off">Desactivado</string>
+    <string name="set_summary_off">Nunca</string>
     <string name="set_summary_daily">Diario</string>
     <string name="set_summary_weekly">Semanal</string>
     <string name="set_no_contact">Avisar cuando un menor esté sin contacto durante</string>
@@ -51,7 +51,7 @@
     <string name="set_reset">Desconectar este teléfono y volver a emparejarlo</string>
     <string name="set_resetting">Desconectando…</string>
     <string name="set_reset_title">¿Desconectar este teléfono?</string>
-    <string name="set_reset_body">Este teléfono sale del grupo definitivamente: tu familia deja de recibir nada de él, y su entrada antigua sigue en su lista hasta que un administrador la elimine. Se borra todo lo que hay en este teléfono: el grupo, todo el historial y los ajustes. Para volver, un administrador tiene que invitar a este teléfono y tienes que emparejarlo de nuevo desde el principio. Esta acción no se puede deshacer.</string>
+    <string name="set_reset_body">Este teléfono sale del grupo definitivamente: tu familia ya no recibe nada de él, y su entrada antigua sigue en su lista hasta que un administrador la elimine. Se borra todo lo que hay en este teléfono: el grupo, todo el historial y los ajustes. Para volver, un administrador tiene que invitar a este teléfono y tienes que emparejarlo de nuevo desde el principio. Esta acción no se puede deshacer.</string>
     <string name="set_reset_ack">Entiendo que esta acción no se puede deshacer</string>
     <string name="set_reset_confirm">Desconectar</string>
     <string name="set_cancel">Cancelar</string>
@@ -93,8 +93,8 @@
         <item quantity="other">El historial detallado de más de %1$d días se borrará ahora de este teléfono. Los totales diarios se mantienen.</item>
     </plurals>
     <string name="set_shrink">Borrar</string>
-    <string name="set_usage_access_missing">No se cuenta el tiempo de pantalla: el acceso al uso está desactivado en este teléfono.</string>
-    <string name="set_open_usage_access">Abrir el acceso al uso</string>
+    <string name="set_usage_access_missing">No se cuenta el tiempo de pantalla: el acceso a datos de uso está desactivado en este teléfono.</string>
+    <string name="set_open_usage_access">Abrir acceso a datos de uso</string>
     <string name="set_pause_vs_stop">Pausar: tu tiempo se guarda y se envía cuando reanudes. Detener: este teléfono deja de conectar con la familia; tu tiempo también se guarda. Tu familia ve ambas cosas.</string>
     <string name="set_advanced">Avanzado</string>
     <string name="set_advanced_body">Historial guardado en este teléfono, diagnóstico, desconectar este teléfono</string>
