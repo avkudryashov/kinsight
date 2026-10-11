@@ -7,7 +7,7 @@ import app.kinsight.core.model.proto.StateEvent
 import java.time.LocalDate
 import java.time.format.DateTimeParseException
 
-enum class EntryKind { USAGE_SUMMARY, USAGE_DETAIL, APP_CATALOG, STATE_EVENT, HEARTBEAT, MEMBERSHIP_OP, UNKNOWN }
+enum class EntryKind { USAGE_SUMMARY, USAGE_DETAIL, APP_CATALOG, STATE_EVENT, HEARTBEAT, MEMBERSHIP_OP, CATEGORY_OVERRIDE, UNKNOWN }
 
 class EntryFormatException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
@@ -22,6 +22,9 @@ class DecodedEntry private constructor(
     val seq: Long get() = body.seq
     val lamport: Long get() = body.lamport
 
+    /** Encoded size of the signed body, as received (the signature envelope excluded). */
+    val bodySize: Int get() = bodyBytes.size
+
     val kind: EntryKind = when {
         body.usage_summary != null -> EntryKind.USAGE_SUMMARY
         body.usage_detail != null -> EntryKind.USAGE_DETAIL
@@ -29,6 +32,7 @@ class DecodedEntry private constructor(
         body.state_event != null -> EntryKind.STATE_EVENT
         body.heartbeat != null -> EntryKind.HEARTBEAT
         body.membership_op != null -> EntryKind.MEMBERSHIP_OP
+        body.category_override != null -> EntryKind.CATEGORY_OVERRIDE
         else -> EntryKind.UNKNOWN
     }
 
@@ -37,6 +41,7 @@ class DecodedEntry private constructor(
         EntryKind.USAGE_DETAIL -> "${author.hex}/det/${body.usage_detail!!.local_date}"
         EntryKind.APP_CATALOG -> "${author.hex}/app/${body.app_catalog!!.package_name}"
         EntryKind.HEARTBEAT -> "${author.hex}/hb"
+        EntryKind.CATEGORY_OVERRIDE -> "${author.hex}/cat/${body.category_override!!.package_name}"
         else -> null
     }
 

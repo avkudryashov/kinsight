@@ -3,6 +3,7 @@ package app.kinsight.core.model
 import app.kinsight.core.crypto.Ed25519
 import app.kinsight.core.crypto.Signer
 import app.kinsight.core.crypto.X25519
+import app.kinsight.core.model.proto.CategoryOverride
 import app.kinsight.core.model.proto.Heartbeat
 import app.kinsight.core.model.proto.MembershipOp
 import app.kinsight.core.model.proto.StateEvent
@@ -77,6 +78,25 @@ class EntryTest {
         assertEquals(e, again)
         assertEquals(LocalDate.of(2026, 10, 9), again.usageDate)
         assertEquals("${keys.deviceId.hex}/sum/2026-10-09", again.supersedeKey)
+    }
+
+    @Test
+    fun categoryOverrideRoundTripsAndSupersedesPerAuthorAndPackage() {
+        val e = author.create { it.copy(category_override = CategoryOverride(package_name = "com.example.game", category = 1)) }
+        val again = DecodedEntry.decode(e.bytes)
+        assertEquals(e, again)
+        assertEquals(EntryKind.CATEGORY_OVERRIDE, again.kind)
+        assertEquals("com.example.game", again.body.category_override!!.package_name)
+        assertEquals(1, again.body.category_override!!.category)
+        assertEquals("${keys.deviceId.hex}/cat/com.example.game", again.supersedeKey)
+        assertNull(again.usageDate)
+        assertFalse(again.isMembershipRelevant)
+        assertEquals(e.bytes.size - 64 - 4, again.bodySize) // envelope: two tags, two lengths, 64-byte signature
+        // A cleared override (category 0) keeps the same key, so it replaces the earlier one.
+        val cleared = author.create { it.copy(category_override = CategoryOverride(package_name = "com.example.game", category = 0)) }
+        assertEquals(again.supersedeKey, cleared.supersedeKey)
+        val other = author.create { it.copy(category_override = CategoryOverride(package_name = "com.example.other", category = 2)) }
+        assertEquals("${keys.deviceId.hex}/cat/com.example.other", other.supersedeKey)
     }
 
     @Test

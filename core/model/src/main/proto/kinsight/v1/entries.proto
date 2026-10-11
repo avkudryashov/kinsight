@@ -29,6 +29,7 @@ message EntryBody {
     StateEvent state_event = 13;
     Heartbeat heartbeat = 14;
     MembershipOp membership_op = 15;
+    CategoryOverride category_override = 16;  // protocol 2 (spec §4.4, stage 5c)
   }
 }
 
@@ -62,6 +63,13 @@ message AppCatalog {
   string label = 2;
   bytes icon_webp = 3;
   int32 category = 4;
+}
+
+// A parent's category for an app, shared with the other parents (spec §4.4). One live entry per author and package
+// (supersede key <author>/cat/<package>); the effective one is the active parent's with the highest (lamport, author).
+message CategoryOverride {
+  string package_name = 1;
+  int32 category = 2;  // AppCategory ordinal + 1; 0 = back to the default (override cleared)
 }
 
 message StateEvent {
