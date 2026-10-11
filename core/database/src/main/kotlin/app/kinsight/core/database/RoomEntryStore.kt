@@ -5,10 +5,13 @@ import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.GroupId
+import app.kinsight.core.model.Membership
 import app.kinsight.core.sync.EntryStore
 import app.kinsight.core.sync.SyncPolicy
 import app.kinsight.core.sync.VersionVector
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 
 /** The local author's last used seq and Lamport value (spec §7, «Состояние автора»). */
 data class AuthorState(val lastSeq: Long, val lastLamport: Long)
@@ -100,14 +103,24 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
 
     /**
      * Local history beyond the summary retention (audit A-6), next to [prune]; RoomEntryStore only, never part of the
-     * sync contract. StateEvents that ended before it go, except each author's newest per event kind; AppCatalog
-     * entries older than it go when no live UsageSummary of the same author names the package any more. For [self]'s
-     * own catalog the publisher's hash goes too, so the app is described again if it comes back. The pruned seqs stay
+     * sync contract. The cutoff is the start of (today minus [summaryRetentionDays]) in [zone], the oldest day whose
+     * summary [prune] keeps, so that day's events survive. StateEvents that ended before it go, except each author's
+     * newest per event kind and earliest SHARING_* event. AppCatalog entries older than it go when no live
+     * UsageSummary of the same author names the package any more, but only [self]'s own (the publisher's hash goes
+     * too, so the app is described again if it comes back) and departed authors'. Another active author re-publishes
+     * a catalog entry only when its own hash changes, so its pruned row would be lost for good. The pruned seqs stay
      * accounted in the vector: no peer sends them again.
      */
-    suspend fun pruneHistory(summaryRetentionDays: Long, nowMs: Long, self: DeviceId): Unit = db.write {
-        val before = nowMs - summaryRetentionDays * DAY_MS
+    suspend fun pruneHistory(
+        summaryRetentionDays: Long,
+        nowMs: Long,
+        self: DeviceId,
+        zone: ZoneId = ZoneId.systemDefault(),
+    ): Unit = db.write {
+        val today = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
+        val before = today.minusDays(summaryRetentionDays).atStartOfDay(zone).toInstant().toEpochMilli()
         entryDao.pruneStateEvents(EntryKinds.STATE_EVENT, before)
+        val departed = Membership.compute(groupId, entryDao.membershipBytes().map(DecodedEntry::decode))?.departed?.keys.orEmpty()
         val named = HashMap<DeviceId, MutableSet<String>>()
         for (bytes in entryDao.bytesOfKind(EntryKinds.USAGE_SUMMARY)) {
             val s = DecodedEntry.decode(bytes)
@@ -115,6 +128,7 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
         }
         for (bytes in entryDao.bytesOfKind(EntryKinds.APP_CATALOG)) {
             val c = DecodedEntry.decode(bytes)
+            if (c.author != self && c.author !in departed) continue
             val pkg = c.body.app_catalog!!.package_name
             if (c.body.created_at_ms >= before || pkg in named[c.author].orEmpty()) continue
             entryDao.delete(c.author.hex, c.seq)
@@ -149,7 +163,6 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
 
     private companion object {
         const val SEEN_ACCOUNTED = -1
-        const val DAY_MS = 86_400_000L
     }
 
     private suspend fun authorStateLocked(a: String): AuthorState {

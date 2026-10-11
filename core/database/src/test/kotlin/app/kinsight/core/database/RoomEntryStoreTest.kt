@@ -3,6 +3,9 @@ package app.kinsight.core.database
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
+import app.kinsight.core.model.addMember
+import app.kinsight.core.model.proto.DeviceRole
+import app.kinsight.core.model.removeMemberEntry
 import app.kinsight.core.model.proto.AppCatalog
 import app.kinsight.core.model.proto.AppTotal
 import app.kinsight.core.model.proto.StateEvent
@@ -15,6 +18,7 @@ import kotlinx.coroutines.test.runTest
 import java.io.File
 import java.nio.file.Files
 import java.time.LocalDate
+import java.time.ZoneOffset
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -164,13 +168,18 @@ class RoomEntryStoreTest {
         val db = KinsightDatabaseFactory.open(HostContext(), path).also { opened += it }
         val store = RoomEntryStore(db, genesis.groupId)
         val day = 86_400_000L
-        val now = 400 * day
-        val old = now - 40 * day // retention below: 30 days
+        val now = 400 * day + 20 * 3_600_000L // 20:00 UTC
+        val cutoffDay = 370 * day // retention below: 30 days, the oldest kept day starts at its midnight
+        val old = now - 40 * day
         fun event(kind: StateEvent.Kind, to: Long) = author.create { it.copy(state_event = StateEvent(kind = kind, from_ms = to, to_ms = to)) }
+        val consent = event(StateEvent.Kind.SHARING_RESUMED, old - 2 * day) // old, but the earliest SHARING_*: kept
         val oldPause = event(StateEvent.Kind.SHARING_PAUSED, old) // a newer pause follows: pruned
+        val oldResume = event(StateEvent.Kind.SHARING_RESUMED, old) // neither earliest nor newest: pruned
         val oldBt = event(StateEvent.Kind.BLUETOOTH_OFF, old) // a newer one follows: pruned
         val newestPause = event(StateEvent.Kind.SHARING_PAUSED, old + day) // old, but the newest pause: kept
+        val newestResume = event(StateEvent.Kind.SHARING_RESUMED, old + day) // the newest resume: kept
         val left = event(StateEvent.Kind.LEFT_GROUP, old - day) // membership: never pruned
+        val oldestDayBt = event(StateEvent.Kind.BLUETOOTH_OFF, cutoffDay + 3_600_000L) // on the oldest kept day: kept
         val recentBt = event(StateEvent.Kind.BLUETOOTH_OFF, now - day)
 
         val kidKeys = DeviceKeys.generate()
@@ -184,16 +193,41 @@ class RoomEntryStoreTest {
         val chat = catalog("com.example.chat") // old and named by nothing: pruned
         t = now - day
         val game = catalog("com.example.game") // named by nothing but recent: kept
-        store.applyBatch(listOf(genesis.entry, oldPause, oldBt, newestPause, left, recentBt, summary, maps, chat, game))
+        store.applyBatch(
+            listOf(genesis.entry, consent, oldPause, oldResume, oldBt, newestPause, newestResume, left, oldestDayBt, recentBt, summary, maps, chat, game),
+        )
         db.usageDao().setCatalogHash(CatalogStateRow("com.example.chat", "h1"))
         db.usageDao().setCatalogHash(CatalogStateRow("com.example.maps", "h2"))
 
-        store.pruneHistory(summaryRetentionDays = 30, nowMs = now, self = kidKeys.deviceId)
+        store.pruneHistory(summaryRetentionDays = 30, nowMs = now, self = kidKeys.deviceId, zone = ZoneOffset.UTC)
 
-        assertEquals(listOf(newestPause, left, recentBt), store.stateEvents())
+        assertEquals(listOf(consent, newestPause, newestResume, left, oldestDayBt, recentBt), store.stateEvents())
         assertEquals(listOf(maps, game), store.catalog())
         assertEquals(null, db.usageDao().catalogHash("com.example.chat")) // described again if the app comes back
         assertEquals("h2", db.usageDao().catalogHash("com.example.maps"))
         assertTrue(store.isAccounted(keys.deviceId, oldPause.seq)) // a peer never sends it again
+    }
+
+    /** Another active author re-publishes only on a hash change, so only self's and departed authors' catalogs go. */
+    @Test
+    fun historyPruningKeepsTheCatalogOfOtherActiveAuthors() = runTest {
+        val db = KinsightDatabaseFactory.open(HostContext(), path).also { opened += it }
+        val store = RoomEntryStore(db, genesis.groupId)
+        val day = 86_400_000L
+        val now = 400 * day
+        val otherKeys = DeviceKeys.generate()
+        val goneKeys = DeviceKeys.generate()
+        val addOther = author.addMember(otherKeys.sign.publicKey, otherKeys.dh.publicKey, "Other", DeviceRole.CHILD)
+        val addGone = author.addMember(goneKeys.sign.publicKey, goneKeys.dh.publicKey, "Gone", DeviceRole.CHILD)
+        fun oldCatalog(k: DeviceKeys) = EntryAuthor(genesis.groupId, k, lastSeq = 0, clock = { now - 100 * day })
+            .create { it.copy(app_catalog = AppCatalog(package_name = "com.example.chat", label = "Chat")) }
+        val otherChat = oldCatalog(otherKeys) // active author, old and unnamed: kept
+        val goneChat = oldCatalog(goneKeys) // departed author, old and unnamed: pruned
+        val removeGone = author.removeMemberEntry(goneKeys.deviceId, lastSeq = 1)
+        store.applyBatch(listOf(genesis.entry, addOther, addGone, otherChat, goneChat, removeGone))
+
+        store.pruneHistory(summaryRetentionDays = 30, nowMs = now, self = keys.deviceId, zone = ZoneOffset.UTC)
+
+        assertEquals(listOf(otherChat), store.catalog())
     }
 }

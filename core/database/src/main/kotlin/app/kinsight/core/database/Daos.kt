@@ -43,12 +43,16 @@ interface EntryDao {
 
     /**
      * StateEvents (LEFT_GROUP excluded: membership) that ended before [beforeMs], except each author's newest of every
-     * event kind (audit A-6). [stateEvent] is EntryKinds.STATE_EVENT.
+     * event kind and each author's earliest SHARING_* event (the consent: «started sharing» and the consent fallback
+     * read it), audit A-6. [stateEvent] is EntryKinds.STATE_EVENT; 1 and 2 are StateEvent.Kind SHARING_PAUSED and
+     * SHARING_RESUMED (entries.proto).
      */
     @Query(
         "DELETE FROM entries WHERE kind = :stateEvent AND membership = 0 AND event_to_ms < :beforeMs " +
             "AND EXISTS (SELECT 1 FROM entries n WHERE n.kind = :stateEvent AND n.author = entries.author " +
-            "AND n.event_kind = entries.event_kind AND n.seq > entries.seq)",
+            "AND n.event_kind = entries.event_kind AND n.seq > entries.seq) " +
+            "AND NOT (event_kind IN (1, 2) AND NOT EXISTS (SELECT 1 FROM entries f WHERE f.kind = :stateEvent " +
+            "AND f.author = entries.author AND f.event_kind IN (1, 2) AND f.seq < entries.seq))",
     )
     suspend fun pruneStateEvents(stateEvent: Int, beforeMs: Long): Int
 

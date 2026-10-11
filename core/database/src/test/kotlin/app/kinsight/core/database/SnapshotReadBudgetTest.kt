@@ -82,7 +82,7 @@ class SnapshotReadBudgetTest {
             store.applyBatch(yearOf(kid, { t = it }, start))
         }
         val lastEvening = start.plusDays(364).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli() + 21 * HOUR
-        store.pruneHistory(summaryRetentionDays = 365, nowMs = lastEvening, self = parent.deviceId)
+        store.pruneHistory(summaryRetentionDays = 365, nowMs = lastEvening, self = parent.deviceId, zone = ZoneOffset.UTC)
 
         assertEquals(1 + 3 * (365 + 20 + 365 * 4 + 1), reads(store)) // warm-up, and nothing within the year was pruned
         val ms = measureTimeMillis { repeat(3) { reads(store) } } / 3
