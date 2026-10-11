@@ -91,6 +91,7 @@
     <string name="app_category_yours">Выбрано вами</string>
     <string name="app_category_shared">Категорию увидят все родители семьи</string>
     <string name="app_category_changed_by">Изменил: %1$s</string>
+    <string name="app_category_another_parent">другой родитель</string>
     <string name="app_change_category">Изменить категорию</string>
     <string name="app_category_title">Категория приложения «%1$s»</string>
     <string name="app_category_default_of">По умолчанию (%1$s)</string>

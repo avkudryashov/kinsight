@@ -312,11 +312,12 @@ class UsageRepository(
     /**
      * The name of the other parent whose entry sets [packageName]'s effective category; null for the viewer's own choice
      * or no override. Only active parents' entries take effect (spec §4.4), so the author is always an active member.
+     * A blank name comes back as "" (the screen then says «another parent»).
      */
     fun categoryChangedBy(packageName: String): Flow<String?> = snapshots.snapshots.map { s ->
         (s as? GroupSnapshot.Ready)?.takeUnless { it.removed }?.let {
             val author = CategoryOverrides.effectiveWithAuthors(it.categoryOverrides, it.membership)[packageName]?.author
-            author?.takeIf { a -> a != it.self }?.let { a -> it.membership.active[a]?.displayName }
+            author?.takeIf { a -> a != it.self }?.let { a -> it.membership.active[a]?.displayName?.takeUnless(String::isBlank) ?: "" }
         }
     }.distinctUntilChanged()
 
@@ -418,8 +419,10 @@ class UsageRepository(
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     fun detail(id: DeviceId, range: DetailRange, weekFields: WeekFields = WeekFields.of(Locale.getDefault())): Flow<DeviceDetail?> =
-        combine(snapshots.snapshots, categoryOverrides) { s, o -> s to o }.mapLatest { (s, o) ->
+        snapshots.snapshots.mapLatest { s ->
             (s as? GroupSnapshot.Ready)?.let {
+                // Overrides from the same snapshot: never paired with another snapshot's map.
+                val o = CategoryOverrides.effective(it)
                 val details = snapshots.details(it.groupId, id, range)
                 SnapshotViews.detail(it, id, range, today(), clock(), overrides = o, details = details, weekFields = weekFields)
             }
@@ -433,8 +436,9 @@ class UsageRepository(
     /** App [packageName] of device [id] over [range], reloaded on every log or category change (the app screen); an equal state is not re-emitted. */
     @OptIn(ExperimentalCoroutinesApi::class)
     fun app(id: DeviceId, packageName: String, range: DetailRange): Flow<AppDetail?> =
-        combine(snapshots.snapshots, categoryOverrides) { s, o -> s to o }.mapLatest { (s, o) ->
+        snapshots.snapshots.mapLatest { s ->
             (s as? GroupSnapshot.Ready)?.let {
+                val o = CategoryOverrides.effective(it)
                 // Hours are drawn for a DAY only; a week or month needs no UsageDetail.
                 val details = if (range.period == Period.DAY) snapshots.details(it.groupId, id, range) else emptyList()
                 SnapshotViews.app(it, id, packageName, range, today(), clock(), overrides = o, details = details)

@@ -254,7 +254,8 @@ private fun Head(app: AppDetail, changedBy: String?) = Row(verticalAlignment = A
             }
         }
         if (changedBy != null) {
-            Text(stringResource(R.string.app_category_changed_by, changedBy), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("app_category_author"))
+            val who = changedBy.ifBlank { stringResource(R.string.app_category_another_parent) }
+            Text(stringResource(R.string.app_category_changed_by, who), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("app_category_author"))
         } else if (app.overridden) {
             Text(stringResource(R.string.app_category_yours), style = MaterialTheme.typography.bodySmall)
         }

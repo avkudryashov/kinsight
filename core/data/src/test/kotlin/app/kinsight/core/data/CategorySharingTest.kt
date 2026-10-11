@@ -97,6 +97,17 @@ class CategorySharingTest {
     }
 
     @Test
+    fun aParentWithABlankNameIsReportedAsNameless() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val dadKeys = DeviceKeys.generate()
+        mom.pipeline.appendOwn { a -> listOf(a.addMember(dadKeys.sign.publicKey, dadKeys.dh.publicKey, "   ", DeviceRole.PARENT)) }
+        val dad = EntryAuthor(mom.groups.read()!!.groupId, dadKeys, lastSeq = 0)
+        mom.store().applyBatch(listOf(dad.categoryOverride("com.game", CategoryOverrides.wire(AppCategory.SOCIAL), rank = 1)))
+        // Not null (it is another parent's choice), but empty: the screen says «another parent».
+        assertEquals("", withTimeout(10_000) { mom.usage.categoryChangedBy("com.game").first { it != null } })
+    }
+
+    @Test
     fun aLaterChangeByAnyParentBeatsTheWinnerAndAHugeRankMovesNoClock() = runBlocking<Unit> {
         mom.group.createGroup("Mom")
         val dadKeys = DeviceKeys.generate()

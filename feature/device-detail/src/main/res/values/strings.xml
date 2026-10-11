@@ -85,6 +85,7 @@
     <string name="app_category_yours">Chosen by you</string>
     <string name="app_category_shared">All parents in the family will see this category</string>
     <string name="app_category_changed_by">Changed by %1$s</string>
+    <string name="app_category_another_parent">another parent</string>
     <string name="app_change_category">Change category</string>
     <string name="app_category_title">Category of %1$s</string>
     <string name="app_category_default_of">Default (%1$s)</string>

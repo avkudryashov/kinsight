@@ -264,6 +264,19 @@ class AppDetailScreenTest {
     }
 
     @Test
+    fun aParentWithoutANameIsAnotherParent() {
+        show(app(overridden = true), changedBy = "")
+        rule.onNodeWithTag("app_category_author").assertTextEquals("Changed by another parent")
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun aParentWithoutANameIsAnotherParentRu() {
+        show(app(overridden = true), changedBy = "  ")
+        rule.onNodeWithTag("app_category_author").assertTextEquals("Изменил: другой родитель")
+    }
+
+    @Test
     fun ownChoiceSaysChosenByYou() {
         show(app(overridden = true))
         rule.onNodeWithTag("app_category_author").assertDoesNotExist()
