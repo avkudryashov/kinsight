@@ -61,11 +61,13 @@ class DashboardScreenTest {
         onSyncNow: () -> Unit = {},
         onInviteChild: () -> Unit = {},
         onOpenSettings: () -> Unit = {},
+        onAcknowledgeParents: () -> Unit = {},
     ) = rule.setContent {
         KinsightTheme(dynamicColor = false) {
             DashboardScreen(
                 ui, now, onOpenDevice, onPause = onPause, onResume = onResume, onConsent = onConsent, onStart = onStart,
                 onSyncNow = onSyncNow, onInviteChild = onInviteChild, onOpenSettings = onOpenSettings,
+                onAcknowledgeParents = onAcknowledgeParents,
             )
         }
     }
@@ -426,5 +428,22 @@ class DashboardScreenTest {
     fun aPausedChildWithoutUsageAccessStillSeesTheBanner() {
         show(childUi(Sharing.Paused(now - hour)).copy(service = running.copy(usageAccessGranted = false)))
         rule.onNodeWithTag("dash_usage_access").assertExists()
+    }
+
+    @Test
+    fun aChildIsToldWhoNewlySeesItsTimeUntilItAcknowledges() {
+        var ok = 0
+        show(childUi(Sharing.On).copy(newParents = listOf(dad)), onAcknowledgeParents = { ok++ })
+        rule.onNodeWithTag("dash_new_parent").assertExists()
+        rule.onNodeWithText("New in your family group: Dad", substring = true).assertExists()
+        rule.onNodeWithTag("dash_new_parent_ok").performClick()
+        rule.waitForIdle()
+        assertEquals(1, ok)
+    }
+
+    @Test
+    fun noNewParentBannerWithoutNewParents() {
+        show(childUi(Sharing.On))
+        rule.onNodeWithTag("dash_new_parent").assertDoesNotExist()
     }
 }

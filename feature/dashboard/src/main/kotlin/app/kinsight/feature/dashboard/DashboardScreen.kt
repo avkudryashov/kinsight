@@ -100,7 +100,10 @@ fun DashboardRoute(onOpenDevice: (DeviceId) -> Unit, onConsent: () -> Unit, onIn
             now = System.currentTimeMillis()
         }
     }
-    DashboardScreen(ui, now, onOpenDevice, vm::pause, vm::resume, onConsent, vm::start, vm::syncNow, onInviteChild, onOpenSettings)
+    DashboardScreen(
+        ui, now, onOpenDevice, vm::pause, vm::resume, onConsent, vm::start, vm::syncNow, onInviteChild, onOpenSettings,
+        onAcknowledgeParents = vm::acknowledgeParents,
+    )
 }
 
 /**
@@ -122,6 +125,7 @@ fun DashboardScreen(
     onSyncNow: () -> Unit,
     onInviteChild: () -> Unit,
     onOpenSettings: () -> Unit,
+    onAcknowledgeParents: () -> Unit = {},
 ) {
     val d = ui.dashboard
     if (d == null) {
@@ -172,6 +176,7 @@ fun DashboardScreen(
             attention?.let { a -> item { AttentionBanner(a, onStart, onOpenSettings) } }
             // Not the user's fault nor fixable here: a neutral note, never the error banner.
             if (ui.service?.problem == SyncProblem.PEER_NEEDS_UPDATE) item { UpdateNotice() }
+            if (child && ui.newParents.isNotEmpty()) item { NewParentBanner(ui.newParents, onAcknowledgeParents) }
             if (child) {
                 item { ChildTransparencyRow(d.parents, d.selfUsage?.sharing ?: Sharing.Never, ui.sharingFailed, onPause, onResume, onConsent) }
                 d.selfUsage?.let { u -> item { DeviceCard(u, nowMs, noContactMs) { onOpenDevice(u.member.id) } } }
@@ -228,6 +233,24 @@ internal enum class SyncAttention {
             s.state == ServiceState.RADIO_ERROR -> RADIO_ERROR
             s.notificationHidden -> NOTIFICATION_HIDDEN
             else -> null
+        }
+    }
+}
+
+/** U7: who newly sees this child's time, until «Got it»; the notification may have been turned off. */
+@Composable
+private fun NewParentBanner(parents: List<MemberView>, onOk: () -> Unit) {
+    Card(
+        Modifier.fillMaxWidth().testTag("dash_new_parent").semantics { liveRegion = LiveRegionMode.Polite },
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        ),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.dash_new_parent, parents.joinToString(", ") { it.name }), style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(R.string.dash_new_parent_body), style = MaterialTheme.typography.bodySmall)
+            TextButton(onOk, Modifier.testTag("dash_new_parent_ok")) { Text(stringResource(R.string.dash_new_parent_ok)) }
         }
     }
 }

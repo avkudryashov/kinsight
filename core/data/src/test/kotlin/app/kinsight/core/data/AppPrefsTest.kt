@@ -189,4 +189,16 @@ class AppPrefsTest {
             AppPrefs(store).thresholds.first().toSet(),
         )
     }
+
+    @Test
+    fun acknowledgedParentsPersistAndGoWithTheGroup() = runBlocking<Unit> {
+        assertEquals(null, prefs.acknowledgedParents.first())
+        val ids = setOf(DeviceId("aa".repeat(16)), DeviceId("bb".repeat(16)))
+        prefs.setAcknowledgedParents(ids)
+        assertEquals(ids, prefs.acknowledgedParents.first())
+        prefs.setAcknowledgedParents(emptySet())
+        assertEquals(emptySet(), prefs.acknowledgedParents.first(), "empty is a baseline, not «never stored»")
+        prefs.resetForNewGroup()
+        assertEquals(null, prefs.acknowledgedParents.first())
+    }
 }

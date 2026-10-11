@@ -9,8 +9,17 @@ import java.time.ZoneId
 
 /** What the app should notify (spec §9.7); the app turns it into notifications on its channels. */
 sealed interface Alert {
-    /** [id]: the child's device, so tapping the alert can open its detail screen; null when unknown. */
-    data class Integrity(val device: String, val kind: StateEvent.Kind, val atMs: Long, val id: DeviceId? = null) : Alert
+    /**
+     * [id]: the child's device, so tapping the alert can open its detail screen; null when unknown. [durationMs]: an
+     * interval event's length (to_ms after from_ms), null when it has none; a short Bluetooth break is quiet (U4).
+     */
+    data class Integrity(
+        val device: String,
+        val kind: StateEvent.Kind,
+        val atMs: Long,
+        val id: DeviceId? = null,
+        val durationMs: Long? = null,
+    ) : Alert
 
     /**
      * The child undid an open problem ([kind] is the open kind: SHARING_PAUSED or NOTIFICATION_HIDDEN, see
@@ -18,10 +27,11 @@ sealed interface Alert {
      */
     data class Resolved(val id: DeviceId, val kind: StateEvent.Kind, val device: String) : Alert
 
-    data class NoContact(val device: String, val sinceMs: Long) : Alert
+    /** [id]: the child's device (the notification is grouped by it); null when unknown. */
+    data class NoContact(val device: String, val sinceMs: Long, val id: DeviceId? = null) : Alert
 
-    /** On a child's phone: someone new can see its data (transparency, §9.6). */
-    data class NewParent(val name: String) : Alert
+    /** On a child's phone: someone new can see its data (transparency, §9.6). [id]: that parent's device. */
+    data class NewParent(val name: String, val id: DeviceId? = null) : Alert
 
     /** Today's (or, weekly, the last 7 days') time per child. */
     data class Summary(val weekly: Boolean, val lines: List<Pair<String, Long>>) : Alert
@@ -39,6 +49,9 @@ sealed interface Alert {
         val limitMs: Long,
     ) : Alert
 }
+
+/** How loud an alert is (U4, audit 2026-10-11); the app picks the notification channel by it. */
+enum class AlertLevel { IMPORTANT, MINOR, TRANSPARENCY, SUMMARY, THRESHOLD }
 
 /**
  * A child's today as the thresholds read it (AlertPlanner.input): its actual date (the zone of its latest summary; one
@@ -108,6 +121,27 @@ object AlertPlanner {
         StateEvent.Kind.NOTIFICATION_HIDDEN to StateEvent.Kind.NOTIFICATION_SHOWN,
     )
     private val OPENERS = CLOSERS.entries.associate { it.value to it.key }
+
+    /** Events that need nothing from a parent: «Прочие события», no sound (U4). */
+    val MINOR_KINDS = setOf(StateEvent.Kind.CLOCK_CHANGED, StateEvent.Kind.DATA_GAP)
+
+    /** A Bluetooth break shorter than this is minor; one of unknown length is important. */
+    const val SHORT_BLUETOOTH_MS = 30 * 60_000L
+
+    fun level(alert: Alert): AlertLevel = when (alert) {
+        is Alert.Integrity -> when {
+            alert.kind in MINOR_KINDS -> AlertLevel.MINOR
+            alert.kind == StateEvent.Kind.BLUETOOTH_OFF && (alert.durationMs ?: Long.MAX_VALUE) < SHORT_BLUETOOTH_MS -> AlertLevel.MINOR
+            else -> AlertLevel.IMPORTANT
+        }
+        is Alert.NoContact, is Alert.Resolved -> AlertLevel.IMPORTANT
+        is Alert.NewParent -> AlertLevel.TRANSPARENCY
+        is Alert.Summary -> AlertLevel.SUMMARY
+        is Alert.Threshold -> AlertLevel.THRESHOLD
+    }
+
+    /** An interval event's length; null without a to_ms after its from_ms. */
+    private fun durationOf(e: EventView): Long? = if (e.fromMs > 0 && e.toMs > e.fromMs) e.toMs - e.fromMs else null
     const val SUMMARY_HOUR = 20
 
     fun plan(input: AlertInput): AlertPlan = if (input.self.role == Role.CHILD) child(input) else parent(input)
@@ -180,7 +214,7 @@ object AlertPlanner {
             val sorted = own.sortedBy { it.seq }
             for ((index, e) in sorted.withIndex()) {
                 if (e.seq <= mark) continue
-                if (e.kind in INTEGRITY_KINDS) alerts += Alert.Integrity(child.name, e.kind, e.atMs, child.id)
+                if (e.kind in INTEGRITY_KINDS) alerts += Alert.Integrity(child.name, e.kind, e.atMs, child.id, durationOf(e))
                 val open = OPENERS[e.kind] ?: continue
                 // Resolved only when the pair's latest earlier event is the open one: a repeated resume says nothing.
                 val before = sorted.subList(0, index).lastOrNull { it.kind == open || it.kind == e.kind }
@@ -194,7 +228,7 @@ object AlertPlanner {
         for (m in i.members.filter { it.role == Role.CHILD && !it.isSelf }) {
             val seen = m.lastSeenMs ?: i.joinedMs[m.id] ?: continue
             if (i.nowMs - seen > limitMs) {
-                if (noContact.add(m.id)) alerts += Alert.NoContact(m.name, seen)
+                if (noContact.add(m.id)) alerts += Alert.NoContact(m.name, seen, m.id)
             } else {
                 noContact.remove(m.id)
             }
@@ -269,7 +303,7 @@ object AlertPlanner {
         // First run: only the inviting admin is "known" (a parent added since the join is news); unknown inviter: all.
         val known = if (i.markers.initialized) i.markers.knownParents.orEmpty() else
             i.inviter?.takeIf { id -> parents.any { it.id == id } }?.let { setOf(it) } ?: parents.map { it.id }.toSet()
-        val alerts = parents.filter { it.id !in known }.map { Alert.NewParent(it.name) }
+        val alerts = parents.filter { it.id !in known }.map { Alert.NewParent(it.name, it.id) }
         return AlertPlan(alerts, i.markers.copy(knownParents = parents.map { it.id }.toSet(), initialized = true))
     }
 }

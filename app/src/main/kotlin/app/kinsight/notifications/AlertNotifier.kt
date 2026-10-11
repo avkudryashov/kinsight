@@ -3,6 +3,7 @@ package app.kinsight.notifications
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Notification
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.pm.PackageManager
@@ -29,20 +30,24 @@ object AlertNotifier {
      * False when nothing could be posted (see [canPost]): the caller then keeps the alert for a later run. A
      * [Alert.Resolved] posts nothing: it cancels that child's open notification of its kind (no permission needed).
      */
-    @SuppressLint("MissingPermission") // canPost checks it right above the notify call
+    @SuppressLint("MissingPermission") // canPost checks it right above the notify calls
     fun post(context: Context, alert: Alert): Boolean {
+        val nm = NotificationManagerCompat.from(context)
         if (alert is Alert.Resolved) {
-            NotificationManagerCompat.from(context).cancel(idOf(alert))
+            nm.cancel(idOf(alert))
             // An older build keyed the open notification by the child's name: that one goes too.
-            NotificationManagerCompat.from(context).cancel(integrityId(alert.device, alert.kind))
+            nm.cancel(integrityId(alert.device, alert.kind))
+            dropEmptySummary(context, groupOf(alert))
             return true
         }
         if (!canPost(context)) return false
         // Builds before device-keyed ids keyed a pause or hidden notification by the name: replace that one too.
         if (alert is Alert.Integrity && alert.id != null && alert.kind in AlertPlanner.CLOSERS) {
-            NotificationManagerCompat.from(context).cancel(integrityId(alert.device, alert.kind))
+            nm.cancel(integrityId(alert.device, alert.kind))
         }
-        NotificationManagerCompat.from(context).notify(idOf(alert), build(context, alert))
+        nm.notify(idOf(alert), build(context, alert))
+        // U26: a child's alerts are bundled; the summary itself never sounds (GROUP_ALERT_CHILDREN).
+        groupOf(alert)?.let { nm.notify(summaryId(it), summary(context, alert, it)) }
         return true
     }
 
@@ -58,6 +63,7 @@ object AlertNotifier {
             when (alert) {
                 is Alert.Summary -> R.string.alert_public_summary
                 is Alert.Threshold -> R.string.alert_public_threshold
+                is Alert.NewParent -> R.string.alert_public_transparency
                 else -> R.string.alert_public_integrity
             },
         )
@@ -75,8 +81,43 @@ object AlertNotifier {
             .setOnlyAlertOnce(alert !is Alert.Threshold)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(public)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .apply { groupOf(alert)?.let(::setGroup) }
             .build()
     }
+
+    /** One group per child (U26); summaries and the child's own «new parent» are not grouped. */
+    internal fun groupOf(alert: Alert): String? = when (alert) {
+        is Alert.Integrity -> GROUP + (alert.id?.hex ?: alert.device)
+        is Alert.Resolved -> GROUP + alert.id.hex
+        is Alert.NoContact -> GROUP + (alert.id?.hex ?: alert.device)
+        is Alert.Threshold -> GROUP + alert.child.hex
+        is Alert.NewParent, is Alert.Summary -> null
+    }
+
+    private fun summary(context: Context, alert: Alert, group: String): Notification =
+        NotificationCompat.Builder(context, AlertText.of(context, alert).channel)
+            .setSmallIcon(R.drawable.ic_stat_kinsight)
+            .setContentTitle(context.getString(R.string.alert_public_integrity))
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setGroup(group)
+            .setGroupSummary(true)
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
+            .setSilent(true)
+            .setAutoCancel(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setContentIntent(contentIntent(context, alert))
+            .build()
+
+    /** A group's summary goes once none of its alerts is left in the shade. */
+    private fun dropEmptySummary(context: Context, group: String?) {
+        group ?: return
+        val active = context.getSystemService(NotificationManager::class.java).activeNotifications
+        val left = active.count { it.notification.group == group && it.notification.flags and Notification.FLAG_GROUP_SUMMARY == 0 }
+        if (left == 0) NotificationManagerCompat.from(context).cancel(summaryId(group))
+    }
+
+    private fun summaryId(group: String): Int = ("g$group").hashCode()
 
     /**
      * An integrity or threshold alert opens that child's detail screen; a child that left (no detail any more) and
@@ -100,8 +141,8 @@ object AlertNotifier {
     private fun idOf(alert: Alert): Int = when (alert) {
         is Alert.Integrity -> integrityId(alert.id?.hex ?: alert.device, alert.kind)
         is Alert.Resolved -> integrityId(alert.id.hex, alert.kind)
-        is Alert.NoContact -> ("c" + alert.device).hashCode()
-        is Alert.NewParent -> ("p" + alert.name).hashCode()
+        is Alert.NoContact -> ("c" + (alert.id?.hex ?: alert.device)).hashCode()
+        is Alert.NewParent -> ("p" + (alert.id?.hex ?: alert.name)).hashCode()
         is Alert.Summary -> SUMMARY_ID
         is Alert.Threshold -> ("t" + ThresholdRule.idOf(alert.child, alert.target)).hashCode()
     }
@@ -109,4 +150,6 @@ object AlertNotifier {
     private fun integrityId(child: String, kind: StateEvent.Kind): Int = ("i" + child + kind.name).hashCode()
 
     private const val SUMMARY_ID = 100
+
+    private const val GROUP = "kinsight-child-"
 }

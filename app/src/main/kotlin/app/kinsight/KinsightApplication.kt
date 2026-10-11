@@ -11,7 +11,6 @@ import app.kinsight.core.usage.UsageGraph
 import app.kinsight.core.usage.UsageWork
 import app.kinsight.feature.widget.KinsightWidget
 import app.kinsight.feature.widget.WidgetLinks
-import app.kinsight.notifications.AlertChannels
 import app.kinsight.notifications.AlertsWork
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -34,7 +33,6 @@ open class KinsightApplication : Application() {
         SyncGraph.install(this)
         IntegrityFastSync.install(this)
         UsageWork.schedule(this)
-        AlertChannels.ensure(this)
         AlertsWork.schedule(this)
         KinsightWidget.links = WidgetLinks(open = MainActivity::open, openDevice = MainActivity::openDevice)
         SyncGraph.onSessionFinished = { AlertsWork.runSoon(it) }

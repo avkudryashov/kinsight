@@ -1,19 +1,23 @@
 package app.kinsight.notifications
 
 import android.app.Application
+import android.app.NotificationChannel
 import android.app.NotificationManager
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.kinsight.R
 import app.kinsight.core.data.Alert
+import app.kinsight.core.data.AlertLevel
 import app.kinsight.core.data.AlertPlanner
 import app.kinsight.core.data.AppCategory
+import app.kinsight.core.data.Role
 import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.proto.StateEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -25,17 +29,28 @@ class AlertTextTest {
     private val context get() = ApplicationProvider.getApplicationContext<Application>()
 
     @Test
-    fun integrityAlertsNameTheChildAndUseTheIntegrityChannel() {
+    fun integrityAlertsNameTheChildAndUseTheImportantChannel() {
         for (kind in listOf(
             StateEvent.Kind.SHARING_PAUSED, StateEvent.Kind.USAGE_ACCESS_REVOKED, StateEvent.Kind.LEFT_GROUP,
             StateEvent.Kind.SYNC_STOPPED, StateEvent.Kind.NOTIFICATION_HIDDEN, StateEvent.Kind.NEARBY_PERMISSION_OFF,
             StateEvent.Kind.APP_FORCE_STOPPED,
         )) {
             val t = AlertText.of(context, Alert.Integrity("Kid", kind, 1_000))
-            assertEquals(AlertChannels.INTEGRITY, t.channel)
+            assertEquals(AlertChannels.IMPORTANT, t.channel)
             assertTrue(t.title, t.title.contains("Kid"))
         }
         assertTrue(AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000)).title.contains("paused"))
+    }
+
+    @Test
+    fun shortBluetoothBreaksClockChangesAndGapsAreQuiet() {
+        val min = 60_000L
+        assertEquals(AlertChannels.EVENTS, AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.BLUETOOTH_OFF, 1_000, durationMs = 10 * min)).channel)
+        assertEquals(AlertChannels.IMPORTANT, AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.BLUETOOTH_OFF, 1_000, durationMs = 45 * min)).channel)
+        assertEquals(AlertChannels.EVENTS, AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.CLOCK_CHANGED, 1_000)).channel)
+        assertEquals(AlertChannels.EVENTS, AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.DATA_GAP, 1_000)).channel)
+        assertEquals(AlertChannels.IMPORTANT, AlertText.of(context, Alert.NoContact("Kid", 1_000)).channel)
+        assertEquals(AlertChannels.TRANSPARENCY, AlertText.of(context, Alert.NewParent("Dad")).channel)
     }
 
     /** Every kind the planner reports has its own text: a kind added to the set without one fails here. */
@@ -55,12 +70,15 @@ class AlertTextTest {
         val fallback = context.getString(R.string.alert_event, "Kid")
         val titles = AlertPlanner.INTEGRITY_KINDS.map { kind ->
             val t = AlertText.of(context, Alert.Integrity("Kid", kind, 1_000))
-            assertEquals(AlertChannels.INTEGRITY, t.channel)
+            assertEquals(AlertChannels.of(AlertPlanner.level(Alert.Integrity("Kid", kind, 1_000))), t.channel)
             assertTrue("$kind: ${t.title}", t.title.contains("Kid"))
             assertNotEquals("$kind falls back to the generic text", fallback, t.title)
             t.title
         }
         assertEquals("two kinds share a text: $titles", titles.size, titles.toSet().size)
+        val advice = AlertPlanner.INTEGRITY_KINDS.map { kind -> AlertText.of(context, Alert.Integrity("Kid", kind, 1_000)).body.lines().last() }
+        assertTrue("every body ends with advice: $advice", advice.none { it.isBlank() || it.startsWith("When") || it.startsWith("Когда") })
+        assertEquals("two kinds share advice: $advice", advice.size, advice.toSet().size)
     }
 
     @Test
@@ -78,21 +96,22 @@ class AlertTextTest {
     }
 
     @Test
-    fun channelsAreCreated() {
-        AlertChannels.ensure(context)
+    fun channelsFollowTheRole() {
         val nm = context.getSystemService(NotificationManager::class.java)
-        assertNotNull(nm.getNotificationChannel(AlertChannels.INTEGRITY))
-        assertNotNull(nm.getNotificationChannel(AlertChannels.SUMMARIES))
-        assertEquals(NotificationManager.IMPORTANCE_DEFAULT, nm.getNotificationChannel(AlertChannels.INTEGRITY).importance)
+        nm.createNotificationChannel(NotificationChannel(AlertChannels.LEGACY_INTEGRITY, "Integrity", NotificationManager.IMPORTANCE_DEFAULT))
+        AlertChannels.ensure(context, Role.PARENT)
+        assertNull("the 0.7.x channel goes", nm.getNotificationChannel(AlertChannels.LEGACY_INTEGRITY))
+        assertEquals(NotificationManager.IMPORTANCE_DEFAULT, nm.getNotificationChannel(AlertChannels.IMPORTANT).importance)
+        assertEquals(NotificationManager.IMPORTANCE_LOW, nm.getNotificationChannel(AlertChannels.EVENTS).importance)
         assertEquals(NotificationManager.IMPORTANCE_LOW, nm.getNotificationChannel(AlertChannels.SUMMARIES).importance)
-    }
-
-    @Test
-    fun channelsAreDescribed() {
-        AlertChannels.ensure(context)
-        val nm = context.getSystemService(NotificationManager::class.java)
-        assertTrue(nm.getNotificationChannel(AlertChannels.INTEGRITY).description.orEmpty().isNotBlank())
-        assertTrue(nm.getNotificationChannel(AlertChannels.SUMMARIES).description.orEmpty().isNotBlank())
+        assertEquals(NotificationManager.IMPORTANCE_DEFAULT, nm.getNotificationChannel(AlertChannels.THRESHOLDS).importance)
+        assertNull(nm.getNotificationChannel(AlertChannels.TRANSPARENCY))
+        listOf(AlertChannels.IMPORTANT, AlertChannels.EVENTS, AlertChannels.SUMMARIES, AlertChannels.THRESHOLDS).forEach {
+            assertTrue(it, nm.getNotificationChannel(it).description.orEmpty().isNotBlank())
+        }
+        AlertChannels.ensure(context, Role.CHILD) // the same phone reset and joined as a child
+        assertEquals(NotificationManager.IMPORTANCE_DEFAULT, nm.getNotificationChannel(AlertChannels.TRANSPARENCY).importance)
+        listOf(AlertChannels.IMPORTANT, AlertChannels.EVENTS, AlertChannels.SUMMARIES, AlertChannels.THRESHOLDS).forEach { assertNull(it, nm.getNotificationChannel(it)) }
     }
 
     @Test
@@ -106,7 +125,7 @@ class AlertTextTest {
     fun theTimeReadsAsWhenInRussian() {
         val body = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000)).body
         assertTrue(body, body.startsWith("Когда: "))
-        assertTrue(context.getString(R.string.channel_integrity_description).isNotBlank())
+        assertTrue(context.getString(R.string.channel_important_description).isNotBlank())
     }
 
     private val kidId = DeviceId("cc".repeat(16))
@@ -130,19 +149,19 @@ class AlertTextTest {
     @Config(qualifiers = "ru")
     fun thresholdTextsInRussian() {
         val total = AlertText.of(context, Alert.Threshold(kidId, "Kid", ThresholdTarget.Total, null, 190 * min, 180 * min))
-        assertEquals("Kid: сегодня 3 ч 10 мин (порог 3 ч)", total.title)
+        assertEquals("Kid: сегодня 3 ч 10 мин (лимит 3 ч)", total.title)
         val games = AlertText.of(context, Alert.Threshold(kidId, "Kid", ThresholdTarget.Category(AppCategory.GAMES), null, 65 * min, 60 * min))
-        assertEquals("Kid: Игры сегодня 1 ч 5 мин (порог 1 ч)", games.title)
-        AlertChannels.ensure(context)
-        assertEquals("Пороги", context.getSystemService(NotificationManager::class.java).getNotificationChannel(AlertChannels.THRESHOLDS).name.toString())
+        assertEquals("Kid: Игры сегодня 1 ч 5 мин (лимит 1 ч)", games.title)
+        AlertChannels.ensure(context, Role.PARENT)
+        assertEquals("Лимиты", context.getSystemService(NotificationManager::class.java).getNotificationChannel(AlertChannels.THRESHOLDS).name.toString())
     }
 
     @Test
     fun thresholdChannelIsCreatedAndDescribed() {
-        AlertChannels.ensure(context)
+        AlertChannels.ensure(context, Role.PARENT)
         val channel = context.getSystemService(NotificationManager::class.java).getNotificationChannel(AlertChannels.THRESHOLDS)
         assertNotNull(channel)
-        assertEquals("Thresholds", channel.name.toString())
+        assertEquals("Limits", channel.name.toString())
         assertEquals(NotificationManager.IMPORTANCE_DEFAULT, channel.importance)
         assertTrue(channel.description.orEmpty().isNotBlank())
     }

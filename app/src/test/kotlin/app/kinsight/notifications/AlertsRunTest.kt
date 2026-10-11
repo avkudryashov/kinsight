@@ -64,6 +64,9 @@ class AlertsRunTest {
         return stored
     }
 
+    /** Posted alerts without the per-child group summaries (U26). */
+    private fun alerts() = shadowOf(nm).allNotifications.filter { it.flags and Notification.FLAG_GROUP_SUMMARY == 0 }
+
     @Before
     fun allowNotifications() {
         shadowOf(context).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
@@ -77,7 +80,7 @@ class AlertsRunTest {
         var postedWhenStored = -1
         var stored: AlertMarkers? = null
         AlertsRun.deliver(context, i, plan) {
-            postedWhenStored = shadowOf(nm).allNotifications.size
+            postedWhenStored = alerts().size
             stored = it
         }
         // Both alerts share an id (same child, same kind): the newer one replaces the older on screen.
@@ -120,21 +123,21 @@ class AlertsRunTest {
         // First run, permission denied: history up to now is marked as seen, but the no-contact alert stays unsaid.
         val i = input(markers = AlertMarkers(), events = listOf(paused(4)), joined = mapOf(kid.id to 0L))
         val plan = AlertPlanner.plan(i)
-        assertEquals(listOf(Alert.NoContact("Kid", 0L)), plan.alerts)
+        assertEquals(listOf(Alert.NoContact("Kid", 0L, kid.id)), plan.alerts)
         val kept = AlertsRun.markersToStore(i, plan, delivered = false)!!
         assertTrue(kept.initialized)
         assertEquals(4L, kept.notifiedSeq[kid.id])
         assertTrue(kept.noContact.isEmpty())
         // Later, with the permission: the no-contact alert comes, the old pause does not.
         val next = AlertPlanner.plan(input(markers = kept, events = listOf(paused(4), paused(5)), joined = mapOf(kid.id to 0L)))
-        assertEquals(listOf(Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 5_000, kid.id), Alert.NoContact("Kid", 0L)), next.alerts)
+        assertEquals(listOf(Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 5_000, kid.id), Alert.NoContact("Kid", 0L, kid.id)), next.alerts)
     }
 
     @Test
     fun aChildsUnsaidNewParentIsNotForgotten() {
         val i = input(self = kidSelf, members = listOf(momOther, kidSelf), markers = AlertMarkers(knownParents = emptySet(), initialized = true))
         val plan = AlertPlanner.plan(i)
-        assertEquals(listOf(Alert.NewParent("Mom")), plan.alerts)
+        assertEquals(listOf(Alert.NewParent("Mom", momOther.id)), plan.alerts)
         assertNull(AlertsRun.markersToStore(i, plan, delivered = false))
         assertEquals(plan.markers, AlertsRun.markersToStore(i, plan, delivered = true))
     }
@@ -164,7 +167,7 @@ class AlertsRunTest {
     @Test
     fun aResumeCancelsThePausedNotification() = runBlocking<Unit> {
         val afterPause = pass(AlertMarkers(initialized = true), listOf(paused(1)))
-        assertEquals(1, shadowOf(nm).allNotifications.size)
+        assertEquals(1, alerts().size)
         val afterResume = pass(afterPause, listOf(paused(1), resumed(2)))
         assertTrue("the stale \"paused\" must go", shadowOf(nm).allNotifications.isEmpty())
         assertEquals(2L, afterResume.notifiedSeq[kid.id])
@@ -175,11 +178,11 @@ class AlertsRunTest {
         var m = pass(AlertMarkers(initialized = true), listOf(paused(1)))
         m = pass(m, listOf(paused(1), resumed(2)))
         pass(m, listOf(paused(1), resumed(2), paused(3)))
-        assertEquals(1, shadowOf(nm).allNotifications.size)
+        assertEquals(1, alerts().size)
         // All three in one pass: posted, cancelled, posted again.
         nm.cancelAll()
         pass(AlertMarkers(initialized = true), listOf(paused(1), resumed(2), paused(3)))
-        assertEquals(1, shadowOf(nm).allNotifications.size)
+        assertEquals(1, alerts().size)
     }
 
     @Test
@@ -196,7 +199,7 @@ class AlertsRunTest {
         AlertNotifier.post(context, Alert.Integrity("Sis", StateEvent.Kind.SHARING_PAUSED, 1_000, sis))
         AlertNotifier.post(context, Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000, kid.id))
         assertTrue(AlertNotifier.post(context, Alert.Resolved(kid.id, StateEvent.Kind.SHARING_PAUSED, "Kid")))
-        val titles = shadowOf(nm).allNotifications.map { it.extras.getCharSequence(Notification.EXTRA_TITLE).toString() }.toSet()
+        val titles = alerts().map { it.extras.getCharSequence(Notification.EXTRA_TITLE).toString() }.toSet()
         val left = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.LEFT_GROUP, 1_000, kid.id)).title
         val sisPaused = AlertText.of(context, Alert.Integrity("Sis", StateEvent.Kind.SHARING_PAUSED, 1_000, sis)).title
         val kidPaused = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000, kid.id)).title
@@ -212,7 +215,7 @@ class AlertsRunTest {
         nm.notify(legacyId, old)
         assertTrue(AlertNotifier.post(context, Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000, kid.id)))
         assertNull(shadowOf(nm).getNotification(legacyId))
-        assertEquals(1, shadowOf(nm).allNotifications.size)
+        assertEquals(1, alerts().size)
     }
 
     @Test

@@ -71,7 +71,7 @@ class AlertPlannerTest {
     fun noContactAfterNHoursOnceUntilSeenAgain() {
         val lost = kid.copy(lastSeenMs = at(9, 10))
         val first = AlertPlanner.plan(input(members = listOf(mom, lost)))
-        assertEquals(listOf(Alert.NoContact("Kid", at(9, 10))), first.alerts.filterIsInstance<Alert.NoContact>())
+        assertEquals(listOf(Alert.NoContact("Kid", at(9, 10), kid.id)), first.alerts.filterIsInstance<Alert.NoContact>())
         val again = AlertPlanner.plan(input(members = listOf(mom, lost), markers = first.markers))
         assertTrue(again.alerts.none { it is Alert.NoContact })
         val back = AlertPlanner.plan(input(members = listOf(mom, kid.copy(lastSeenMs = at(10, 11))), markers = again.markers))
@@ -137,7 +137,7 @@ class AlertPlannerTest {
         val first = AlertPlanner.plan(input(self = kidSelf, members = listOf(kidSelf, mom.copy(isSelf = false)), markers = AlertMarkers()))
         assertTrue(first.alerts.isEmpty())
         val withDad = AlertPlanner.plan(input(self = kidSelf, members = listOf(kidSelf, mom.copy(isSelf = false), dad), markers = first.markers))
-        assertEquals(listOf(Alert.NewParent("Dad")), withDad.alerts)
+        assertEquals(listOf(Alert.NewParent("Dad", dad.id)), withDad.alerts)
     }
 
     @Test
@@ -181,7 +181,7 @@ class AlertPlannerTest {
         assertTrue(plan(now - 24 * h).isEmpty())
         assertEquals(1, plan(now - 24 * h - 1).size)
         assertTrue(plan(null).isEmpty())
-        assertEquals(listOf(Alert.NoContact("Kid", now - 30 * h)), plan(null, mapOf(kid.id to now - 30 * h)))
+        assertEquals(listOf(Alert.NoContact("Kid", now - 30 * h, kid.id)), plan(null, mapOf(kid.id to now - 30 * h)))
         assertTrue(plan(null, mapOf(kid.id to now - 2 * h)).isEmpty())
     }
 
@@ -196,7 +196,7 @@ class AlertPlannerTest {
         val kidSelf = kid.copy(isSelf = true)
         val members = listOf(kidSelf, mom.copy(isSelf = false), dad)
         val viaMom = AlertPlanner.plan(input(self = kidSelf, members = members, markers = AlertMarkers(), inviter = mom.id))
-        assertEquals(listOf(Alert.NewParent("Dad")), viaMom.alerts)
+        assertEquals(listOf(Alert.NewParent("Dad", dad.id)), viaMom.alerts)
         assertTrue(AlertPlanner.plan(input(self = kidSelf, members = members, markers = viaMom.markers, inviter = mom.id)).alerts.isEmpty())
     }
 
@@ -401,5 +401,30 @@ class AlertPlannerTest {
             input(thresholds = listOf(total), todays = mapOf(kid.id to day(2 * h)), markers = AlertMarkers(initialized = true, thresholdNotified = old)),
         )
         assertEquals(setOf("2026-10-08", "2026-10-09", "2026-10-10"), plan.markers.thresholdNotified.map { it.substringAfterLast('@') }.toSet())
+    }
+
+    @Test
+    fun intervalAlertsCarryTheirLength() {
+        val bt = EventView(kid.id, 1, StateEvent.Kind.BLUETOOTH_OFF, 5_000, 65_000, 70_000, 0)
+        assertEquals(listOf(Alert.Integrity("Kid", StateEvent.Kind.BLUETOOTH_OFF, 5_000, kid.id, durationMs = 60_000)), AlertPlanner.plan(input(events = listOf(bt))).alerts)
+        val open = EventView(kid.id, 1, StateEvent.Kind.NOTIFICATION_HIDDEN, 5_000, 0, 9_000, 0)
+        assertEquals(null, (AlertPlanner.plan(input(events = listOf(open))).alerts.single() as Alert.Integrity).durationMs)
+    }
+
+    @Test
+    fun levelsSeparateWhatNeedsAParentFromWhatDoesNot() {
+        val min = 60_000L
+        fun integrity(kind: StateEvent.Kind, ms: Long? = null) = Alert.Integrity("Kid", kind, 0, kid.id, ms)
+        val important = AlertPlanner.INTEGRITY_KINDS - AlertPlanner.MINOR_KINDS - StateEvent.Kind.BLUETOOTH_OFF
+        important.forEach { assertEquals(AlertLevel.IMPORTANT, AlertPlanner.level(integrity(it)), it.name) }
+        AlertPlanner.MINOR_KINDS.forEach { assertEquals(AlertLevel.MINOR, AlertPlanner.level(integrity(it)), it.name) }
+        assertEquals(AlertLevel.MINOR, AlertPlanner.level(integrity(StateEvent.Kind.BLUETOOTH_OFF, 29 * min)))
+        assertEquals(AlertLevel.IMPORTANT, AlertPlanner.level(integrity(StateEvent.Kind.BLUETOOTH_OFF, 30 * min)))
+        assertEquals(AlertLevel.IMPORTANT, AlertPlanner.level(integrity(StateEvent.Kind.BLUETOOTH_OFF)), "unknown length: say it")
+        assertEquals(AlertLevel.IMPORTANT, AlertPlanner.level(Alert.NoContact("Kid", 0, kid.id)))
+        assertEquals(AlertLevel.TRANSPARENCY, AlertPlanner.level(Alert.NewParent("Dad", dad.id)))
+        assertEquals(AlertLevel.SUMMARY, AlertPlanner.level(Alert.Summary(false, emptyList())))
+        assertEquals(AlertLevel.THRESHOLD, AlertPlanner.level(Alert.Threshold(kid.id, "Kid", ThresholdTarget.Total, null, 2, 1)))
+        assertEquals(setOf(StateEvent.Kind.CLOCK_CHANGED, StateEvent.Kind.DATA_GAP), AlertPlanner.MINOR_KINDS)
     }
 }

@@ -55,7 +55,7 @@ object AlertsRun {
                 thresholds = g.prefs.thresholds.first(), overrides = CategoryOverrides.effective(snapshot),
             ),
         )
-        AlertChannels.ensure(context)
+        AlertChannels.ensure(context, input.self.role)
         // setAlertMarkers is one DataStore edit: the markers are replaced whole or not at all.
         deliver(context, input, AlertPlanner.plan(input)) { g.prefs.setAlertMarkers(it) }
         val today = LocalDate.now().toString()

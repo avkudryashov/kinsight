@@ -116,6 +116,13 @@ class AppPrefs(private val store: DataStore<Preferences>) {
         store.edit { it[MARKERS] = m.encode() }
     }
 
+    /** Parents the child acknowledged on Overview (U7); null until the first baseline. Goes with the group. */
+    val acknowledgedParents: Flow<Set<DeviceId>?> = store.data.map { p -> p[ACK_PARENTS]?.let(::decodeIds) }.distinctUntilChanged()
+
+    suspend fun setAcknowledgedParents(ids: Set<DeviceId>) {
+        store.edit { it[ACK_PARENTS] = ids.map { d -> d.hex }.sorted().joinToString(",") }
+    }
+
     /** A wiped group: back to the first run; the device name the user typed stays. */
     suspend fun resetForNewGroup() {
         store.edit {
@@ -141,6 +148,11 @@ class AppPrefs(private val store: DataStore<Preferences>) {
         private val MARKERS = stringPreferencesKey("alert_markers")
         private val CATEGORY_OVERRIDES = stringPreferencesKey("category_overrides")
         private val THRESHOLDS = stringPreferencesKey("threshold_rules")
+        private val ACK_PARENTS = stringPreferencesKey("acknowledged_parents")
+
+        /** Comma-separated device hex ids; a malformed one is skipped, "" is the empty set. */
+        private fun decodeIds(raw: String): Set<DeviceId> =
+            raw.split(',').filter { h -> h.length == 32 && h.all { it in '0'..'9' || it in 'a'..'f' } }.map(::DeviceId).toSet()
 
         /**
          * One `<child hex>|<target key>|<limit ms>` per line (target keys as in [ThresholdRule.idOf]), keyed by id; a

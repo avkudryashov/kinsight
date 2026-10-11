@@ -10,6 +10,7 @@ import app.kinsight.MainActivity
 import android.Manifest
 import android.app.NotificationManager
 import app.kinsight.core.data.Alert
+import app.kinsight.core.data.Role
 import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.proto.StateEvent
@@ -37,7 +38,7 @@ class AlertNotifierTest {
         assertEquals(NotificationCompat.VISIBILITY_PRIVATE, n.visibility)
         assertNotNull(n.publicVersion)
         val public = n.publicVersion
-        assertEquals("Kinsight: integrity alert", public.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
+        assertEquals("Kinsight: an event on a child's phone", public.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
         assertNull(public.extras.getCharSequence(Notification.EXTRA_TEXT))
     }
 
@@ -51,7 +52,7 @@ class AlertNotifierTest {
     @Config(qualifiers = "ru")
     fun publicTitlesReadInRussian() {
         val i = AlertNotifier.build(context, Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000, kid))
-        assertEquals("Kinsight: нарушение", i.publicVersion.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
+        assertEquals("Kinsight: событие у ребёнка", i.publicVersion.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
         val s = AlertNotifier.build(context, Alert.Summary(weekly = true, lines = emptyList()))
         assertEquals("Сводка экранного времени", s.publicVersion.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
     }
@@ -79,7 +80,7 @@ class AlertNotifierTest {
         for (alert in listOf(
             Alert.Integrity("Kid", StateEvent.Kind.LEFT_GROUP, 1_000, kid),
             Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000, null),
-            Alert.NoContact("Kid", 1_000),
+            Alert.NoContact("Kid", 1_000, kid),
             Alert.Summary(weekly = false, lines = emptyList()),
         )) {
             val intent = shadowOf(AlertNotifier.build(context, alert).contentIntent).savedIntent
@@ -109,7 +110,7 @@ class AlertNotifierTest {
         assertEquals(0, t.flags and Notification.FLAG_ONLY_ALERT_ONCE)
         for (alert in listOf(
             Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000, kid),
-            Alert.NoContact("Kid", 1_000),
+            Alert.NoContact("Kid", 1_000, kid),
             Alert.Summary(weekly = false, lines = emptyList()),
         )) {
             assertTrue("$alert", AlertNotifier.build(context, alert).flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)
@@ -120,19 +121,52 @@ class AlertNotifierTest {
     @Config(qualifiers = "ru")
     fun theThresholdPublicTitleReadsInRussian() {
         val n = AlertNotifier.build(context, threshold(kid, ThresholdTarget.Total, 4_000_000L))
-        assertEquals("Порог превышен", n.publicVersion.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
+        assertEquals("Лимит превышен", n.publicVersion.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
     }
 
     @Test
     fun eachRuleHasOneStableNotification() {
         shadowOf(context).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
-        AlertChannels.ensure(context)
+        AlertChannels.ensure(context, Role.PARENT)
         val nm = shadowOf(context.getSystemService(NotificationManager::class.java))
+        fun alerts() = nm.allNotifications.count { it.flags and Notification.FLAG_GROUP_SUMMARY == 0 }
         assertTrue(AlertNotifier.post(context, threshold(kid, ThresholdTarget.Total, 4_000_000L)))
         assertTrue(AlertNotifier.post(context, threshold(kid, ThresholdTarget.Total, 5_000_000L)))
-        assertEquals(1, nm.allNotifications.size)
+        assertEquals(1, alerts())
         AlertNotifier.post(context, threshold(kid, ThresholdTarget.App("com.roblox.client"), 4_000_000L))
         AlertNotifier.post(context, threshold(sis, ThresholdTarget.Total, 4_000_000L))
-        assertEquals(3, nm.allNotifications.size)
+        assertEquals(3, alerts())
+    }
+
+    @Test
+    fun alertsAreStatusAndAChildsAlertsShareAGroup() {
+        val paused = AlertNotifier.build(context, Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000, kid))
+        val limit = AlertNotifier.build(context, threshold(kid, ThresholdTarget.Total, 4_000_000L))
+        assertEquals(Notification.CATEGORY_STATUS, paused.category)
+        assertEquals(Notification.CATEGORY_STATUS, limit.category)
+        assertEquals(paused.group, limit.group)
+        assertNotEquals(paused.group, AlertNotifier.build(context, Alert.Integrity("Sis", StateEvent.Kind.SHARING_PAUSED, 1_000, sis)).group)
+        assertNull(AlertNotifier.build(context, Alert.Summary(weekly = false, lines = emptyList())).group)
+    }
+
+    @Test
+    fun aGroupedAlertBringsASilentSummaryThatGoesWithTheLastAlert() {
+        shadowOf(context).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        AlertChannels.ensure(context, Role.PARENT)
+        val nm = shadowOf(context.getSystemService(NotificationManager::class.java))
+        AlertNotifier.post(context, Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000, kid))
+        assertEquals(2, nm.allNotifications.size)
+        val summary = nm.allNotifications.single { it.flags and Notification.FLAG_GROUP_SUMMARY != 0 }
+        assertEquals(NotificationCompat.GROUP_ALERT_CHILDREN, summary.groupAlertBehavior)
+        AlertNotifier.post(context, Alert.Resolved(kid, StateEvent.Kind.SHARING_PAUSED, "Kid"))
+        assertEquals(0, nm.allNotifications.size)
+    }
+
+    @Test
+    fun aNewParentHasItsOwnPublicTitleAndAStableId() {
+        val dad = DeviceId("bb".repeat(16))
+        val n = AlertNotifier.build(context, Alert.NewParent("Dad", dad))
+        assertEquals(AlertChannels.TRANSPARENCY, n.channelId)
+        assertEquals("Kinsight: who sees your data", n.publicVersion.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
     }
 }
