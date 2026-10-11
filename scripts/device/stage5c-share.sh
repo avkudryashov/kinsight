@@ -35,6 +35,23 @@ tap_re() {
   sleep 1.5
 }
 tap() { tap_re "$1" "resource-id=\"$2\"" "${3:-60}"; }
+# The top-apps rows sit below the charts: swipe up (at most 8 times) until <regex> is in the dump.
+scroll_to() {
+  local d=$1 re=$2
+  for _ in $(seq 8); do
+    has "$d" "$re" && return 0
+    $ADB -s "$d" shell input swipe 540 1800 540 700 300
+    sleep 1
+  done
+  has "$d" "$re"
+}
+# The category chip's merged content description ("Category: Games"), else its text.
+chip() {
+  local line
+  line=$(dump "$1" | tr '>' '\n' | grep 'resource-id="app_category_chip"' | head -1)
+  printf '%s' "$line" | sed -n 's/.*content-desc="\([^"]*\)".*/\1/p'
+  printf '%s' "$line" | sed -n 's/.* text="\([^"]*\)".*/\1/p'
+}
 CHILD_NAME=$($ADB -s "$C" shell getprop ro.product.model | tr -d '\r')
 dbg() { $ADB -s "$1" shell am broadcast -n $RX -a "app.kinsight.debug.$2" | sed -n 's/.*data="\(.*\)"$/\1/p'; }
 
@@ -78,28 +95,43 @@ sleep 10
 $ADB -s "$P" shell am start -n $PKG/.MainActivity >/dev/null
 tap "$P" nav_overview 30
 tap_re "$P" "text=\"$CHILD_NAME\"" 60
+wait_for "$P" 'resource-id="det_' 60
+scroll_to "$P" 'resource-id="det_app_[^"]*"' || true
 tap_re "$P" 'resource-id="det_app_[^"]*"' 60
 APP=$(dump "$P" | tr '>' '\n' | grep -o 'resource-id="app_label"[^>]*' | head -1 | sed -n 's/.*text="\([^"]*\)".*/\1/p')
 [ -n "$APP" ] || APP=$(dump "$P" | tr '>' '\n' | grep 'resource-id="app_label"' | sed -n 's/.*text="\([^"]*\)".*/\1/p' | head -1)
+# A target other than the app's current category, so the final check can only pass on the shared change.
+wait_for "$P" 'resource-id="app_category_chip"' 30
+CURRENT=$(chip "$P")
+if printf '%s' "$CURRENT" | grep -qE 'Games|Игры'; then
+  TARGET=VIDEO TARGET_RE='Video|Видео'
+else
+  TARGET=GAMES TARGET_RE='Games|Игры'
+fi
 tap "$P" app_category
-tap "$P" app_category_option_GAMES 10
+tap "$P" "app_category_option_$TARGET" 10
 tap "$P" app_category_confirm 10
-echo "changed: $APP → Games on the first parent"
+echo "changed: $APP ($CURRENT) → $TARGET on the first parent"
 
 echo "== second parent sees it"
 T0=$(date +%s)
+SHARED=0
 for _ in $(seq 60); do
   for d in "$P" "$Q"; do dbg "$d" SYNC_NOW >/dev/null; done
   sleep 5
   $ADB -s "$Q" shell am start -n $PKG/.MainActivity >/dev/null
   tap "$Q" nav_overview 10 || true
   tap_re "$Q" "text=\"$CHILD_NAME\"" 10 || continue
+  wait_for "$Q" 'resource-id="det_' 10 || continue
+  scroll_to "$Q" 'resource-id="det_app_[^"]*"' || true
   tap_re "$Q" "resource-id=\"det_app_[^\"]*\"" 10 || continue
-  if dump "$Q" | grep -q 'text="Games"' && dump "$Q" | grep -qE 'Changed by|Изменил'; then
-    echo "shared category on the second parent after $(($(date +%s) - T0)) s"; break
+  if chip "$Q" | grep -qE "$TARGET_RE" && dump "$Q" | grep -qE 'Changed by|Изменил'; then
+    SHARED=1
+    echo "shared category on the second parent after $(($(date +%s) - T0)) s"
+    break
   fi
   $ADB -s "$Q" shell input keyevent BACK
 done
-dump "$Q" | grep -q 'text="Games"' || { echo "category not shared" >&2; exit 1; }
+[ "$SHARED" = 1 ] || { echo "category not shared: need $TARGET_RE and «Changed by|Изменил» on the second parent" >&2; exit 1; }
 for d in "$P" "$C" "$Q"; do echo "$d crashes: $($ADB -s "$d" logcat -d -b crash | grep -c "Process: $PKG," || true)"; done
 echo "PASS"
