@@ -109,6 +109,60 @@ class InviteTest {
         assertEquals(1 + 2 + 16 + 32 + 32 + 16 + 1 + 1 + "Mom".encodeToByteArray().size, invite.encode().size)
     }
 
+    private fun hex(s: String): ByteArray = s.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+    private fun bytes(from: Int, n: Int) = ByteArray(n) { (from + it).toByte() }
+
+    private val golden = Invite(
+        2, app.kinsight.core.model.GroupId.fromBytes(bytes(0x01, 16)), bytes(0x20, 32), bytes(0x40, 32), bytes(0x60, 16),
+        DeviceRole.CHILD, "Mom",
+    )
+
+    /**
+     * The exact 0.7.2 invite bytes for a 2..2 admin: format 01, protocol 0002, groupId, Ed25519 key, X25519 key, token,
+     * role 02 (CHILD), name length 03, "Mom", and no tail. Any change here breaks 0.7.2 joiners.
+     */
+    private val goldenHex = "01" + "0002" +
+        "0102030405060708090a0b0c0d0e0f10" +
+        "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f" +
+        "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f" +
+        "606162636465666768696a6b6c6d6e6f" +
+        "02" + "03" + "4d6f6d"
+
+    @Test
+    fun aTwoToTwoInviteIsTheGolden072Layout() {
+        assertContentEquals(hex(goldenHex), golden.encode())
+        val back = Invite.decode(hex(goldenHex))
+        assertEquals(2, back.protocolVersion)
+        assertEquals(2, back.minProtocolVersion)
+        assertEquals("Mom", back.adminName)
+        assertEquals(Legacy072.Outcome.OK, Legacy072.decode(golden.encode()))
+    }
+
+    /** The 0.7.2 parser, verbatim in what it checks: exactly protocol 2 in the slot, and no byte after the name. */
+    private object Legacy072 {
+        enum class Outcome { OK, UPDATE, INVALID }
+
+        fun decode(b: ByteArray): Outcome {
+            val input = java.io.DataInputStream(b.inputStream())
+            if (input.readUnsignedByte() != 1) return Outcome.INVALID
+            if (input.readUnsignedShort() != 2) return Outcome.UPDATE // UnsupportedInviteVersionException: «update the app»
+            input.skipNBytes(16L + 32 + 32 + 16 + 1)
+            input.skipNBytes(input.readUnsignedByte().toLong())
+            return if (input.read() != -1) Outcome.INVALID else Outcome.OK // "trailing bytes"
+        }
+    }
+
+    @Test
+    fun aRangedInviteTells072JoinersToUpdate() {
+        // Any tail breaks a 0.7.2 parser (strict about trailing bytes), whichever version sits in the slot. With the
+        // highest version in the slot it fails on the version first and says «update»; the lowest in the slot would
+        // pass that check and then fail as an invalid invite. So the slot keeps the highest (spec §6.4).
+        val wider = Invite(3, golden.groupId, golden.adminSignKey, golden.adminDhKey, golden.token, golden.role, golden.adminName, minProtocolVersion = 2)
+        assertEquals(Legacy072.Outcome.UPDATE, Legacy072.decode(wider.encode()))
+        val swapped = wider.encode().also { it[1] = 0; it[2] = 2; it[it.size - 2] = 0; it[it.size - 1] = 3 }
+        assertEquals(Legacy072.Outcome.INVALID, Legacy072.decode(swapped))
+    }
+
     @Test
     fun anOverlappingRangeIsAccepted() {
         val wider = Invite(PROTOCOL_VERSION + 1, invite.groupId, invite.adminSignKey, invite.adminDhKey, invite.token, invite.role, invite.adminName, minProtocolVersion = PROTOCOL_VERSION)

@@ -22,7 +22,10 @@ class UnsupportedInviteVersionException(message: String) : InvalidInviteExceptio
  * format (1) | highest protocol version (u16 BE) | groupId (16) | admin Ed25519 key (32) | admin X25519 key (32) |
  * token (16) | role (1) | name length (1) | admin name (UTF-8, at most [MAX_NAME_BYTES]) | [lowest protocol version (u16 BE)].
  * The lowest version is written only when it differs from the highest, so an invite of a 2..2 admin is byte for byte
- * the 0.7.2 layout (a 0.7.2 parser refuses trailing bytes). The token lives [LIFETIME_MS] on the admin's side; the
+ * the 0.7.2 layout (a 0.7.2 parser refuses trailing bytes). The slot keeps the highest version on purpose (unlike
+ * Hello, where protobuf skips unknown fields): any tail already breaks a 0.7.2 parser, and the highest version makes it
+ * fail on the version check with «update the app» instead of «invalid invite». Release rule: the first build with a
+ * range wider than 2..2 cannot invite 0.7.2 phones; they must update first. The token lives [LIFETIME_MS] on the admin's side; the
  * invite itself carries no expiry. [parse] refuses text over [MAX_TEXT_CHARS], a blank admin name or one with
  * control/bidi characters, and throws [UnsupportedInviteVersionException] for another `kinsight://pair/N/` format or a
  * protocol range that does not overlap ours.
