@@ -10,6 +10,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -62,6 +63,9 @@ class LocalReset(
     private val mutex = Mutex()
     private val jobLock = Any()
     private var job: Job? = null
+
+    @Volatile
+    private var retryOnly = false
     private val _status = MutableStateFlow<ResetStatus>(ResetStatus.Idle)
 
     val status: StateFlow<ResetStatus> = _status.asStateFlow()
@@ -76,7 +80,20 @@ class LocalReset(
     }
 
     /** «Сбросить идентичность и пересопрячь»: a new device as far as the group is concerned. */
-    suspend fun resetIdentity(): Unit = tracked(ResetKind.NEW_IDENTITY) { identityReset() }
+    suspend fun resetIdentity() {
+        val wasPending = withContext(io) { marker.exists() }
+        tracked(ResetKind.NEW_IDENTITY) {
+            // A retry queued behind the start-up recovery finds the marker gone: that reset is done, not run again.
+            if (wasPending && !withContext(io) { marker.exists() }) return@tracked
+            identityReset()
+        }
+    }
+
+    /** True while an identity reset is cut short and must run again (the marker is on disk). Blocking file check on [io]. */
+    suspend fun resetPending(): Boolean = withContext(io) { marker.exists() }
+
+    /** False for a cut-short identity reset: the only way out of it is a retry (audit A-4). Safe on the main thread. */
+    val dismissible: Boolean get() = !retryOnly
 
     private suspend fun identityReset() {
         withContext(io) { marker.set() }
@@ -116,9 +133,8 @@ class LocalReset(
     /** The user has seen the failure: back to [ResetStatus.Idle] (a running wipe is left alone). */
     fun clearFailure() {
         // A cut-short identity reset cannot be dismissed (audit A-4): only a retry leads out of it.
-        _status.update {
-            if (it is ResetStatus.Failed && !(it.kind == ResetKind.NEW_IDENTITY && marker.exists())) ResetStatus.Idle else it
-        }
+        if (retryOnly) return
+        _status.update { if (it is ResetStatus.Failed) ResetStatus.Idle else it }
     }
 
     private fun launchOnce(block: suspend () -> Unit): Job = synchronized(jobLock) {
@@ -134,20 +150,26 @@ class LocalReset(
         }.also { job = it }
     }
 
-    private suspend fun tracked(kind: ResetKind, block: suspend () -> Unit): Unit = mutex.withLock {
+        private suspend fun tracked(kind: ResetKind, block: suspend () -> Unit): Unit = mutex.withLock {
+        retryOnly = false
         _status.value = ResetStatus.Running(kind)
         try {
             block()
             _status.value = ResetStatus.Idle
         } catch (e: CancellationException) {
+            retryOnly = markerPendingAfterFailure(kind)
             _status.value = ResetStatus.Failed(kind, "cancelled")
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "local wipe ($kind) failed", e)
+            retryOnly = markerPendingAfterFailure(kind)
             _status.value = ResetStatus.Failed(kind, e.message ?: e::class.java.simpleName)
             throw e
         }
     }
+
+    private suspend fun markerPendingAfterFailure(kind: ResetKind): Boolean =
+        kind == ResetKind.NEW_IDENTITY && withContext(NonCancellable + io) { runCatching { marker.exists() }.getOrDefault(true) }
 
     private suspend fun wipeData() {
         db.wipeAll()

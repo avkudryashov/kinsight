@@ -123,7 +123,7 @@ fun KinsightApp(
                                 null -> Unit
                             }
                         },
-                        onDismiss = graph.reset::clearFailure,
+                        onDismiss = graph.reset::clearFailure.takeIf { graph.reset.dismissible },
                     )
                     Start.ONBOARDING -> {
                         val pending by invite.collectAsStateWithLifecycle()
@@ -175,13 +175,15 @@ private fun Progress(text: String, tag: String) {
 
 /** LocalReset failed part way: the phone is in an unknown state, so this blocks until a retry works or the user dismisses. */
 @Composable
-private fun ResetFailed(reason: String, onRetry: () -> Unit, onDismiss: () -> Unit) = ErrorState(
+private fun ResetFailed(reason: String, onRetry: () -> Unit, onDismiss: (() -> Unit)?) = ErrorState(
     title = stringResource(R.string.app_reset_failed_title),
     body = stringResource(R.string.app_reset_failed_body, reason),
     modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        TextButton(onDismiss, Modifier.testTag("app_reset_dismiss")) { Text(stringResource(R.string.app_reset_dismiss)) }
+        if (onDismiss != null) {
+            TextButton(onDismiss, Modifier.testTag("app_reset_dismiss")) { Text(stringResource(R.string.app_reset_dismiss)) }
+        }
         Button(onRetry, Modifier.testTag("app_reset_retry")) { Text(stringResource(R.string.app_reset_retry)) }
     }
 }

@@ -9,6 +9,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -70,7 +71,13 @@ class LocalResetStatusTest {
         assertEquals(0, wipes.get())
         reset.clearFailure()
         assertEquals(ResetStatus.Failed(ResetKind.NEW_IDENTITY, "disk full"), reset.status.value) // marker pending: retry only
-        d.resetMarker.clear()
+        assertFalse(reset.dismissible)
+        failFiles = null
+        reset.launchResetIdentity().join() // a retry leads out
+        assertEquals(ResetStatus.Idle, reset.status.value)
+        failFiles = IllegalStateException("disk full")
+        reset.launchForgetGroup().join()
+        assertTrue(reset.dismissible) // a failed forget has no marker: it can be dismissed
         reset.clearFailure()
         assertEquals(ResetStatus.Idle, reset.status.value)
     }

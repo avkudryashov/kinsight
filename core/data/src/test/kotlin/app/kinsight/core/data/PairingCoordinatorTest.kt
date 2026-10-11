@@ -2,7 +2,9 @@ package app.kinsight.core.data
 
 import app.kinsight.core.crypto.Primitives
 import app.kinsight.core.keystore.KeyStorageException
+import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryKind
+import app.kinsight.core.model.Membership
 import app.kinsight.core.model.addMember
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.StateEvent
@@ -25,6 +27,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -37,8 +40,13 @@ class PairingCoordinatorTest {
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var momClock = mom.now
 
-    private fun coordinator(d: TestDevice, sync: SyncControl = d.sync, clock: () -> Long = { d.now }) = PairingCoordinator(
-        link = air, db = d.db, groups = d.groups, keys = d.keyProvider, pipeline = d.pipeline, settings = d.settings,
+    private fun coordinator(
+        d: TestDevice,
+        sync: SyncControl = d.sync,
+        clock: () -> Long = { d.now },
+        keys: suspend () -> DeviceKeys = d.keyProvider,
+    ) = PairingCoordinator(
+        link = air, db = d.db, groups = d.groups, keys = keys, pipeline = d.pipeline, settings = d.settings,
         reset = d.reset, sync = sync, snapshots = d.snapshots, clock = clock,
     )
 
@@ -159,14 +167,46 @@ class PairingCoordinatorTest {
     fun aPendingResetFinishesBeforeTheJoin() = runBlocking<Unit> {
         mom.group.createGroup("Mom")
         kid.resetMarker.set()
+        val oldKid = kid.keys.deviceId
         val (invite, qr) = openInvite()
         val join = kidPairing.join(scope, qr, "Kid", consent = false)
         invite.state.awaitFirst { it is InviteState.Confirm }
         invite.confirm()
         assertEquals(JoinState.Joined, join.state.awaitFirst { it is JoinState.Joined || it is JoinState.Failed })
         assertEquals(1, kid.identityResets.size) // the keys were replaced before the join
+        assertNotEquals(oldKid, kid.keys.deviceId)
+        assertTrue(kid.keys.deviceId in Membership.compute(mom.groups.read()!!.groupId, mom.store().membershipEntries())!!.active)
         assertFalse(kid.resetMarker.exists())
         assertEquals(mom.groups.read()!!.groupId, kid.groups.read()!!.groupId)
+    }
+
+    @Test
+    fun aKeyChangeBetweenHandshakeAndCommitRefusesTheJoin() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val first = kid.keys
+        var calls = 0
+        // The second look at the keys (at commit) finds another identity: a reset ran after the handshake.
+        val pairing = coordinator(kid, keys = { if (calls++ == 0) first else DeviceKeys.generate() })
+        val (invite, qr) = openInvite()
+        val join = pairing.join(scope, qr, "Kid", consent = false)
+        invite.state.awaitFirst { it is InviteState.Confirm }
+        invite.confirm()
+        assertEquals(JoinState.Failed(PairFailure.IDENTITY), join.state.awaitFirst { it is JoinState.Joined || it is JoinState.Failed })
+        assertFalse(kid.groups.exists())
+    }
+
+    @Test
+    fun aMarkerAppearingBeforeCommitRefusesTheJoin() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        var calls = 0
+        val first = kid.keys
+        val pairing = coordinator(kid, keys = { if (calls++ == 0) first.also { kid.resetMarker.set() } else first })
+        val (invite, qr) = openInvite()
+        val join = pairing.join(scope, qr, "Kid", consent = false)
+        invite.state.awaitFirst { it is InviteState.Confirm }
+        invite.confirm()
+        assertEquals(JoinState.Failed(PairFailure.IDENTITY), join.state.awaitFirst { it is JoinState.Joined || it is JoinState.Failed })
+        assertFalse(kid.groups.exists())
     }
 
     @Test

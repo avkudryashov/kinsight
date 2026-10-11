@@ -41,7 +41,7 @@ internal fun staleTempFiles(target: File): List<File> {
 
 private const val TEMP_SUFFIX = ".tmp"
 
-/** Flushes the directory entry itself (a create, rename or delete in [dir]); skipped where a directory cannot be opened. */
+/** A general atomic-file helper (also used by core/data for non-key files). Flushes the directory entry itself (a create, rename or delete in [dir]); skipped where a directory cannot be opened. */
 fun syncDirectory(dir: File) {
     val channel = try {
         FileChannel.open(dir.toPath(), StandardOpenOption.READ)

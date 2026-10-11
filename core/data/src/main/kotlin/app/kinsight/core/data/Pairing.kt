@@ -405,6 +405,15 @@ class PairingCoordinator(
 
         private suspend fun run() {
             try {
+                // A cut-short identity reset finishes before the handshake: the keys it replaces must not be the ones
+                // the admin adds (and old keys over an emptied log would reuse seqs, audit A-4).
+                try {
+                    reset.finishInterruptedReset()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    return fail(PairFailure.IDENTITY)
+                }
                 if (withContext(io) { groups.exists() }) return fail(PairFailure.ALREADY_IN_GROUP)
                 val k = keys()
                 val stream = link.dial(invite.advertTag, dialTimeout)
@@ -415,7 +424,7 @@ class PairingCoordinator(
                     is GuestResult.Joined -> {
                         _state.value = JoinState.Saving
                         // The admin has added us: a half-stored welcome would be worse than finishing.
-                        _state.value = withContext(NonCancellable) { save(result) }
+                        _state.value = withContext(NonCancellable) { save(k, result) }
                     }
                 }
             } catch (e: CancellationException) {
@@ -436,8 +445,8 @@ class PairingCoordinator(
         }
 
         /** [commit], and a failure after which the group file is in place still reads as joined (it is). */
-        private suspend fun save(r: GuestResult.Joined): JoinState = try {
-            commit(r)
+        private suspend fun save(k: DeviceKeys, r: GuestResult.Joined): JoinState = try {
+            commit(k, r)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -453,9 +462,10 @@ class PairingCoordinator(
          * file, so [finishInterruptedJoin] can finish it after a crash), the group file, then sharing and a fast sync.
          * Steps after the group file are best effort: the device is in the group whatever they do.
          */
-        private suspend fun commit(r: GuestResult.Joined): JoinState = commitLock.withLock {
-            // A cut-short identity reset finishes first (old keys over an emptied log would reuse seqs, audit A-4).
-            reset.finishInterruptedReset()
+        private suspend fun commit(k: DeviceKeys, r: GuestResult.Joined): JoinState = commitLock.withLock {
+            // The handshake keys must still be the device's keys and no identity reset may be pending (it ran before
+            // the handshake, see run): otherwise the admin added keys this device no longer holds.
+            if (reset.resetPending() || keys().deviceId != k.deviceId) return@withLock JoinState.Failed(PairFailure.IDENTITY)
             if (withContext(io) { groups.exists() }) return@withLock JoinState.Failed(PairFailure.ALREADY_IN_GROUP)
             reset.forgetGroup()
             RoomEntryStore(db, invite.groupId).applyBatch(r.membership)

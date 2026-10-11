@@ -80,10 +80,11 @@ private class FixedClock(private val ms: () -> Long) : DeviceClock {
  * [ownUsageAllowed]) and repositories. [sessions] stands in for the sync engine's session counter.
  */
 class TestDevice(
-    val keys: DeviceKeys = DeviceKeys.generate(),
+    initialKeys: DeviceKeys = DeviceKeys.generate(),
     var now: Long = 1_760_000_000_000L,
     leaveTimeoutMs: Long = 60_000L,
 ) {
+    @Volatile var keys: DeviceKeys = initialKeys // the identity wipe swaps it, like the keystore does
     val dir: File = Files.createTempDirectory("kinsight-device").toFile()
     val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     val db = KinsightDatabaseFactory.open(HostContext(), File(dir, "k.db").absolutePath)
@@ -122,7 +123,7 @@ class TestDevice(
         settings = settings,
         prefs = prefs,
         sync = sync,
-        wipeIdentity = { identityWipeFails?.let { throw it }; identityResets += runBlocking { db.entryDao().all().isEmpty() }; afterKeyWipeFails?.let { throw it } },
+        wipeIdentity = { identityWipeFails?.let { throw it }; identityResets += runBlocking { db.entryDao().all().isEmpty() }; keys = DeviceKeys.generate(); afterKeyWipeFails?.let { throw it } },
         snapshots = snapshots,
         marker = resetMarker,
     )
