@@ -59,6 +59,7 @@ import app.kinsight.core.data.Period
 import app.kinsight.core.data.ResetKind
 import app.kinsight.core.data.ResetStatus
 import app.kinsight.core.data.Role
+import app.kinsight.core.designsystem.component.CenteredContent
 import app.kinsight.core.designsystem.component.ErrorState
 import app.kinsight.core.model.DeviceId
 import app.kinsight.feature.dashboard.DashboardRoute
@@ -232,59 +233,61 @@ private fun MainScaffold(appVersion: String, openDevice: StateFlow<String?>, onD
             }
         },
     ) {
-        NavHost(nav, startDestination = OverviewDest) {
-            composable<OverviewDest> {
-                Box(Modifier.windowInsetsPadding(topInsets)) {
-                    DashboardRoute(
-                        onOpenDevice = { nav.navigate(DeviceDest(it.hex)) },
+        CenteredContent {
+            NavHost(nav, startDestination = OverviewDest) {
+                composable<OverviewDest> {
+                    Box(Modifier.windowInsetsPadding(topInsets)) {
+                        DashboardRoute(
+                            onOpenDevice = { nav.navigate(DeviceDest(it.hex)) },
+                            onConsent = { nav.navigate(ConsentDest) },
+                            // The group tab's child invite, so closing it lands on the group, as the invite there does.
+                            onInviteChild = {
+                                nav.selectTab(GroupDest)
+                                nav.navigate(InviteDest(Role.CHILD.name))
+                            },
+                            // A key error: Settings holds Diagnostics and the identity reset.
+                            onOpenSettings = { nav.selectTab(SettingsDest) },
+                        )
+                    }
+                }
+                composable<GroupDest> {
+                    Box(Modifier.windowInsetsPadding(topInsets)) { GroupRoute(onInvite = { nav.navigate(InviteDest(it.name)) }) }
+                }
+                composable<SettingsDest> {
+                    SettingsRoute(
+                        appVersion = appVersion,
                         onConsent = { nav.navigate(ConsentDest) },
-                        // The group tab's child invite, so closing it lands on the group, as the invite there does.
-                        onInviteChild = {
-                            nav.selectTab(GroupDest)
-                            nav.navigate(InviteDest(Role.CHILD.name))
-                        },
-                        // A key error: Settings holds Diagnostics and the identity reset.
-                        onOpenSettings = { nav.selectTab(SettingsDest) },
+                        onTransparency = { nav.navigate(TransparencyDest) },
+                        onBattery = { nav.navigate(BatteryDest) },
+                        onDiagnostics = { context.startActivity(Intent(context, DiagnosticsActivity::class.java)) },
                     )
                 }
+                composable<DeviceDest> { e ->
+                    val r = e.toRoute<DeviceDest>()
+                    DeviceDetailRoute(
+                        DeviceId(r.id),
+                        onAllApps = { range -> nav.navigate(AllAppsDest(r.id, range.period.name, range.start.toString(), range.end.toString())) },
+                        onBack = { nav.popBackStack() },
+                        onOpenApp = { pkg, range -> nav.navigate(appDest(r.id, pkg, range)) }, // the app opens on the same period
+                        onThresholds = { nav.navigate(ThresholdsDest(r.id)) },
+                    )
+                }
+                composable<ThresholdsDest> { e -> ThresholdsRoute(DeviceId(e.toRoute<ThresholdsDest>().id), onBack = { nav.popBackStack() }) }
+                composable<AllAppsDest> { e ->
+                    val r = e.toRoute<AllAppsDest>()
+                    val range = DetailRange(Period.valueOf(r.period), LocalDate.parse(r.start), LocalDate.parse(r.end))
+                    AllAppsRoute(DeviceId(r.id), range, onBack = { nav.popBackStack() }, onOpenApp = { pkg -> nav.navigate(appDest(r.id, pkg, range)) })
+                }
+                composable<AppDest> { e ->
+                    val r = e.toRoute<AppDest>()
+                    val range = DetailRange(Period.valueOf(r.period), LocalDate.parse(r.start), LocalDate.parse(r.end))
+                    AppDetailRoute(DeviceId(r.id), r.packageName, range, onBack = { nav.popBackStack() })
+                }
+                composable<InviteDest> { e -> InviteRoute(Role.valueOf(e.toRoute<InviteDest>().role), onClose = { nav.popBackStack() }) }
+                composable<TransparencyDest> { TransparencyRoute(onBack = { nav.popBackStack() }) }
+                composable<ConsentDest> { ConsentRoute(onDone = { nav.popBackStack() }) }
+                composable<BatteryDest> { BatteryGuideRoute(onDone = { nav.popBackStack() }) }
             }
-            composable<GroupDest> {
-                Box(Modifier.windowInsetsPadding(topInsets)) { GroupRoute(onInvite = { nav.navigate(InviteDest(it.name)) }) }
-            }
-            composable<SettingsDest> {
-                SettingsRoute(
-                    appVersion = appVersion,
-                    onConsent = { nav.navigate(ConsentDest) },
-                    onTransparency = { nav.navigate(TransparencyDest) },
-                    onBattery = { nav.navigate(BatteryDest) },
-                    onDiagnostics = { context.startActivity(Intent(context, DiagnosticsActivity::class.java)) },
-                )
-            }
-            composable<DeviceDest> { e ->
-                val r = e.toRoute<DeviceDest>()
-                DeviceDetailRoute(
-                    DeviceId(r.id),
-                    onAllApps = { range -> nav.navigate(AllAppsDest(r.id, range.period.name, range.start.toString(), range.end.toString())) },
-                    onBack = { nav.popBackStack() },
-                    onOpenApp = { pkg, range -> nav.navigate(appDest(r.id, pkg, range)) }, // the app opens on the same period
-                    onThresholds = { nav.navigate(ThresholdsDest(r.id)) },
-                )
-            }
-            composable<ThresholdsDest> { e -> ThresholdsRoute(DeviceId(e.toRoute<ThresholdsDest>().id), onBack = { nav.popBackStack() }) }
-            composable<AllAppsDest> { e ->
-                val r = e.toRoute<AllAppsDest>()
-                val range = DetailRange(Period.valueOf(r.period), LocalDate.parse(r.start), LocalDate.parse(r.end))
-                AllAppsRoute(DeviceId(r.id), range, onBack = { nav.popBackStack() }, onOpenApp = { pkg -> nav.navigate(appDest(r.id, pkg, range)) })
-            }
-            composable<AppDest> { e ->
-                val r = e.toRoute<AppDest>()
-                val range = DetailRange(Period.valueOf(r.period), LocalDate.parse(r.start), LocalDate.parse(r.end))
-                AppDetailRoute(DeviceId(r.id), r.packageName, range, onBack = { nav.popBackStack() })
-            }
-            composable<InviteDest> { e -> InviteRoute(Role.valueOf(e.toRoute<InviteDest>().role), onClose = { nav.popBackStack() }) }
-            composable<TransparencyDest> { TransparencyRoute(onBack = { nav.popBackStack() }) }
-            composable<ConsentDest> { ConsentRoute(onDone = { nav.popBackStack() }) }
-            composable<BatteryDest> { BatteryGuideRoute(onDone = { nav.popBackStack() }) }
         }
     }
 }

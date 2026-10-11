@@ -1,5 +1,9 @@
 package app.kinsight.feature.settings
 
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import app.kinsight.core.data.SummaryMode
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasAnyDescendant
@@ -306,5 +310,35 @@ class SettingsScreenTest {
     fun aPausedChildSeesTheUsageAccessRow() {
         show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), Prefs(), running.copy(usageAccessGranted = false), ownSharing = Sharing.Paused(1)))
         rule.onNodeWithTag("set_usage_access").assertExists()
+    }
+
+    private fun showScaled(fontScale: Float, onSummaryMode: (SummaryMode) -> Unit) = rule.setContent {
+        val d = LocalDensity.current
+        CompositionLocalProvider(LocalDensity provides Density(d.density, fontScale)) {
+            KinsightTheme(dynamicColor = false) {
+                SettingsScreen(
+                    SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running), "0.4.0",
+                    onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
+                    onSummaryMode = onSummaryMode, onNoContactHours = {}, onBattery = {}, onDiagnostics = {}, onResetIdentity = {}, nowMs = NOW,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun largeFontsTurnTheChoicesIntoAVerticalList() {
+        var picked: SummaryMode? = null
+        showScaled(2f) { picked = it }
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_mode_weekly"))
+        rule.onNodeWithTag("set_mode_list").assertExists()
+        rule.onNodeWithTag("set_mode_weekly").performClick()
+        assertEquals(SummaryMode.WEEKLY, picked)
+    }
+
+    @Test
+    fun normalFontsKeepTheSegmentedRow() {
+        showScaled(1f) {}
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_mode_weekly"))
+        rule.onNodeWithTag("set_mode_list").assertDoesNotExist()
     }
 }
