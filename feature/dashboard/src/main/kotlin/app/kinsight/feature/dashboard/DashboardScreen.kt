@@ -58,7 +58,9 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.DashboardState
@@ -99,10 +101,14 @@ fun DashboardRoute(onOpenDevice: (DeviceId) -> Unit, onConsent: () -> Unit, onIn
     // Back from Android's settings (usage access, Bluetooth): re-read now, not on the next 30 s tick (U1).
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshStatus() }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(30_000)
-            now = System.currentTimeMillis()
+    // Ticks only while the screen is in front; a return refreshes «now» at once.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                now = System.currentTimeMillis()
+                delay(30_000)
+            }
         }
     }
     DashboardScreen(

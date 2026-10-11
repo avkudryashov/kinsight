@@ -50,8 +50,11 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.createSavedStateHandle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.kinsight.core.data.AppCategory
 import app.kinsight.core.data.AppGraph
@@ -117,10 +120,14 @@ fun DeviceDetailRoute(
     val thresholds by vm.thresholds.collectAsStateWithLifecycle()
     // «may be out of date» must appear on a screen left open, without new data (U3 review Q3).
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(60_000)
-            now = System.currentTimeMillis()
+    // Ticks only while the screen is in front; a return refreshes «now» at once.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                now = System.currentTimeMillis()
+                delay(60_000)
+            }
         }
     }
     val loaded by vm.loaded.collectAsStateWithLifecycle()
