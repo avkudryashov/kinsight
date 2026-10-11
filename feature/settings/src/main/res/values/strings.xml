@@ -71,7 +71,7 @@
     <string name="tr_child_what">What is sent: screen time per day and per app, time by hour, the number of unlocks, the app names and icons, and events such as pauses, stopped sync or a hidden notification.</string>
     <string name="tr_child_sharing_on">Sharing is on.</string>
     <string name="tr_child_sharing_off">Sharing is off: nothing new is sent, and your family sees that.</string>
-    <string name="tr_child_how">To pause: Overview → Pause sharing, or the switch in Settings. To stop sync completely: Stop in the notification or in Settings. Your family sees both.</string>
+    <string name="tr_child_how">To pause: Overview → Pause sharing, or the Share my screen time switch in Settings. To stop sync completely: Stop in the notification or in Settings. Your family sees both.</string>
     <string name="tr_child_keep">Parents\' phones keep the data as long as their settings say (by default 90 days in detail and a year of daily totals).</string>
     <string name="tr_parent_own">This phone does not share its own screen time with anyone.</string>
     <string name="tr_parent_sync">It keeps your children\'s data and syncs it with the other parents: %1$s.</string>
@@ -95,7 +95,9 @@
     <string name="set_shrink">Delete</string>
     <string name="set_usage_access_missing">Screen time is not counted: usage access is off on this phone.</string>
     <string name="set_open_usage_access">Open usage access</string>
-    <string name="set_pause_vs_stop">Pause: your time is kept and sent once you resume. Stop: this phone stops reaching the family. Your family sees both.</string>
+    <string name="set_pause_vs_stop">Pause: your time is kept and sent once you resume. Stop: this phone stops reaching the family; your time is kept too. Your family sees both.</string>
     <string name="set_advanced">Advanced</string>
     <string name="set_advanced_body">History kept on this phone, diagnostics, disconnecting this phone</string>
+    <string name="set_expanded">Expanded</string>
+    <string name="set_collapsed">Collapsed</string>
 </resources>

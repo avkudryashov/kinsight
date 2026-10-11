@@ -4,6 +4,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import app.kinsight.core.data.SummaryMode
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasAnyDescendant
@@ -359,10 +362,35 @@ class SettingsScreenTest {
         rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_advanced"))
         rule.onNodeWithTag("set_reset").assertDoesNotExist()
         rule.onNodeWithTag("set_detail_30").assertDoesNotExist()
+        rule.onNodeWithText("Diagnostics").assertDoesNotExist()
+        rule.onNodeWithTag("set_advanced").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Collapsed"))
         rule.onNodeWithTag("set_advanced").performClick()
+        rule.onNodeWithTag("set_advanced").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Expanded"))
         rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_detail_30"))
+        rule.onNodeWithTag("set_list").performScrollToNode(hasText("Diagnostics"))
         rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_reset"))
-        rule.onNodeWithTag("set_reset").assertTextEquals("Disconnect this phone and pair again")
+        rule.onNodeWithTag("set_reset").assertTextEquals("Disconnect this phone and pair again").performClick()
+        rule.onNodeWithText("leaves the group for good", substring = true).assertExists()
+        rule.onNodeWithTag("set_reset_confirm").assertIsNotEnabled()
+    }
+
+    @Test
+    fun aStorageErrorOpensAdvancedOnAChildsPhone() {
+        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1), Prefs(), running.copy(state = ServiceState.STORAGE_ERROR)))
+        rule.onNodeWithText("Secure storage problem", substring = true).assertExists()
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_reset")) // no click on «Advanced» first
+        rule.onNodeWithTag("set_reset").assertExists()
+        rule.onNodeWithTag("set_advanced").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Expanded"))
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun theAdvancedToggleSaysItsStateInRussian() {
+        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1), Prefs(), running))
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_advanced"))
+        rule.onNodeWithTag("set_advanced").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Свёрнуто"))
+        rule.onNodeWithTag("set_advanced").performClick()
+        rule.onNodeWithTag("set_advanced").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Развёрнуто"))
     }
 
     @Test

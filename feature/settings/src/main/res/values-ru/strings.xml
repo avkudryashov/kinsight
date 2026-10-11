@@ -99,7 +99,9 @@
     <string name="set_shrink">Удалить</string>
     <string name="set_usage_access_missing">Экранное время не считается: на этом телефоне выключен доступ к истории использования.</string>
     <string name="set_open_usage_access">Открыть настройки доступа</string>
-    <string name="set_pause_vs_stop">Пауза: время копится и уйдёт, когда вы её снимете. Остановка: телефон перестаёт связываться с семьёй. Семья видит и то и другое.</string>
+    <string name="set_pause_vs_stop">Пауза: время копится и уйдёт, когда вы её снимете. Остановка: телефон перестаёт связываться с семьёй, время тоже копится. Семья видит и то и другое.</string>
     <string name="set_advanced">Дополнительно</string>
-    <string name="set_advanced_body">Сколько хранить историю, диагностика, отключение телефона</string>
+    <string name="set_advanced_body">Хранение истории, диагностика, отключение телефона</string>
+    <string name="set_expanded">Развёрнуто</string>
+    <string name="set_collapsed">Свёрнуто</string>
 </resources>

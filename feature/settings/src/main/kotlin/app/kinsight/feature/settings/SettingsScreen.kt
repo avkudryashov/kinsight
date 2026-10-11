@@ -59,6 +59,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role as SemanticsRole
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
@@ -149,6 +150,9 @@ fun SettingsScreen(
     }
     val child = role == Role.CHILD
     var advanced by rememberSaveable { mutableStateOf(false) }
+    // A storage error sends the user to Diagnostics and the disconnect button: on a child's phone they must be in sight.
+    val keyError = ui.service?.let { !it.stoppedByUser && it.state == ServiceState.STORAGE_ERROR } == true
+    val open = advanced || keyError
     val retentionSection: LazyListScope.() -> Unit = {
         section(R.string.set_retention) {
             Text(stringResource(R.string.set_retention_detail))
@@ -300,14 +304,17 @@ fun SettingsScreen(
         // U22: on a child's phone what is for adults waits under «Advanced».
         if (child) {
             item {
+                val state = stringResource(if (open) R.string.set_expanded else R.string.set_collapsed)
                 ListItem(
                     headlineContent = { Text(stringResource(R.string.set_advanced)) },
                     supportingContent = { Text(stringResource(R.string.set_advanced_body)) },
-                    trailingContent = { Icon(if (advanced) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown, contentDescription = null) },
-                    modifier = Modifier.clickable(role = SemanticsRole.Button) { advanced = !advanced }.testTag("set_advanced"),
+                    trailingContent = { Icon(if (open) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown, contentDescription = null) },
+                    modifier = Modifier.clickable(enabled = !keyError, role = SemanticsRole.Button) { advanced = !advanced }
+                        .semantics { stateDescription = state }
+                        .testTag("set_advanced"),
                 )
             }
-            if (advanced) {
+            if (open) {
                 retentionSection()
                 item { Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) { adultActions() } }
             }
