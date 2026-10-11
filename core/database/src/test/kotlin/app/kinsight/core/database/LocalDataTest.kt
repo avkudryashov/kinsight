@@ -105,7 +105,7 @@ class LocalDataTest {
 
     @Test
     fun wipedTablesAreEveryTableOfTheSchema() {
-        val json = File("schemas/app.kinsight.core.database.KinsightDatabase/2.json").readText()
+        val json = File("schemas/app.kinsight.core.database.KinsightDatabase/3.json").readText()
         val tables = Regex("\"tableName\": \"([a-z_]+)\"").findAll(json).map { it.groupValues[1] }.toSet()
         assertEquals(tables, WIPED_TABLES.toSet())
     }

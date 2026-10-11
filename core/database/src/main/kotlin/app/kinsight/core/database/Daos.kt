@@ -37,17 +37,13 @@ interface EntryDao {
     @Query("SELECT bytes FROM entries WHERE usage_date IS NOT NULL")
     suspend fun bytesWithUsageDate(): List<ByteArray>
 
-    /** Superseded kinds by the kind marker right after the author in their key (DecodedEntry.supersedeKey), e.g. "/sum/%" for UsageSummary. */
-    @Query("SELECT bytes FROM entries WHERE supersede_key LIKE author || :suffix ORDER BY author, seq")
-    suspend fun bytesBySupersedeKey(suffix: String): List<ByteArray>
+    /** Every entry of one [EntryKinds] code, by author and seq: served by the (kind, author, seq) index, no sort. */
+    @Query("SELECT bytes FROM entries WHERE kind = :kind ORDER BY author, seq")
+    suspend fun bytesOfKind(kind: Int): List<ByteArray>
 
     /** Entries whose supersede key lies in [from, to] (inclusive, by the unique key index), e.g. one author's details of a date range. */
     @Query("SELECT bytes FROM entries WHERE supersede_key BETWEEN :from AND :to ORDER BY supersede_key")
     suspend fun bytesBySupersedeKeyRange(from: String, to: String): List<ByteArray>
-
-    /** Never superseded and not membership: state events except LEFT_GROUP, and unknown kinds. */
-    @Query("SELECT bytes FROM entries WHERE supersede_key IS NULL AND membership = 0 ORDER BY author, seq")
-    suspend fun unkeyedBytes(): List<ByteArray>
 
     @Query("SELECT MAX(seq) FROM entries WHERE author = :author")
     suspend fun maxSeq(author: String): Long?

@@ -65,27 +65,22 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
     override suspend fun liveEntries(): List<DecodedEntry> = entryDao.allBytes().map(DecodedEntry::decode)
 
     /** Live UsageSummary entries of every author (the v1 screens read only these, spec §9.3). */
-    suspend fun summaries(): List<DecodedEntry> = entryDao.bytesBySupersedeKey("/sum/%").map(DecodedEntry::decode).filter { it.kind == EntryKind.USAGE_SUMMARY }
+    suspend fun summaries(): List<DecodedEntry> = entryDao.bytesOfKind(EntryKinds.USAGE_SUMMARY).map(DecodedEntry::decode)
 
     /** Live UsageDetail entries of [author] for local dates [from] to [to] inclusive (level 4, spec §9.3). */
     suspend fun details(author: DeviceId, from: LocalDate, to: LocalDate): List<DecodedEntry> =
         entryDao.bytesBySupersedeKeyRange("${author.hex}/det/$from", "${author.hex}/det/$to")
             .map(DecodedEntry::decode).filter { it.kind == EntryKind.USAGE_DETAIL && it.author == author }
 
-    suspend fun catalog(): List<DecodedEntry> = entryDao.bytesBySupersedeKey("/app/%").map(DecodedEntry::decode).filter { it.kind == EntryKind.APP_CATALOG }
+    suspend fun catalog(): List<DecodedEntry> = entryDao.bytesOfKind(EntryKinds.APP_CATALOG).map(DecodedEntry::decode)
 
     /** Live CategoryOverride entries: each author's latest per package (spec §4.4); never pruned. */
-    suspend fun categoryOverrides(): List<DecodedEntry> =
-        entryDao.bytesBySupersedeKey("/cat/%").map(DecodedEntry::decode).filter { it.kind == EntryKind.CATEGORY_OVERRIDE }
+    suspend fun categoryOverrides(): List<DecodedEntry> = entryDao.bytesOfKind(EntryKinds.CATEGORY_OVERRIDE).map(DecodedEntry::decode)
 
-    suspend fun heartbeats(): List<DecodedEntry> = entryDao.bytesBySupersedeKey("/hb").map(DecodedEntry::decode).filter { it.kind == EntryKind.HEARTBEAT }
+    suspend fun heartbeats(): List<DecodedEntry> = entryDao.bytesOfKind(EntryKinds.HEARTBEAT).map(DecodedEntry::decode)
 
-    /** Every StateEvent, LEFT_GROUP included (stored as membership), ordered by author and seq. */
-    suspend fun stateEvents(): List<DecodedEntry> =
-        (entryDao.unkeyedBytes() + entryDao.membershipBytes())
-            .map(DecodedEntry::decode)
-            .filter { it.kind == EntryKind.STATE_EVENT }
-            .sortedWith(compareBy({ it.author.hex }, { it.seq }))
+    /** Every StateEvent, LEFT_GROUP included, ordered by author and seq. */
+    suspend fun stateEvents(): List<DecodedEntry> = entryDao.bytesOfKind(EntryKinds.STATE_EVENT).map(DecodedEntry::decode)
 
     override suspend fun prune(policy: SyncPolicy): Unit = db.write {
         for (bytes in entryDao.bytesWithUsageDate()) {
@@ -165,14 +160,18 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
                 entryDao.delete(old.author, old.seq)
             }
         }
+        val c = EntryColumns.of(e)
         entryDao.insert(
             EntryRow(
                 author = a,
                 seq = e.seq,
-                bytes = e.bytes,
+                kind = c.kind,
                 supersedeKey = key,
                 membership = e.isMembershipRelevant,
                 usageDate = e.body.usage_summary?.local_date ?: e.body.usage_detail?.local_date,
+                eventKind = c.eventKind,
+                eventToMs = c.eventToMs,
+                bytes = e.bytes,
             ),
         )
     }

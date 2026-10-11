@@ -21,8 +21,10 @@ class KinsightDatabaseTest {
         dir.deleteRecursively()
     }
 
-    private fun row(seq: Long, key: String? = null) =
-        EntryRow(author = "aa".repeat(16), seq = seq, bytes = byteArrayOf(seq.toByte()), supersedeKey = key, membership = false, usageDate = null)
+    private fun row(seq: Long, key: String? = null) = EntryRow(
+        author = "aa".repeat(16), seq = seq, kind = EntryKinds.UNKNOWN, supersedeKey = key, membership = false, usageDate = null,
+        eventKind = null, eventToMs = null, bytes = byteArrayOf(seq.toByte()),
+    )
 
     @Test
     fun persistsRowsAcrossReopen() = runTest {

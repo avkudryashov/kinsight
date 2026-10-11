@@ -5,22 +5,36 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
-/** One signed entry in its original bytes (spec §4.2) plus the fields the store indexes on. */
+/**
+ * One signed entry in its original bytes (spec §4.2) plus the fields the store indexes on. Schema 3: the screens read by
+ * [kind] through the (kind, author, seq) index, and [bytes] is the last column, so SQLite reads the other columns of a
+ * row without walking the BLOB's overflow pages (audit A-5).
+ */
 @Entity(
     tableName = "entries",
     primaryKeys = ["author", "seq"],
-    indices = [Index(value = ["supersede_key"], unique = true), Index(value = ["membership"])],
+    indices = [
+        Index(value = ["supersede_key"], unique = true),
+        Index(value = ["membership"]),
+        Index(value = ["kind", "author", "seq"]),
+    ],
 )
 class EntryRow(
     /** DeviceId hex: ORDER BY author matches DeviceId.hex ordering. */
     val author: String,
     val seq: Long,
-    val bytes: ByteArray,
+    /** [EntryKinds] code of the payload. */
+    val kind: Int,
     @ColumnInfo(name = "supersede_key") val supersedeKey: String?,
     /** DecodedEntry.isMembershipRelevant: membership ops and LEFT_GROUP events. */
     val membership: Boolean,
     /** local_date of UsageSummary/UsageDetail; only these rows can expire. */
     @ColumnInfo(name = "usage_date") val usageDate: String?,
+    /** StateEvent.Kind value of a StateEvent, else null: history pruning keeps each author's newest per kind. */
+    @ColumnInfo(name = "event_kind") val eventKind: Int?,
+    /** StateEvent.to_ms of a StateEvent, else null: the age history pruning compares with the retention. */
+    @ColumnInfo(name = "event_to_ms") val eventToMs: Long?,
+    val bytes: ByteArray,
 )
 
 /** Contiguous part of the version vector: every seq ≤ contig of [author] is accounted for. */
