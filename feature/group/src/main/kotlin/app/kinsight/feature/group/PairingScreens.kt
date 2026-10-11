@@ -201,7 +201,13 @@ private fun RadioProblemText(problem: RadioProblem) {
 
 /** The joining phone (spec §9.4): progress with Cancel until the welcome is being stored, then Retry on failure. */
 @Composable
-fun JoinScreen(state: JoinState, adminName: String, onRetry: () -> Unit, onBack: () -> Unit) = Centered {
+fun JoinScreen(
+    state: JoinState,
+    adminName: String,
+    onRetry: () -> Unit,
+    onResetAndRetry: () -> Unit = onRetry,
+    onBack: () -> Unit,
+) = Centered {
     Text(stringResource(R.string.join_title), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
     when (state) {
         JoinState.Searching -> Progress(stringResource(R.string.join_searching, adminName))
@@ -222,8 +228,13 @@ fun JoinScreen(state: JoinState, adminName: String, onRetry: () -> Unit, onBack:
         JoinState.Joined -> Text(stringResource(R.string.join_joined), textAlign = TextAlign.Center)
         is JoinState.Failed -> {
             Text(stringResource(state.reason.messageRes()), color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
-            Button(onRetry, Modifier.testTag("join_retry")) { Text(stringResource(R.string.pair_retry)) }
-            TextButton(onBack) { Text(stringResource(R.string.join_back)) }
+            if (state.reason == PairFailure.REMOVED_BEFORE) {
+                // The old DeviceId is departed for good: only new keys can join (spec §9.5), so no plain retry.
+                Button(onResetAndRetry, Modifier.testTag("join_reset_retry")) { Text(stringResource(R.string.join_reset_retry)) }
+            } else {
+                Button(onRetry, Modifier.testTag("join_retry")) { Text(stringResource(R.string.pair_retry)) }
+            }
+            TextButton(onBack, Modifier.testTag("join_back")) { Text(stringResource(R.string.join_back)) }
         }
     }
     when (state) {
@@ -329,7 +340,7 @@ fun JoinRoute(invite: Invite, name: String, consent: Boolean, onJoined: () -> Un
     }
     LaunchedEffect(state) { if (state == JoinState.Joined) onJoined() }
     BackHandler(enabled = state == JoinState.Saving) {}
-    JoinScreen(state, invite.adminName, vm::start) {
+    JoinScreen(state, invite.adminName, vm::start, vm::resetAndRetry) {
         vm.cancel()
         onBack()
     }

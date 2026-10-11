@@ -79,7 +79,8 @@
     <string name="pair_fail_bad_token">This QR code is no longer valid. Ask for a new one.</string>
     <string name="pair_fail_expired">This QR code is no longer valid: it expired. Ask for a new one.</string>
     <string name="pair_fail_declined">The admin declined or closed the invitation.</string>
-    <string name="pair_fail_removed_before">This phone was removed from the group before. To join again, use “Disconnect this phone and pair again” in Settings.</string>
+    <string name="pair_fail_removed_before">This phone was removed from the group before. To join again, disconnect it and pair again: it joins as a new device with the same invitation.</string>
+    <string name="join_reset_retry">Disconnect and pair again</string>
     <string name="pair_fail_invalid">The invitation or the answer was not valid. If either phone has an older Kinsight, update the app and try again.</string>
     <string name="pair_fail_not_admin">Only an admin can invite.</string>
     <string name="pair_fail_already_in_group">This phone is already in a group. Leave it first.</string>

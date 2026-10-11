@@ -79,7 +79,8 @@
     <string name="pair_fail_bad_token">Este código QR ya no es válido. Pide uno nuevo.</string>
     <string name="pair_fail_expired">Este código QR ya no es válido: ha caducado. Pide uno nuevo.</string>
     <string name="pair_fail_declined">El administrador ha rechazado o cerrado la invitación.</string>
-    <string name="pair_fail_removed_before">Este teléfono ya se había eliminado del grupo. Para volver a unirte, usa «Desconectar este teléfono y volver a emparejarlo» en Ajustes.</string>
+    <string name="pair_fail_removed_before">Este teléfono ya se había eliminado del grupo. Para volver a unirte, desconéctalo y empareja de nuevo: entrará como un dispositivo nuevo con la misma invitación.</string>
+    <string name="join_reset_retry">Desconectar y emparejar de nuevo</string>
     <string name="pair_fail_invalid">La invitación o la respuesta no eran válidas. Si alguno de los teléfonos tiene una versión antigua de Kinsight, actualiza la aplicación y vuelve a intentarlo.</string>
     <string name="pair_fail_not_admin">Solo un administrador puede invitar.</string>
     <string name="pair_fail_already_in_group">Este teléfono ya está en un grupo. Sal de él primero.</string>

@@ -40,7 +40,7 @@ class PairingViewModelsTest {
         }
     }
 
-    private class FakeJoin(val name: String, val consent: Boolean) : JoinHandle {
+    private class FakeJoin(val name: String, val consent: Boolean, val fresh: Boolean = false) : JoinHandle {
         override val state = MutableStateFlow<JoinState>(JoinState.Searching)
         var cancelled = false
 
@@ -52,7 +52,7 @@ class PairingViewModelsTest {
     private val invites = mutableListOf<FakeInvite>()
     private val opener = InviteOpener { _: CoroutineScope, role, name -> FakeInvite(role, name).also { invites += it } }
     private val joins = mutableListOf<FakeJoin>()
-    private val starter = JoinStarter { _: CoroutineScope, _, name, consent -> FakeJoin(name, consent).also { joins += it } }
+    private val starter = JoinStarter { _: CoroutineScope, _, name, consent, fresh -> FakeJoin(name, consent, fresh).also { joins += it } }
     private val admin = DeviceKeys.generate()
     private val invite = Invite.create(GroupGenesis.create(admin, "Mom").groupId, admin, DeviceRole.CHILD, "Mom")
 
@@ -163,6 +163,19 @@ class PairingViewModelsTest {
         vm.start()
         assertTrue(joins[1].cancelled)
         assertEquals(3, joins.size)
+    }
+
+    @Test
+    fun resetAndRetryStartsAFreshIdentityJoinWithTheSameInvite() {
+        val vm = JoinViewModel(starter, invite, "Kid", consent = true)
+        assertEquals(false, joins[0].fresh)
+        joins[0].state.value = JoinState.Failed(app.kinsight.core.data.PairFailure.REMOVED_BEFORE)
+        vm.resetAndRetry()
+        assertTrue(joins[0].cancelled)
+        assertEquals(2, joins.size)
+        assertTrue(joins[1].fresh)
+        assertEquals("Kid" to true, joins[1].name to joins[1].consent)
+        assertEquals(JoinState.Searching, vm.state.value)
     }
 
     @Test

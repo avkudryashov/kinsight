@@ -53,8 +53,8 @@ class PairingScreensTest {
         KinsightTheme(dynamicColor = false) { InviteScreen(state, role, now, onConfirm, onDecline, onRetry, onClose, confirming = confirming) }
     }
 
-    private fun join(state: JoinState, onRetry: () -> Unit = {}, onBack: () -> Unit = {}) =
-        rule.setContent { KinsightTheme(dynamicColor = false) { JoinScreen(state, "Mom", onRetry, onBack) } }
+    private fun join(state: JoinState, onRetry: () -> Unit = {}, onBack: () -> Unit = {}, onResetAndRetry: () -> Unit = {}) =
+        rule.setContent { KinsightTheme(dynamicColor = false) { JoinScreen(state, "Mom", onRetry, onResetAndRetry, onBack) } }
 
     @Test
     fun theWindowIsSecureOnlyWhileTheInviteIsComposed() {
@@ -199,6 +199,24 @@ class PairingScreensTest {
         rule.onNodeWithTag("join_retry").performClick()
         rule.waitForIdle()
         assertTrue(retried)
+    }
+
+    @Test
+    fun aPhoneRemovedBeforeIsOfferedAResetAndRetryNotSettings() {
+        var reset = false
+        var retried = false
+        var back = false
+        join(JoinState.Failed(PairFailure.REMOVED_BEFORE), onRetry = { retried = true }, onBack = { back = true }, onResetAndRetry = { reset = true })
+        rule.onNodeWithText("removed from the group before", substring = true).assertExists()
+        rule.onNodeWithText("Settings", substring = true).assertDoesNotExist()
+        rule.onNodeWithTag("join_retry").assertDoesNotExist()
+        rule.onNodeWithTag("join_reset_retry").assertTextContains("Disconnect and pair again").performClick()
+        rule.waitForIdle()
+        assertTrue(reset)
+        assertFalse(retried)
+        rule.onNodeWithTag("join_back").assertTextContains("Back").performClick()
+        rule.waitForIdle()
+        assertTrue(back)
     }
 
     @Test

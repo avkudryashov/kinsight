@@ -79,7 +79,8 @@
     <string name="pair_fail_bad_token">Этот QR-код больше недействителен. Попросите новый.</string>
     <string name="pair_fail_expired">Этот QR-код больше недействителен: срок истёк. Попросите новый.</string>
     <string name="pair_fail_declined">Администратор отклонил приглашение или закрыл его.</string>
-    <string name="pair_fail_removed_before">Этот телефон раньше исключили из группы. Чтобы вступить снова, в настройках нажмите «Отключить этот телефон и подключить заново».</string>
+    <string name="pair_fail_removed_before">Этот телефон раньше исключили из группы. Чтобы вступить снова, отключите его и подключите заново: он войдёт как новое устройство по тому же приглашению.</string>
+    <string name="join_reset_retry">Отключить и подключить заново</string>
     <string name="pair_fail_invalid">Приглашение или ответ недействительны. Если на одном из телефонов старая версия Kinsight, обновите приложение и повторите.</string>
     <string name="pair_fail_not_admin">Приглашать может только администратор.</string>
     <string name="pair_fail_already_in_group">Этот телефон уже в группе. Сначала выйдите из неё.</string>

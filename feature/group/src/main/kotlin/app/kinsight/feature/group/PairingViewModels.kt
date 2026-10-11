@@ -38,7 +38,8 @@ internal interface JoinHandle {
 }
 
 internal fun interface JoinStarter {
-    fun start(scope: CoroutineScope, invite: Invite, name: String, consent: Boolean): JoinHandle
+    /** [freshIdentity]: reset the identity first (PairingCoordinator.join). */
+    fun start(scope: CoroutineScope, invite: Invite, name: String, consent: Boolean, freshIdentity: Boolean): JoinHandle
 }
 
 private fun PairingCoordinator.opener() = InviteOpener { scope, role, adminName ->
@@ -54,8 +55,8 @@ private fun PairingCoordinator.opener() = InviteOpener { scope, role, adminName 
     }
 }
 
-private fun PairingCoordinator.starter() = JoinStarter { scope, invite, name, consent ->
-    val s = join(scope, invite, name, consent)
+private fun PairingCoordinator.starter() = JoinStarter { scope, invite, name, consent, freshIdentity ->
+    val s = join(scope, invite, name, consent, freshIdentity)
     object : JoinHandle {
         override val state = s.state
 
@@ -176,13 +177,21 @@ class JoinViewModel internal constructor(
     }
 
     /** A new attempt (Try again), cancelling the current one first. */
-    fun start() {
+    fun start() = begin(freshIdentity = false)
+
+    /**
+     * «Отключить и подключить заново» after [app.kinsight.core.data.PairFailure.REMOVED_BEFORE]: a new attempt with the
+     * same invitation that resets this phone's identity first, so the admin sees a new device.
+     */
+    fun resetAndRetry() = begin(freshIdentity = true)
+
+    private fun begin(freshIdentity: Boolean) {
         handle?.cancel()
         collector?.cancel()
         cancelled = false
         _state.value = JoinState.Searching
         collector = viewModelScope.launch {
-            val h = starter.start(viewModelScope, invite, name, consent)
+            val h = starter.start(viewModelScope, invite, name, consent, freshIdentity)
             handle = h
             h.state.collect { _state.value = it }
         }
