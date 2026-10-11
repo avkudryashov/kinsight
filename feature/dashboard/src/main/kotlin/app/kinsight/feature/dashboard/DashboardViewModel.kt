@@ -69,4 +69,7 @@ class DashboardViewModel(
     fun start() = service.start()
 
     fun syncNow() = service.syncNow()
+
+    /** ON_RESUME: re-reads permissions and usage access at once (ServiceRepository.refresh). */
+    fun refreshStatus() = service.refresh()
 }

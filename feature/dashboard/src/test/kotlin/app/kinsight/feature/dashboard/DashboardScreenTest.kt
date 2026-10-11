@@ -414,4 +414,17 @@ class DashboardScreenTest {
         rule.onNodeWithText("No contact", substring = true).assertExists()
         rule.onNodeWithText("collection is off", substring = true).assertDoesNotExist()
     }
+
+    @Test
+    fun aParentWithoutUsageAccessGetsNoBanner() {
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), emptyList()), running.copy(usageAccessGranted = false), true))
+        rule.onNodeWithTag("dash_usage_access").assertDoesNotExist()
+        rule.onNodeWithTag("dash_banner").assertDoesNotExist()
+    }
+
+    @Test
+    fun aPausedChildWithoutUsageAccessStillSeesTheBanner() {
+        show(childUi(Sharing.Paused(now - hour)).copy(service = running.copy(usageAccessGranted = false)))
+        rule.onNodeWithTag("dash_usage_access").assertExists()
+    }
 }

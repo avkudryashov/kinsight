@@ -47,6 +47,8 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.kinsight.core.data.AppGraph
@@ -54,6 +56,7 @@ import app.kinsight.core.data.GroupState
 import app.kinsight.core.data.Role
 import app.kinsight.core.data.ServiceStatus
 import app.kinsight.core.data.SummaryMode
+import app.kinsight.core.data.UsageReadModel
 import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.ErrorState
 import app.kinsight.core.designsystem.component.isJustNow
@@ -68,9 +71,11 @@ fun SettingsRoute(appVersion: String, onConsent: () -> Unit, onTransparency: () 
     val context = LocalContext.current
     val vm: SettingsViewModel = viewModel {
         val g = AppGraph.get(context)
-        SettingsViewModel(g.group, g.settingsRepository, g.service, g.reset)
+        SettingsViewModel(g.group, g.settingsRepository, g.service, g.reset, g.usage)
     }
     val ui by vm.ui.collectAsStateWithLifecycle()
+    // Back from Android's usage access screen: the row goes away at once, not on the next 30 s tick (U1).
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshStatus() }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -163,8 +168,10 @@ fun SettingsScreen(
                         OutlinedButton({ ask = Ask.STOP }, Modifier.testTag("set_stop")) { Text(stringResource(R.string.set_stop)) }
                     }
                 }
-                // U1: a consenting child whose phone cannot count; the same check as Overview's banner.
-                if (role == Role.CHILD && ui.usage.consentAtMs != null && s?.usageAccessGranted == false) {
+                // U1: a consenting child whose phone cannot count; the same check as Overview's banner (the signed
+                // sharing state; the local consent only before the snapshot has this device).
+                val collects = UsageReadModel.collects(ui.ownSharing, localConsent = ui.usage.consentAtMs != null)
+                if (role == Role.CHILD && collects && s?.usageAccessGranted == false) {
                     Text(stringResource(R.string.set_usage_access_missing), color = MaterialTheme.colorScheme.error)
                     OutlinedButton({ UsageAccessSettings.open(context) }, Modifier.testTag("set_usage_access")) {
                         Text(stringResource(R.string.set_open_usage_access))

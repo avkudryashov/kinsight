@@ -6,6 +6,7 @@ import app.kinsight.core.model.addMember
 import app.kinsight.core.model.proto.AppTotal
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.HourBucket
+import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.model.proto.UsageDetail
 import app.kinsight.core.model.proto.UsageSummary
 import kotlinx.coroutines.flow.Flow
@@ -155,5 +156,20 @@ class UsageRepositoryTest {
         assertEquals(false, withTimeout(10_000) { usage.viewerIsParent.first() }, "no group yet")
         mom.group.createGroup("Mom")
         assertEquals(true, withTimeout(10_000) { usage.viewerIsParent.first { it } })
+    }
+
+    @Test
+    fun theCardsCollectionOffFollowsTheNoContactSetting() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val kidKeys = DeviceKeys.generate()
+        mom.pipeline.appendOwn { a -> listOf(a.addMember(kidKeys.sign.publicKey, kidKeys.dh.publicKey, "Kid", DeviceRole.CHILD)) }
+        val kid = EntryAuthor(mom.groups.read()!!.groupId, kidKeys, lastSeq = 0)
+        val consent = kid.create { it.copy(created_at_ms = noonMs - 30 * 3_600_000L, state_event = StateEvent(kind = StateEvent.Kind.SHARING_RESUMED)) }
+        mom.store().applyBatch(listOf(consent))
+        val usage = UsageRepository(mom.snapshots, mom.prefs, mom.appendOwn, date = { today }, clock = { noonMs })
+        fun off(d: DashboardState?) = d?.children?.singleOrNull()?.collectionOff
+        assertEquals(true, withTimeout(10_000) { usage.dashboard.first { off(it) != null } }.let(::off), "default 24 h: 30 h silent is off")
+        mom.prefs.setNoContactHours(72)
+        assertEquals(false, withTimeout(10_000) { usage.dashboard.first { off(it) == false } }.let(::off), "inside the 72 h window")
     }
 }

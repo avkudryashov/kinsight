@@ -3,9 +3,12 @@ package app.kinsight.core.data
 import app.kinsight.core.transport.ble.ServiceSnapshot
 import app.kinsight.core.transport.ble.ServiceState
 import app.kinsight.core.transport.ble.SyncStatus
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -54,5 +57,18 @@ class ServiceRepositoryTest {
         granted = true
         assertEquals(true, repo.status.first().usageAccessGranted, "a new collector re-reads it (the 30 s tick does the same)")
         assertEquals(true, ServiceRepository(snapshot, d.transport, { emptyList() }, d.sync).status.first().usageAccessGranted, "default: granted")
+    }
+
+    @Test
+    fun refreshReReadsUsageAccessWithoutANewCollector() = runBlocking<Unit> {
+        var granted = false
+        val repo = ServiceRepository(MutableStateFlow(ServiceSnapshot(ServiceState.RUNNING)), d.transport, { emptyList() }, d.sync, usageAccess = { granted })
+        val seen = Channel<Boolean>(Channel.UNLIMITED)
+        val job = launch { repo.status.collect { seen.send(it.usageAccessGranted) } }
+        withTimeout(10_000) { while (seen.receive()) Unit }
+        granted = true
+        repo.refresh()
+        assertTrue(withTimeout(5_000) { seen.receive() }, "the same collector sees it at once, not after the 30 s tick")
+        job.cancel()
     }
 }

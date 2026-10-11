@@ -430,4 +430,46 @@ class UsageReadModelTest {
         assertFalse(UsageReadModel.collectionOff(Sharing.On, emptyList(), updatedMs = null, nowMs = noonToday), "no consent seen: nothing to say")
         assertFalse(UsageReadModel.collectionOff(Sharing.Never, emptyList(), updatedMs = noonToday - 3 * day, nowMs = noonToday))
     }
+
+    @Test
+    fun collectionOffWaitsForTheNoContactWindow() {
+        val hour = 3_600_000L
+        fun consentAgo(h: Long) = UsageReadModel.events(listOf(event(StateEvent.Kind.SHARING_RESUMED, createdMs = noonToday - h * hour)))
+        fun off(h: Long, noContactHours: Long?) = if (noContactHours == null) {
+            UsageReadModel.usage(member, null, consentAgo(h), today, nowMs = noonToday).collectionOff
+        } else {
+            UsageReadModel.usage(member, null, consentAgo(h), today, nowMs = noonToday, noContactMs = noContactHours * hour).collectionOff
+        }
+        assertFalse(off(30, 72), "30 h out of range inside a 72 h window: not «collection off»")
+        assertTrue(off(80, 72), "past the 72 h window")
+        assertTrue(off(30, null), "default: 24 h")
+        assertTrue(off(30, 24))
+        assertFalse(off(20, 24))
+        assertTrue(off(30, 6), "a short window never lowers the 24 h floor")
+        assertFalse(off(20, 6))
+    }
+
+    @Test
+    fun aParentOrADepartedChildNeverReadsAsCollectionOff() {
+        val day = 24 * 3_600_000L
+        val consent = event(StateEvent.Kind.SHARING_RESUMED, createdMs = noonToday - 3 * day)
+        val revoked = event(StateEvent.Kind.USAGE_ACCESS_REVOKED, createdMs = noonToday - 60_000)
+        val events = UsageReadModel.events(listOf(consent, revoked))
+        assertTrue(UsageReadModel.usage(member, null, events, today, nowMs = noonToday).collectionOff, "the control: a child")
+        val parent = member.copy(role = Role.PARENT)
+        assertFalse(UsageReadModel.usage(parent, null, events, today, nowMs = noonToday).collectionOff)
+        assertFalse(UsageReadModel.usage(member, null, events, today, departed = true, nowMs = noonToday).collectionOff)
+        val left = UsageReadModel.events(listOf(consent, revoked, event(StateEvent.Kind.LEFT_GROUP, createdMs = noonToday - 1_000)))
+        assertFalse(UsageReadModel.usage(member, null, left, today, nowMs = noonToday).collectionOff)
+    }
+
+    @Test
+    fun aChildCollectsWhenItsSignedSharingIsOnOrPaused() {
+        assertTrue(UsageReadModel.collects(Sharing.On, localConsent = false))
+        assertTrue(UsageReadModel.collects(Sharing.Paused(1), localConsent = false))
+        assertFalse(UsageReadModel.collects(Sharing.Never, localConsent = true), "the signed state wins once there is one")
+        assertFalse(UsageReadModel.collects(Sharing.Left, localConsent = true))
+        assertTrue(UsageReadModel.collects(null, localConsent = true), "no snapshot of this device yet: the local consent")
+        assertFalse(UsageReadModel.collects(null, localConsent = false))
+    }
 }

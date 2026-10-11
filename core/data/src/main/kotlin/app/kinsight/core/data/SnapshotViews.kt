@@ -68,12 +68,13 @@ object SnapshotViews {
         s.membership.active.values.map { view(s, it, nowMs) }
             .sortedWith(compareBy<MemberView>({ !it.isSelf }, { it.role != Role.PARENT }, { it.name }, { it.id }))
 
-    fun dashboard(s: GroupSnapshot.Ready, today: LocalDate, nowMs: Long = System.currentTimeMillis()): DashboardState {
+    /** [noContactMs]: the group's «no contact» window (Prefs.noContactHours), the floor of «collection off» (U1). */
+    fun dashboard(s: GroupSnapshot.Ready, today: LocalDate, nowMs: Long = System.currentTimeMillis(), noContactMs: Long = 0): DashboardState {
         val members = members(s, nowMs)
         val self = members.first { it.isSelf }
         val byAuthor = UsageReadModel.summaries(s.summaries)
         val events = UsageReadModel.events(s.events).groupBy { it.author }
-        fun usage(m: MemberView) = UsageReadModel.usage(m, byAuthor[m.id], events[m.id].orEmpty(), today, nowMs = nowMs)
+        fun usage(m: MemberView) = UsageReadModel.usage(m, byAuthor[m.id], events[m.id].orEmpty(), today, nowMs = nowMs, noContactMs = noContactMs)
         return DashboardState(
             self = self,
             selfUsage = if (self.role == Role.CHILD) usage(self) else null,

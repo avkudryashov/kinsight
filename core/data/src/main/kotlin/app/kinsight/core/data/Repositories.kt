@@ -33,16 +33,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -288,8 +292,13 @@ class UsageRepository(
     private val date: () -> LocalDate = LocalDate::now,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    val dashboard: Flow<DashboardState?> = snapshots.snapshots.map { s ->
-        (s as? GroupSnapshot.Ready)?.takeUnless { it.removed }?.let { SnapshotViews.dashboard(it, today(), clock()) }
+    /** The «no contact» window, so a card says «collection off» only past it (U1); the default when unreadable. */
+    private val noContactMs = prefs.prefs.map { it.noContactHours * 3_600_000L }
+        .catch { emit(Prefs().noContactHours * 3_600_000L) }
+        .distinctUntilChanged()
+
+    val dashboard: Flow<DashboardState?> = combine(snapshots.snapshots, noContactMs) { s, noContact ->
+        (s as? GroupSnapshot.Ready)?.takeUnless { it.removed }?.let { SnapshotViews.dashboard(it, today(), clock(), noContact) }
     }
 
     /** The viewer's local date, the bound of forward navigation; screens anchor their first range on it. */
@@ -482,13 +491,19 @@ class ServiceRepository(
     /** Whether usage access is granted (AppOpsUsageAccess.granted); read on every tick like [missingPermissions]. */
     private val usageAccess: () -> Boolean = { true },
 ) {
-    /** Re-read every 30 s as well: permissions change in Settings without telling us. */
-    private val ticks = flow {
-        while (true) {
-            emit(Unit)
-            delay(30_000)
-        }
-    }
+    /** [refresh]: a screen came back to the foreground, maybe from Android's settings (U1). */
+    private val refreshes = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+    /** Re-read every 30 s and on [refresh] as well: permissions change in Settings without telling us. */
+    private val ticks = merge(
+        flow {
+            while (true) {
+                emit(Unit)
+                delay(30_000)
+            }
+        },
+        refreshes,
+    )
 
     val status: Flow<ServiceStatus> =
         combine(snapshot, transport.stoppedByUserFlow, transport.notificationHiddenFlow, ticks) { s, stopped, hidden, _ ->
@@ -510,6 +525,11 @@ class ServiceRepository(
     fun stop() = control.requestStop()
 
     fun syncNow() = control.start(fast = true)
+
+    /** Re-reads the permissions and usage access now, e.g. on ON_RESUME after the user granted one in Settings. */
+    fun refresh() {
+        refreshes.tryEmit(Unit)
+    }
 }
 
 /** Applies the retention settings to the local log now (spec §4.7). */

@@ -12,7 +12,9 @@ import app.kinsight.core.data.ResetStatus
 import app.kinsight.core.data.ServiceRepository
 import app.kinsight.core.data.ServiceStatus
 import app.kinsight.core.data.SettingsRepository
+import app.kinsight.core.data.Sharing
 import app.kinsight.core.data.SummaryMode
+import app.kinsight.core.data.UsageRepository
 import app.kinsight.core.usage.UsageSettings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -21,6 +23,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
@@ -37,6 +41,8 @@ data class SettingsUi(
     val error: SettingsError? = null,
     /** A local wipe is running (LocalReset.status, app-wide); the reset button is disabled meanwhile. */
     val resetting: Boolean = false,
+    /** This child's signed sharing state (DashboardState.selfUsage); null while the snapshot has none (U1). */
+    val ownSharing: Sharing? = null,
 )
 
 /** What the settings screen needs from core/data; a seam for tests. */
@@ -45,6 +51,12 @@ internal interface SettingsActions {
     val usage: Flow<UsageSettings>
     val prefs: Flow<Prefs>
     val service: Flow<ServiceStatus>
+
+    /** This child's signed sharing state, as Overview reads it; null without a snapshot of this device. */
+    val ownSharing: Flow<Sharing?> get() = flowOf(null)
+
+    /** Re-reads permissions and usage access now (ServiceRepository.refresh). */
+    fun refreshStatus() = Unit
 
     suspend fun setSharing(on: Boolean)
 
@@ -76,11 +88,15 @@ private class RepositoryActions(
     private val settings: SettingsRepository,
     private val serviceRepo: ServiceRepository,
     private val reset: LocalReset,
+    usageRepo: UsageRepository,
 ) : SettingsActions {
     override val group = group.state
     override val usage = settings.usageSettings
     override val prefs = settings.appPrefs
     override val service = serviceRepo.status
+    override val ownSharing: Flow<Sharing?> = usageRepo.dashboard.map { it?.selfUsage?.sharing }.onStart { emit(null) }.distinctUntilChanged()
+
+    override fun refreshStatus() = serviceRepo.refresh()
 
     override suspend fun setSharing(on: Boolean) = settings.setSharing(on)
 
@@ -113,8 +129,8 @@ private class RepositoryActions(
  * app-wide, so leaving the screen mid-wipe neither cancels it nor loses its failure. Every failure is shown.
  */
 class SettingsViewModel internal constructor(private val actions: SettingsActions) : ViewModel() {
-    constructor(group: GroupRepository, settings: SettingsRepository, service: ServiceRepository, reset: LocalReset) :
-        this(RepositoryActions(group, settings, service, reset))
+    constructor(group: GroupRepository, settings: SettingsRepository, service: ServiceRepository, reset: LocalReset, usage: UsageRepository) :
+        this(RepositoryActions(group, settings, service, reset, usage))
 
     private val _error = MutableStateFlow<SettingsError?>(null)
 
@@ -126,7 +142,8 @@ class SettingsViewModel internal constructor(private val actions: SettingsAction
         actions.usage,
         actions.prefs,
         actions.service.map<ServiceStatus, ServiceStatus?> { it }.onStart { emit(null) },
-    ) { g, u, p, s -> SettingsUi(g, u, p, s) }
+        actions.ownSharing,
+    ) { g, u, p, s, own -> SettingsUi(g, u, p, s, ownSharing = own) }
 
     val ui: StateFlow<SettingsUi> = combine(data, _error, actions.resetStatus) { d, e, r ->
         val resetFailed = r is ResetStatus.Failed && r.kind == ResetKind.NEW_IDENTITY
@@ -153,6 +170,9 @@ class SettingsViewModel internal constructor(private val actions: SettingsAction
 
     /** «Sync now»: a minute of fast mode; it honours a user's Stop (SyncControl), so it never clears one. */
     fun syncNow() = actions.syncNow()
+
+    /** ON_RESUME: back from Android's settings, the usage access row updates at once (U1). */
+    fun refreshStatus() = actions.refreshStatus()
 
     fun dismissError() {
         if (_error.value != null) _error.value = null else actions.clearResetFailure()

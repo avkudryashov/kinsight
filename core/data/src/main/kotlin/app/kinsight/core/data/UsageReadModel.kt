@@ -36,7 +36,10 @@ object UsageReadModel {
     const val MAX_UNLOCKS_PER_DAY = 10_000
     const val MAX_CLOCK_SKEW_MS = 5 * 60_000L
 
-    /** Sharing on and no summary for this long reads as «collection is off» on the parent's card (U1). */
+    /**
+     * Sharing on and no summary for this long reads as «collection is off» on the parent's card (U1); the floor of
+     * the threshold, which is never below the group's «no contact» window (see [usage]).
+     */
     const val COLLECTION_STALE_MS = 24 * 3_600_000L
 
     /** Most a clock hour holds, one bucket or a whole slot: two runs of the hour on a fall-back day (spec §7). */
@@ -197,18 +200,28 @@ object UsageReadModel {
 
     /**
      * The child consented (sharing on) but its phone does not collect (U1, audit 2026-10-11): its last
-     * USAGE_ACCESS_REVOKED is not followed by a USAGE_ACCESS_RESTORED, or nothing arrived for [COLLECTION_STALE_MS]
-     * since its latest summary ([updatedMs]) or, when it never sent one, since its consent (the first
-     * SHARING_RESUMED). [own]: the child's own events. A pause, no consent or a departed child is false: their own
-     * status says it.
+     * USAGE_ACCESS_REVOKED is not followed by a USAGE_ACCESS_RESTORED, or nothing arrived for [staleMs] since its
+     * latest summary ([updatedMs]) or, when it never sent one, since its consent (the first SHARING_RESUMED). [own]:
+     * the child's own events. A pause, no consent or a departed child is false: their own status says it.
      */
-    fun collectionOff(sharing: Sharing, own: List<EventView>, updatedMs: Long?, nowMs: Long): Boolean {
+    fun collectionOff(sharing: Sharing, own: List<EventView>, updatedMs: Long?, nowMs: Long, staleMs: Long = COLLECTION_STALE_MS): Boolean {
         if (sharing != Sharing.On) return false
         val access = own.filter { it.kind == StateEvent.Kind.USAGE_ACCESS_REVOKED || it.kind == StateEvent.Kind.USAGE_ACCESS_RESTORED }
             .maxByOrNull { it.seq }
         if (access?.kind == StateEvent.Kind.USAGE_ACCESS_REVOKED) return true
         val since = updatedMs ?: own.firstOrNull { it.firstSharing }?.createdMs ?: return false
-        return nowMs - since > COLLECTION_STALE_MS
+        return nowMs - since > staleMs
+    }
+
+    /**
+     * Whether this child's phone is meant to collect (U1): its signed sharing is on or paused (paused time is still
+     * counted). [localConsent] decides only while the snapshot has no sharing state for this device yet ([sharing]
+     * null). Overview's banner and the Settings row both use it, so they agree.
+     */
+    fun collects(sharing: Sharing?, localConsent: Boolean): Boolean = when (sharing) {
+        null -> localConsent
+        Sharing.On, is Sharing.Paused -> true
+        Sharing.Never, Sharing.Left -> false
     }
 
     /** Apps summed over [dates], largest first (ties by package name). */
@@ -259,6 +272,8 @@ object UsageReadModel {
         today: LocalDate,
         departed: Boolean = false,
         nowMs: Long = System.currentTimeMillis(),
+        /** The group's «no contact» window: a child out of range for less than it is not «collection off» (U1). */
+        noContactMs: Long = 0,
     ): DeviceUsage {
         val own = surfaced(member, byDate)
         // The child's own day (spec §9.3), as on the detail screen: it can already be tomorrow for the viewer.
@@ -268,7 +283,7 @@ object UsageReadModel {
         val updated = own?.values?.maxOfOrNull { it.body.created_at_ms.coerceAtMost(nowMs + MAX_CLOCK_SKEW_MS) }
         val mine = events.filter { it.author == member.id }
         val sharing = sharing(mine, departed)
-        val off = member.role == Role.CHILD && collectionOff(sharing, mine, updated, nowMs)
+        val off = member.role == Role.CHILD && collectionOff(sharing, mine, updated, nowMs, maxOf(COLLECTION_STALE_MS, noContactMs))
         return DeviceUsage(member, week.last(), week, average(own, today), sharing, updated, collectionOff = off)
     }
 

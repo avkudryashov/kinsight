@@ -17,6 +17,7 @@ import app.kinsight.core.data.MemberView
 import app.kinsight.core.data.Prefs
 import app.kinsight.core.data.Role
 import app.kinsight.core.data.ServiceStatus
+import app.kinsight.core.data.Sharing
 import app.kinsight.core.designsystem.theme.KinsightTheme
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.GroupId
@@ -273,5 +274,26 @@ class SettingsScreenTest {
     fun noUsageAccessRowWithoutConsentOrOnAParent() {
         show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running.copy(usageAccessGranted = false)))
         rule.onNodeWithTag("set_usage_access").assertDoesNotExist()
+    }
+
+    @Test
+    fun aChildWithoutConsentGetsNoUsageAccessRow() {
+        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), Prefs(), running.copy(usageAccessGranted = false)))
+        rule.onNodeWithTag("set_usage_access").assertDoesNotExist()
+    }
+
+    @Test
+    fun theSignedSharingStateDecidesLikeOverview() {
+        // Signing SHARING_RESUMED failed: the local consent is set but the family never heard it; Overview shows no
+        // banner, so Settings shows no row either.
+        val failed = UsageSettings(sharing = true, consentAtMs = 1)
+        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), failed, Prefs(), running.copy(usageAccessGranted = false), ownSharing = Sharing.Never))
+        rule.onNodeWithTag("set_usage_access").assertDoesNotExist()
+    }
+
+    @Test
+    fun aPausedChildSeesTheUsageAccessRow() {
+        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), Prefs(), running.copy(usageAccessGranted = false), ownSharing = Sharing.Paused(1)))
+        rule.onNodeWithTag("set_usage_access").assertExists()
     }
 }

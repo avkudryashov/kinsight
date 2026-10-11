@@ -53,6 +53,8 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.kinsight.core.data.AppGraph
@@ -61,6 +63,7 @@ import app.kinsight.core.data.MemberView
 import app.kinsight.core.data.Role as MemberRole
 import app.kinsight.core.data.ServiceStatus
 import app.kinsight.core.data.Sharing
+import app.kinsight.core.data.UsageReadModel
 import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.BarChart
 import app.kinsight.core.designsystem.component.EmptyState
@@ -88,6 +91,8 @@ fun DashboardRoute(onOpenDevice: (DeviceId) -> Unit, onConsent: () -> Unit, onIn
         DashboardViewModel(g.usage, g.service, g.settingsRepository)
     }
     val ui by vm.ui.collectAsStateWithLifecycle()
+    // Back from Android's settings (usage access, Bluetooth): re-read now, not on the next 30 s tick (U1).
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshStatus() }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -131,8 +136,8 @@ fun DashboardScreen(
     }
     val child = d.self.role == MemberRole.CHILD
     val noContactMs = ui.noContactHours * HOUR_MS
-    // Only a consenting child collects (sharing on, or paused: the paused time is still counted).
-    val needsUsageAccess = child && d.selfUsage?.sharing.let { it == Sharing.On || it is Sharing.Paused }
+    // Only a consenting child collects (signed sharing on, or paused: the paused time is still counted).
+    val needsUsageAccess = child && UsageReadModel.collects(d.selfUsage?.sharing, localConsent = false)
     val attention = SyncAttention.of(ui.service, needsUsageAccess)
     val syncNowLabel = stringResource(R.string.dash_sync_now)
     var refreshing by remember { mutableStateOf(false) }
