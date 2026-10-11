@@ -200,10 +200,14 @@ internal enum class SyncAttention {
     BLUETOOTH_OFF,
     KEY_ERROR,
     RADIO_ERROR,
+    NOTIFICATION_HIDDEN,
     ;
 
     companion object {
-        /** The old «This phone» card's precedence: the user's Stop first, then what blocks the radio. */
+        /**
+         * The old «This phone» card's precedence: the user's Stop first, then what blocks the radio, then the system
+         * pause of a hidden notification (S-M3: sync runs, but no usage is signed).
+         */
         fun of(s: ServiceStatus?): SyncAttention? = when {
             s == null -> null
             s.stoppedByUser -> STOPPED
@@ -211,6 +215,7 @@ internal enum class SyncAttention {
             s.state == ServiceState.BLUETOOTH_OFF -> BLUETOOTH_OFF
             s.state == ServiceState.STORAGE_ERROR -> KEY_ERROR
             s.state == ServiceState.RADIO_ERROR -> RADIO_ERROR
+            s.notificationHidden -> NOTIFICATION_HIDDEN
             else -> null
         }
     }
@@ -248,6 +253,7 @@ private fun AttentionBanner(a: SyncAttention, onStart: () -> Unit, onOpenSetting
                         SyncAttention.BLUETOOTH_OFF -> R.string.dash_bluetooth_off
                         SyncAttention.KEY_ERROR -> R.string.dash_storage_error
                         SyncAttention.RADIO_ERROR -> R.string.dash_radio_error
+                        SyncAttention.NOTIFICATION_HIDDEN -> R.string.dash_notification_hidden
                     },
                 ),
             )
@@ -265,6 +271,14 @@ private fun AttentionBanner(a: SyncAttention, onStart: () -> Unit, onOpenSetting
                     Text(stringResource(R.string.dash_open_kinsight_settings))
                 }
                 SyncAttention.RADIO_ERROR -> Unit
+                SyncAttention.NOTIFICATION_HIDDEN -> OutlinedButton(
+                    {
+                        context.open(
+                            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
+                        )
+                    },
+                    Modifier.testTag("dash_notification_settings"),
+                ) { Text(stringResource(R.string.dash_open_notification_settings)) }
             }
         }
     }

@@ -9,6 +9,8 @@ import kotlinx.coroutines.runBlocking
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class ServiceRepositoryTest {
     private val d = TestDevice()
@@ -31,5 +33,15 @@ class ServiceRepositoryTest {
         repo.stop()
         repo.syncNow()
         assertEquals(listOf("startByUser", "requestStop", "start:true"), d.sync.calls)
+    }
+
+    @Test
+    fun aHiddenNotificationIsPartOfTheStatus() = runBlocking<Unit> {
+        val repo = ServiceRepository(MutableStateFlow(ServiceSnapshot(ServiceState.RUNNING)), d.transport, { emptyList() }, d.sync)
+        assertFalse(repo.status.first().notificationHidden)
+        d.transport.setNotificationHiddenSinceMs(5L)
+        assertTrue(repo.status.first { it.notificationHidden }.notificationHidden)
+        d.transport.setNotificationHiddenSinceMs(null)
+        assertFalse(repo.status.first { !it.notificationHidden }.notificationHidden)
     }
 }

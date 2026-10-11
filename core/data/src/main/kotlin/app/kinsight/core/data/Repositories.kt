@@ -468,6 +468,8 @@ data class ServiceStatus(
     val problem: SyncProblem?,
     /** The engine's finished-session counter (any outcome); starts over from zero when the service restarts. */
     val finishedSessions: Int = 0,
+    /** This child's sync notification is hidden: usage is paused until it is shown again (S-M3). */
+    val notificationHidden: Boolean = false,
 )
 
 class ServiceRepository(
@@ -484,17 +486,19 @@ class ServiceRepository(
         }
     }
 
-    val status: Flow<ServiceStatus> = combine(snapshot, transport.stoppedByUserFlow, ticks) { s, stopped, _ ->
-        ServiceStatus(
-            state = s.state,
-            stoppedByUser = stopped,
-            lastSyncMs = s.sync.lastSyncWallMs ?: s.lastSyncWallMs,
-            missingPermissions = missingPermissions(),
-            syncing = s.sync.syncing,
-            problem = s.sync.lastProblem,
-            finishedSessions = s.sync.finishedSessions,
-        )
-    }
+    val status: Flow<ServiceStatus> =
+        combine(snapshot, transport.stoppedByUserFlow, transport.notificationHiddenFlow, ticks) { s, stopped, hidden, _ ->
+            ServiceStatus(
+                state = s.state,
+                stoppedByUser = stopped,
+                lastSyncMs = s.sync.lastSyncWallMs ?: s.lastSyncWallMs,
+                missingPermissions = missingPermissions(),
+                syncing = s.sync.syncing,
+                problem = s.sync.lastProblem,
+                finishedSessions = s.sync.finishedSessions,
+                notificationHidden = hidden,
+            )
+        }
 
     fun start() = control.startByUser()
 

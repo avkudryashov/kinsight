@@ -24,6 +24,8 @@
     <string name="dash_empty_body">Пригласите телефон ребёнка, чтобы видеть здесь его экранное время.</string>
     <string name="dash_invite_child">Пригласить ребёнка</string>
     <string name="dash_open_app_settings">Открыть настройки приложения</string>
+    <string name="dash_notification_hidden">Уведомление скрыто: обмен приостановлен, включите уведомления Kinsight.</string>
+    <string name="dash_open_notification_settings">Настройки уведомлений</string>
     <string name="dash_open_bluetooth">Настройки Bluetooth</string>
     <string name="dash_no_data_today">За сегодня данных нет</string>
     <string name="dash_week_summary">За 7 дней: всего %1$s, самый активный день: %2$s</string>

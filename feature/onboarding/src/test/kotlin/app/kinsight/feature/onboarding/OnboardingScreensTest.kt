@@ -27,7 +27,7 @@ class OnboardingScreensTest {
         rule.onNodeWithText("every parent in your family group (currently Mom) and parents who join later", substring = true).assertExists()
         rule.onNodeWithText("Your parents will see", substring = true).assertExists()
         rule.onNodeWithText("last 7 days", substring = true).performScrollTo().assertIsDisplayed()
-        rule.onNodeWithText("a notification is always shown", substring = true).performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("If you hide it, sharing pauses", substring = true).performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("Your family will see the pause", substring = true).performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("Play Protect", substring = true).performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("Not now").assertExists()

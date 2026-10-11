@@ -371,4 +371,18 @@ class DashboardScreenTest {
         show(DashboardUi(null, running, true))
         rule.onNodeWithText("No family group").assertExists()
     }
+
+    @Test
+    fun aHiddenNotificationShowsThePauseBannerWithNotificationSettings() {
+        show(childUi(Sharing.On).copy(service = running.copy(notificationHidden = true)))
+        rule.onNodeWithTag("dash_banner").assertExists()
+        rule.onNodeWithText("Notification hidden: sharing is paused", substring = true).assertExists()
+        rule.onNodeWithTag("dash_notification_settings").assertExists()
+    }
+
+    @Test
+    fun theUsersStopOutranksAHiddenNotification() {
+        assertEquals(SyncAttention.STOPPED, SyncAttention.of(running.copy(stoppedByUser = true, notificationHidden = true)))
+        assertEquals(SyncAttention.NOTIFICATION_HIDDEN, SyncAttention.of(running.copy(notificationHidden = true)))
+    }
 }
