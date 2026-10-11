@@ -201,4 +201,15 @@ class AppPrefsTest {
         prefs.resetForNewGroup()
         assertEquals(null, prefs.acknowledgedParents.first())
     }
+
+    @Test
+    fun acknowledgingAddsToTheStoredParents() = runBlocking<Unit> {
+        val mom = DeviceId("aa".repeat(16))
+        val dad = DeviceId("bb".repeat(16))
+        prefs.addAcknowledgedParents(setOf(dad))
+        assertEquals(setOf(dad), prefs.acknowledgedParents.first())
+        prefs.setAcknowledgedParents(setOf(mom))
+        prefs.addAcknowledgedParents(setOf(dad))
+        assertEquals(setOf(mom, dad), prefs.acknowledgedParents.first())
+    }
 }

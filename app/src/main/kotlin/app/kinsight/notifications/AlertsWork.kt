@@ -17,6 +17,7 @@ import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.CategoryOverrides
 import app.kinsight.core.data.GroupSnapshot
 import app.kinsight.core.data.Role
+import app.kinsight.core.model.DeviceId
 import app.kinsight.core.transport.ble.BlePermissions
 import app.kinsight.core.transport.ble.SyncGraph
 import app.kinsight.feature.widget.KinsightWidget
@@ -55,7 +56,9 @@ object AlertsRun {
                 thresholds = g.prefs.thresholds.first(), overrides = CategoryOverrides.effective(snapshot),
             ),
         )
-        AlertChannels.ensure(context, input.self.role)
+        val upgraded = AlertChannels.ensure(context, input.self.role)
+        if (upgraded) repostOpen(context, input)
+        baselineParents(input, g.prefs.acknowledgedParents.first()) { g.prefs.setAcknowledgedParents(it) }
         // setAlertMarkers is one DataStore edit: the markers are replaced whole or not at all.
         deliver(context, input, AlertPlanner.plan(input)) { g.prefs.setAlertMarkers(it) }
         val today = LocalDate.now().toString()
@@ -67,18 +70,39 @@ object AlertsRun {
 
     internal suspend fun <T> serialized(block: suspend () -> T): T = lock.withLock { block() }
 
-    /** Posts every alert first, then stores the markers [markersToStore] allows. A throwing post stores nothing. */
+    /**
+     * Posts every alert first, then stores the markers [markersToStore] allows. A throwing post stores nothing. Empty
+     * group summaries left from before go first (AlertNotifier.sweepSummaries).
+     */
     internal suspend fun deliver(context: Context, input: AlertInput, plan: AlertPlan, store: suspend (AlertMarkers) -> Unit) {
-        var delivered = AlertNotifier.canPost(context)
-        if (delivered) {
-            for (alert in plan.alerts) {
-                if (!AlertNotifier.post(context, alert)) {
-                    delivered = false
-                    break
-                }
-            }
-        }
+        AlertNotifier.sweepSummaries(context)
+        val delivered = AlertNotifier.canPost(context) && AlertNotifier.postAll(context, plan.alerts)
         markersToStore(input, plan, delivered)?.let { store(it) }
+    }
+
+    /**
+     * The first pass after the update from 0.7.x deleted «kinsight-integrity», and with it the open pause and hidden
+     * notification alerts (their seq is marked, the planner would not say them again): they come back, silent, on
+     * the new channel.
+     */
+    internal fun repostOpen(context: Context, input: AlertInput) {
+        if (input.self.role == Role.CHILD) return
+        AlertNotifier.postAll(context, AlertPlanner.openProblems(input), silent = true)
+    }
+
+    /**
+     * A child's «new parent» banner baseline (U7), the same parents the planner knows at its start (the inviter on the
+     * first pass): stored once, while nothing is stored; a failure is retried by the next pass.
+     */
+    internal suspend fun baselineParents(input: AlertInput, stored: Set<DeviceId>?, store: suspend (Set<DeviceId>) -> Unit) {
+        if (input.self.role != Role.CHILD || stored != null) return
+        try {
+            store(AlertPlanner.knownParents(input))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("KinsightAlerts", "parent baseline failed", e)
+        }
     }
 
     /**

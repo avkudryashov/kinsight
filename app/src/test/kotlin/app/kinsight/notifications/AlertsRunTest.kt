@@ -226,4 +226,41 @@ class AlertsRunTest {
         assertNull(shadowOf(nm).getNotification(legacyId))
         assertTrue(shadowOf(nm).allNotifications.isEmpty())
     }
+
+    @Test
+    fun theSweepAtTheStartOfAPassDropsAChildlessSummary() = runBlocking<Unit> {
+        val paused = Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000, kid.id)
+        AlertNotifier.post(context, paused)
+        nm.cancel(AlertNotifier.idOf(paused)) // swiped, or a cancel the service applied late
+        assertEquals(1, shadowOf(nm).allNotifications.size)
+        pass(AlertMarkers(initialized = true), emptyList())
+        assertTrue(shadowOf(nm).allNotifications.isEmpty())
+    }
+
+    @Test
+    fun theUpgradeRepostsOpenProblemsSilentlyOnTheNewChannel() {
+        AlertChannels.ensure(context, Role.PARENT)
+        AlertsRun.repostOpen(context, input(events = listOf(paused(1), resumed(2), paused(3))))
+        val posted = alerts().single()
+        assertEquals(AlertChannels.IMPORTANT, posted.channelId)
+        assertEquals("silent: the parent was told before", androidx.core.app.NotificationCompat.GROUP_ALERT_SUMMARY, posted.groupAlertBehavior)
+        nm.cancelAll()
+        AlertsRun.repostOpen(context, input(self = kidSelf, members = listOf(momOther, kidSelf), events = listOf(paused(1))))
+        assertTrue(shadowOf(nm).allNotifications.isEmpty())
+    }
+
+    @Test
+    fun aChildsBannerBaselineIsThePlannersKnownParentsStoredOnce() = runBlocking<Unit> {
+        val dad = MemberView(DeviceId("bb".repeat(16)), "Dad", Role.PARENT, isAdmin = false, isSelf = false, lastSeenMs = null)
+        val child = input(self = kidSelf, members = listOf(momOther, dad, kidSelf), markers = AlertMarkers()).copy(inviter = mom.id)
+        var stored: Set<DeviceId>? = null
+        AlertsRun.baselineParents(child, null) { stored = it }
+        assertEquals("only the inviter: a parent added since is news on Overview", setOf(mom.id), stored)
+        stored = null
+        AlertsRun.baselineParents(child, emptySet()) { stored = it }
+        assertNull("already stored", stored)
+        AlertsRun.baselineParents(input(), null) { stored = it }
+        assertNull("a parent has no banner", stored)
+        AlertsRun.baselineParents(child, null) { error("disk full") } // logged; the next pass tries again
+    }
 }

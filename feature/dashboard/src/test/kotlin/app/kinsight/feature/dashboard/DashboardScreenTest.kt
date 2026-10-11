@@ -61,7 +61,7 @@ class DashboardScreenTest {
         onSyncNow: () -> Unit = {},
         onInviteChild: () -> Unit = {},
         onOpenSettings: () -> Unit = {},
-        onAcknowledgeParents: () -> Unit = {},
+        onAcknowledgeParents: (Set<DeviceId>) -> Unit = {},
     ) = rule.setContent {
         KinsightTheme(dynamicColor = false) {
             DashboardScreen(
@@ -432,13 +432,13 @@ class DashboardScreenTest {
 
     @Test
     fun aChildIsToldWhoNewlySeesItsTimeUntilItAcknowledges() {
-        var ok = 0
-        show(childUi(Sharing.On).copy(newParents = listOf(dad)), onAcknowledgeParents = { ok++ })
+        val acks = mutableListOf<Set<DeviceId>>()
+        show(childUi(Sharing.On).copy(newParents = listOf(dad)), onAcknowledgeParents = { acks += it })
         rule.onNodeWithTag("dash_new_parent").assertExists()
         rule.onNodeWithText("New in your family group: Dad", substring = true).assertExists()
         rule.onNodeWithTag("dash_new_parent_ok").performClick()
         rule.waitForIdle()
-        assertEquals(1, ok)
+        assertEquals("only the parents the banner showed", listOf(setOf(dad.id)), acks)
     }
 
     @Test

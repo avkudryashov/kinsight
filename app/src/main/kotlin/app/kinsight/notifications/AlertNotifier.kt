@@ -7,6 +7,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.pm.PackageManager
+import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import app.kinsight.MainActivity
@@ -30,25 +31,63 @@ object AlertNotifier {
      * False when nothing could be posted (see [canPost]): the caller then keeps the alert for a later run. A
      * [Alert.Resolved] posts nothing: it cancels that child's open notification of its kind (no permission needed).
      */
+    fun post(context: Context, alert: Alert): Boolean = postAll(context, listOf(alert))
+
+    /**
+     * Posts [alerts] in order, then one group summary per child that still has an alert from this pass (U26: one
+     * summary update per group, not per alert, so the per-app rate limit goes to the alerts). Stops at the first alert
+     * that cannot be posted ([canPost]) and returns false; the summaries of what was posted still go up. [silent]: a
+     * re-post that must not sound again (the open problems moved off the 0.7.x channel).
+     */
     @SuppressLint("MissingPermission") // canPost checks it right above the notify calls
-    fun post(context: Context, alert: Alert): Boolean {
+    fun postAll(context: Context, alerts: List<Alert>, silent: Boolean = false): Boolean {
         val nm = NotificationManagerCompat.from(context)
-        if (alert is Alert.Resolved) {
-            nm.cancel(idOf(alert))
-            // An older build keyed the open notification by the child's name: that one goes too.
-            nm.cancel(integrityId(alert.device, alert.kind))
-            dropEmptySummary(context, groupOf(alert))
-            return true
+        // Per group: the latest alert (the summary's tap target) and the ids this pass left in it. A cancel or a notify
+        // reaches NotificationManagerService asynchronously, so this pass keeps its own account.
+        val posted = LinkedHashMap<String, Pair<Alert, MutableSet<Int>>>()
+        var ok = true
+        for (alert in alerts) {
+            if (alert is Alert.Resolved) {
+                val cancelled = cancelledIds(alert)
+                cancelled.forEach(nm::cancel)
+                for (group in groupsOf(alert)) {
+                    posted[group]?.second?.removeAll(cancelled)
+                    dropEmptySummary(context, group, cancelled)
+                }
+                continue
+            }
+            if (!canPost(context)) {
+                ok = false
+                break
+            }
+            // Builds before device-keyed ids keyed a pause or hidden notification by the name: replace that one too.
+            if (alert is Alert.Integrity && alert.id != null && alert.kind in AlertPlanner.CLOSERS) {
+                nm.cancel(integrityId(alert.device, alert.kind))
+            }
+            nm.notify(idOf(alert), build(context, alert, silent))
+            val group = groupOf(alert) ?: continue
+            val ids = posted[group]?.second ?: mutableSetOf()
+            ids += idOf(alert)
+            posted[group] = alert to ids
         }
-        if (!canPost(context)) return false
-        // Builds before device-keyed ids keyed a pause or hidden notification by the name: replace that one too.
-        if (alert is Alert.Integrity && alert.id != null && alert.kind in AlertPlanner.CLOSERS) {
-            nm.cancel(integrityId(alert.device, alert.kind))
+        // The summary itself never sounds (GROUP_ALERT_CHILDREN).
+        for ((group, entry) in posted) {
+            if (entry.second.isNotEmpty()) nm.notify(summaryId(group), summary(context, entry.first, group))
         }
-        nm.notify(idOf(alert), build(context, alert))
-        // U26: a child's alerts are bundled; the summary itself never sounds (GROUP_ALERT_CHILDREN).
-        groupOf(alert)?.let { nm.notify(summaryId(it), summary(context, alert, it)) }
-        return true
+        return ok
+    }
+
+    /**
+     * At the start of a pass: a child's summary whose alerts are all gone (swiped, tapped, or cancelled while the
+     * service had not yet applied it) goes too, so no empty «event on a child's phone» row stays in the shade.
+     */
+    fun sweepSummaries(context: Context) {
+        val active = context.getSystemService(NotificationManager::class.java).activeNotifications
+        active.filter { it.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0 }
+            .mapNotNull { it.notification.group?.takeIf { g -> g.startsWith(GROUP) } }
+            .distinct()
+            .filter { isEmptyGroup(active, it, emptySet()) }
+            .forEach { NotificationManagerCompat.from(context).cancel(summaryId(it)) }
     }
 
     /**
@@ -57,7 +96,7 @@ object AlertNotifier {
      * shade. The lock screen shows only a generic title: the child's name
      * and the event stay private until the phone is unlocked.
      */
-    internal fun build(context: Context, alert: Alert): Notification {
+    internal fun build(context: Context, alert: Alert, silent: Boolean = false): Notification {
         val t = AlertText.of(context, alert)
         val publicTitle = context.getString(
             when (alert) {
@@ -82,6 +121,7 @@ object AlertNotifier {
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(public)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setSilent(silent)
             .apply { groupOf(alert)?.let(::setGroup) }
             .build()
     }
@@ -95,8 +135,15 @@ object AlertNotifier {
         is Alert.NewParent, is Alert.Summary -> null
     }
 
+    /** A resolve's groups: the device-keyed one and the name-keyed one of 0.7.x (cleared on the upgrade). */
+    private fun groupsOf(alert: Alert.Resolved): List<String> = listOf(GROUP + alert.id.hex, GROUP + alert.device)
+
+    /** What a resolve cancels: the device-keyed notification and the name-keyed one of an older build. */
+    internal fun cancelledIds(alert: Alert.Resolved): Set<Int> = setOf(idOf(alert), integrityId(alert.device, alert.kind))
+
+    /** On a fixed channel (a parent's «Важное»), whatever its alerts' channels: it is silent anyway. */
     private fun summary(context: Context, alert: Alert, group: String): Notification =
-        NotificationCompat.Builder(context, AlertText.of(context, alert).channel)
+        NotificationCompat.Builder(context, AlertChannels.IMPORTANT)
             .setSmallIcon(R.drawable.ic_stat_kinsight)
             .setContentTitle(context.getString(R.string.alert_public_integrity))
             .setCategory(NotificationCompat.CATEGORY_STATUS)
@@ -109,15 +156,20 @@ object AlertNotifier {
             .setContentIntent(contentIntent(context, alert))
             .build()
 
-    /** A group's summary goes once none of its alerts is left in the shade. */
-    private fun dropEmptySummary(context: Context, group: String?) {
-        group ?: return
+    /**
+     * A group's summary goes once none of its alerts is left. [cancelled]: ids just cancelled, which the service may
+     * still list (it applies a cancel asynchronously).
+     */
+    private fun dropEmptySummary(context: Context, group: String, cancelled: Set<Int>) {
         val active = context.getSystemService(NotificationManager::class.java).activeNotifications
-        val left = active.count { it.notification.group == group && it.notification.flags and Notification.FLAG_GROUP_SUMMARY == 0 }
-        if (left == 0) NotificationManagerCompat.from(context).cancel(summaryId(group))
+        if (isEmptyGroup(active, group, cancelled)) NotificationManagerCompat.from(context).cancel(summaryId(group))
     }
 
-    private fun summaryId(group: String): Int = ("g$group").hashCode()
+    /** No alert of [group] in [active] apart from its summary and the [cancelled] ids. */
+    internal fun isEmptyGroup(active: Array<StatusBarNotification>, group: String, cancelled: Set<Int>): Boolean =
+        active.none { it.notification.group == group && it.notification.flags and Notification.FLAG_GROUP_SUMMARY == 0 && it.id !in cancelled }
+
+    internal fun summaryId(group: String): Int = ("g$group").hashCode()
 
     /**
      * An integrity or threshold alert opens that child's detail screen; a child that left (no detail any more) and
@@ -138,7 +190,7 @@ object AlertNotifier {
      * id is keyed by the child's device (its name only when unknown), so a [Alert.Resolved] finds it after a rename.
      * A threshold is keyed by its rule (child and target): a re-post the next day or after a limit change replaces it.
      */
-    private fun idOf(alert: Alert): Int = when (alert) {
+    internal fun idOf(alert: Alert): Int = when (alert) {
         is Alert.Integrity -> integrityId(alert.id?.hex ?: alert.device, alert.kind)
         is Alert.Resolved -> integrityId(alert.id.hex, alert.kind)
         is Alert.NoContact -> ("c" + (alert.id?.hex ?: alert.device)).hashCode()

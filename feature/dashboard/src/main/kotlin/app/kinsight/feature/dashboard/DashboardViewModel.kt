@@ -22,7 +22,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.util.concurrent.atomic.AtomicBoolean
 
 /** [noContactHours]: the user's «no contact» setting (spec §9.7), so a card and the alert agree (preflight C19). */
 data class DashboardUi(
@@ -45,31 +44,23 @@ class DashboardViewModel(
 
     private val sharingFailed = MutableStateFlow(false)
 
-    private val acknowledged = settings.acknowledgedParents.catch { emit(emptySet()) }
-    private val baselining = AtomicBoolean(false)
+    // A read failure shows no banner (null: nothing stored yet). The baseline is the alerts pass's job
+    // (AlertsRun.baselineParents, the planner's known parents), so a parent added before this child first opens
+    // Overview is still news here.
+    private val acknowledged = settings.acknowledgedParents.catch { emit(null) }
 
     val ui: StateFlow<DashboardUi> = combine(usage.dashboard, service.status, noContactHours, sharingFailed, acknowledged) { d, s, h, f, ack ->
         val parents = d?.takeIf { it.self.role == Role.CHILD }?.parents // a child's phone only
-        // First sight on a child's phone: the parents named at consent are the baseline, none of them is news.
-        if (parents != null && ack == null) baseline(parents.map { it.id }.toSet())
         DashboardUi(d, s, loaded = true, noContactHours = h, sharingFailed = f, newParents = parents?.let { NewParents.of(it, ack) }.orEmpty())
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUi())
 
-    /** «Понятно» on the banner: every current parent is known now. */
-    fun acknowledgeParents() {
-        val parents = ui.value.dashboard?.parents ?: return
-        store(parents.map { it.id }.toSet())
-    }
-
-    private fun baseline(ids: Set<DeviceId>) {
-        if (baselining.compareAndSet(false, true)) store(ids)
-    }
-
-    private fun store(ids: Set<DeviceId>) {
+    /** «Понятно» on the banner: the [shown] parents (the ones it listed) are known now; one who arrived since is still news. */
+    fun acknowledgeParents(shown: Set<DeviceId>) {
+        if (shown.isEmpty()) return
         viewModelScope.launch {
             try {
-                settings.acknowledgeParents(ids)
+                settings.acknowledgeParents(shown)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

@@ -120,7 +120,12 @@ class AppPrefs(private val store: DataStore<Preferences>) {
     val acknowledgedParents: Flow<Set<DeviceId>?> = store.data.map { p -> p[ACK_PARENTS]?.let(::decodeIds) }.distinctUntilChanged()
 
     suspend fun setAcknowledgedParents(ids: Set<DeviceId>) {
-        store.edit { it[ACK_PARENTS] = ids.map { d -> d.hex }.sorted().joinToString(",") }
+        store.edit { it[ACK_PARENTS] = encodeIds(ids) }
+    }
+
+    /** «Понятно»: adds the parents the banner showed, in one edit (the alerts pass may write the baseline meanwhile). */
+    suspend fun addAcknowledgedParents(ids: Set<DeviceId>) {
+        store.edit { it[ACK_PARENTS] = encodeIds(it[ACK_PARENTS]?.let(::decodeIds).orEmpty() + ids) }
     }
 
     /** A wiped group: back to the first run; the device name the user typed stays. */
@@ -149,6 +154,8 @@ class AppPrefs(private val store: DataStore<Preferences>) {
         private val CATEGORY_OVERRIDES = stringPreferencesKey("category_overrides")
         private val THRESHOLDS = stringPreferencesKey("threshold_rules")
         private val ACK_PARENTS = stringPreferencesKey("acknowledged_parents")
+
+        private fun encodeIds(ids: Set<DeviceId>): String = ids.map { d -> d.hex }.sorted().joinToString(",")
 
         /** Comma-separated device hex ids; a malformed one is skipped, "" is the empty set. */
         private fun decodeIds(raw: String): Set<DeviceId> =

@@ -566,7 +566,8 @@ class SettingsRepository(
     /** The child's acknowledged parents for the Overview banner (U7). */
     val acknowledgedParents: Flow<Set<DeviceId>?> = prefs.acknowledgedParents
 
-    suspend fun acknowledgeParents(ids: Set<DeviceId>) = prefs.setAcknowledgedParents(ids)
+    /** Adds [ids] (the parents the banner showed) to the acknowledged ones. */
+    suspend fun acknowledgeParents(ids: Set<DeviceId>) = prefs.addAcknowledgedParents(ids)
 
     /** «Согласен» on the consent screen, then sharing on (a child only; the pipeline refuses otherwise). */
     suspend fun consentAndShare() {

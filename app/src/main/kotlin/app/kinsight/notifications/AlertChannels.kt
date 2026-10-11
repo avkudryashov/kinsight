@@ -31,9 +31,13 @@ object AlertChannels {
         AlertLevel.THRESHOLD -> THRESHOLDS
     }
 
-    /** Creates [role]'s channels and deletes every other alert channel (the legacy one, a former role's). */
-    fun ensure(context: Context, role: Role) {
+    /**
+     * Creates [role]'s channels and deletes every other alert channel (the legacy one, a former role's). True when the
+     * 0.7.x channel was there: deleting it cancelled its notifications, so the caller re-posts the open problems.
+     */
+    fun ensure(context: Context, role: Role): Boolean {
         val nm = context.getSystemService(NotificationManager::class.java)
+        val hadLegacy = nm.getNotificationChannel(LEGACY_INTEGRITY) != null
         val wanted = when (role) {
             Role.PARENT -> listOf(
                 channel(context, IMPORTANT, R.string.channel_important, R.string.channel_important_description, NotificationManager.IMPORTANCE_DEFAULT),
@@ -48,6 +52,7 @@ object AlertChannels {
         nm.createNotificationChannels(wanted)
         val keep = wanted.map { it.id }.toSet()
         ALL.filter { it !in keep }.forEach { nm.deleteNotificationChannel(it) }
+        return hadLegacy
     }
 
     private fun channel(context: Context, id: String, name: Int, description: Int, importance: Int) =

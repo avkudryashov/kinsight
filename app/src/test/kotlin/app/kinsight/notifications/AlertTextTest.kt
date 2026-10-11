@@ -7,7 +7,6 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.kinsight.R
 import app.kinsight.core.data.Alert
-import app.kinsight.core.data.AlertLevel
 import app.kinsight.core.data.AlertPlanner
 import app.kinsight.core.data.AppCategory
 import app.kinsight.core.data.Role
@@ -15,6 +14,7 @@ import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.proto.StateEvent
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -99,8 +99,9 @@ class AlertTextTest {
     fun channelsFollowTheRole() {
         val nm = context.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(AlertChannels.LEGACY_INTEGRITY, "Integrity", NotificationManager.IMPORTANCE_DEFAULT))
-        AlertChannels.ensure(context, Role.PARENT)
+        assertTrue("the 0.7.x channel was there", AlertChannels.ensure(context, Role.PARENT))
         assertNull("the 0.7.x channel goes", nm.getNotificationChannel(AlertChannels.LEGACY_INTEGRITY))
+        assertFalse(AlertChannels.ensure(context, Role.PARENT))
         assertEquals(NotificationManager.IMPORTANCE_DEFAULT, nm.getNotificationChannel(AlertChannels.IMPORTANT).importance)
         assertEquals(NotificationManager.IMPORTANCE_LOW, nm.getNotificationChannel(AlertChannels.EVENTS).importance)
         assertEquals(NotificationManager.IMPORTANCE_LOW, nm.getNotificationChannel(AlertChannels.SUMMARIES).importance)

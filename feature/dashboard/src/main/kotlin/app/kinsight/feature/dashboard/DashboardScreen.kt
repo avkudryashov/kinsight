@@ -125,7 +125,7 @@ fun DashboardScreen(
     onSyncNow: () -> Unit,
     onInviteChild: () -> Unit,
     onOpenSettings: () -> Unit,
-    onAcknowledgeParents: () -> Unit = {},
+    onAcknowledgeParents: (Set<DeviceId>) -> Unit = {},
 ) {
     val d = ui.dashboard
     if (d == null) {
@@ -239,7 +239,7 @@ internal enum class SyncAttention {
 
 /** U7: who newly sees this child's time, until «Got it»; the notification may have been turned off. */
 @Composable
-private fun NewParentBanner(parents: List<MemberView>, onOk: () -> Unit) {
+private fun NewParentBanner(parents: List<MemberView>, onOk: (Set<DeviceId>) -> Unit) {
     Card(
         Modifier.fillMaxWidth().testTag("dash_new_parent").semantics { liveRegion = LiveRegionMode.Polite },
         colors = CardDefaults.cardColors(
@@ -250,7 +250,7 @@ private fun NewParentBanner(parents: List<MemberView>, onOk: () -> Unit) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.dash_new_parent, parents.joinToString(", ") { it.name }), style = MaterialTheme.typography.titleSmall)
             Text(stringResource(R.string.dash_new_parent_body), style = MaterialTheme.typography.bodySmall)
-            TextButton(onOk, Modifier.testTag("dash_new_parent_ok")) { Text(stringResource(R.string.dash_new_parent_ok)) }
+            TextButton({ onOk(parents.map { it.id }.toSet()) }, Modifier.testTag("dash_new_parent_ok")) { Text(stringResource(R.string.dash_new_parent_ok)) }
         }
     }
 }

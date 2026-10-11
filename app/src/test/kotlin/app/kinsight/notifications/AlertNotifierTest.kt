@@ -15,6 +15,7 @@ import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.proto.StateEvent
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -168,5 +169,58 @@ class AlertNotifierTest {
         val n = AlertNotifier.build(context, Alert.NewParent("Dad", dad))
         assertEquals(AlertChannels.TRANSPARENCY, n.channelId)
         assertEquals("Kinsight: who sees your data", n.publicVersion.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
+    }
+
+    /** The service applies a cancel asynchronously: the alert just cancelled may still be listed and must not count. */
+    @Test
+    fun aJustCancelledAlertDoesNotKeepItsGroupAlive() {
+        shadowOf(context).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        AlertChannels.ensure(context, Role.PARENT)
+        val paused = Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000, kid)
+        AlertNotifier.post(context, paused)
+        val active = context.getSystemService(NotificationManager::class.java).activeNotifications
+        val group = AlertNotifier.groupOf(paused)!!
+        assertFalse(AlertNotifier.isEmptyGroup(active, group, emptySet()))
+        assertTrue(AlertNotifier.isEmptyGroup(active, group, AlertNotifier.cancelledIds(Alert.Resolved(kid, StateEvent.Kind.SHARING_PAUSED, "Kid"))))
+    }
+
+    @Test
+    fun aSwipedAwayGroupLosesItsSummaryOnTheNextSweep() {
+        shadowOf(context).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        AlertChannels.ensure(context, Role.PARENT)
+        val nm = context.getSystemService(NotificationManager::class.java)
+        val paused = Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000, kid)
+        val limit = threshold(sis, ThresholdTarget.Total, 4_000_000L)
+        AlertNotifier.postAll(context, listOf(paused, limit))
+        nm.cancel(AlertNotifier.idOf(paused)) // the user swiped it: the app is not told
+        AlertNotifier.sweepSummaries(context)
+        val left = shadowOf(nm).allNotifications
+        assertEquals(2, left.size)
+        assertTrue(left.all { it.group == AlertNotifier.groupOf(limit) })
+    }
+
+    @Test
+    fun oneSummaryPerChildOnTheImportantChannel() {
+        shadowOf(context).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        AlertChannels.ensure(context, Role.PARENT)
+        val nm = shadowOf(context.getSystemService(NotificationManager::class.java))
+        AlertNotifier.postAll(context, listOf(
+            Alert.Integrity("Kid", StateEvent.Kind.CLOCK_CHANGED, 1_000, kid),
+            Alert.Integrity("Kid", StateEvent.Kind.DATA_GAP, 2_000, kid),
+        ))
+        val summaries = nm.allNotifications.filter { it.flags and Notification.FLAG_GROUP_SUMMARY != 0 }
+        assertEquals(1, summaries.size)
+        assertEquals(AlertChannels.IMPORTANT, summaries.single().channelId)
+    }
+
+    @Test
+    fun aResolveAlsoClearsA07xNameKeyedGroup() {
+        shadowOf(context).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        AlertChannels.ensure(context, Role.PARENT)
+        val nm = shadowOf(context.getSystemService(NotificationManager::class.java))
+        AlertNotifier.post(context, Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 1_000, null))
+        assertEquals(2, nm.allNotifications.size)
+        AlertNotifier.post(context, Alert.Resolved(kid, StateEvent.Kind.SHARING_PAUSED, "Kid"))
+        assertEquals(0, nm.allNotifications.size)
     }
 }

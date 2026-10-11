@@ -427,4 +427,27 @@ class AlertPlannerTest {
         assertEquals(AlertLevel.THRESHOLD, AlertPlanner.level(Alert.Threshold(kid.id, "Kid", ThresholdTarget.Total, null, 2, 1)))
         assertEquals(setOf(StateEvent.Kind.CLOCK_CHANGED, StateEvent.Kind.DATA_GAP), AlertPlanner.MINOR_KINDS)
     }
+
+    @Test
+    fun theKnownParentsAreTheInviterOnTheFirstPassAndTheToldOnesAfter() {
+        val members = listOf(mom.copy(isSelf = false), dad, kid.copy(isSelf = true))
+        val self = kid.copy(isSelf = true)
+        assertEquals(setOf(mom.id), AlertPlanner.knownParents(input(self = self, members = members, markers = AlertMarkers(), inviter = mom.id)))
+        assertEquals(setOf(mom.id, dad.id), AlertPlanner.knownParents(input(self = self, members = members, markers = AlertMarkers())), "unknown inviter: all")
+        assertEquals(setOf(dad.id), AlertPlanner.knownParents(input(self = self, members = members, markers = AlertMarkers(knownParents = setOf(dad.id), initialized = true))))
+    }
+
+    @Test
+    fun openProblemsAreTheUnresolvedPausesAndHiddenNotifications() {
+        fun e(seq: Long, kind: StateEvent.Kind) = ev(kid, seq, kind)
+        assertEquals(
+            listOf(Alert.Integrity("Kid", StateEvent.Kind.SHARING_PAUSED, 3_000, kid.id)),
+            AlertPlanner.openProblems(input(events = listOf(e(1, StateEvent.Kind.SHARING_PAUSED), e(2, StateEvent.Kind.SHARING_RESUMED), e(3, StateEvent.Kind.SHARING_PAUSED)))),
+        )
+        assertEquals(emptyList(), AlertPlanner.openProblems(input(events = listOf(e(1, StateEvent.Kind.SHARING_PAUSED), e(2, StateEvent.Kind.SHARING_RESUMED)))))
+        assertEquals(
+            listOf(StateEvent.Kind.NOTIFICATION_HIDDEN),
+            AlertPlanner.openProblems(input(events = listOf(e(1, StateEvent.Kind.NOTIFICATION_HIDDEN), e(2, StateEvent.Kind.BLUETOOTH_OFF)))).map { it.kind },
+        )
+    }
 }

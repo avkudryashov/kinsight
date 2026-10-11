@@ -298,11 +298,33 @@ object AlertPlanner {
         return marks.filterTo(mutableSetOf()) { AlertMarkers.parseThresholdKey(it)?.second in keep }
     }
 
+    /**
+     * The parents a child's phone already knows before this pass: after the first pass, the ones it was told about;
+     * on the first, only the inviting admin (a parent added since the join is news); unknown inviter: all. The
+     * Overview banner starts from the same set (U7).
+     */
+    fun knownParents(i: AlertInput): Set<DeviceId> {
+        val parents = i.members.filter { it.role == Role.PARENT && !it.isSelf }
+        return if (i.markers.initialized) i.markers.knownParents.orEmpty() else
+            i.inviter?.takeIf { id -> parents.any { it.id == id } }?.let { setOf(it) } ?: parents.map { it.id }.toSet()
+    }
+
+    /**
+     * Each current child's problems still open (a pause or a hidden notification whose latest event of the pair is the
+     * opening one), as alerts; for a re-post after their notifications were lost, not for the markers.
+     */
+    fun openProblems(i: AlertInput): List<Alert.Integrity> =
+        i.members.filter { it.role == Role.CHILD && !it.isSelf }.flatMap { child ->
+            val own = i.events.filter { it.author == child.id }
+            CLOSERS.mapNotNull { (open, close) ->
+                own.filter { it.kind == open || it.kind == close }.maxByOrNull { it.seq }?.takeIf { it.kind == open }
+                    ?.let { Alert.Integrity(child.name, open, it.atMs, child.id, durationOf(it)) }
+            }
+        }
+
     private fun child(i: AlertInput): AlertPlan {
         val parents = i.members.filter { it.role == Role.PARENT && !it.isSelf }
-        // First run: only the inviting admin is "known" (a parent added since the join is news); unknown inviter: all.
-        val known = if (i.markers.initialized) i.markers.knownParents.orEmpty() else
-            i.inviter?.takeIf { id -> parents.any { it.id == id } }?.let { setOf(it) } ?: parents.map { it.id }.toSet()
+        val known = knownParents(i)
         val alerts = parents.filter { it.id !in known }.map { Alert.NewParent(it.name, it.id) }
         return AlertPlan(alerts, i.markers.copy(knownParents = parents.map { it.id }.toSet(), initialized = true))
     }
