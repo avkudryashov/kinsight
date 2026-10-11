@@ -37,10 +37,16 @@ class OnboardingViewModelTest {
     private class FakeGroup(initial: GroupState, var consent: Boolean = false) : OnboardingGroup {
         val flow = MutableStateFlow(initial)
         val created = mutableListOf<String>()
+
+        /** The group file: what the state flow may not show yet (a stale replay). */
+        var exists = initial is GroupState.Ready
         override val state: Flow<GroupState> = flow
         override suspend fun createGroup(name: String) {
+            check(!exists) { "a group already exists" }
             created += name
+            exists = true
         }
+        override suspend fun groupExists(): Boolean = exists
         override suspend fun consentRecorded(): Boolean = consent
     }
 
@@ -114,6 +120,24 @@ class OnboardingViewModelTest {
         vm.finish { finished = true }
         withTimeout(5_000) { while (!finished) kotlinx.coroutines.delay(10) }
         assertEquals(listOf("Mom"), group.created)
+    }
+
+    /** Re-review item 2: a retry after the group was made decides on the group file, not on a stale group state. */
+    @Test
+    fun aRetryWithAStaleStateDoesNotCreateTheGroupAgain() = runBlocking<Unit> {
+        val group = FakeGroup(GroupState.NoGroup)
+        val vm = vm(group)
+        vm.choose(Path.CREATE)
+        vm.setName("Mom")
+        vm.onResumed(Env(nearbyGranted = true, notificationsGranted = true, usageAccessGranted = true))
+        repeat(3) { vm.next() }
+        group.exists = true // made by an earlier try; the state flow still replays NoGroup
+        var finished = false
+        vm.finish { finished = true }
+        withTimeout(5_000) { while (!finished && vm.message.value == null) kotlinx.coroutines.delay(10) }
+        assertNull(vm.message.value)
+        assertTrue(group.created.isEmpty())
+        assertTrue(finished)
     }
 
     @Test

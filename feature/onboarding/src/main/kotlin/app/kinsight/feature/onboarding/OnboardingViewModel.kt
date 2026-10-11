@@ -35,6 +35,9 @@ interface OnboardingGroup {
 
     suspend fun createGroup(name: String)
 
+    /** The group file exists (read from storage, never from a possibly stale [state]). */
+    suspend fun groupExists(): Boolean
+
     /** A consent is on record (the pairing screen records it for a consenting child). */
     suspend fun consentRecorded(): Boolean
 }
@@ -271,7 +274,9 @@ class OnboardingViewModel(
         viewModelScope.launch {
             val s = _state.value
             try {
-                if (s.path == Path.CREATE && group.state.first { it !is GroupState.Loading } !is GroupState.Ready) {
+                // The group file decides, not group.state: a shared replay can still say NoGroup after a try that
+                // created the group and failed later, and createGroup would then throw «a group already exists».
+                if (s.path == Path.CREATE && !group.groupExists()) {
                     group.createGroup(s.name.trim())
                 }
                 prefs.setOnboardingDone(true)

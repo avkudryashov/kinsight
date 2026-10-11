@@ -46,6 +46,8 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -109,6 +111,8 @@ internal class GraphOnboardingGroup(private val graph: Graph) : OnboardingGroup 
     override val state: Flow<GroupState> get() = graph.group.state
 
     override suspend fun createGroup(name: String) = graph.group.createGroup(name)
+
+    override suspend fun groupExists(): Boolean = withContext(Dispatchers.IO) { graph.groups.exists() }
 
     override suspend fun consentRecorded(): Boolean = graph.settingsRepository.usageSettings.first().consentAtMs != null
 }
