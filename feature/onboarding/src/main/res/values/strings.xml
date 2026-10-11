@@ -42,7 +42,7 @@
     <string name="onb_usage_body">To count screen time, Kinsight needs usage access. Kinsight reads which apps were open and when, and sends the totals only to your family\'s phones. Android settings will open next: find Kinsight and turn on Usage access.</string>
     <string name="onb_usage_agree">Agree, open settings</string>
     <string name="onb_notifications_title">Notifications</string>
-    <string name="onb_notifications_body_child">While sharing is on, Kinsight always shows a notification saying who sees your screen time. Kinsight also tells you when a new parent joins. If you turn notifications off, your family will see that the notification is off on this phone.</string>
+    <string name="onb_notifications_body_child">While sharing is on, Kinsight always shows a notification saying who sees your screen time. Kinsight also tells you when a new parent joins. If you turn notifications off, your family will see that the notification is off on this phone. While notifications are off, sharing stays paused and your family sees it as paused; the paused time is sent once you allow them.</string>
     <string name="onb_notifications_body_parent">Kinsight shows a notification while it syncs, tells you when a child pauses sharing or is out of contact, and sends a daily summary.</string>
     <string name="onb_battery_title">Keep Kinsight running</string>
     <string name="onb_battery_body">Some phones stop apps in the background. Let Kinsight run without battery restrictions so your family\'s phones stay in sync.</string>

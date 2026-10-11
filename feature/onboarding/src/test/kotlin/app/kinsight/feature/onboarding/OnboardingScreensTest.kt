@@ -5,21 +5,22 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertLeftPositionInRootIsEqualTo
-import androidx.compose.ui.test.getUnclippedBoundsInRoot
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
-import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertLeftPositionInRootIsEqualTo
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.kinsight.core.designsystem.theme.KinsightTheme
 import org.junit.Assert.assertTrue
@@ -86,6 +87,40 @@ class OnboardingScreensTest {
         rule.onNodeWithText("не более чем за 7 последних дней", substring = true).assertExists()
         rule.onNodeWithText("Принимаю").assertExists()
         rule.onNodeWithText("Не сейчас").assertExists()
+    }
+
+    private fun showChildNotificationsStep() = rule.setContent {
+        KinsightTheme(dynamicColor = false) {
+            DisclosureScreen(
+                stringResource(R.string.onb_notifications_title),
+                stringResource(R.string.onb_notifications_body_child),
+                stringResource(R.string.onb_agree),
+                onAgree = {},
+                onNotNow = {},
+            )
+        }
+    }
+
+    @Test
+    fun theChildNotificationsStepSaysSharingPausesWithoutThem() {
+        showChildNotificationsStep()
+        rule.onNodeWithText("While notifications are off, sharing stays paused and your family sees it as paused", substring = true)
+            .performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun russianChildNotificationsStepSaysSharingPausesWithoutThem() {
+        showChildNotificationsStep()
+        rule.onNodeWithText("Пока уведомления запрещены, обмен стоит на паузе и семья видит его приостановленным", substring = true)
+            .performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun russianConsentPointLimitsTheBacklogLikeEnglish() {
+        rule.setContent { KinsightTheme(dynamicColor = false) { Text(stringResource(R.string.onb_consent_point_what)) } }
+        rule.onNodeWithText("не более чем за последние 7 дней", substring = true).assertExists()
     }
 
     @Test

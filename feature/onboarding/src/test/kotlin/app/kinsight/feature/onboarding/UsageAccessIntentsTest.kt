@@ -3,11 +3,11 @@ package app.kinsight.feature.onboarding
 import android.provider.Settings
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.kinsight.core.usage.UsageAccessSettings
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
-import kotlin.test.assertEquals
-import kotlin.test.assertNull
 
 // core/usage has no Robolectric (its android.jar returns defaults), so the shared helper is pinned here.
 @RunWith(AndroidJUnit4::class)
