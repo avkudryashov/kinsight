@@ -76,11 +76,13 @@ fun AppDetailRoute(id: DeviceId, packageName: String, range: DetailRange, onBack
     val app by vm.detail.collectAsStateWithLifecycle()
     val settings by graph.settingsRepository.usageSettings.collectAsStateWithLifecycle(initialValue = UsageSettings())
     val threshold by vm.threshold.collectAsStateWithLifecycle()
+    val changedBy by vm.categoryChangedBy.collectAsStateWithLifecycle()
     app?.let {
         AppDetailScreen(
             it, vm::select, onBack,
             onPrevious = vm::back, onNext = vm::forward, onOpenDay = vm::openDay, onCategory = vm::setCategory,
             detailRetentionDays = settings.detailRetentionDays,
+            categoryChangedBy = changedBy,
             threshold = threshold, onThreshold = vm::setThreshold, onRemoveThreshold = vm::removeThreshold,
         )
     } ?: Loading()
@@ -107,6 +109,7 @@ fun AppDetailScreen(
     threshold: ThresholdRule? = null,
     onThreshold: (Long) -> Unit = {},
     onRemoveThreshold: () -> Unit = {},
+    categoryChangedBy: String? = null,
 ) = Screen(appLabel(app.packageName, app.label), onBack) { padding ->
     val today = app.today ?: LocalDate.now()
     val known = app.days.any { it.known }
@@ -118,7 +121,7 @@ fun AppDetailScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item(key = "head") { Head(app) }
+        item(key = "head") { Head(app, categoryChangedBy) }
         if (app.canChangeCategory) {
             item(key = "change") {
                 TextButton({ choosing = true }, Modifier.heightIn(min = 48.dp).testTag("app_category")) {
@@ -234,7 +237,7 @@ fun AppDetailScreen(
 
 /** Icon, label and the category chip (a parent's own choice says so). */
 @Composable
-private fun Head(app: AppDetail) = Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+private fun Head(app: AppDetail, changedBy: String?) = Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
     AppIcon(app.icon, Modifier.size(56.dp))
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(appLabel(app.packageName, app.label), style = MaterialTheme.typography.titleLarge, modifier = Modifier.testTag("app_label"))
@@ -250,7 +253,14 @@ private fun Head(app: AppDetail) = Row(verticalAlignment = Alignment.CenterVerti
                 Text(name, Modifier.padding(start = 8.dp), style = MaterialTheme.typography.labelLarge)
             }
         }
-        if (app.overridden) Text(stringResource(R.string.app_category_yours), style = MaterialTheme.typography.bodySmall)
+        if (changedBy != null) {
+            Text(stringResource(R.string.app_category_changed_by, changedBy), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("app_category_author"))
+        } else if (app.overridden) {
+            Text(stringResource(R.string.app_category_yours), style = MaterialTheme.typography.bodySmall)
+        }
+        if (app.canChangeCategory) {
+            Text(stringResource(R.string.app_category_shared), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("app_category_shared"))
+        }
     }
 }
 

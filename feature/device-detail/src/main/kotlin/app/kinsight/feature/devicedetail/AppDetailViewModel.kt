@@ -40,6 +40,9 @@ internal interface AppSource {
     /** The parent's limit of this app (spec §9.7, stage 5b), null without one. */
     fun threshold(): Flow<ThresholdRule?> = flowOf(null)
 
+    /** The name of the other parent whose shared entry sets this app's category (spec §4.4, stage 5c); null otherwise. */
+    fun categoryChangedBy(): Flow<String?> = flowOf(null)
+
     suspend fun setThreshold(rule: ThresholdRule) {}
 
     suspend fun removeThreshold(id: String) {}
@@ -53,6 +56,8 @@ private class RepositoryAppSource(private val usage: UsageRepository, private va
     override suspend fun setCategory(category: AppCategory?) = usage.setCategory(packageName, category)
 
     private val ruleId = ThresholdRule.idOf(id, ThresholdTarget.App(packageName))
+
+    override fun categoryChangedBy(): Flow<String?> = usage.categoryChangedBy(packageName)
 
     override fun threshold(): Flow<ThresholdRule?> = usage.thresholds.map { rules -> rules.firstOrNull { it.id == ruleId } }
 
@@ -99,6 +104,9 @@ class AppDetailViewModel internal constructor(
 
     /** This app's limit («Notify if more than…»). */
     val threshold: StateFlow<ThresholdRule?> = source.threshold().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** «Changed by <name>»: the other parent behind the effective category, null for the viewer's own or none. */
+    val categoryChangedBy: StateFlow<String?> = source.categoryChangedBy().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     fun select(p: Period) = nav.select(p)
 

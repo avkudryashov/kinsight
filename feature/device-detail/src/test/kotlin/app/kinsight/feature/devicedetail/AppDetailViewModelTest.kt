@@ -55,6 +55,10 @@ class AppDetailViewModelTest {
 
         override fun threshold(): Flow<ThresholdRule?> = limit
 
+        val changedBy = MutableStateFlow<String?>(null)
+
+        override fun categoryChangedBy(): Flow<String?> = changedBy
+
         override suspend fun setThreshold(rule: ThresholdRule) {
             limit.value = rule
         }
@@ -152,6 +156,18 @@ class AppDetailViewModelTest {
         vm.setCategory(null) // «По умолчанию»
         assertEquals(AppCategory.GAMES, vm.detail.value!!.category)
         assertFalse(vm.detail.value!!.overridden)
+    }
+
+    @Test
+    fun theCategoryAuthorNameFollowsTheSource() = runTest(dispatcher) {
+        val source = FakeSource()
+        val vm = vm(source, week(sat))
+        backgroundScope.launch { vm.categoryChangedBy.collect {} }
+        assertNull(vm.categoryChangedBy.value)
+        source.changedBy.value = "Dad"
+        assertEquals("Dad", vm.categoryChangedBy.value)
+        source.changedBy.value = null
+        assertNull(vm.categoryChangedBy.value)
     }
 
     @Test

@@ -5,6 +5,7 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -66,9 +67,9 @@ class AppDetailScreenTest {
         )
     }
 
-    private fun show(a: AppDetail, onOpenDay: (LocalDate) -> Unit = {}, onCategory: (AppCategory?) -> Unit = {}) = rule.setContent {
+    private fun show(a: AppDetail, onOpenDay: (LocalDate) -> Unit = {}, onCategory: (AppCategory?) -> Unit = {}, changedBy: String? = null) = rule.setContent {
         KinsightTheme(dynamicColor = false) {
-            AppDetailScreen(a, onPeriod = {}, onBack = {}, onOpenDay = onOpenDay, onCategory = onCategory, detailRetentionDays = 30)
+            AppDetailScreen(a, onPeriod = {}, onBack = {}, onOpenDay = onOpenDay, onCategory = onCategory, detailRetentionDays = 30, categoryChangedBy = changedBy)
         }
     }
 
@@ -84,6 +85,7 @@ class AppDetailScreenTest {
         rule.onNodeWithTag("app_label").assertTextEquals("Game")
         rule.onNodeWithTag("app_category_chip").assertExists()
         rule.onNodeWithText("Games").assertExists()
+        list.performScrollToNode(hasText("#2 in top apps")) // the shared-category note pushes it below the first screen
         rule.onNodeWithText("#2 in top apps").assertExists()
         rule.onNodeWithText("1 h 10 min").assertExists()
     }
@@ -239,5 +241,32 @@ class AppDetailScreenTest {
     fun noAppLimitOnAChildsPhone() {
         showLimit(app(canChange = false), null)
         rule.onNodeWithTag("app_threshold").assertDoesNotExist()
+    }
+
+    @Test
+    fun aParentIsToldAllParentsSeeTheCategory() {
+        show(app(canChange = true))
+        rule.onNodeWithTag("app_category_shared").assertTextEquals("All parents in the family will see this category")
+        rule.onNodeWithTag("app_category_author").assertDoesNotExist()
+    }
+
+    @Test
+    fun aViewerWithoutRightsSeesNeitherNote() {
+        show(app(canChange = false), changedBy = "Dad")
+        rule.onNodeWithTag("app_category_shared").assertDoesNotExist()
+    }
+
+    @Test
+    fun anotherParentsChoiceNamesItsAuthor() {
+        show(app(overridden = true), changedBy = "Dad")
+        rule.onNodeWithTag("app_category_author").assertTextEquals("Changed by Dad")
+        rule.onNodeWithText("Chosen by you").assertDoesNotExist()
+    }
+
+    @Test
+    fun ownChoiceSaysChosenByYou() {
+        show(app(overridden = true))
+        rule.onNodeWithTag("app_category_author").assertDoesNotExist()
+        rule.onNodeWithText("Chosen by you").assertExists()
     }
 }
