@@ -16,12 +16,11 @@ class KinsightWidgetReceiver : GlanceAppWidgetReceiver() {
 }
 
 /**
- * The day change (spec §9.7): at midnight or after the clock or zone moved, «today» is another date. Not exported:
- * only the system sends these broadcasts.
+ * The clock or zone moved (spec §9.7): «today» may be another date; the language changed: the widget's words and
+ * formats change. Not exported: only the system sends these broadcasts.
  *
- * Best effort: whether DATE_CHANGED reaches a manifest receiver on every phone is not guaranteed. The guarantee is
- * the hourly alert run (AlertsWorker), which redraws the widget within an hour of midnight; there is deliberately no
- * exact alarm for it.
+ * No DATE_CHANGED: Android 8+ does not deliver it to manifest receivers. Midnight is guaranteed by the hourly alert
+ * run (AlertsWorker), which redraws the widget within an hour of it; there is deliberately no exact alarm for it.
  */
 class WidgetDayReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -37,8 +36,8 @@ class WidgetDayReceiver : BroadcastReceiver() {
         }
     }
 
-    private companion object {
-        val ACTIONS = setOf(Intent.ACTION_DATE_CHANGED, Intent.ACTION_TIME_CHANGED, Intent.ACTION_TIMEZONE_CHANGED)
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    internal companion object {
+        val ACTIONS = setOf(Intent.ACTION_TIME_CHANGED, Intent.ACTION_TIMEZONE_CHANGED, Intent.ACTION_LOCALE_CHANGED)
+        private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     }
 }

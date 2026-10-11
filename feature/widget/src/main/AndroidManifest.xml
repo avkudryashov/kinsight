@@ -15,14 +15,16 @@
                 android:resource="@xml/kinsight_widget_info" />
         </receiver>
 
-        <!-- Day change: protected system broadcasts only, so the receiver stays private. -->
+        <!-- Clock, zone and language changes: protected system broadcasts only, so the receiver stays private.
+             No DATE_CHANGED: Android 8+ does not deliver it to manifest receivers. Midnight is guaranteed by the
+             hourly alert run (AlertsWorker), which redraws the widget within an hour of it. -->
         <receiver
             android:name=".WidgetDayReceiver"
             android:exported="false">
             <intent-filter>
-                <action android:name="android.intent.action.DATE_CHANGED" />
                 <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.LOCALE_CHANGED" />
             </intent-filter>
         </receiver>
     </application>
