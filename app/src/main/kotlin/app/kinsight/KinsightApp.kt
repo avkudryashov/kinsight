@@ -218,9 +218,11 @@ private fun MainScaffold(appVersion: String, openDevice: StateFlow<String?>, onD
     NavigationSuiteScaffold(
         navigationSuiteItems = {
             tabs.forEach { t ->
+                val selected = entry?.destination?.hierarchy?.any { it.hasRoute(t.type) } == true
                 item(
-                    selected = entry?.destination?.hierarchy?.any { it.hasRoute(t.type) } == true,
-                    onClick = { nav.selectTab(t.route) },
+                    selected = selected,
+                    // Reselecting the current tab returns to its root (Material navigation bar guidance).
+                    onClick = { if (selected) nav.popBackStack(t.route, inclusive = false) else nav.selectTab(t.route) },
                     icon = { Icon(t.icon, contentDescription = null) },
                     label = { Text(stringResource(t.label)) },
                     modifier = Modifier.testTag(t.tag),
