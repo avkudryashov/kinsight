@@ -128,15 +128,21 @@ class TransportStateTest {
         val author = EntryAuthor(group.groupId, group.devices[0].keys, lastSeq = 10)
         val appended = mutableListOf<app.kinsight.core.model.DecodedEntry>()
         var log = OwnLog(liveSeqs = listOf(1, 2, 5), heartbeatSeq = 2)
-        val beats = Heartbeats(state, "0.1.0", append = { build -> appended += build(author); true }, ownLog = { log }, clock = { now })
+        var appends = 0
+        val beats = Heartbeats(state, "0.1.0", append = { build -> appends++; appended += build(author); true }, ownLog = { log }, clock = { now })
 
         assertTrue(beats.emitIfDue()) // first one
         val set = LiveSet.of(appended.last())!!
         assertEquals(5L, set.upTo)
         assertEquals(listOf(1L, 5L), set.seqs.toList()) // the superseded Heartbeat 2 is not live
+        log = OwnLog(listOf(1, 5, 11, 12), heartbeatSeq = 11) // a new own entry since
+        now += Heartbeats.MOVED_INTERVAL_MS - 1
+        assertFalse(beats.emitIfDue()) // inside the moved floor
+        assertEquals(1, appends, "inside the floor neither the pipeline nor the own log is touched")
+        now += 1
         log = OwnLog(listOf(1, 5, 11), heartbeatSeq = 11) // the new Heartbeat is the newest own entry
         assertFalse(beats.emitIfDue())
-        log = OwnLog(listOf(1, 5, 11, 12), heartbeatSeq = 11) // a new own entry since
+        log = OwnLog(listOf(1, 5, 11, 12), heartbeatSeq = 11)
         assertTrue(beats.emitIfDue())
         assertEquals(2, appended.size)
     }

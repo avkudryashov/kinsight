@@ -10,7 +10,6 @@ import app.kinsight.core.database.KinsightDatabaseFactory
 import app.kinsight.core.database.RoomEntryStore
 import app.kinsight.core.keystore.DeviceIdentity
 import app.kinsight.core.model.DeviceId
-import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.proto.StateEvent
@@ -198,15 +197,9 @@ object SyncGraph {
             state(app),
             appVersion(app),
             append = { build -> UsageGraph.pipeline(app).appendOwn(build = build) },
-            ownLog = { author -> ownLog(app, author) },
+            // Room only, never the pipeline: runs inside the Heartbeat's build, under stateLock and the pipeline lock.
+            ownLog = { author -> RoomEntryStore(KinsightDatabaseFactory.shared(app), author.groupId).ownLog(author.keys.deviceId) },
         )
-    }
-
-    /** Room only, never the pipeline: runs inside the Heartbeat's build, under [stateLock] and the pipeline lock. */
-    private suspend fun ownLog(context: Context, author: EntryAuthor): OwnLog {
-        val store = RoomEntryStore(KinsightDatabaseFactory.shared(context), author.groupId)
-        val self = author.keys.deviceId
-        return OwnLog(store.ownLiveSeqs(self), store.heartbeats().lastOrNull { it.author == self }?.seq)
     }
 
     /** Unserialised: callers go through [onBluetoothOff] and [onBluetoothOn]. */

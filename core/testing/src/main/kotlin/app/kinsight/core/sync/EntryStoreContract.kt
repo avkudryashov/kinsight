@@ -248,14 +248,14 @@ abstract class EntryStoreContract {
         assertEquals(6L, store.versionVector()[keys.deviceId])
     }
 
-    /** Task 5 review I3: the sparse accounting of one statement stays linear (a generous bound, it runs on the host). */
+    /** Task 5 review I3: the sparse accounting of one statement stays linear (the old per-seq advance took 1.3 s here). */
     @Test
     fun liveSetAccountsMaxSparseDeadSeqsQuickly() = runTest {
         store.applyBatch(listOf(genesis.entry)) // 1; 2 is live and missing, 3..4100 dead, 4101 live
         val started = System.nanoTime()
         store.accountLiveSet(keys.deviceId, LiveSet(0, 4101, longArrayOf(1, 2, 4101)))
         val tookMs = (System.nanoTime() - started) / 1_000_000
-        assertTrue(tookMs < 2_000, "accounting ${LiveSet.MAX_SPARSE} sparse seqs took $tookMs ms")
+        assertTrue(tookMs < 1_000, "accounting ${LiveSet.MAX_SPARSE} sparse seqs took $tookMs ms")
         assertEquals(1L, store.versionVector()[keys.deviceId])
         assertTrue(store.isAccounted(keys.deviceId, 2L + LiveSet.MAX_SPARSE))
         assertFalse(store.isAccounted(keys.deviceId, 3L + LiveSet.MAX_SPARSE))
@@ -263,7 +263,7 @@ abstract class EntryStoreContract {
         val started2 = System.nanoTime()
         store.applyBatch(listOf(s2)) // contig crosses every sparse seq in one advance
         val took2Ms = (System.nanoTime() - started2) / 1_000_000
-        assertTrue(took2Ms < 2_000, "advancing over ${LiveSet.MAX_SPARSE} sparse seqs took $took2Ms ms")
+        assertTrue(took2Ms < 1_000, "advancing over ${LiveSet.MAX_SPARSE} sparse seqs took $took2Ms ms")
         assertEquals(2L + LiveSet.MAX_SPARSE, store.versionVector()[keys.deviceId])
     }
 }
