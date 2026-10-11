@@ -8,10 +8,15 @@ import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.proto.AppCatalog
+import app.kinsight.core.model.proto.Heartbeat
 import app.kinsight.core.model.proto.StateEvent
+import app.kinsight.core.sync.categoryOverride
+import app.kinsight.core.sync.detail
 import app.kinsight.core.sync.summary
 import kotlinx.coroutines.test.runTest
+import okio.ByteString.Companion.decodeHex
 import java.io.File
+import java.time.LocalDate
 import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -79,23 +84,47 @@ class KinsightMigrationTest {
         val catalog = author.create { it.copy(app_catalog = AppCatalog(package_name = "com.example.maps", label = "Maps")) }
         val paused = author.create { it.copy(state_event = StateEvent(kind = StateEvent.Kind.SHARING_PAUSED, from_ms = 5, to_ms = 7)) }
         val left = author.create { it.copy(state_event = StateEvent(kind = StateEvent.Kind.LEFT_GROUP, from_ms = 9, to_ms = 9)) }
+        val detail = author.detail("2026-10-08")
+        val beat = author.create { it.copy(heartbeat = Heartbeat(app_version = "t", protocol_version = 1)) }
+        val override = author.categoryOverride("com.example.game", 1)
+        // A payload field this build does not know (EntryBody field 17): decodes, but has no kind here.
+        val future = author.create { it.copy(unknownFields = "8a01020801".decodeHex()) }
+        val a = keys.deviceId.hex
+        val garbage = "bb".repeat(16)
         val v2 = File(dir, "v2.db").absolutePath
         ExportedSchema.create(v2, 2) { c ->
-            listOf(genesis.entry, summary, catalog, paused, left).forEach { insertV2(c, it) }
-            c.execSQL("INSERT INTO vector_contig VALUES ('${keys.deviceId.hex}', 5)")
+            listOf(genesis.entry, summary, catalog, paused, left, detail, beat, override, future).forEach { insertV2(c, it) }
+            c.execSQL("INSERT INTO entries (author, seq, bytes, supersede_key, membership, usage_date) VALUES ('$garbage', 1, x'ff00ff', NULL, 0, NULL)")
+            c.execSQL("INSERT INTO vector_contig VALUES ('$a', 10)")
         }
         val db = KinsightDatabaseFactory.open(HostContext(), v2)
         val store = RoomEntryStore(db, genesis.groupId)
         assertEquals(listOf(summary), store.summaries())
+        val date = LocalDate.parse("2026-10-08")
+        assertEquals(listOf(detail), store.details(keys.deviceId, date, date))
         assertEquals(listOf(catalog), store.catalog())
         assertEquals(listOf(paused, left), store.stateEvents())
+        assertEquals(listOf(beat), store.heartbeats())
+        assertEquals(listOf(override), store.categoryOverrides())
         assertEquals(listOf(genesis.entry, left), store.membershipEntries())
-        assertEquals(5L, store.versionVector()[keys.deviceId])
-        val row = db.entryDao().get(keys.deviceId.hex, paused.seq)!!
-        assertEquals(EntryKinds.STATE_EVENT, row.kind)
+        assertEquals(10L, store.versionVector()[keys.deviceId])
+        val dao = db.entryDao()
+        assertEquals(10, dao.all().size) // every row survives the rebuild
+        val expected = mapOf(
+            genesis.entry to EntryKinds.MEMBERSHIP_OP, summary to EntryKinds.USAGE_SUMMARY, detail to EntryKinds.USAGE_DETAIL,
+            catalog to EntryKinds.APP_CATALOG, paused to EntryKinds.STATE_EVENT, left to EntryKinds.STATE_EVENT,
+            beat to EntryKinds.HEARTBEAT, override to EntryKinds.CATEGORY_OVERRIDE, future to EntryKinds.UNKNOWN,
+        )
+        for ((e, kind) in expected) assertEquals(kind, dao.get(a, e.seq)!!.kind, "seq ${e.seq}")
+        for (k in 1..7) assertTrue(dao.bytesOfKind(k).isNotEmpty(), "no row of kind $k")
+        val row = dao.get(a, paused.seq)!!
         assertEquals(StateEvent.Kind.SHARING_PAUSED.value, row.eventKind)
         assertEquals(7L, row.eventToMs)
-        assertEquals(EntryKinds.MEMBERSHIP_OP, db.entryDao().get(keys.deviceId.hex, 1)!!.kind)
+        assertNull(dao.get(a, beat.seq)!!.eventKind)
+        val undecodable = dao.get(garbage, 1)!!
+        assertEquals(EntryKinds.UNKNOWN, undecodable.kind)
+        assertNull(undecodable.eventKind)
+        assertContentEquals(byteArrayOf(-1, 0, -1), undecodable.bytes)
         db.close()
     }
 
