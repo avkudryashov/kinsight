@@ -63,7 +63,7 @@
     <string name="join_searching">Looking for %1$s\'s phone. Keep it close, with the invitation open.</string>
     <string name="join_connecting">Connecting…</string>
     <string name="join_waiting">Waiting for %1$s to confirm on their phone. Their screen shows the same code.</string>
-    <string name="join_waiting_nocode">Waiting for %1$s to confirm on their phone. The code could not be shown; if %1$s asks, cancel and start again.</string>
+    <string name="join_waiting_nocode">Waiting for %1$s to confirm on their phone. The code could not be shown; if you are not sure, cancel and start again.</string>
     <string name="join_code">Code to compare: %1$s</string>
     <string name="join_saving">Saving…</string>
     <string name="join_joined">You are in the family group.</string>
