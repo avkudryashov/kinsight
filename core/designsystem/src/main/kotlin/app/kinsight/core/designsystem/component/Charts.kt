@@ -2,6 +2,8 @@ package app.kinsight.core.designsystem.component
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -9,11 +11,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -24,15 +33,19 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.SemanticsPropertyReceiver
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.drawText
@@ -108,8 +121,9 @@ fun BarChart(
 /**
  * Stacked vertical bars on Canvas (spec §9.8): bar i is the sum of [stacks][i], segment j drawn bottom-up in
  * [colors][j] (wrapping). A bar with nothing draws a faint baseline so the day still reads as a day. TalkBack reads
- * [summary]; with [onBarClick] every bar for which [barClickable] holds (not a future day) is also its own semantics
- * node with a click action labelled [barClickLabel]. The [highlight]ed bar gets a bold label and a thin underline,
+ * [summary]; with [onBarClick] every bar for which [barClickable] holds (not a future day) is a semantics node described
+ * by [barDescription] (its day and value) with the click action [barActionLabel]; [scrub] (a month's narrow bars, U9):
+ * a tap or a horizontal drag selects the nearest bar and a 48 dp tooltip with its description opens it. The [highlight]ed bar gets a bold label and a thin underline,
  * and no bar is faded (colour is never the only cue); label thinning counts from [labelAnchor], else from it, else from
  * the last bar. A [limit] (same unit as the segments, e.g. a daily limit) draws a dashed line with [limitLabel] on a
  * chip at the left and raises the scale to it, so the line is always on the chart; TalkBack reads the label after
@@ -123,7 +137,8 @@ fun StackedBarChart(
     summary: String,
     modifier: Modifier = Modifier,
     onBarClick: ((Int) -> Unit)? = null,
-    barClickLabel: (Int) -> String = { "" },
+    barDescription: (Int) -> String = { "" },
+    barActionLabel: String? = null,
     highlight: Int? = null,
     height: Dp = 160.dp,
     barClickable: (Int) -> Boolean = { true },
@@ -133,6 +148,7 @@ fun StackedBarChart(
     scale: ChartScale? = null,
     average: Long? = null,
     averageLabel: String? = null,
+    scrub: Boolean = false,
 ) {
     val bars = stacks.map { stack -> stack.map { it.coerceAtLeast(0L) } }
     val names = chartLabels(labels, bars.size)
@@ -185,27 +201,78 @@ fun StackedBarChart(
                 limitFraction(limit, max)?.let { drawLimit(floor * (1 - it), layout.barsWidth, limitText, layout.slotRange(marked)) }
             }
             if (onBarClick != null) {
+                val clickable by rememberUpdatedState(barClickable)
+                var selected by remember(bars.size) { mutableStateOf<Int?>(null) }
+                // One node per bar for TalkBack and switch access; a pointer target only where bars are wide enough.
                 // The same slots as the bars: the scale gutter on the right is no target.
                 Row(Modifier.matchParentSize().padding(end = grid.gutterDp)) {
                     bars.indices.forEach { i ->
-                        val bar = Modifier.weight(1f).fillMaxHeight()
-                        if (!barClickable(i)) {
-                            Box(bar)
-                            return@forEach
+                        val slot = Modifier.weight(1f).fillMaxHeight()
+                        when {
+                            !barClickable(i) -> Box(slot)
+                            scrub -> Box(
+                                slot.semantics {
+                                    contentDescription = barDescription(i)
+                                    role = Role.Button
+                                    onClick(label = barActionLabel) {
+                                        onBarClick(i)
+                                        true
+                                    }
+                                },
+                            )
+                            else -> Box(
+                                slot.clickable(onClickLabel = barActionLabel, role = Role.Button) { onBarClick(i) }
+                                    .semantics { contentDescription = barDescription(i) },
+                            )
                         }
-                        Box(
-                            bar.clickable(
-                                onClickLabel = barClickLabel(i),
-                                role = Role.Button,
-                            ) { onBarClick(i) }
-                                .semantics { barClickLabel(i).takeIf { it.isNotEmpty() }?.let { contentDescription = it } },
-                        )
+                    }
+                }
+                if (scrub) {
+                    fun pick(x: Float, width: Int) = nearestBar(x, width.toFloat(), bars.size)?.takeIf { clickable(it) }
+                    Box(
+                        Modifier.matchParentSize().padding(end = grid.gutterDp)
+                            .pointerInput(bars.size) { detectTapGestures { o -> selected = pick(o.x, size.width) } }
+                            .pointerInput(bars.size) {
+                                detectHorizontalDragGestures(onDragStart = { o -> selected = pick(o.x, size.width) }) { change, _ ->
+                                    change.consume()
+                                    selected = pick(change.position.x, size.width)
+                                }
+                            },
+                    )
+                    selected?.let { i ->
+                        BarTooltip(i, bars.size, barDescription(i), barActionLabel, Modifier.matchParentSize().padding(end = grid.gutterDp)) {
+                            onBarClick(i)
+                        }
                     }
                 }
             }
         }
         ChartLabels(names, anchor = labelAnchor ?: marked ?: names.lastIndex, bold = marked, endInset = grid.gutterDp)
         if (average != null && averageLabel != null) AverageNote(averageLabel)
+    }
+}
+
+/** The selected month bar's value over the chart (U9): the 48 dp target that opens its day. */
+@Composable
+private fun BarTooltip(index: Int, count: Int, text: String, actionLabel: String?, modifier: Modifier, onOpen: () -> Unit) {
+    Layout(
+        content = {
+            Surface(
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.inverseSurface,
+                contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                modifier = Modifier.heightIn(min = 48.dp).clickable(onClickLabel = actionLabel, role = Role.Button, onClick = onOpen)
+                    .testTag("chart_tooltip"),
+            ) {
+                Box(Modifier.heightIn(min = 48.dp).padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+                    Text(text, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                }
+            }
+        },
+        modifier = modifier,
+    ) { measurables, c ->
+        val p = measurables.single().measure(c.copy(minWidth = 0, minHeight = 0))
+        layout(c.maxWidth, c.maxHeight) { p.place(tooltipLeft(index, c.maxWidth.toFloat() / count.coerceAtLeast(1), p.width, c.maxWidth), 0) }
     }
 }
 

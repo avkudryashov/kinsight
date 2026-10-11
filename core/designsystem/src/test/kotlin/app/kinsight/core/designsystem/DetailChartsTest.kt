@@ -1,6 +1,14 @@
 package app.kinsight.core.designsystem
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipe
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -55,7 +63,7 @@ class DetailChartsTest {
     }
 
     @Test
-    fun stackedBarsAreClickableWithALabelEach() {
+    fun weekBarsAreNodesWithTheirValueAndOneActionLabel() {
         var clicked = -1
         rule.setContent {
             KinsightTheme(dynamicColor = false) {
@@ -65,15 +73,15 @@ class DetailChartsTest {
                     labels = listOf("M", "T", "W"),
                     summary = "Week total 6 min",
                     onBarClick = { clicked = it },
-                    barClickLabel = { "Open day $it" },
+                    barDescription = { "Day $it: $it min" },
+                    barActionLabel = "Open day",
                     highlight = 2,
                 )
             }
         }
         rule.onNodeWithContentDescription("Week total 6 min").assertExists()
-        rule.onNode(clickLabel("Open day 0")).assertExists()
-        rule.onNode(clickLabel("Open day 2")).assertExists()
-        rule.onNode(clickLabel("Open day 1")).performSemanticsAction(SemanticsActions.OnClick)
+        rule.onNode(hasContentDescription("Day 0: 0 min") and clickLabel("Open day")).assertExists()
+        rule.onNode(hasContentDescription("Day 1: 1 min") and clickLabel("Open day")).performSemanticsAction(SemanticsActions.OnClick)
         assertEquals(1, clicked)
     }
 
@@ -87,25 +95,70 @@ class DetailChartsTest {
                     labels = listOf("M", "T", "W"),
                     summary = "Week",
                     onBarClick = {},
-                    barClickLabel = { "Open day $it" },
+                    barDescription = { "Day $it" },
+                    barActionLabel = "Open day",
                     barClickable = { it < 2 },
                 )
             }
         }
-        rule.onNode(clickLabel("Open day 1")).assertExists()
-        rule.onNode(clickLabel("Open day 2")).assertDoesNotExist()
-        rule.onNodeWithContentDescription("Open day 2").assertDoesNotExist()
+        rule.onNode(hasContentDescription("Day 1") and hasClickAction()).assertExists()
+        rule.onNode(hasContentDescription("Day 2") and hasClickAction()).assertDoesNotExist()
     }
 
     @Test
     fun stackedBarsWithoutAClickHandlerAreOnlyTheSummary() {
         rule.setContent {
             KinsightTheme(dynamicColor = false) {
-                StackedBarChart(listOf(listOf(1L)), colors, listOf("M"), summary = "One bar", barClickLabel = { "Open $it" })
+                StackedBarChart(listOf(listOf(1L)), colors, listOf("M"), summary = "One bar", barDescription = { "Bar $it" })
             }
         }
         rule.onNodeWithContentDescription("One bar").assertExists()
-        rule.onNode(clickLabel("Open 0")).assertDoesNotExist()
+        rule.onNode(hasContentDescription("Bar 0")).assertDoesNotExist()
+    }
+
+    private fun showMonth(onBar: (Int) -> Unit) = rule.setContent {
+        KinsightTheme(dynamicColor = false) {
+            StackedBarChart(
+                stacks = List(31) { listOf(60_000L) },
+                colors = colors,
+                labels = List(31) { "" },
+                summary = "Month",
+                modifier = Modifier.width(310.dp).testTag("chart"),
+                onBarClick = onBar,
+                barDescription = { "Day $it: 1 min" },
+                barActionLabel = "Open day",
+                barClickable = { it < 28 },
+                scrub = true,
+            )
+        }
+    }
+
+    @Test
+    fun aMonthTapSelectsTheNearestBarAndItsTooltipOpensTheDay() {
+        var opened = -1
+        showMonth { opened = it }
+        rule.onNodeWithTag("chart_tooltip").assertDoesNotExist()
+        rule.onNodeWithTag("chart").performTouchInput { click(Offset(width * 10.5f / 31, 40.dp.toPx())) }
+        assertEquals(-1, opened) // a tap on a 10 dp bar only selects it
+        rule.onNodeWithTag("chart_tooltip").assertTextContains("Day 10: 1 min").assertHeightIsAtLeast(48.dp).performClick()
+        assertEquals(10, opened)
+    }
+
+    @Test
+    fun aMonthDragMovesTheSelectionAndAFutureDayIsNotOffered() {
+        showMonth {}
+        rule.onNodeWithTag("chart").performTouchInput { swipe(Offset(width * 2.5f / 31, 40.dp.toPx()), Offset(width * 20.5f / 31, 40.dp.toPx())) }
+        rule.onNodeWithTag("chart_tooltip").assertTextContains("Day 20: 1 min")
+        rule.onNodeWithTag("chart").performTouchInput { click(Offset(width * 29.5f / 31, 40.dp.toPx())) }
+        rule.onNodeWithTag("chart_tooltip").assertDoesNotExist()
+    }
+
+    @Test
+    fun monthBarsStayReachableWithTalkBack() {
+        var opened = -1
+        showMonth { opened = it }
+        rule.onNode(hasContentDescription("Day 3: 1 min") and clickLabel("Open day")).performSemanticsAction(SemanticsActions.OnClick)
+        assertEquals(3, opened)
     }
 
     @Test

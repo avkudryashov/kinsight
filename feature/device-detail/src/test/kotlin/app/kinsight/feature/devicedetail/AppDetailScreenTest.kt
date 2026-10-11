@@ -143,7 +143,7 @@ class AppDetailScreenTest {
         list.performScrollToNode(hasTestTag("app_chart"))
         rule.onNodeWithTag("app_chart").assertExists()
         rule.onNodeWithTag("app_hours").assertDoesNotExist()
-        rule.onAllNodes(hasClickAction() and hasContentDescription("Open ", substring = true))[5].performClick() // Fri
+        rule.onAllNodes(hasClickAction() and hasContentDescription(": ", substring = true))[5].performClick() // Fri
         rule.waitForIdle()
         assertEquals(today.minusDays(1), opened)
     }

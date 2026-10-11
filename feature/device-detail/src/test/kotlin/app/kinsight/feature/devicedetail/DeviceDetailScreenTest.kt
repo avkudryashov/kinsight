@@ -300,7 +300,7 @@ class DeviceDetailScreenTest {
         var opened: LocalDate? = null
         val stacks = detail.days.map { mapOf(AppCategory.GAMES to it.totalMs) }
         show(detail.copy(dayCategories = stacks, today = today), onOpenDay = { opened = it })
-        rule.onAllNodes(hasClickAction() and hasContentDescription("Open ", substring = true))[2].performClick()
+        rule.onAllNodes(hasClickAction() and hasContentDescription(": ", substring = true))[2].performClick()
         rule.waitForIdle()
         assertEquals(detail.days[2].date, opened)
     }
@@ -342,7 +342,7 @@ class DeviceDetailScreenTest {
         val wed = today.minusDays(3)
         val days = detail.days.map { if (it.date.isAfter(wed)) DayTotal(it.date, 0, 0) else it }
         show(detail.copy(days = days, today = wed))
-        rule.onAllNodes(hasClickAction() and hasContentDescription("Open ", substring = true)).assertCountEquals(4)
+        rule.onAllNodes(hasClickAction() and hasContentDescription(": ", substring = true)).assertCountEquals(4)
     }
 
     @Test
@@ -557,5 +557,12 @@ class DeviceDetailScreenTest {
         val hoursY = rule.onNodeWithTag("det_hours").fetchSemanticsNode().positionInRoot.y
         val appY = rule.onNodeWithTag("det_app_pkg.1").fetchSemanticsNode().positionInRoot.y
         assertTrue("hours at $hoursY, first app at $appY", hoursY < appY)
+    }
+
+    @Test
+    fun aBarIsReadAsItsDayAndItsTime() {
+        show(monthDetail)
+        rule.onNode(hasContentDescription("Oct 7: 20 min", substring = true) and hasClickAction()).assertExists()
+        rule.onNode(hasContentDescription("Oct 7", substring = true) and hasContentDescription("Open", substring = true)).assertDoesNotExist()
     }
 }

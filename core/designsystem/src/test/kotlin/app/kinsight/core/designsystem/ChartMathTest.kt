@@ -27,6 +27,8 @@ import app.kinsight.core.designsystem.component.labelSpacing
 import app.kinsight.core.designsystem.component.labelStep
 import app.kinsight.core.designsystem.component.spacedStep
 import app.kinsight.core.designsystem.component.paletteIndex
+import app.kinsight.core.designsystem.component.nearestBar
+import app.kinsight.core.designsystem.component.tooltipLeft
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -277,5 +279,24 @@ class ChartMathTest {
     fun anyTimeInAHeatCellIsVisible() {
         assertEquals(HEAT_MIN_INTENSITY, heatIntensity(1L, 1_000_000L), 0.001f)
         assertEquals(listOf(HEAT_MIN_INTENSITY, (HEAT_MIN_INTENSITY + 1f) / 2, 1f), HEAT_LEGEND)
+    }
+
+    @Test
+    fun aTouchPicksTheBarUnderItClampedToTheChart() {
+        assertEquals(0, nearestBar(x = 0f, barsWidth = 310f, count = 31))
+        assertEquals(10, nearestBar(x = 105f, barsWidth = 310f, count = 31))
+        assertEquals(30, nearestBar(x = 309f, barsWidth = 310f, count = 31))
+        assertEquals(30, nearestBar(x = 400f, barsWidth = 310f, count = 31), "past the end: the last bar")
+        assertEquals(0, nearestBar(x = -5f, barsWidth = 310f, count = 31))
+        assertEquals(null, nearestBar(x = 5f, barsWidth = 0f, count = 31))
+        assertEquals(null, nearestBar(x = 5f, barsWidth = 310f, count = 0))
+    }
+
+    @Test
+    fun theTooltipIsCentredOnItsBarAndStaysInside() {
+        assertEquals(55, tooltipLeft(index = 10, slotPx = 10f, tooltipWidth = 100, width = 310)) // centre 105
+        assertEquals(0, tooltipLeft(index = 0, slotPx = 10f, tooltipWidth = 100, width = 310))
+        assertEquals(210, tooltipLeft(index = 30, slotPx = 10f, tooltipWidth = 100, width = 310))
+        assertEquals(0, tooltipLeft(index = 3, slotPx = 10f, tooltipWidth = 400, width = 310), "wider than the chart: from its start")
     }
 }

@@ -3,6 +3,7 @@ package app.kinsight.core.designsystem.component
 import android.content.res.Resources
 import androidx.compose.ui.geometry.Offset
 import java.text.NumberFormat
+import kotlin.math.roundToInt
 
 /** What a chart's values are, so its scale can be labelled (U5, audit 2026-10-11). */
 enum class ChartScale { DURATION, COUNT }
@@ -86,3 +87,11 @@ internal fun limitChipOffset(
         else -> Offset(left, y + gap)
     }
 }
+
+/** The bar under [x] of [count] bars over [barsWidth], clamped to the first and last; null without bars or width. */
+internal fun nearestBar(x: Float, barsWidth: Float, count: Int): Int? =
+    if (count <= 0 || barsWidth <= 0f) null else (x / (barsWidth / count)).toInt().coerceIn(0, count - 1)
+
+/** The tooltip's left edge: centred over bar [index], kept inside [width] (from its start when wider). */
+internal fun tooltipLeft(index: Int, slotPx: Float, tooltipWidth: Int, width: Int): Int =
+    (slotPx * (index + 0.5f) - tooltipWidth / 2f).roundToInt().coerceIn(0, (width - tooltipWidth).coerceAtLeast(0))
