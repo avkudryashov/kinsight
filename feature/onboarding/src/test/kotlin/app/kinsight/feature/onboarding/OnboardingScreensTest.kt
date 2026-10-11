@@ -152,4 +152,12 @@ class OnboardingScreensTest {
         rule.waitForIdle()
         assertTrue(opened)
     }
+
+    @Test
+    fun consentLinksThePrivacyPolicy() {
+        var opened = false
+        rule.setContent { KinsightTheme(dynamicColor = false) { ConsentScreen("Mom", onAgree = {}, onNotNow = {}, onPrivacyPolicy = { opened = true }) } }
+        rule.onNodeWithTag("onb_privacy").performScrollTo().performClick()
+        assertTrue(opened)
+    }
 }

@@ -57,6 +57,7 @@ import app.kinsight.core.data.Role
 import app.kinsight.core.data.ServiceStatus
 import app.kinsight.core.data.SummaryMode
 import app.kinsight.core.data.UsageReadModel
+import app.kinsight.core.designsystem.openPrivacyPolicy
 import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.ErrorState
 import app.kinsight.core.designsystem.component.isJustNow
@@ -86,7 +87,7 @@ fun SettingsRoute(appVersion: String, onConsent: () -> Unit, onTransparency: () 
     SettingsScreen(
         ui, appVersion, vm::setSharing, onConsent, onTransparency, vm::stopSync, vm::startSync, vm::setRetention,
         vm::setSummaryMode, vm::setNoContactHours, onBattery, onDiagnostics, vm::resetIdentity, vm::dismissError,
-        onSyncNow = vm::syncNow, nowMs = now,
+        onSyncNow = vm::syncNow, onPrivacyPolicy = { openPrivacyPolicy(context) }, nowMs = now,
     )
 }
 
@@ -115,6 +116,7 @@ fun SettingsScreen(
     onResetIdentity: () -> Unit,
     onDismissError: () -> Unit = {},
     onSyncNow: () -> Unit = {},
+    onPrivacyPolicy: () -> Unit = {},
     nowMs: Long = System.currentTimeMillis(), // the route passes a 30 s tick
 ) {
     val context = LocalContext.current
@@ -260,6 +262,7 @@ fun SettingsScreen(
                 }) { Text(stringResource(R.string.set_language)) }
             }
             TextButton(onDiagnostics) { Text(stringResource(R.string.set_diagnostics)) }
+            TextButton(onPrivacyPolicy, Modifier.testTag("set_privacy")) { Text(stringResource(R.string.set_privacy)) }
             OutlinedButton(
                 onClick = { ask = Ask.RESET },
                 enabled = !ui.resetting,

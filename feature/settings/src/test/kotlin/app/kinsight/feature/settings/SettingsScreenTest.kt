@@ -3,6 +3,7 @@ package app.kinsight.feature.settings
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -54,6 +55,7 @@ class SettingsScreenTest {
         onReset: () -> Unit = {},
         onConsent: () -> Unit = {},
         onRetention: (Int, Int) -> Unit = { _, _ -> },
+        onPrivacyPolicy: () -> Unit = {},
         nowMs: Long = NOW,
     ) = rule.setContent {
         KinsightTheme(dynamicColor = false) {
@@ -61,9 +63,18 @@ class SettingsScreenTest {
                 ui, "0.4.0", onSharing = onSharing, onConsent = onConsent, onTransparency = {},
                 onStopSync = { calls += "stop" }, onStartSync = { calls += "start" },
                 onRetention = onRetention, onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {},
-                onResetIdentity = onReset, onSyncNow = { calls += "syncNow" }, nowMs = nowMs,
+                onResetIdentity = onReset, onSyncNow = { calls += "syncNow" }, onPrivacyPolicy = onPrivacyPolicy, nowMs = nowMs,
             )
         }
+    }
+
+    @Test
+    fun thePrivacyPolicyRowOpensThePolicy() {
+        var opened = false
+        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), Prefs(), running), onPrivacyPolicy = { opened = true })
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_privacy"))
+        rule.onNodeWithTag("set_privacy").assertTextEquals("Privacy policy").performClick()
+        assertTrue(opened)
     }
 
     // The sync section is the first section: its nodes exist without scrolling the list.

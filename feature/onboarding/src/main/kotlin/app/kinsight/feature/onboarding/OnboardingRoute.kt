@@ -39,6 +39,7 @@ import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.Graph
 import app.kinsight.core.data.GroupState
 import app.kinsight.core.data.Role
+import app.kinsight.core.designsystem.openPrivacyPolicy
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.sync.pairing.Invite
 import app.kinsight.core.transport.ble.BlePermissions
@@ -222,7 +223,7 @@ fun OnboardingRoute(
             QrScanner(onText = { vm.onInviteText(it) }, onUnavailable = { vm.show(OnboardingMessage.SCANNER_UNAVAILABLE) })
         }
         // OnboardingFlow puts CONSENT only on a child invite's path.
-        Step.CONSENT -> ConsentScreen(state.invite?.adminName.orEmpty(), onAgree = { vm.consent(true) }, onNotNow = { vm.consent(false) })
+        Step.CONSENT -> ConsentScreen(state.invite?.adminName.orEmpty(), onAgree = { vm.consent(true) }, onNotNow = { vm.consent(false) }, onPrivacyPolicy = { openPrivacyPolicy(context) })
         Step.PAIR -> state.invite?.let { pairContent(it, state.name.trim(), child && state.consent, vm::next, vm::back) }
         Step.USAGE_ACCESS -> DisclosureScreen(
             title = stringResource(R.string.onb_usage_title),
@@ -271,6 +272,7 @@ fun ConsentRoute(onDone: () -> Unit) {
     }
     ConsentScreen(
         recipients = recipients,
+        onPrivacyPolicy = { openPrivacyPolicy(context) },
         onAgree = {
             scope.launch {
                 failed = false

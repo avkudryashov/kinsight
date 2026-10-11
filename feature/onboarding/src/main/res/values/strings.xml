@@ -22,6 +22,7 @@
     <string name="onb_consent_body_group">Kinsight counts how much time this phone spends in each app, how often it is unlocked and at what hours it is used. Kinsight sends this over Bluetooth to the phones of every parent in your family group, including parents who join later. They will see this time for today and past days. Counting happens in the background, even when Kinsight is closed.</string>
     <string name="onb_consent_backlog">When you agree, the first sending also includes up to the last 7 days of screen time that this phone has already recorded.</string>
     <string name="onb_consent_privacy">Nothing goes to the internet, to servers or to us. A Kinsight notification is always shown on this phone. If you hide it, sharing pauses until you turn the notification back on: your family sees that it is hidden, and the time counted meanwhile is sent once it is shown again.</string>
+    <string name="onb_privacy_policy">Privacy policy</string>
     <string name="onb_consent_pause">You can pause sharing in two taps. Your family will see the pause, and the time during the pause will be sent once you resume. Sharing cannot be hidden, only openly stopped.</string>
     <string name="onb_consent_protect">Google Play Protect may tell you that a parental control app is installed. This is expected.</string>
     <string name="onb_consent_not_now">If you choose Not now, this phone joins the group without sharing, and your family sees that it does not share.</string>

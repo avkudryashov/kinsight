@@ -47,6 +47,7 @@
     <string name="set_battery">Настройки батареи</string>
     <string name="set_language">Язык</string>
     <string name="set_diagnostics">Диагностика</string>
+    <string name="set_privacy">Политика конфиденциальности</string>
     <string name="set_reset">Сбросить идентичность и подключить заново</string>
     <string name="set_resetting">Идёт сброс…</string>
     <string name="set_reset_title">Сбросить идентичность телефона?</string>

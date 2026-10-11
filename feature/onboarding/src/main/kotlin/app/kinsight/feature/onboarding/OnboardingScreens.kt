@@ -107,7 +107,7 @@ internal fun ParentInfoScreen(onNext: () -> Unit) = Page(
  * an open pause the parents see, Play Protect. Explicit «Agree» / «Not now»; nothing is read before «Agree».
  */
 @Composable
-fun ConsentScreen(recipients: String, onAgree: () -> Unit, onNotNow: () -> Unit, error: String? = null) = Page(
+fun ConsentScreen(recipients: String, onAgree: () -> Unit, onNotNow: () -> Unit, error: String? = null, onPrivacyPolicy: () -> Unit = {}) = Page(
     title = stringResource(R.string.onb_consent_title),
     actions = {
         Primary(stringResource(R.string.onb_agree), "onb_agree", onAgree)
@@ -118,6 +118,7 @@ fun ConsentScreen(recipients: String, onAgree: () -> Unit, onNotNow: () -> Unit,
     Body(if (recipients.isBlank()) stringResource(R.string.onb_consent_body_group) else stringResource(R.string.onb_consent_body, recipients))
     Body(stringResource(R.string.onb_consent_backlog))
     Body(stringResource(R.string.onb_consent_privacy))
+    TextButton(onPrivacyPolicy, Modifier.testTag("onb_privacy")) { Text(stringResource(R.string.onb_privacy_policy)) }
     Body(stringResource(R.string.onb_consent_pause))
     Body(stringResource(R.string.onb_consent_protect))
     Body(stringResource(R.string.onb_consent_not_now))
