@@ -7,5 +7,6 @@ android {
 }
 
 dependencies {
-    implementation(libs.code.scanner)
+    implementation(libs.code.scanner) // removed in Task 7
+    implementation(libs.zxing.core)
 }
