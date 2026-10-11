@@ -47,10 +47,8 @@ scroll_to() {
 }
 # The category chip's merged content description ("Category: Games"), else its text.
 chip() {
-  local line
-  line=$(dump "$1" | tr '>' '\n' | grep 'resource-id="app_category_chip"' | head -1)
-  printf '%s' "$line" | sed -n 's/.*content-desc="\([^"]*\)".*/\1/p'
-  printf '%s' "$line" | sed -n 's/.* text="\([^"]*\)".*/\1/p'
+  # The chip node itself has no text; its label is the first text node after it.
+  dump "$1" | tr '>' '\n' | grep -A4 'resource-id="app_category_chip"' | sed -n 's/.* text="\([^"][^"]*\)".*/\1/p' | head -1
 }
 CHILD_NAME=$($ADB -s "$C" shell getprop ro.product.model | tr -d '\r')
 dbg() { $ADB -s "$1" shell am broadcast -n $RX -a "app.kinsight.debug.$2" | sed -n 's/.*data="\(.*\)"$/\1/p'; }
