@@ -411,4 +411,39 @@ class UsagePipelineTest {
         p.collectAndPublish() // the day itself is unchanged, the missing catalog entry still comes
         assertEquals("Maps", own().single { it.kind == EntryKind.APP_CATALOG }.body.app_catalog!!.label)
     }
+
+    @Test
+    fun aHiddenNotificationPausesUsageButNotEventsAndBackfillsWhenShown() = runTest {
+        store.applyBatch(listOf(genesis.entry))
+        var hidden = false
+        val apps = FakeApps().also { it.known[MAPS] = AppInfo("Maps", byteArrayOf(1, 2), 6) }
+        val p = UsagePipeline(
+            db = db,
+            collector = Collector(RoomUsageQueue(db), source, FakeAccess(), clock, FakeLaunchers()),
+            settings = settings,
+            apps = apps,
+            target = { PublishTarget(genesis.groupId, keys) },
+            clock = { clock.wallMs },
+            today = { LocalDate.ofInstant(Instant.ofEpochMilli(clock.wallMs), zone) },
+            usagePaused = { hidden },
+        )
+        p.setSharing(true) // seq 2: SHARING_RESUMED; nothing collected yet, so no usage and no publish mark
+        hidden = true
+        assertTrue(p.queueEvent(StateEvent.Kind.NOTIFICATION_HIDDEN, clock.wallMs, clock.wallMs))
+        source.events += listOf(s.resumed("09:00", MAPS), s.paused("09:30", MAPS))
+
+        val paused = p.collectAndPublish(force = true).publish!!
+        assertTrue(paused.paused)
+        assertEquals(1, paused.events) // the parents still hear NOTIFICATION_HIDDEN
+        assertEquals(listOf(StateEvent.Kind.SHARING_RESUMED, StateEvent.Kind.NOTIFICATION_HIDDEN), own().map { it.stateKind() })
+        assertTrue(own().none { it.kind == EntryKind.USAGE_SUMMARY || it.kind == EntryKind.USAGE_DETAIL || it.kind == EntryKind.APP_CATALOG })
+        assertEquals(listOf("2026-10-09"), RoomUsageQueue(db).changedDays().map { it.date }) // counted, kept for later
+
+        hidden = false
+        val shown = p.collectAndPublish().publish!! // not forced: the hourly limit must not hold the backlog back
+        assertFalse(shown.paused)
+        assertEquals(listOf("2026-10-09"), shown.days)
+        assertEquals(listOf(MAPS), shown.catalog)
+        assertEquals(30 * MIN, own().single { it.kind == EntryKind.USAGE_SUMMARY }.body.usage_summary!!.total_ms)
+    }
 }

@@ -30,6 +30,13 @@ object UsageGraph {
     @Volatile
     var ownStateEventListener: (StateEvent.Kind) -> Unit = {}
 
+    /**
+     * The system pause (S-M3), installed by SyncGraph.install: true while this child's sync notification is hidden.
+     * Runs inside the pipeline lock: it must only read DataStore.
+     */
+    @Volatile
+    var ownUsagePaused: suspend () -> Boolean = { false }
+
     @Volatile
     private var override: UsagePipeline? = null
 
@@ -72,6 +79,7 @@ object UsageGraph {
             target = { targetProvider() },
             ownUsage = { ownUsageGate(it) },
             onOwnStateEvent = { ownStateEventListener(it) },
+            usagePaused = { ownUsagePaused() },
         )
     }
 }

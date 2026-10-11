@@ -26,6 +26,8 @@ data class PublishReport(
     val days: List<String>,
     val catalog: List<String>,
     val oversized: List<String> = emptyList(),
+    /** Usage was not signed because the system paused it (the sync notification is hidden, S-M3); events still were. */
+    val paused: Boolean = false,
 ) {
     companion object {
         val NONE = PublishReport(0, emptyList(), emptyList())
@@ -37,7 +39,9 @@ data class PublishReport(
  * through [RoomEntryStore.appendOwn] together with the queue bookkeeping it settles, and the EntryAuthor is rebuilt
  * from the stored author state on every call, so a failure never burns or repeats a seq. [onStateEvent] hears every
  * StateEvent once it is stored (UsagePipeline's own-integrity signal); it runs inside the pipeline lock, so it must
- * not block or call the pipeline.
+ * not block or call the pipeline. [usagePaused] is asked once per publish, after the pending events are signed: while
+ * it holds, no UsageSummary, UsageDetail or AppCatalog is signed (the queue keeps counting, so the next publish after
+ * it clears carries the backlog). It runs inside the pipeline lock: Room or DataStore reads only.
  */
 class Publisher(
     private val queue: RoomUsageQueue,
@@ -48,6 +52,7 @@ class Publisher(
     private val today: () -> LocalDate,
     private val detailLimitBytes: Int = MAX_DETAIL_ENTRY_BYTES,
     private val onStateEvent: (StateEvent.Kind) -> Unit = {},
+    private val usagePaused: suspend () -> Boolean = { false },
 ) {
     suspend fun publish(settings: UsageSettings, force: Boolean): PublishReport {
         if (!settings.sharing) return PublishReport.NONE
@@ -61,6 +66,9 @@ class Publisher(
             onStateEvent(event.kind)
             events++
         }
+
+        // A system pause (hidden notification) stops usage only: integrity events, NOTIFICATION_HIDDEN first, still go.
+        if (usagePaused()) return PublishReport(events, emptyList(), emptyList(), paused = true)
 
         val now = clock()
         val last = queue.lastUsagePublishMs()
