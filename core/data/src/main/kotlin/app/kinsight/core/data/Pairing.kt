@@ -138,8 +138,12 @@ class PairingCoordinator(
 
     fun invite(scope: CoroutineScope, role: Role, adminName: String): InviteSession = InviteSession(scope, role, adminName)
 
-    fun join(scope: CoroutineScope, invite: Invite, deviceName: String, consent: Boolean): JoinSession =
-        JoinSession(scope, invite, deviceName, consent)
+    /**
+     * [freshIdentity]: «Отключить и подключить заново» after [PairFailure.REMOVED_BEFORE]: the identity is reset
+     * (LocalReset.resetIdentity, the device name stays) before the handshake, so the admin adds new keys.
+     */
+    fun join(scope: CoroutineScope, invite: Invite, deviceName: String, consent: Boolean, freshIdentity: Boolean = false): JoinSession =
+        JoinSession(scope, invite, deviceName, consent, freshIdentity)
 
     /** One join stores its welcome at a time; the second finds the first one's group and refuses. */
     private val commitLock = Mutex()
@@ -395,6 +399,7 @@ class PairingCoordinator(
         private val invite: Invite,
         private val deviceName: String,
         private val consent: Boolean,
+        private val freshIdentity: Boolean = false,
     ) {
         private val _state = MutableStateFlow<JoinState>(JoinState.Searching)
         val state: StateFlow<JoinState> = _state.asStateFlow()
@@ -408,7 +413,13 @@ class PairingCoordinator(
                 // A cut-short identity reset finishes before the handshake: the keys it replaces must not be the ones
                 // the admin adds (and old keys over an emptied log would reuse seqs, audit A-4).
                 try {
-                    reset.finishInterruptedReset()
+                    if (freshIdentity) {
+                        // Never wipes a group: a device in one has nothing to retry (and is refused below as before).
+                        if (withContext(io) { groups.exists() }) return fail(PairFailure.ALREADY_IN_GROUP)
+                        reset.resetIdentity(keepName = true)
+                    } else {
+                        reset.finishInterruptedReset()
+                    }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {

@@ -70,7 +70,7 @@ class LocalReset(
 
     val status: StateFlow<ResetStatus> = _status.asStateFlow()
 
-    /** Leaving or being removed: no trace of the group; the identity and the device name stay. */
+    /** A join's fresh database: no trace of the group; the identity and the device name stay. */
     suspend fun forgetGroup(): Unit = tracked(ResetKind.FORGET_GROUP) {
         sync.stopAndWait()
         forgetGroupFiles()
@@ -79,13 +79,18 @@ class LocalReset(
         snapshots.invalidate()
     }
 
-    /** «Сбросить идентичность и пересопрячь»: a new device as far as the group is concerned. */
-    suspend fun resetIdentity() {
+    /**
+     * «Отключить этот телефон и подключить заново»: a new device as far as the group is concerned. It is also the end
+     * of leaving the group and of a removal: the old DeviceId stays departed for good, so only new keys can join again
+     * (spec §9.5). [keepName]: the device name the user typed stays (leaving, removal, the join retry); a reset that
+     * [finishInterruptedReset] resumes after a crash forgets it.
+     */
+    suspend fun resetIdentity(keepName: Boolean = false) {
         val wasPending = withContext(io) { marker.exists() }
         tracked(ResetKind.NEW_IDENTITY) {
             // A retry queued behind the start-up recovery finds the marker gone: that reset is done, not run again.
             if (wasPending && !withContext(io) { marker.exists() }) return@tracked
-            identityReset()
+            identityReset(keepName)
         }
     }
 
@@ -95,7 +100,7 @@ class LocalReset(
     /** False for a cut-short identity reset: the only way out of it is a retry (audit A-4). Safe on the main thread. */
     val dismissible: Boolean get() = !retryOnly
 
-    private suspend fun identityReset() {
+    private suspend fun identityReset(keepName: Boolean = false) {
         withContext(io) { marker.set() }
         sync.stopAndWait()
         forgetGroupFiles()
@@ -105,7 +110,7 @@ class LocalReset(
             withContext(io) { wipeIdentity() }
             wipeData()
         }
-        prefs.reset()
+        if (keepName) prefs.resetForNewGroup() else prefs.reset()
         snapshots.invalidate()
         withContext(io) { marker.clear() }
     }
@@ -125,9 +130,9 @@ class LocalReset(
     }
 
     /** [resetIdentity] on the app scope; joins a wipe already running (of either kind). Failures go to [status]. */
-    fun launchResetIdentity(): Job = launchOnce { resetIdentity() }
+    fun launchResetIdentity(keepName: Boolean = false): Job = launchOnce { resetIdentity(keepName) }
 
-    /** [forgetGroup] on the app scope («start over» after removal); joins a wipe already running. */
+    /** [forgetGroup] on the app scope (the retry of a failed one); joins a wipe already running. */
     fun launchForgetGroup(): Job = launchOnce { forgetGroup() }
 
     /** The user has seen the failure: back to [ResetStatus.Idle] (a running wipe is left alone). */

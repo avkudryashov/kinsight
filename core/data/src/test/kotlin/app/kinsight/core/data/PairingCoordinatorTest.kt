@@ -180,6 +180,84 @@ class PairingCoordinatorTest {
         assertEquals(mom.groups.read()!!.groupId, kid.groups.read()!!.groupId)
     }
 
+    /** The bug seen on a phone: a child left, kept its DeviceId and was refused REMOVED_BEFORE by the next invitation. */
+    @Test
+    fun leavingEndsWithANewIdentitySoAParentInviteJoinsAgain() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        kid.prefs.setDeviceName("Kid")
+        val (first, childQr) = openInvite(Role.CHILD)
+        val joined = kidPairing.join(scope, childQr, "Kid", consent = true)
+        first.state.awaitFirst { it is InviteState.Confirm }
+        first.confirm()
+        assertEquals(JoinState.Joined, joined.state.awaitFirst { it is JoinState.Joined || it is JoinState.Failed })
+        val oldKid = kid.keys.deviceId
+
+        val leave = kid.group.leaveAndForget()
+        withTimeout(5_000) {
+            while (kid.sessions.subscriptionCount.value == 0 ||
+                kid.store().stateEvents().none { it.author == oldKid && it.body.state_event!!.kind == StateEvent.Kind.LEFT_GROUP }
+            ) kotlinx.coroutines.delay(10)
+        }
+        // The session that carries LEFT_GROUP: the admin receives the kid's log, then the kid's session counter moves.
+        mom.store().applyBatch(kid.store().entriesAfter(oldKid, 0, 1_000))
+        kid.sessions.value = SessionProgress(finished = 1, syncing = false)
+        withTimeout(10_000) { leave.join() }
+        assertNull(kid.group.leaveError.value)
+
+        assertNotEquals(oldKid, kid.keys.deviceId, "leaving must end with a fresh identity")
+        assertEquals(1, kid.identityResets.size)
+        assertFalse(kid.resetMarker.exists())
+        assertFalse(kid.groups.exists())
+        assertEquals(Prefs(deviceName = "Kid"), kid.prefs.current()) // the name the user typed stays
+        val groupId = mom.groups.read()!!.groupId
+        assertTrue(oldKid in Membership.compute(groupId, mom.store().membershipEntries())!!.departed)
+
+        val (second, parentQr) = openInvite(Role.PARENT)
+        val rejoin = kidPairing.join(scope, parentQr, "Kid", consent = false)
+        second.state.awaitFirst { it is InviteState.Confirm || it is InviteState.Failed }
+        second.confirm()
+        assertEquals(JoinState.Joined, rejoin.state.awaitFirst { it is JoinState.Joined || it is JoinState.Failed })
+        val member = Membership.compute(groupId, mom.store().membershipEntries())!!.active[kid.keys.deviceId]
+        assertNotNull(member)
+        assertEquals(DeviceRole.PARENT, member.role)
+        assertEquals(groupId, kid.groups.read()!!.groupId)
+    }
+
+    @Test
+    fun aRemovedDeviceResetsItsIdentityAndRetriesTheSameInvite() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        mom.pipeline.appendOwn { a ->
+            listOf(
+                a.addMember(kid.keys.sign.publicKey, kid.keys.dh.publicKey, "Kid", DeviceRole.CHILD),
+                a.removeMemberEntry(kid.keys.deviceId, 0),
+            )
+        }
+        kid.prefs.setDeviceName("Kid")
+        val oldKid = kid.keys.deviceId
+        val (invite, qr) = openInvite()
+        val refused = kidPairing.join(scope, qr, "Kid", consent = false)
+        assertEquals(JoinState.Failed(PairFailure.REMOVED_BEFORE), refused.state.awaitFirst { it is JoinState.Failed || it is JoinState.Joined })
+        val retry = kidPairing.join(scope, qr, "Kid", consent = false, freshIdentity = true)
+        invite.state.awaitFirst { it is InviteState.Confirm }
+        invite.confirm()
+        assertEquals(JoinState.Joined, retry.state.awaitFirst { it is JoinState.Joined || it is JoinState.Failed })
+        assertNotEquals(oldKid, kid.keys.deviceId)
+        assertEquals(1, kid.identityResets.size)
+        assertEquals("Kid", kid.prefs.current().deviceName)
+        assertTrue(kid.keys.deviceId in Membership.compute(mom.groups.read()!!.groupId, mom.store().membershipEntries())!!.active)
+    }
+
+    @Test
+    fun aFreshIdentityRetryNeverWipesAGroup() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        kid.group.createGroup("Kid")
+        val (_, qr) = openInvite()
+        val join = kidPairing.join(scope, qr, "Kid", consent = false, freshIdentity = true)
+        assertEquals(JoinState.Failed(PairFailure.ALREADY_IN_GROUP), join.state.awaitFirst { it is JoinState.Failed || it is JoinState.Joined })
+        assertTrue(kid.groups.exists())
+        assertTrue(kid.identityResets.isEmpty())
+    }
+
     @Test
     fun aKeyChangeBetweenHandshakeAndCommitRefusesTheJoin() = runBlocking<Unit> {
         mom.group.createGroup("Mom")

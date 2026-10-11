@@ -136,7 +136,7 @@ class TestDevice(
         sync = sync,
         scope = scope,
         sessions = sessions,
-        forget = reset::forgetGroup,
+        forget = { reset.resetIdentity(keepName = true) },
         leaveTimeoutMs = leaveTimeoutMs,
     )
     val appendOwn: OwnAppend = { build -> pipeline.appendOwn(build = build) }

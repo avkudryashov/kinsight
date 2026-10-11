@@ -47,6 +47,21 @@ class LocalResetTest {
     }
 
     @Test
+    fun anIdentityResetAfterLeavingKeepsOnlyTheName() = runBlocking<Unit> {
+        d.prefs.setDeviceName("Pixel")
+        d.prefs.setOnboardingDone(true)
+        val old = d.keys.deviceId
+        d.group.createGroup("Pixel")
+        d.reset.resetIdentity(keepName = true)
+        assertEquals(listOf(false), d.identityResets)
+        assertTrue(old != d.keys.deviceId)
+        assertTrue(d.db.entryDao().all().isEmpty())
+        assertEquals(Prefs(deviceName = "Pixel"), d.prefs.current())
+        assertFalse(d.groups.exists())
+        assertFalse(d.resetMarker.exists())
+    }
+
+    @Test
     fun anInterruptedResetIsFinishedAtTheNextStart() = runBlocking<Unit> {
         d.group.createGroup("Pixel")
         d.identityWipeFails = IllegalStateException("killed")

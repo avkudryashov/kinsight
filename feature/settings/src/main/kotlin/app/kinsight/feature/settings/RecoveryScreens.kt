@@ -50,16 +50,19 @@ fun KeyErrorRoute(message: String) {
     )
 }
 
-/** The removed root: LocalReset.forgetGroup (the identity and the device name stay), then the first run. */
+/**
+ * The removed root (removed by an admin, or a leave whose wipe failed): LocalReset.resetIdentity keeping the device
+ * name, then the first run. The departed DeviceId can never join again (spec §9.5), so «start over» takes new keys.
+ */
 @Composable
 fun RemovedRoute() {
     val context = LocalContext.current
     val reset = remember { AppGraph.get(context).reset }
     val status by reset.status.collectAsStateWithLifecycle()
     RemovedScreen(
-        onStartOver = { reset.launchForgetGroup() },
+        onStartOver = { reset.launchResetIdentity(keepName = true) },
         busy = status is ResetStatus.Running,
-        failed = (status as? ResetStatus.Failed)?.kind == ResetKind.FORGET_GROUP,
+        failed = (status as? ResetStatus.Failed)?.kind == ResetKind.NEW_IDENTITY,
     )
 }
 

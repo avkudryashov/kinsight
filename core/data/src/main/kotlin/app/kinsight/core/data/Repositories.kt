@@ -78,7 +78,8 @@ enum class LeaveError {
 /**
  * The group as the screens see it, and the admin and leave operations. [scope] is app-wide (owned by Graph): leaving
  * outlives any screen. [sessions] is the sync engine's session progress; [forget] is
- * LocalReset.forgetGroup. GroupStore calls are fsynced file I/O and run on [io].
+ * LocalReset.resetIdentity keeping the device name: the departed DeviceId can never join again, so the device leaves
+ * with fresh keys (spec §9.5). GroupStore calls are fsynced file I/O and run on [io].
  */
 class GroupRepository(
     private val snapshots: Snapshots,
@@ -187,7 +188,7 @@ class GroupRepository(
      * 3. right after the commit, take the session baseline and wait (bounded by [leaveTimeoutMs]) for a session that
      *    began after it: one more finished session, two if one was running at the commit. The family gets LEFT_GROUP
      *    through that session's membership offer, which then ends NOT_A_MEMBER, so this waits on any finished session;
-     * 4. forget the group locally, then wait for the snapshot to read NoGroup before [leaving] ends.
+     * 4. forget the group and the identity locally ([forget]: the crash-safe identity reset), then wait for the snapshot to read NoGroup before [leaving] ends.
      * A second call while leaving returns the same job. Every failure is logged.
      */
     fun leaveAndForget(): Job = synchronized(leaveLock) {
