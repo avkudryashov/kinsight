@@ -273,6 +273,10 @@ class GroupRepository(
     }
 }
 
+/**
+ * The screens' usage reads. Every flow derives from the one shared [Snapshots.snapshots] (one Room load per change for
+ * all of them); only [detail] and [app] add their own range query of UsageDetail entries.
+ */
 class UsageRepository(
     private val snapshots: Snapshots,
     private val prefs: AppPrefs,

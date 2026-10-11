@@ -35,7 +35,7 @@ class Graph internal constructor(app: Context) {
     val prefs = AppPrefs.create(app.preferencesDataStoreFile(AppPrefs.NAME), CoroutineScope(Dispatchers.IO + SupervisorJob()))
     val keys: suspend () -> DeviceKeys = { DeviceIdentity.get(app).keys }
     val sync: SyncControl = ServiceSyncControl(app)
-    val snapshots = Snapshots(db, groups, keys, transport)
+    val snapshots = Snapshots(db, groups, keys, transport, scope = scope)
     val reset = LocalReset(
         db = db,
         pipeline = pipeline,

@@ -107,7 +107,7 @@ class TestDevice(
                 ownUsageAllowed(Membership.compute(t.groupId, RoomEntryStore(db, t.groupId).membershipEntries()), keys.deviceId, settings.current())
         },
     )
-    val snapshots = Snapshots(db, groups, keyProvider, transport)
+    val snapshots = Snapshots(db, groups, keyProvider, transport, scope = scope)
     val identityResets: MutableList<Boolean> = Collections.synchronizedList(mutableListOf()) // was the database empty when the identity went
     val reset = LocalReset(
         db = db,
