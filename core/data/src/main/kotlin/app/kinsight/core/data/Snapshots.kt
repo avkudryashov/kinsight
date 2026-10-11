@@ -1,5 +1,7 @@
 package app.kinsight.core.data
 
+import android.util.Log
+import androidx.annotation.VisibleForTesting
 import app.kinsight.core.database.KinsightDatabase
 import app.kinsight.core.database.RoomEntryStore
 import app.kinsight.core.database.entriesChanged
@@ -15,6 +17,11 @@ import app.kinsight.core.transport.ble.TransportStateStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.filterNotNull
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -70,29 +77,57 @@ class Snapshots(
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val stopTimeoutMs: Long = STOP_TIMEOUT_MS,
+    private val retryBaseMs: Long = RETRY_BASE_MS,
 ) {
     private val version = MutableStateFlow(0)
+
+    /** What [snapshots] loads with; tests make it fail. */
+    @VisibleForTesting
+    internal var loader: suspend (Map<DeviceId, Long>) -> GroupSnapshot = { load(it) }
 
     fun invalidate() {
         version.update { it + 1 }
     }
 
+    /** Loads that threw in a row (key and group-file errors are snapshots, not throws); 0 after a good load. */
+    private val failures = AtomicInteger()
+    private var retry: Job? = null
+
     /**
-     * A failing load is a [GroupSnapshot.StorageError] for that change: the shared flow lives on (an exception would
-     * end it for every collector and reach the app scope), and the next change loads again.
+     * A load that throws (a locked or busy database, say) is transient: it is logged, nothing is emitted (collectors keep
+     * the last good snapshot, or Loading before the first) and a retry is scheduled with backoff ([retryBaseMs], then
+     * twice as long). Only [MAX_FAILURES] failures in a row are a [GroupSnapshot.StorageError], the destructive
+     * «reset identity» root. The shared flow lives on either way: an exception would end it for every collector.
      */
     val snapshots: Flow<GroupSnapshot> =
         combine(db.entriesChanged(), version, transport.peerSeenFlow) { _, _, seen -> seen }
             .mapLatest { seen ->
                 try {
-                    load(seen)
+                    loader(seen).also { failures.set(0) }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    GroupSnapshot.StorageError("${e::class.simpleName}: ${e.message}")
+                    val n = failures.incrementAndGet()
+                    Log.w(TAG, "snapshot load failed ($n in a row)", e)
+                    if (n >= MAX_FAILURES) {
+                        failures.set(0)
+                        GroupSnapshot.StorageError("${e::class.simpleName}: ${e.message}")
+                    } else {
+                        scheduleRetry(retryBaseMs shl (n - 1))
+                        null
+                    }
                 }
             }
+            .filterNotNull()
             .shareIn(scope, SharingStarted.WhileSubscribed(stopTimeoutMs, replayExpirationMillis = 0), replay = 1)
+
+    private fun scheduleRetry(afterMs: Long) = synchronized(this) {
+        retry?.cancel()
+        retry = scope.launch {
+            delay(afterMs)
+            invalidate()
+        }
+    }
 
     /** [author]'s UsageDetail entries for [range] (level 4); read on demand, the snapshot itself carries none. */
     suspend fun details(groupId: GroupId, author: DeviceId, range: DetailRange): List<DecodedEntry> = withContext(io) {
@@ -129,5 +164,8 @@ class Snapshots(
 
     private companion object {
         const val STOP_TIMEOUT_MS = 5_000L
+        const val RETRY_BASE_MS = 1_000L
+        const val MAX_FAILURES = 3
+        const val TAG = "KinsightSnapshots"
     }
 }

@@ -94,4 +94,38 @@ class SharedSnapshotsTest {
     }
 
     private suspend fun Flow<GroupSnapshot>.firstValue(): GroupSnapshot = first()
+
+    /** [failures] failing loads (an exception, not a key or group-file error), then real ones; counts every load. */
+    private fun failing(failures: Int): Pair<Snapshots, AtomicInteger> {
+        val s = Snapshots(d.db, d.groups, d.keyProvider, d.transport, scope = d.scope, retryBaseMs = 10)
+        val calls = AtomicInteger()
+        s.loader = { seen ->
+            if (calls.incrementAndGet() <= failures) throw IllegalStateException("database is locked")
+            s.load(seen)
+        }
+        return s to calls
+    }
+
+    /** Re-review item 1: a load that fails once is retried, and the root never shows the key error screen. */
+    @Test
+    fun oneFailingLoadIsRetriedAndNeverReachesTheErrorRoot() = runBlocking<Unit> {
+        d.group.createGroup("Mom")
+        val (snapshots, calls) = failing(1)
+        val groups = GroupRepository(snapshots, d.db, d.groups, d.keyProvider, d.pipeline, d.sync, d.scope, d.sessions, forget = {})
+        val seen = java.util.Collections.synchronizedList(mutableListOf<GroupState>())
+        val job = d.scope.launch { groups.state.collect { seen += it } }
+        waitUntil("ready after the retry") { seen.lastOrNull() is GroupState.Ready }
+        job.cancel()
+        assertEquals(2, calls.get())
+        assertTrue(seen.none { it is GroupState.StorageError || it is GroupState.KeyError }, "$seen")
+    }
+
+    @Test
+    fun threeFailingLoadsInARowAreAStorageError() = runBlocking<Unit> {
+        d.group.createGroup("Mom")
+        val (snapshots, calls) = failing(Int.MAX_VALUE)
+        val error = withTimeout(10_000) { snapshots.snapshots.first { it !is GroupSnapshot.Ready } }
+        assertIs<GroupSnapshot.StorageError>(error)
+        assertEquals(3, calls.get())
+    }
 }
