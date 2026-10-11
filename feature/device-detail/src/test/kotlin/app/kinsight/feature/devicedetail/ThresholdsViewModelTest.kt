@@ -250,6 +250,26 @@ class ThresholdsViewModelTest {
         assertEquals(emptySet(), again.pendingDeletes.value, "no snackbar for a window that passed")
     }
 
+    /** Re-review item 4: the window of a queued delete starts when its snackbar appears, not at the tap. */
+    @Test
+    fun theUndoWindowStartsWhenTheSnackbarIsShown() = runTest(dispatcher) {
+        val source = FakeSource()
+        val r = rule(ThresholdTarget.Total, 3 * hour)
+        source.rules.value = listOf(r)
+        val saved = SavedStateHandle()
+        var now = 1_000L
+        val first = ThresholdsViewModel(source, kid.id, backgroundScope, saved, clock = { now })
+        backgroundScope.launch { first.state.collect {} }
+        first.delete(r)
+        now = 8_000L // another delete's snackbar was up until now
+        first.offered(r.id)
+
+        val again = ThresholdsViewModel(source, kid.id, backgroundScope, recreated(saved), clock = { 12_000L })
+        backgroundScope.launch { again.state.collect {} }
+        assertEquals(setOf(r.id), again.pendingDeletes.value, "8 s + 10 s: still open at 12 s")
+        assertEquals(listOf(r), source.rules.value)
+    }
+
     /** Commits and saves run on one serial lane: a re-added rule is never removed by the older delete's late write. */
     @Test
     fun aSaveAfterACommittedDeleteIsWrittenAfterIt() = runBlocking<Unit> {

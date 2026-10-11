@@ -63,6 +63,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.createSavedStateHandle
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.kinsight.core.data.AppCategory
 import app.kinsight.core.data.AppGraph
@@ -89,6 +91,7 @@ fun ThresholdsRoute(id: DeviceId, onBack: () -> Unit) {
             onDelete = vm::delete,
             onUndo = { r -> vm.undo(r) },
             onCommitDelete = { r -> vm.commitDelete(r) },
+            onOffered = vm::offered,
             onBack = onBack,
         )
     } ?: Loading()
@@ -111,7 +114,11 @@ fun ThresholdsScreen(
     onUndo: (String) -> Unit,
     onCommitDelete: (String) -> Unit,
     onBack: () -> Unit,
+    onOffered: (String) -> Unit = {},
 ) {
+    // Our own queue in front of the host's: [onOffered] runs right before a snackbar is actually shown.
+    val queue = remember { Mutex() }
+    val offeredNow by rememberUpdatedState(onOffered)
     val snackbar = remember { SnackbarHostState() }
     var adding by rememberSaveable { mutableStateOf(false) }
     var editing by rememberSaveable { mutableStateOf<String?>(null) }
@@ -124,7 +131,10 @@ fun ThresholdsScreen(
     for (id in pending) {
         key(id) {
             LaunchedEffect(id) {
-                val result = snackbar.showSnackbar(removed, actionLabel = undo, duration = SnackbarDuration.Long)
+                val result = queue.withLock {
+                    offeredNow(id)
+                    snackbar.showSnackbar(removed, actionLabel = undo, duration = SnackbarDuration.Long)
+                }
                 if (result == SnackbarResult.ActionPerformed) undoNow(id) else commitNow(id)
             }
         }

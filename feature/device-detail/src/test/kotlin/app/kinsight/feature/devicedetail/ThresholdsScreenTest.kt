@@ -50,6 +50,7 @@ class ThresholdsScreenTest {
     private val deleted = mutableListOf<ThresholdRule>()
     private val undone = mutableListOf<String>()
     private val committed = mutableListOf<String>()
+    private val offered = mutableListOf<String>()
 
     /** Like the view model: a delete is pending until «Undo» or the end of its window. */
     private fun show(rules: List<ThresholdRule>, canEdit: Boolean = true, pendingAtStart: Set<String> = emptySet()) = rule.setContent {
@@ -62,6 +63,7 @@ class ThresholdsScreenTest {
                 onDelete = { deleted += it; pending = pending + it.id },
                 onUndo = { undone += it; pending = pending - it },
                 onCommitDelete = { committed += it; pending = pending - it },
+                onOffered = { offered += it },
                 onBack = {},
             )
         }
@@ -104,6 +106,21 @@ class ThresholdsScreenTest {
         rule.onNodeWithText("Limit removed").assertDoesNotExist()
         assertEquals(listOf(games.id), committed)
         assertEquals(emptyList<String>(), undone)
+    }
+
+    /** Re-review item 4: a second delete waits for the first snackbar; its window starts when its own appears. */
+    @Test
+    fun aQueuedDeleteIsOfferedWhenItsSnackbarAppears() {
+        show(listOf(total, games))
+        rule.onNodeWithTag("thr_delete_${games.id}").performClick()
+        rule.waitForIdle()
+        assertEquals(listOf(games.id), offered)
+        rule.onNodeWithTag("thr_delete_${total.id}").performClick()
+        rule.waitForIdle()
+        assertEquals("queued behind the first snackbar", listOf(games.id), offered)
+        rule.mainClock.advanceTimeBy(15_000)
+        rule.waitForIdle()
+        assertEquals(listOf(games.id, total.id), offered)
     }
 
     /** Final fix item 5: a delete still pending after a recreation offers its «Undo» again, then commits. */

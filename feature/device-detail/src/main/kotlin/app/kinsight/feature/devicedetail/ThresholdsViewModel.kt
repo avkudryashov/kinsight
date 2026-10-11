@@ -150,6 +150,16 @@ class ThresholdsViewModel internal constructor(
 
     fun commitDelete(rule: ThresholdRule) = commitDelete(rule.id)
 
+    /**
+     * The snackbar of rule [id] has just appeared: its window starts now. A second delete waits behind the first
+     * snackbar, so the window set at [delete] would end early; a recreation honours the window from here.
+     */
+    fun offered(id: String) {
+        if (id !in pending.value) return
+        val until = clock() + UNDO_WINDOW_MS
+        setPending { if (id in it) it + (id to until) else it }
+    }
+
     /** Shows a just deleted rule [id] again (the snackbar's «Undo»); it was never removed. */
     fun undo(id: String) {
         setPending { it - id }
