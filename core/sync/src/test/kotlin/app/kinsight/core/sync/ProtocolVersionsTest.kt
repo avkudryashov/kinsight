@@ -24,6 +24,15 @@ class ProtocolVersionsTest {
         assertEquals(2..3, ProtocolVersions.of(Hello(protocol_version = 2, min_protocol_version = 2, max_protocol_version = 3)))
         assertNull(ProtocolVersions.of(Hello(protocol_version = 2, min_protocol_version = 3, max_protocol_version = 2)))
         assertNull(ProtocolVersions.of(Hello(protocol_version = 2, min_protocol_version = 0, max_protocol_version = 3)))
+        assertNull(ProtocolVersions.of(Hello(protocol_version = 5, min_protocol_version = 2, max_protocol_version = 3)))
+        assertNull(ProtocolVersions.of(Hello(protocol_version = 3, min_protocol_version = 2, max_protocol_version = 3)))
+    }
+
+    @Test
+    fun aRangeEndingBelowOursIsNotNegotiable() {
+        val old = ProtocolVersions.of(Hello(protocol_version = 1, min_protocol_version = 1, max_protocol_version = 1))
+        assertEquals(1..1, old)
+        assertNull(ProtocolVersions.negotiate(ProtocolVersions.SUPPORTED, old!!))
     }
 
     @Test
@@ -50,7 +59,12 @@ class ProtocolVersionsTest {
     @Test
     fun disjointRangesAreRejectedOnBothSides() = runBlocking<Unit> {
         val (a, b) = buildGroup(2)
-        for ((ra, rb) in listOf(syncPair(a, b, versionsA = 3..3, versionsB = 2..2), syncPair(a, b, versionsA = 3..3, versionsB = 2..2, legacyB = true))) {
+        val pairs = listOf(
+            syncPair(a, b, versionsA = 3..3, versionsB = 2..2),
+            syncPair(a, b, versionsA = 3..3, versionsB = 2..2, legacyB = true),
+            syncPair(a, b, versionsA = 1..1, versionsB = ProtocolVersions.SUPPORTED),
+        )
+        for ((ra, rb) in pairs) {
             assertEquals(Reject.Reason.PROTOCOL_VERSION, assertIs<SessionResult.Rejected>(ra).reason)
             assertEquals(Reject.Reason.PROTOCOL_VERSION, assertIs<SessionResult.Rejected>(rb).reason)
         }

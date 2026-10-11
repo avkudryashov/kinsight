@@ -35,7 +35,7 @@ class SecureChannel private constructor(
 
         /**
          * Wire-format family bound into the handshake. It changes only on a break so deep that peers cannot
-         * even exchange Hello; the exact [PROTOCOL_VERSION] travels inside the encrypted Hello instead, so a
+         * even exchange Hello; the protocol version range travels inside the encrypted Hello instead, so a
          * version mismatch reaches Reject(PROTOCOL_VERSION) rather than failing the handshake.
          */
         const val PROTOCOL_FAMILY = 1

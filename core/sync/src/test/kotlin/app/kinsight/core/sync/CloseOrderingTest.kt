@@ -105,8 +105,8 @@ class CloseOrderingTest {
         syncPair(child, parent) // both now hold everything: the next session is empty both ways
         val link = LossyLink(backgroundScope, latencyAtoB = 1.milliseconds, latencyBtoA = 50.milliseconds)
         val (initiator, responder) = emptySession(link, child, parent)
-        assertEquals(SessionResult.Completed(parent.keys.deviceId, received = 0, sentBatches = 0), initiator)
-        assertEquals(SessionResult.Completed(child.keys.deviceId, received = 0, sentBatches = 0), responder)
+        assertEquals(SessionResult.Completed(parent.keys.deviceId, received = 0, sentBatches = 0, protocolVersion = PROTOCOL_VERSION), initiator)
+        assertEquals(SessionResult.Completed(child.keys.deviceId, received = 0, sentBatches = 0, protocolVersion = PROTOCOL_VERSION), responder)
     }
 
     @Test

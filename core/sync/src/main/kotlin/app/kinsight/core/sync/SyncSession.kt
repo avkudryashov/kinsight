@@ -44,7 +44,7 @@ const val MIN_PROTOCOL_VERSION = 2
 
 sealed interface SessionResult {
     /** [protocolVersion]: the version both sides agreed on in Hello. */
-    data class Completed(val peer: DeviceId, val received: Int, val sentBatches: Int, val protocolVersion: Int = PROTOCOL_VERSION) : SessionResult
+    data class Completed(val peer: DeviceId, val received: Int, val sentBatches: Int, val protocolVersion: Int) : SessionResult
     data class Rejected(val reason: Reject.Reason, val byPeer: Boolean) : SessionResult
     data class TooManyInvalid(val peer: DeviceId) : SessionResult
     data class Failed(val cause: Throwable) : SessionResult
@@ -52,10 +52,12 @@ sealed interface SessionResult {
 
 /**
  * One symmetric sync session over an established [SecureChannel]. Both sides run the same code.
- * [versions]: the protocol range we offer. [legacyHello]: for mixed-version tests only, speak like 0.7.2 (no range
- * fields in Hello, exact match on protocol_version = versions.first).
+ * [versions]: the protocol range we offer. [legacyHello]: for mixed-version tests in this module only, speak like
+ * 0.7.2 (no range fields in Hello, exact match on protocol_version = versions.first). The primary constructor is
+ * internal so no other module can ship a client that drops the range; it has no default for [legacyHello], which
+ * keeps calls without it on the public constructor.
  */
-class SyncSession(
+class SyncSession internal constructor(
     private val store: EntryStore,
     private val policy: SyncPolicy,
     private val versions: IntRange = ProtocolVersions.SUPPORTED,
@@ -63,8 +65,18 @@ class SyncSession(
     private val sessionTimeout: Duration = 5.minutes,
     private val lingerTimeout: Duration = LINGER,
     private val log: (String) -> Unit = {},
-    private val legacyHello: Boolean = false,
+    private val legacyHello: Boolean,
 ) {
+    constructor(
+        store: EntryStore,
+        policy: SyncPolicy,
+        versions: IntRange = ProtocolVersions.SUPPORTED,
+        idleTimeout: Duration = 30.seconds,
+        sessionTimeout: Duration = 5.minutes,
+        lingerTimeout: Duration = LINGER,
+        log: (String) -> Unit = {},
+    ) : this(store, policy, versions, idleTimeout, sessionTimeout, lingerTimeout, log, legacyHello = false)
+
     suspend fun run(channel: SecureChannel): SessionResult = try {
         withTimeout(sessionTimeout) { exchange(channel) }
     } catch (e: TimeoutCancellationException) {
@@ -150,6 +162,7 @@ class SyncSession(
             else -> ProtocolVersions.negotiate(versions, peerVersions)
         }
         if (agreed == null) {
+            log("version reject: ours $versions, peer ${peerVersions ?: "malformed (protocol_version ${hello.protocol_version}, range ${hello.min_protocol_version}..${hello.max_protocol_version})"}")
             reject(ch, Reject.Reason.PROTOCOL_VERSION)
             return@coroutineScope SessionResult.Rejected(Reject.Reason.PROTOCOL_VERSION, byPeer = false)
         }
