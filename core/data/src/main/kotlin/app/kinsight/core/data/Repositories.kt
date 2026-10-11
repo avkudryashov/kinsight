@@ -343,11 +343,12 @@ class UsageRepository(
 
     /**
      * One-time move of the stage 5a local overrides into the shared log (spec §4.4 «Переход»), run at app start on a
-     * parent's phone. Each local choice that is valid, not already effective and not already this device's own live
-     * entry is signed (all in one append), then the prefs are cleared. Crash-safe: prefs are cleared only after the
-     * append committed; a crash in between leaves prefs whose choices are now own entries, so the rerun signs nothing
-     * (even when another parent has changed the app since) and just clears. Without a group, on a child's phone or
-     * when the append fails, nothing is cleared.
+     * parent's phone. A local choice is published only for an app no active parent has set or cleared yet (no
+     * CategoryOverride entry from any of them): a shared decision, a deliberate clear included, is never overridden by
+     * an old local one. Valid choices are signed in one append, then the prefs are cleared. Crash-safe: prefs are
+     * cleared only after the append committed; a crash in between leaves prefs whose choices are now own entries, so
+     * the rerun signs nothing and just clears. Without a group, on a child's phone or when the append fails, nothing
+     * is cleared.
      */
     suspend fun migrateLocalCategories(): Unit = categoryLock.withLock { migrateLocked() }
 
@@ -356,16 +357,16 @@ class UsageRepository(
         if (local.isEmpty()) return
         val ready = parentSnapshot() ?: return
         val winners = CategoryOverrides.winners(ready.categoryOverrides, ready.membership)
-        val effective = CategoryOverrides.effective(ready.categoryOverrides, ready.membership)
         val own = ready.categoryOverrides.filter { it.author == ready.self }.associateBy { it.body.category_override!!.package_name }
         val publish = local.filter { (pkg, c) ->
             val wire = CategoryOverrides.wire(c)
             CategoryOverrideRules.packageOk(pkg) && wire in 1..CategoryOverrideRules.MAX_CATEGORY &&
-                effective[pkg] != c && own[pkg]?.body?.category_override?.category != wire
+                winners[pkg] == null && own[pkg]?.body?.category_override?.category != wire
         }
         if (publish.isNotEmpty()) {
+            // No winner to order after: every published package has no entry from an active parent.
             val ok = appendOwn { a ->
-                publish.entries.sortedBy { it.key }.map { (pkg, c) -> a.categoryOverrideEntry(pkg, CategoryOverrides.wire(c), winners[pkg]?.lamport ?: 0L) }
+                publish.entries.sortedBy { it.key }.map { (pkg, c) -> a.categoryOverrideEntry(pkg, CategoryOverrides.wire(c), above = 0L) }
             }
             if (!ok) return
             Log.i(TAG, "published ${publish.size} local category overrides")

@@ -71,8 +71,10 @@ class CategorySharingTest {
         mom.group.createGroup("Mom")
         val dadKeys = DeviceKeys.generate()
         mom.pipeline.appendOwn { a -> listOf(a.addMember(dadKeys.sign.publicKey, dadKeys.dh.publicKey, "Dad", DeviceRole.PARENT)) }
-        val dad = EntryAuthor(mom.groups.read()!!.groupId, dadKeys, lastSeq = 0, lastLamport = 50)
-        mom.store().applyBatch(listOf(dad.categoryOverride("com.game", CategoryOverrides.wire(AppCategory.SOCIAL))))
+        val dad = EntryAuthor(mom.groups.read()!!.groupId, dadKeys, lastSeq = 0, lastLamport = 49) // his entry: Lamport 50
+        val dads = dad.categoryOverride("com.game", CategoryOverrides.wire(AppCategory.SOCIAL))
+        assertEquals(50L, dads.lamport)
+        mom.store().applyBatch(listOf(dads))
         mom.usage.overridesWhere { it == mapOf("com.game" to AppCategory.SOCIAL) }
         assertEquals(dadKeys.deviceId, withTimeout(10_000) { mom.usage.categoryAuthor("com.game").first { it != null } })
 
@@ -80,6 +82,12 @@ class CategorySharingTest {
         mom.usage.setCategory("com.game", AppCategory.GAMES)
         mom.usage.overridesWhere { it == mapOf("com.game" to AppCategory.GAMES) }
         assertEquals(mom.keys.deviceId, withTimeout(10_000) { mom.usage.categoryAuthor("com.game").first { it == mom.keys.deviceId } })
+        val hers = overrideEntries(mom).single { it.author == mom.keys.deviceId }
+        assertEquals(51L, hers.lamport, "orders right after Dad's 50")
+        assertEquals(51L, mom.store().authorState(mom.keys.deviceId).lastLamport)
+        mom.usage.setCategory("com.next", AppCategory.NEWS)
+        val next = overrideEntries(mom).single { it.author == mom.keys.deviceId && it.body.category_override!!.package_name == "com.next" }
+        assertTrue(next.lamport >= 52L, "her next own entry follows: ${next.lamport}")
     }
 
     @Test
@@ -113,25 +121,27 @@ class CategorySharingTest {
         val dadKeys = DeviceKeys.generate()
         mom.pipeline.appendOwn { a -> listOf(a.addMember(dadKeys.sign.publicKey, dadKeys.dh.publicKey, "Dad", DeviceRole.PARENT)) }
         val dad = EntryAuthor(mom.groups.read()!!.groupId, dadKeys, lastSeq = 0, lastLamport = 50)
-        // Dad already chose the same category for one app: that one is already effective, nothing to publish.
-        // For another he chose differently (with a far higher Lamport): Mom's local choice is published over it.
+        // Dad already set two apps (one as Mom did, one differently) and deliberately cleared a third: a parent's shared
+        // decision is never overridden by Mom's old local choice, so only the app no parent has touched is published.
         mom.store().applyBatch(
             listOf(
                 dad.categoryOverride("com.same", CategoryOverrides.wire(AppCategory.NEWS)),
                 dad.categoryOverride("com.diff", CategoryOverrides.wire(AppCategory.VIDEO)),
+                dad.categoryOverride("com.cleared", 0),
             ),
         )
         mom.prefs.setCategory("com.game", AppCategory.GAMES)
         mom.prefs.setCategory("com.diff", AppCategory.MAPS)
+        mom.prefs.setCategory("com.cleared", AppCategory.SOCIAL)
         mom.prefs.setCategory("com.same", AppCategory.NEWS)
         mom.prefs.setCategory("~other", AppCategory.VIDEO) // never valid: dropped, not signed
 
         mom.usage.migrateLocalCategories()
         val mine = overrideEntries(mom).filter { it.author == mom.keys.deviceId }
-        assertEquals(listOf("com.diff", "com.game"), mine.sortedBy { it.seq }.map { it.body.category_override!!.package_name })
+        assertEquals(listOf("com.game"), mine.sortedBy { it.seq }.map { it.body.category_override!!.package_name })
         assertEquals(emptyMap(), mom.prefs.categoryOverrides.first())
         mom.usage.overridesWhere {
-            it == mapOf("com.game" to AppCategory.GAMES, "com.same" to AppCategory.NEWS, "com.diff" to AppCategory.MAPS)
+            it == mapOf("com.game" to AppCategory.GAMES, "com.same" to AppCategory.NEWS, "com.diff" to AppCategory.VIDEO)
         }
 
         val seq = mom.store().authorState(mom.keys.deviceId).lastSeq
