@@ -44,4 +44,15 @@ class ServiceRepositoryTest {
         d.transport.setNotificationHiddenSinceMs(null)
         assertFalse(repo.status.first { !it.notificationHidden }.notificationHidden)
     }
+
+    @Test
+    fun usageAccessIsReadWithEveryStatus() = runBlocking<Unit> {
+        val snapshot = MutableStateFlow(ServiceSnapshot(ServiceState.RUNNING, lastSyncWallMs = null, sync = SyncStatus()))
+        var granted = false
+        val repo = ServiceRepository(snapshot, d.transport, { emptyList() }, d.sync, usageAccess = { granted })
+        assertEquals(false, repo.status.first().usageAccessGranted)
+        granted = true
+        assertEquals(true, repo.status.first().usageAccessGranted, "a new collector re-reads it (the 30 s tick does the same)")
+        assertEquals(true, ServiceRepository(snapshot, d.transport, { emptyList() }, d.sync).status.first().usageAccessGranted, "default: granted")
+    }
 }

@@ -26,6 +26,9 @@
     <string name="dash_open_app_settings">Открыть настройки приложения</string>
     <string name="dash_notification_hidden">Уведомление скрыто: обмен приостановлен, включите уведомления Kinsight.</string>
     <string name="dash_open_notification_settings">Настройки уведомлений</string>
+    <string name="dash_usage_access_missing">Kinsight не может считать экранное время: на этом телефоне выключен доступ к истории использования. Пока он выключен, семья не получает данных.</string>
+    <string name="dash_open_usage_access">Открыть настройки доступа</string>
+    <string name="dash_card_collection_off">Сбор данных не включён на телефоне ребёнка</string>
     <string name="dash_open_bluetooth">Настройки Bluetooth</string>
     <string name="dash_no_data_today">За сегодня данных нет</string>
     <string name="dash_week_summary">За 7 дней: всего %1$s, самый активный день: %2$s</string>

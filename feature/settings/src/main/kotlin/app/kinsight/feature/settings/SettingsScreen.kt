@@ -60,6 +60,7 @@ import app.kinsight.core.designsystem.component.isJustNow
 import app.kinsight.core.designsystem.component.relativeTime
 import app.kinsight.core.transport.ble.ServiceState
 import app.kinsight.core.transport.ble.SyncProblem
+import app.kinsight.core.usage.UsageAccessSettings
 import kotlinx.coroutines.delay
 
 @Composable
@@ -160,6 +161,13 @@ fun SettingsScreen(
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onSyncNow, Modifier.testTag("set_sync_now")) { Text(stringResource(R.string.set_sync_now)) }
                         OutlinedButton({ ask = Ask.STOP }, Modifier.testTag("set_stop")) { Text(stringResource(R.string.set_stop)) }
+                    }
+                }
+                // U1: a consenting child whose phone cannot count; the same check as Overview's banner.
+                if (role == Role.CHILD && ui.usage.consentAtMs != null && s?.usageAccessGranted == false) {
+                    Text(stringResource(R.string.set_usage_access_missing), color = MaterialTheme.colorScheme.error)
+                    OutlinedButton({ UsageAccessSettings.open(context) }, Modifier.testTag("set_usage_access")) {
+                        Text(stringResource(R.string.set_open_usage_access))
                     }
                 }
                 if (role == Role.PARENT) Text(stringResource(R.string.set_not_shared), style = MaterialTheme.typography.bodyMedium)

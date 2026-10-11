@@ -42,6 +42,7 @@ import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.sync.pairing.Invite
 import app.kinsight.core.transport.ble.BlePermissions
 import app.kinsight.core.usage.AppOpsUsageAccess
+import app.kinsight.core.usage.UsageAccessSettings
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
@@ -94,12 +95,7 @@ internal fun openBatterySettings(context: Context) {
 }
 
 internal fun openUsageAccessSettings(context: Context) {
-    startFirst(
-        context,
-        Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS, "package:${context.packageName}".toUri()),
-        Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS),
-        appDetails(context),
-    )
+    UsageAccessSettings.open(context)
 }
 
 /** True when a Nearby permission is still missing and Android will not ask again (denied for good). */

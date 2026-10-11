@@ -261,4 +261,17 @@ class SettingsScreenTest {
         rule.onNodeWithTag("rec_start_over").performClick()
         assertTrue(again)
     }
+
+    @Test
+    fun aConsentingChildWithoutUsageAccessSeesItInTheSyncSection() {
+        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1), Prefs(), running.copy(usageAccessGranted = false)))
+        rule.onNodeWithText("usage access is off", substring = true).assertExists()
+        rule.onNodeWithTag("set_usage_access").assertExists()
+    }
+
+    @Test
+    fun noUsageAccessRowWithoutConsentOrOnAParent() {
+        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running.copy(usageAccessGranted = false)))
+        rule.onNodeWithTag("set_usage_access").assertDoesNotExist()
+    }
 }

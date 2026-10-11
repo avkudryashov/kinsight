@@ -8,6 +8,7 @@ import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.transport.ble.AndroidPairingLink
 import app.kinsight.core.transport.ble.BlePermissions
 import app.kinsight.core.transport.ble.SyncGraph
+import app.kinsight.core.usage.AppOpsUsageAccess
 import app.kinsight.core.usage.UsageGraph
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -70,7 +71,7 @@ class Graph internal constructor(app: Context) {
         forget = reset::forgetGroup,
     )
     val usage = UsageRepository(snapshots, prefs, appendOwn = { build -> pipeline.appendOwn(build = build) })
-    val service = ServiceRepository(SyncGraph.snapshot, transport, { BlePermissions.missing(app) }, sync)
+    val service = ServiceRepository(SyncGraph.snapshot, transport, { BlePermissions.missing(app) }, sync, usageAccess = { AppOpsUsageAccess(app).granted() })
     val pruner = Pruner(db, groups, settings, keys)
     val settingsRepository = SettingsRepository(settings, prefs, pipeline, pruner::prune)
 }

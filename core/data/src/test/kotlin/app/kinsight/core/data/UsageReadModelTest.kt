@@ -404,4 +404,30 @@ class UsageReadModelTest {
         assertEquals(today, unparsed.today)
         assertFalse(unparsed.days.last().known)
     }
+
+    @Test
+    fun collectionIsOffAfterARevokeOrADayWithoutSummaries() {
+        val day = 24 * 3_600_000L
+        val old = UsageReadModel.events(listOf(event(StateEvent.Kind.SHARING_RESUMED, createdMs = noonToday - 2 * day)))
+        assertTrue(UsageReadModel.usage(member, null, old, today, nowMs = noonToday).collectionOff, "consent 2 days ago, never a summary")
+        val recent = UsageReadModel.events(listOf(event(StateEvent.Kind.SHARING_RESUMED, createdMs = noonToday - 3_600_000)))
+        assertFalse(UsageReadModel.usage(member, null, recent, today, nowMs = noonToday).collectionOff, "consent an hour ago: not yet")
+        val consent = event(StateEvent.Kind.SHARING_RESUMED, createdMs = noonToday - 2 * day)
+        val revoked = event(StateEvent.Kind.USAGE_ACCESS_REVOKED, createdMs = noonToday - 60_000)
+        val restored = event(StateEvent.Kind.USAGE_ACCESS_RESTORED, createdMs = noonToday - 30_000)
+        val fresh = byDate(summary(today, 30))
+        assertTrue(UsageReadModel.usage(member, fresh, UsageReadModel.events(listOf(consent, revoked)), today, nowMs = noonToday).collectionOff, "revoked wins over a fresh summary")
+        assertFalse(UsageReadModel.usage(member, fresh, UsageReadModel.events(listOf(consent, revoked, restored)), today, nowMs = noonToday).collectionOff)
+        val paused = UsageReadModel.events(listOf(consent, event(StateEvent.Kind.SHARING_PAUSED, createdMs = noonToday - day)))
+        assertFalse(UsageReadModel.usage(member, null, paused, today, nowMs = noonToday).collectionOff, "a pause is said by the pause status")
+    }
+
+    @Test
+    fun collectionOffCountsFromTheLatestSummary() {
+        val day = 24 * 3_600_000L
+        assertTrue(UsageReadModel.collectionOff(Sharing.On, emptyList(), updatedMs = noonToday - day - 1, nowMs = noonToday))
+        assertFalse(UsageReadModel.collectionOff(Sharing.On, emptyList(), updatedMs = noonToday - day, nowMs = noonToday))
+        assertFalse(UsageReadModel.collectionOff(Sharing.On, emptyList(), updatedMs = null, nowMs = noonToday), "no consent seen: nothing to say")
+        assertFalse(UsageReadModel.collectionOff(Sharing.Never, emptyList(), updatedMs = noonToday - 3 * day, nowMs = noonToday))
+    }
 }

@@ -92,4 +92,6 @@
         <item quantity="other">Detailed history older than %1$d days will be deleted from this phone now. Daily totals stay.</item>
     </plurals>
     <string name="set_shrink">Delete</string>
+    <string name="set_usage_access_missing">Screen time is not counted: usage access is off on this phone.</string>
+    <string name="set_open_usage_access">Open usage access</string>
 </resources>

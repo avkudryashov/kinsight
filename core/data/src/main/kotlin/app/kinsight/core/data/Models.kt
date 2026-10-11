@@ -153,6 +153,8 @@ data class DeviceUsage(
     val averageMs: Long?,
     val sharing: Sharing,
     val updatedMs: Long?,
+    /** Sharing is on but the child's phone does not collect (UsageReadModel.collectionOff, U1). */
+    val collectionOff: Boolean = false,
 )
 
 /**

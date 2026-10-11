@@ -70,6 +70,7 @@ import app.kinsight.core.designsystem.component.relativeTime
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.transport.ble.ServiceState
 import app.kinsight.core.transport.ble.SyncProblem
+import app.kinsight.core.usage.UsageAccessSettings
 import kotlinx.coroutines.delay
 import java.time.format.TextStyle
 import kotlin.math.abs
@@ -130,7 +131,9 @@ fun DashboardScreen(
     }
     val child = d.self.role == MemberRole.CHILD
     val noContactMs = ui.noContactHours * HOUR_MS
-    val attention = SyncAttention.of(ui.service)
+    // Only a consenting child collects (sharing on, or paused: the paused time is still counted).
+    val needsUsageAccess = child && d.selfUsage?.sharing.let { it == Sharing.On || it is Sharing.Paused }
+    val attention = SyncAttention.of(ui.service, needsUsageAccess)
     val syncNowLabel = stringResource(R.string.dash_sync_now)
     var refreshing by remember { mutableStateOf(false) }
     LaunchedEffect(refreshing) {
@@ -199,21 +202,24 @@ internal enum class SyncAttention {
     NO_PERMISSION,
     BLUETOOTH_OFF,
     KEY_ERROR,
+    USAGE_ACCESS_MISSING,
     RADIO_ERROR,
     NOTIFICATION_HIDDEN,
     ;
 
     companion object {
         /**
-         * The old «This phone» card's precedence: the user's Stop first, then what blocks the radio, then the system
-         * pause of a hidden notification (S-M3: sync runs, but no usage is signed).
+         * The old «This phone» card's precedence: the user's Stop first, then what blocks the radio, then missing
+         * usage access (U1; only where [needsUsageAccess]: a consenting child), then a radio error, which retries by
+         * itself, then the system pause of a hidden notification (S-M3: sync runs, but no usage is signed).
          */
-        fun of(s: ServiceStatus?): SyncAttention? = when {
+        fun of(s: ServiceStatus?, needsUsageAccess: Boolean = false): SyncAttention? = when {
             s == null -> null
             s.stoppedByUser -> STOPPED
             s.missingPermissions.isNotEmpty() || s.state == ServiceState.NO_PERMISSION -> NO_PERMISSION
             s.state == ServiceState.BLUETOOTH_OFF -> BLUETOOTH_OFF
             s.state == ServiceState.STORAGE_ERROR -> KEY_ERROR
+            needsUsageAccess && !s.usageAccessGranted -> USAGE_ACCESS_MISSING
             s.state == ServiceState.RADIO_ERROR -> RADIO_ERROR
             s.notificationHidden -> NOTIFICATION_HIDDEN
             else -> null
@@ -252,6 +258,7 @@ private fun AttentionBanner(a: SyncAttention, onStart: () -> Unit, onOpenSetting
                         SyncAttention.NO_PERMISSION -> R.string.dash_no_permission
                         SyncAttention.BLUETOOTH_OFF -> R.string.dash_bluetooth_off
                         SyncAttention.KEY_ERROR -> R.string.dash_storage_error
+                        SyncAttention.USAGE_ACCESS_MISSING -> R.string.dash_usage_access_missing
                         SyncAttention.RADIO_ERROR -> R.string.dash_radio_error
                         SyncAttention.NOTIFICATION_HIDDEN -> R.string.dash_notification_hidden
                     },
@@ -270,6 +277,10 @@ private fun AttentionBanner(a: SyncAttention, onStart: () -> Unit, onOpenSetting
                 SyncAttention.KEY_ERROR -> Button(onOpenSettings, Modifier.testTag("dash_open_settings")) {
                     Text(stringResource(R.string.dash_open_kinsight_settings))
                 }
+                SyncAttention.USAGE_ACCESS_MISSING -> OutlinedButton(
+                    { UsageAccessSettings.open(context) },
+                    Modifier.testTag("dash_usage_access"),
+                ) { Text(stringResource(R.string.dash_open_usage_access)) }
                 SyncAttention.RADIO_ERROR -> Unit
                 SyncAttention.NOTIFICATION_HIDDEN -> OutlinedButton(
                     {
@@ -408,6 +419,7 @@ private fun status(u: DeviceUsage, nowMs: Long, noContactMs: Long): String = whe
         val updated = u.updatedMs
         when {
             !u.member.isSelf && seen != null && nowMs - seen > noContactMs -> stringResource(R.string.dash_card_not_seen, relativeTime(seen, nowMs))
+            !u.member.isSelf && u.collectionOff -> stringResource(R.string.dash_card_collection_off)
             updated != null && isJustNow(updated, nowMs) -> stringResource(R.string.dash_card_updated_now)
             updated != null -> stringResource(R.string.dash_card_updated, relativeTime(updated, nowMs))
             else -> stringResource(R.string.dash_card_no_data)

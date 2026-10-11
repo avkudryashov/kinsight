@@ -385,4 +385,33 @@ class DashboardScreenTest {
         assertEquals(SyncAttention.STOPPED, SyncAttention.of(running.copy(stoppedByUser = true, notificationHidden = true)))
         assertEquals(SyncAttention.NOTIFICATION_HIDDEN, SyncAttention.of(running.copy(notificationHidden = true)))
     }
+
+    @Test
+    fun aConsentingChildWithoutUsageAccessSeesTheBannerWithItsButton() {
+        show(childUi(Sharing.On).copy(service = running.copy(usageAccessGranted = false)))
+        rule.onNodeWithTag("dash_banner").assertExists()
+        rule.onNodeWithText("usage access is off", substring = true).assertExists()
+        rule.onNodeWithTag("dash_usage_access").assertExists()
+    }
+
+    @Test
+    fun aChildThatDidNotConsentAndAParentGetNoUsageAccessBanner() {
+        show(childUi(Sharing.Never).copy(service = running.copy(usageAccessGranted = false)))
+        rule.onNodeWithTag("dash_usage_access").assertDoesNotExist()
+    }
+
+    @Test
+    fun theParentsCardSaysCollectionIsOff() {
+        val off = usage(kid, 0, null).copy(today = DayTotal(today, 0, 0), updatedMs = null, collectionOff = true)
+        show(DashboardUi(DashboardState(mom, null, listOf(off), emptyList()), running, true))
+        rule.onNodeWithText("Screen time collection is off on the child's phone").assertExists()
+    }
+
+    @Test
+    fun noContactStillWinsOverCollectionOff() {
+        val quiet = usage(kid.copy(lastSeenMs = now - 30 * hour), 30, 30).copy(collectionOff = true)
+        show(DashboardUi(DashboardState(mom, null, listOf(quiet), emptyList()), running, true, noContactHours = 24))
+        rule.onNodeWithText("No contact", substring = true).assertExists()
+        rule.onNodeWithText("collection is off", substring = true).assertDoesNotExist()
+    }
 }

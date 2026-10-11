@@ -96,4 +96,6 @@
         <item quantity="other">Подробная история старше %1$d дня будет сразу удалена с этого телефона. Итоги по дням останутся.</item>
     </plurals>
     <string name="set_shrink">Удалить</string>
+    <string name="set_usage_access_missing">Экранное время не считается: на этом телефоне выключен доступ к истории использования.</string>
+    <string name="set_open_usage_access">Открыть настройки доступа</string>
 </resources>

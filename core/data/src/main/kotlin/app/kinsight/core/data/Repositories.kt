@@ -470,6 +470,8 @@ data class ServiceStatus(
     val finishedSessions: Int = 0,
     /** This child's sync notification is hidden: usage is paused until it is shown again (S-M3). */
     val notificationHidden: Boolean = false,
+    /** Usage access (AppOpsManager GET_USAGE_STATS) is granted to this app; re-read with the permissions (U1). */
+    val usageAccessGranted: Boolean = true,
 )
 
 class ServiceRepository(
@@ -477,6 +479,8 @@ class ServiceRepository(
     private val transport: TransportStateStore,
     private val missingPermissions: () -> List<String>,
     private val control: SyncControl,
+    /** Whether usage access is granted (AppOpsUsageAccess.granted); read on every tick like [missingPermissions]. */
+    private val usageAccess: () -> Boolean = { true },
 ) {
     /** Re-read every 30 s as well: permissions change in Settings without telling us. */
     private val ticks = flow {
@@ -497,6 +501,7 @@ class ServiceRepository(
                 problem = s.sync.lastProblem,
                 finishedSessions = s.sync.finishedSessions,
                 notificationHidden = hidden,
+                usageAccessGranted = usageAccess(),
             )
         }
 
