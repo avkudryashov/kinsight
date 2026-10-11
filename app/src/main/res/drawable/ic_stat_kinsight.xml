@@ -1,8 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Notification small icon: the brand mark in white only (the system tints it). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <path android:pathData="M8,4 L8,20" android:strokeWidth="2.5" android:strokeColor="#FFFFFFFF" android:strokeLineCap="round" />
-    <path android:pathData="M17,4 L10,12 L17,20" android:strokeWidth="2.5" android:strokeColor="#FFFFFFFF" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path
+        android:pathData="M16.68,7.48 A6.5,6.5 0 1,1 5.75,13.79"
+        android:strokeWidth="2.6"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M5.75,10.21 A6.5,6.5 0 0,1 13.57,5.69"
+        android:strokeWidth="2.6"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round" />
 </vector>
