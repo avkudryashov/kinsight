@@ -9,6 +9,7 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertWidthIsAtLeast
+import androidx.compose.ui.test.assertWidthIsEqualTo
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -18,6 +19,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.kinsight.core.data.AppCategory
@@ -140,9 +142,13 @@ class ThresholdsScreenTest {
         rule.onNodeWithTag("thr_add").performClick()
         rule.onNodeWithTag("thr_save").assertIsNotEnabled() // nothing picked yet
         rule.onNodeWithTag("thr_kind_category").performClick()
+        rule.onNodeWithTag("thr_dialog_list").performScrollToNode(hasTestTag("thr_category_GAMES"))
         rule.onNodeWithTag("thr_category_GAMES").performClick()
+        rule.onNodeWithTag("thr_dialog_list").performScrollToNode(hasTestTag("thr_value"))
         rule.onNodeWithTag("thr_value").assertTextEquals("1 h")
+        rule.onNodeWithTag("thr_dialog_list").performScrollToNode(hasTestTag("thr_plus"))
         rule.onNodeWithTag("thr_plus").performScrollTo().performClick()
+        rule.onNodeWithTag("thr_dialog_list").performScrollToNode(hasTestTag("thr_value"))
         rule.onNodeWithTag("thr_value").assertTextEquals("1 h 15 min")
         rule.onNodeWithTag("thr_save").assertIsEnabled().performClick()
         assertEquals(listOf(ThresholdTarget.Category(AppCategory.GAMES) to hour + q), saved)
@@ -164,9 +170,11 @@ class ThresholdsScreenTest {
         show(emptyList())
         rule.onNodeWithTag("thr_add").performClick()
         rule.onNodeWithTag("thr_kind_app").performClick()
+        rule.onNodeWithTag("thr_dialog_list").performScrollToNode(hasTestTag("thr_app_com.example.video"))
         rule.onNodeWithTag("thr_app_com.example.video").assertExists()
         rule.onNodeWithTag("thr_search").performTextInput("gam")
         rule.onNodeWithTag("thr_app_com.example.video").assertDoesNotExist()
+        rule.onNodeWithTag("thr_dialog_list").performScrollToNode(hasTestTag("thr_app_com.example.game"))
         rule.onNodeWithTag("thr_app_com.example.game").performClick()
         rule.onNodeWithTag("thr_save").performClick()
         assertEquals(listOf(ThresholdTarget.App("com.example.game") to hour), saved)
@@ -177,9 +185,13 @@ class ThresholdsScreenTest {
         show(listOf(ThresholdRule.of(kid, ThresholdTarget.Category(AppCategory.GAMES), 90 * 60_000L)!!))
         rule.onNodeWithTag("thr_add").performClick()
         rule.onNodeWithTag("thr_kind_category").performClick()
+        rule.onNodeWithTag("thr_dialog_list").performScrollToNode(hasTestTag("thr_category_GAMES"))
         rule.onNodeWithTag("thr_category_GAMES").performClick()
+        rule.onNodeWithTag("thr_dialog_list").performScrollToNode(hasTestTag("thr_value"))
         rule.onNodeWithTag("thr_value").assertTextEquals("1 h 30 min")
+        rule.onNodeWithTag("thr_dialog_list").performScrollToNode(hasTestTag("thr_category_VIDEO"))
         rule.onNodeWithTag("thr_category_VIDEO").performClick()
+        rule.onNodeWithTag("thr_dialog_list").performScrollToNode(hasTestTag("thr_value"))
         rule.onNodeWithTag("thr_value").assertTextEquals("1 h")
     }
 
@@ -203,7 +215,7 @@ class ThresholdsScreenTest {
         rule.onNodeWithTag("thr_plus").assertIsNotEnabled()
         rule.onNodeWithTag("thr_minus").assertIsEnabled().assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp)
         rule.onNodeWithContentDescription("15 minutes more").assertExists()
-        rule.onNodeWithText("Cancel").performClick()
+        rule.onNodeWithTag("thr_cancel").performClick()
         rule.onNodeWithTag("thr_list").performScrollToNode(hasTestTag("thr_rule_${min.id}"))
         rule.onNodeWithTag("thr_rule_${min.id}").performClick()
         rule.onNodeWithTag("thr_minus").assertIsNotEnabled()
@@ -216,5 +228,46 @@ class ThresholdsScreenTest {
         rule.onNodeWithText("Only a parent can set limits.").assertExists()
         rule.onNodeWithTag("thr_add").assertDoesNotExist()
         rule.onNodeWithTag("thr_delete_${total.id}").assertDoesNotExist()
+    }
+
+    @Test
+    @Config(qualifiers = "w360dp-h640dp")
+    fun theLimitDialogIsFullScreen() {
+        show(emptyList())
+        rule.onNodeWithTag("thr_add").performClick()
+        rule.onNodeWithTag("thr_dialog").assertWidthIsEqualTo(360.dp)
+        rule.onNodeWithTag("thr_cancel").performClick()
+        rule.onNodeWithTag("thr_dialog").assertDoesNotExist()
+        assertEquals(emptyList<Pair<ThresholdTarget, Long>>(), saved)
+    }
+
+    @Test
+    fun aPresetSetsTheLimitInOneTap() {
+        show(emptyList())
+        rule.onNodeWithTag("thr_add").performClick()
+        rule.onNodeWithTag("thr_kind_total").performScrollTo().performClick()
+        rule.onNodeWithTag("thr_preset_120").performScrollTo().performClick()
+        rule.onNodeWithTag("thr_value").assertTextEquals("2 h")
+        rule.onNodeWithTag("thr_save").performClick()
+        assertEquals(listOf(ThresholdTarget.Total to 2 * hour), saved)
+    }
+
+    @Test
+    fun holdingPlusRepeatsTheStepAndTheReleaseAddsNothing() {
+        show(listOf(total)) // 3 h
+        rule.onNodeWithTag("thr_rule_${total.id}").performClick()
+        rule.onNodeWithTag("thr_plus").performTouchInput { down(center) }
+        rule.mainClock.advanceTimeBy(HOLD_DELAY_MS + 2 * HOLD_REPEAT_MS + 50) // steps at 400, 500 and 600 ms
+        rule.onNodeWithTag("thr_plus").performTouchInput { up() }
+        rule.waitForIdle()
+        rule.onNodeWithTag("thr_value").assertTextEquals("3 h 45 min")
+    }
+
+    @Test
+    fun aTapStillStepsOnce() {
+        show(listOf(total))
+        rule.onNodeWithTag("thr_rule_${total.id}").performClick()
+        rule.onNodeWithTag("thr_minus").performClick()
+        rule.onNodeWithTag("thr_value").assertTextEquals("2 h 45 min")
     }
 }

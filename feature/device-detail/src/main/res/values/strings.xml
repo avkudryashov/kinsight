@@ -122,7 +122,7 @@
     <string name="thr_search">Search apps</string>
     <string name="thr_no_apps">No apps in the last 30 days</string>
     <string name="thr_value_label">Notify above</string>
-    <string name="thr_value_range">From 15 min to 12 h, in 15-minute steps</string>
+    <string name="thr_value_range">From 15 min to 12 h, in 15-minute steps. Hold − or + to step faster.</string>
     <string name="thr_less">15 minutes less</string>
     <string name="thr_more">15 minutes more</string>
     <string name="thr_save">Save</string>
@@ -133,4 +133,5 @@
     <string name="app_threshold_title">Limit for %1$s</string>
     <string name="det_data_at">Data as of %1$s</string>
     <string name="det_data_stale">Data as of %1$s, may be out of date</string>
+    <string name="thr_presets">Quick choice</string>
 </resources>

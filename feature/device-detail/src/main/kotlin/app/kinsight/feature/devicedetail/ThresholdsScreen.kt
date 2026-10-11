@@ -1,30 +1,36 @@
 package app.kinsight.feature.devicedetail
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -42,14 +48,15 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.key
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -61,10 +68,10 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.createSavedStateHandle
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.kinsight.core.data.AppCategory
 import app.kinsight.core.data.AppGraph
@@ -75,6 +82,12 @@ import app.kinsight.core.designsystem.component.AppIcon
 import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.durationText
 import app.kinsight.core.model.DeviceId
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** The daily limits of child [id] (spec §9.7, stage 5b), opened from the child's detail on a parent's phone. */
 @Composable
@@ -225,10 +238,12 @@ private const val KIND_CATEGORY = "category"
 private const val KIND_APP = "app"
 
 /**
- * Adds a rule (pick the target, then the limit) or, with [fixedTarget], changes one target's limit. A target that
- * already has a rule in [existing] starts from its limit; a new one from [ThresholdValues.DEFAULT_MS]. [onDelete]
- * (with [deleteId] for its tag) adds a «Delete» button.
+ * Adds a rule (pick the target, then the limit) or, with [fixedTarget], changes one target's limit, as a full-screen
+ * dialog (U15, Material: a form this size is not an alert): close, title and «Save» in the top bar, then one list
+ * with the limit first and the target below it. A target that already has a rule in [existing] starts from its limit;
+ * a new one from [ThresholdValues.DEFAULT_MS]. [onDelete] (with [deleteId] for its tag) adds a «Delete» button.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ThresholdDialog(
     title: String,
@@ -256,97 +271,142 @@ internal fun ThresholdDialog(
     fun picked(t: ThresholdTarget?) {
         value = limitOf(t) ?: ThresholdValues.DEFAULT_MS
     }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        modifier = Modifier.dialogTestTags(), // its own window: the root flag does not reach it
-        title = { Text(title) },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (fixedTarget == null) {
-                    Column(Modifier.selectableGroup()) {
-                        Choice(stringResource(R.string.thr_kind_total), kind == KIND_TOTAL, "thr_kind_total") {
-                            kind = KIND_TOTAL
-                            picked(ThresholdTarget.Total)
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize().dialogTestTags().testTag("thr_dialog"), // its own window: the root flag does not reach it
+            topBar = {
+                TopAppBar(
+                    title = { Text(title) },
+                    navigationIcon = {
+                        IconButton(onDismiss, Modifier.testTag("thr_cancel")) { Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.thr_cancel)) }
+                    },
+                    actions = {
+                        TextButton({ target?.let { onSave(it, value) } }, enabled = target != null, modifier = Modifier.testTag("thr_save")) {
+                            Text(stringResource(R.string.thr_save))
                         }
-                        Choice(stringResource(R.string.thr_kind_category), kind == KIND_CATEGORY, "thr_kind_category") { kind = KIND_CATEGORY }
-                        Choice(stringResource(R.string.thr_kind_app), kind == KIND_APP, "thr_kind_app") { kind = KIND_APP }
+                    },
+                )
+            },
+        ) { padding ->
+            val q = query.trim()
+            val shown = apps.filter { q.isEmpty() || it.label.contains(q, ignoreCase = true) || it.packageName.contains(q, ignoreCase = true) }
+            LazyColumn(
+                Modifier.fillMaxSize().padding(padding).testTag("thr_dialog_list"),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item(key = "value") { ValuePicker(value, onChange = { value = it }) }
+                if (fixedTarget == null) {
+                    item(key = "kinds") {
+                        Column(Modifier.selectableGroup()) {
+                            Choice(stringResource(R.string.thr_kind_total), kind == KIND_TOTAL, "thr_kind_total") {
+                                kind = KIND_TOTAL
+                                picked(ThresholdTarget.Total)
+                            }
+                            Choice(stringResource(R.string.thr_kind_category), kind == KIND_CATEGORY, "thr_kind_category") { kind = KIND_CATEGORY }
+                            Choice(stringResource(R.string.thr_kind_app), kind == KIND_APP, "thr_kind_app") { kind = KIND_APP }
+                        }
                     }
                     when (kind) {
-                        KIND_CATEGORY -> Column(Modifier.selectableGroup().padding(start = 16.dp)) {
-                            AppCategory.entries.forEach { c ->
+                        KIND_CATEGORY -> items(AppCategory.entries, key = { "cat:${it.name}" }) { c ->
+                            Box(Modifier.padding(start = 16.dp)) {
                                 Choice(categoryName(c), category == c.name, "thr_category_${c.name}") {
                                     category = c.name
                                     picked(ThresholdTarget.Category(c))
                                 }
                             }
                         }
-                        KIND_APP -> AppPicker(apps, query, { query = it }, pkg) {
-                            pkg = it
-                            picked(ThresholdTarget.App(it))
+                        KIND_APP -> {
+                            item(key = "search") {
+                                OutlinedTextField(
+                                    value = query,
+                                    onValueChange = { query = it },
+                                    label = { Text(stringResource(R.string.thr_search)) },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp).testTag("thr_search"),
+                                )
+                            }
+                            if (shown.isEmpty()) item(key = "no_apps") { Text(stringResource(R.string.thr_no_apps), style = MaterialTheme.typography.bodySmall) }
+                            // One list, no scroll inside a scroll (U15).
+                            items(shown, key = { "app:${it.packageName}" }) { a ->
+                                Row(
+                                    Modifier.fillMaxWidth().padding(start = 16.dp).heightIn(min = 48.dp)
+                                        .selectable(a.packageName == pkg, onClick = {
+                                            pkg = a.packageName
+                                            picked(ThresholdTarget.App(a.packageName))
+                                        }, role = Role.RadioButton)
+                                        .testTag("thr_app_${a.packageName}"),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    RadioButton(selected = a.packageName == pkg, onClick = null)
+                                    Spacer(Modifier.width(8.dp))
+                                    AppIcon(a.icon) // its own 40 dp, no padding inside it
+                                    Text(a.label, Modifier.padding(start = 8.dp))
+                                }
+                            }
                         }
                     }
                 }
-                ValuePicker(value, onChange = { value = it })
-            }
-        },
-        confirmButton = {
-            TextButton({ target?.let { onSave(it, value) } }, enabled = target != null, modifier = Modifier.testTag("thr_save")) {
-                Text(stringResource(R.string.thr_save))
-            }
-        },
-        dismissButton = {
-            Row {
                 if (onDelete != null) {
-                    TextButton(onDelete, Modifier.testTag("thr_delete_${deleteId.orEmpty()}")) { Text(stringResource(R.string.thr_remove)) }
-                }
-                TextButton(onDismiss) { Text(stringResource(R.string.thr_cancel)) }
-            }
-        },
-    )
-}
-
-/** The child's apps of the last 30 days filtered by [query] (label or package), as single choice. */
-@Composable
-private fun AppPicker(apps: List<AppUsage>, query: String, onQuery: (String) -> Unit, selected: String?, onPick: (String) -> Unit) =
-    Column(Modifier.padding(start = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQuery,
-            label = { Text(stringResource(R.string.thr_search)) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth().testTag("thr_search"),
-        )
-        val q = query.trim()
-        val shown = apps.filter { q.isEmpty() || it.label.contains(q, ignoreCase = true) || it.packageName.contains(q, ignoreCase = true) }
-        if (shown.isEmpty()) Text(stringResource(R.string.thr_no_apps), style = MaterialTheme.typography.bodySmall)
-        // Its own bounded scroll, so a long list does not push the limit out of the dialog.
-        Column(Modifier.heightIn(max = 240.dp).verticalScroll(rememberScrollState()).selectableGroup()) {
-            shown.forEach { a ->
-                Row(
-                    Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                        .selectable(a.packageName == selected, onClick = { onPick(a.packageName) }, role = Role.RadioButton)
-                        .testTag("thr_app_${a.packageName}"),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    RadioButton(selected = a.packageName == selected, onClick = null)
-                    AppIcon(a.icon, Modifier.padding(start = 8.dp))
-                    Text(a.label, Modifier.padding(start = 8.dp))
+                    item(key = "delete") {
+                        TextButton(onDelete, Modifier.testTag("thr_delete_${deleteId.orEmpty()}")) { Text(stringResource(R.string.thr_remove)) }
+                    }
                 }
             }
         }
     }
+}
 
-/** «Notify above» with −/+ (15 minutes each, 48 dp, disabled at the bounds) around the value, read aloud when it changes. */
+/** Holding a step button repeats its step (U15): the first repeat after [HOLD_DELAY_MS], then every [HOLD_REPEAT_MS]. */
+internal const val HOLD_DELAY_MS = 400L
+internal const val HOLD_REPEAT_MS = 100L
+
+/** Calls [onDown] on every press and [onRepeat] while the press is held; a plain tap is left to the button's onClick. */
 @Composable
-private fun ValuePicker(value: Long, onChange: (Long) -> Unit) = Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+private fun Modifier.repeatWhileHeld(enabled: Boolean, onDown: () -> Unit, onRepeat: () -> Unit): Modifier {
+    val down by rememberUpdatedState(onDown)
+    val repeat by rememberUpdatedState(onRepeat)
+    return pointerInput(enabled) {
+        if (!enabled) return@pointerInput
+        coroutineScope {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false)
+                down()
+                val job = this@coroutineScope.launch {
+                    delay(HOLD_DELAY_MS)
+                    while (isActive) {
+                        repeat()
+                        delay(HOLD_REPEAT_MS)
+                    }
+                }
+                waitForUpOrCancellation()
+                job.cancel()
+            }
+        }
+    }
+}
+
+/**
+ * «Notify above»: −/+ (15 minutes each, 48 dp, disabled at the bounds, repeating while held) around the value, read
+ * aloud when it changes, and the quick choices of [ThresholdValues.PRESETS_MS]. A release after a hold adds nothing.
+ */
+@Composable
+private fun ValuePicker(value: Long, onChange: (Long) -> Unit) = Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    val current by rememberUpdatedState(value)
+    var held by remember { mutableStateOf(false) }
     Text(stringResource(R.string.thr_value_label), style = MaterialTheme.typography.labelLarge)
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         val less = stringResource(R.string.thr_less)
         val more = stringResource(R.string.thr_more)
         FilledTonalIconButton(
-            onClick = { onChange(ThresholdValues.down(value)) },
+            onClick = { if (held) held = false else onChange(ThresholdValues.down(current)) },
             enabled = ThresholdValues.canDown(value),
-            modifier = Modifier.size(48.dp).semantics { contentDescription = less }.testTag("thr_minus"),
+            modifier = Modifier.size(48.dp)
+                .repeatWhileHeld(ThresholdValues.canDown(value), onDown = { held = false }) {
+                    held = true
+                    onChange(ThresholdValues.down(current))
+                }
+                .semantics { contentDescription = less }.testTag("thr_minus"),
         ) { Text("−", style = MaterialTheme.typography.titleLarge, modifier = Modifier.clearAndSetSemantics {}) }
         Text(
             durationText(value),
@@ -355,10 +415,26 @@ private fun ValuePicker(value: Long, onChange: (Long) -> Unit) = Column(vertical
             modifier = Modifier.widthIn(min = 96.dp).semantics { liveRegion = LiveRegionMode.Polite }.testTag("thr_value"),
         )
         FilledTonalIconButton(
-            onClick = { onChange(ThresholdValues.up(value)) },
+            onClick = { if (held) held = false else onChange(ThresholdValues.up(current)) },
             enabled = ThresholdValues.canUp(value),
-            modifier = Modifier.size(48.dp).semantics { contentDescription = more }.testTag("thr_plus"),
+            modifier = Modifier.size(48.dp)
+                .repeatWhileHeld(ThresholdValues.canUp(value), onDown = { held = false }) {
+                    held = true
+                    onChange(ThresholdValues.up(current))
+                }
+                .semantics { contentDescription = more }.testTag("thr_plus"),
         ) { Text("+", style = MaterialTheme.typography.titleLarge, modifier = Modifier.clearAndSetSemantics {}) }
+    }
+    Text(stringResource(R.string.thr_presets), style = MaterialTheme.typography.labelLarge)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ThresholdValues.PRESETS_MS.forEach { ms ->
+            FilterChip(
+                selected = value == ms,
+                onClick = { onChange(ms) },
+                label = { Text(durationText(ms)) },
+                modifier = Modifier.heightIn(min = 48.dp).testTag("thr_preset_${ms / 60_000}"),
+            )
+        }
     }
     Text(stringResource(R.string.thr_value_range), style = MaterialTheme.typography.bodySmall)
 }

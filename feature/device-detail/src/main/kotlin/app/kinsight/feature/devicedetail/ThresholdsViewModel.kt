@@ -227,6 +227,9 @@ internal object ThresholdWrites {
 object ThresholdValues {
     const val DEFAULT_MS = 3_600_000L
 
+    /** Quick choices next to −/+ (U15): 30 min, 1 h, 2 h, 3 h. */
+    val PRESETS_MS = listOf(30L, 60, 120, 180).map { it * 60_000L }
+
     fun canUp(ms: Long): Boolean = ms < ThresholdRule.MAX_MS
 
     fun canDown(ms: Long): Boolean = ms > ThresholdRule.MIN_MS

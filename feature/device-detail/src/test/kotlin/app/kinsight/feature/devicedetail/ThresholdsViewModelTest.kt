@@ -328,4 +328,10 @@ class ThresholdsViewModelTest {
         assertEquals(12 * hour, ThresholdValues.clamp(20 * hour))
         assertEquals(hour, ThresholdValues.clamp(hour + 60_000L))
     }
+
+    @Test
+    fun presetsAreOnTheGridAndWithinTheBounds() {
+        assertEquals(listOf(30L, 60, 120, 180).map { it * 60_000L }, ThresholdValues.PRESETS_MS)
+        ThresholdValues.PRESETS_MS.forEach { assertEquals(it, ThresholdValues.clamp(it)) }
+    }
 }

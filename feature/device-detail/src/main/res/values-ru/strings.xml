@@ -130,7 +130,7 @@
     <string name="thr_search">Поиск приложений</string>
     <string name="thr_no_apps">Нет приложений за последние 30 дней</string>
     <string name="thr_value_label">Уведомлять, если больше</string>
-    <string name="thr_value_range">От 15 минут до 12 часов, шагом 15 минут</string>
+    <string name="thr_value_range">От 15 минут до 12 часов, шагом 15 минут. Удерживайте − или +, чтобы менять быстрее.</string>
     <string name="thr_less">На 15 минут меньше</string>
     <string name="thr_more">На 15 минут больше</string>
     <string name="thr_save">Сохранить</string>
@@ -141,4 +141,5 @@
     <string name="app_threshold_title">Порог: %1$s</string>
     <string name="det_data_at">Данные на %1$s</string>
     <string name="det_data_stale">Данные на %1$s, могли устареть</string>
+    <string name="thr_presets">Быстрый выбор</string>
 </resources>
