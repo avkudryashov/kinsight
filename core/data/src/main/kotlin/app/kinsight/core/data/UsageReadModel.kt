@@ -3,6 +3,7 @@ package app.kinsight.core.data
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.EntryKind
+import app.kinsight.core.model.WireConstants
 import app.kinsight.core.model.proto.AppCatalog
 import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.model.proto.UsageDetail
@@ -18,7 +19,7 @@ import kotlin.math.abs
 /**
  * Pure views over signed entries for the v1 screens. Totals (levels 1 to 3 of spec §9.3) come only from UsageSummary;
  * level 4 (hours) takes a day's UsageDetail only when its seq is above the summary's seq of the same date, never a
- * detail older than the summary (stage 3b review, [detailOf]).
+ * detail older than the summary ([detailOf]).
  *
  * Zone rule: `today` is the viewer's (the parent's) local date. A summary is keyed by the local_date its child wrote
  * in its own zone; days are matched by that date label, not by instant, so a child in another zone shows its own
@@ -173,7 +174,7 @@ object UsageReadModel {
     }
 
     fun events(entries: List<DecodedEntry>): List<EventView> {
-        val sharingKinds = setOf(StateEvent.Kind.SHARING_PAUSED, StateEvent.Kind.SHARING_RESUMED)
+        val sharingKinds = WireConstants.SHARING_KINDS
         val firstSharing = entries.filter { it.body.state_event?.kind in sharingKinds }
             .groupBy { it.author }
             .mapValues { (_, own) -> own.minBy { it.seq }.seq }
@@ -540,7 +541,7 @@ object UsageReadModel {
      * earlier than [today] and at most one day later (zone offsets span 26 h); an unparsable zone (untrusted peer), no
      * summary or a null [nowMs] keeps [today].
      *
-     * [thresholds]: the child's actual date, also one day earlier than [today] (final fix item 7): a child west of the
+     * [thresholds]: the child's actual date, also one day earlier than [today]: a child west of the
      * parent is still on its day after the parent's midnight, and a limit it passes in its evening must be caught.
      * The screens keep the later of the two (the detail and the dashboard never open on the parent's yesterday).
      */

@@ -17,7 +17,7 @@
     <!-- No REQUEST_IGNORE_BATTERY_OPTIMIZATIONS (spec §8): the spike synced in deep Doze without it. -->
 
     <application>
-        <!-- Not directBootAware: keys and the database are used only after the first unlock (3a review). -->
+        <!-- Not directBootAware: keys and the database are used only after the first unlock. -->
         <service
             android:name=".SyncService"
             android:exported="false"

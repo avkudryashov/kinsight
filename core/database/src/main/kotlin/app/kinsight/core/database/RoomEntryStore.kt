@@ -177,7 +177,7 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
     /**
      * Marks [seq] accounted without moving contig; the caller runs [advance] once per [touched] author after the
      * batch. Advancing per seq would rescan every pending row each time: quadratic for a live set's
-     * [app.kinsight.core.sync.LiveSet.MAX_SPARSE] dead seqs (Task 5 review I3).
+     * [app.kinsight.core.sync.LiveSet.MAX_SPARSE] dead seqs.
      */
     private suspend fun account(author: String, seq: Long, touched: MutableSet<String>) {
         if (seq < 1 || vector.isAccounted(author, seq)) return

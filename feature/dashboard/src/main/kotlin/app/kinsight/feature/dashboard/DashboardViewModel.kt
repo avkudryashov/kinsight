@@ -23,7 +23,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-/** [noContactHours]: the user's «no contact» setting (spec §9.7), so a card and the alert agree (preflight C19). */
+/** [noContactHours]: the user's «no contact» setting (spec §9.7), so a card and the alert agree. */
 data class DashboardUi(
     val dashboard: DashboardState? = null,
     val service: ServiceStatus? = null,

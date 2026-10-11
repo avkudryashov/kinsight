@@ -47,7 +47,7 @@ object DiagnosticsReport {
         snapshot.sync.lastProblem?.let { appendLine("Last problem: $it") }
     }
 
-    /** Visible or not as the service and the integrity events decide (StatusText, preflight C18), with the detail. */
+    /** Visible or not as the service and the integrity events decide (StatusText), with the detail. */
     private fun notifications(s: ServiceSnapshot): String = when (StatusText.notificationVisible(s)) {
         null -> "unknown"
         false -> if (s.notificationsEnabled == false) "DISABLED for the app" else "enabled, channel BLOCKED"

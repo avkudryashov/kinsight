@@ -56,7 +56,7 @@ class StopTracker(
     }
 
     /**
-     * A stop interval whose SYNC_STOPPED was refused or failed while sync runs again (fix round 2): retried at every
+     * A stop interval whose SYNC_STOPPED was refused or failed while sync runs again: retried at every
      * session preparation, not only at the next start from the app. Never while the user's Stop holds.
      */
     suspend fun retryPending() {

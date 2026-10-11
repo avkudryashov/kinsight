@@ -4,6 +4,7 @@ import app.kinsight.core.crypto.Primitives
 import app.kinsight.core.crypto.toHex
 import app.kinsight.core.database.PendingHourRow
 import app.kinsight.core.database.PendingUsageRow
+import app.kinsight.core.model.WireConstants
 import app.kinsight.core.model.proto.AppTotal
 import app.kinsight.core.model.proto.HourBucket
 import app.kinsight.core.model.proto.UsageDetail
@@ -16,11 +17,8 @@ object UsageContent {
     /** At most this many named apps per UsageDetail hour; the rest of the hour is folded into [OTHER_PACKAGE]. */
     const val MAX_APPS_PER_HOUR = 40
 
-    /**
-     * Reserved package name for the folded remainder of a crowded hour. Never collides with a real app: Android
-     * package names allow only letters, digits, '_' and '.', so '~' cannot occur in one.
-     */
-    const val OTHER_PACKAGE = "~other"
+    /** Reserved package name for the folded remainder of a crowded hour ([WireConstants.REMAINDER_PACKAGE]). */
+    const val OTHER_PACKAGE = WireConstants.REMAINDER_PACKAGE
 
     fun build(date: String, zoneId: String, apps: List<PendingUsageRow>, hours: List<PendingHourRow>): DayContent {
         val live = apps.filter { it.foregroundMs > 0 }

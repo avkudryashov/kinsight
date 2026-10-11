@@ -2,6 +2,7 @@ package app.kinsight.core.sync
 
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.MembershipState
+import app.kinsight.core.model.WireConstants
 import app.kinsight.core.model.proto.DeviceRole
 
 /**
@@ -21,8 +22,8 @@ object CategoryOverrideRules {
     /** Largest `rank` (2^53): far beyond honest use (one step per change), exact in any JSON/double tooling. */
     const val MAX_RANK = 1L shl 53
 
-    /** The remainder bucket of usage summaries (core/data `Categories.REMAINDER_PACKAGE`); not an app. */
-    const val REMAINDER_PACKAGE = "~other"
+    /** The remainder bucket of usage summaries ([WireConstants.REMAINDER_PACKAGE]); not an app. */
+    const val REMAINDER_PACKAGE = WireConstants.REMAINDER_PACKAGE
 
     /**
      * Null when valid, otherwise the reason; a violation is [Verdict.Skipped], never counted against the peer.

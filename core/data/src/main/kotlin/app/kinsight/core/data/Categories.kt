@@ -1,5 +1,7 @@
 package app.kinsight.core.data
 
+import app.kinsight.core.model.WireConstants
+
 /** Kinsight's own category set (spec §9.3, stage 5a); the screens name them, the order here means nothing. */
 enum class AppCategory { GAMES, SOCIAL, VIDEO, AUDIO, PHOTOS, NEWS, MAPS, PRODUCTIVITY, OTHER }
 
@@ -17,7 +19,7 @@ data class CategoryTotal(val category: AppCategory, val totalMs: Long)
  */
 object Categories {
     /** The summary's reserved bucket for apps beyond the per-day limit. */
-    const val REMAINDER_PACKAGE = "~other"
+    const val REMAINDER_PACKAGE = WireConstants.REMAINDER_PACKAGE
 
     private val BY_CONSTANT = mapOf(
         0 to AppCategory.GAMES, // CATEGORY_GAME

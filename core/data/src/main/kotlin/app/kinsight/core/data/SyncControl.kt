@@ -40,7 +40,7 @@ interface SyncControl {
 }
 
 /**
- * The group-file check is file I/O, so starts run on a serial IO lane (preflight C20, fix round 1); [stopAndWait]
+ * The group-file check is file I/O, so starts run on a serial IO lane; [stopAndWait]
  * and [requestFast] go through the same lane, so a start queued before the stop can never land after it.
  */
 @OptIn(ExperimentalCoroutinesApi::class)

@@ -37,7 +37,7 @@ object KinsightDatabaseFactory {
             .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .build()
 
-    /** The process-wide database (3a review: one KinsightDatabase per process). Never closed by the app. */
+    /** The process-wide database (one KinsightDatabase per process). Never closed by the app. */
     fun shared(context: Context): KinsightDatabase =
         shared ?: synchronized(this) { shared ?: open(context).also { shared = it } }
 

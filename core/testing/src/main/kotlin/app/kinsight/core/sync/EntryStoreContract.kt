@@ -248,7 +248,7 @@ abstract class EntryStoreContract {
         assertEquals(6L, store.versionVector()[keys.deviceId])
     }
 
-    /** Task 5 review I3: the sparse accounting of one statement stays linear (the old per-seq advance took 1.3 s here). */
+    /** The sparse accounting of one statement stays linear (the old per-seq advance took 1.3 s here). */
     @Test
     fun liveSetAccountsMaxSparseDeadSeqsQuickly() = runTest {
         store.applyBatch(listOf(genesis.entry)) // 1; 2 is live and missing, 3..4100 dead, 4101 live

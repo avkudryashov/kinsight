@@ -6,6 +6,7 @@ import app.kinsight.core.database.RoomEntryStore
 import app.kinsight.core.database.RoomUsageQueue
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.EntryAuthor
+import app.kinsight.core.model.WireConstants
 import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.sync.observedLamport
 import kotlinx.coroutines.sync.Mutex
@@ -61,7 +62,7 @@ class UsagePipeline(
         val t = target()
         val allowed = ownUsage(t)
         check(!on || allowed) { "only a consenting child device shares its usage (spec §4.8)" }
-        // A device that may not share only writes the setting: it never signs SHARING_PAUSED (preflight C16).
+        // A device that may not share only writes the setting: it never signs SHARING_PAUSED.
         val publisher = if (allowed) publisher(t) else null
         publisher?.recordSharingChange(on)
         settings.setSharing(on)
@@ -73,7 +74,7 @@ class UsagePipeline(
      * between a signed SHARING_PAUSED and the setting write the switch goes off, after one between SHARING_RESUMED
      * and the write it goes on; with no signed SHARING_* yet but the switch on (it was turned on before the group
      * existed) SHARING_RESUMED is signed now. A device that may not share only ends with the switch off and signs
-     * nothing (a parent publishes no StateEvent but LEFT_GROUP, spec §4.8; preflight C16). Without a group nothing
+     * nothing (a parent publishes no StateEvent but LEFT_GROUP, spec §4.8). Without a group nothing
      * happens. Called at app start and after joining.
      */
     suspend fun reconcileSharing(): Unit = mutex.withLock {
@@ -84,7 +85,7 @@ class UsagePipeline(
             return@withLock
         }
         val last = RoomEntryStore(db, t.groupId).stateEvents()
-            .lastOrNull { it.author == t.keys.deviceId && it.body.state_event!!.kind in SHARING_KINDS }
+            .lastOrNull { it.author == t.keys.deviceId && it.body.state_event!!.kind in WireConstants.SHARING_KINDS }
             ?.body?.state_event?.kind
         val publisher = publisher(t)!!
         when {
@@ -148,6 +149,5 @@ class UsagePipeline(
 
     private companion object {
         const val DAY_MS = 86_400_000L
-        val SHARING_KINDS = setOf(StateEvent.Kind.SHARING_PAUSED, StateEvent.Kind.SHARING_RESUMED)
     }
 }

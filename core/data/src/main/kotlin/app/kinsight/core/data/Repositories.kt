@@ -60,7 +60,7 @@ import java.util.Locale
 /** The sync engine's session progress: finished sessions (any outcome; from zero after a service restart), one running. */
 data class SessionProgress(val finished: Int, val syncing: Boolean)
 
-/** Why «Leave group» did not finish; the group screen shows it (T15) and calls [GroupRepository.dismissLeaveError]. */
+/** Why «Leave group» did not finish; the group screen shows it and calls [GroupRepository.dismissLeaveError]. */
 enum class LeaveError {
     /** No group, or this device is no longer an active member: nothing to leave. */
     NO_GROUP,
@@ -77,8 +77,8 @@ enum class LeaveError {
 
 /**
  * The group as the screens see it, and the admin and leave operations. [scope] is app-wide (owned by Graph): leaving
- * outlives any screen (preflight C5). [sessions] is the sync engine's session progress; [forget] is
- * LocalReset.forgetGroup. GroupStore calls are fsynced file I/O and run on [io] (preflight C20).
+ * outlives any screen. [sessions] is the sync engine's session progress; [forget] is
+ * LocalReset.forgetGroup. GroupStore calls are fsynced file I/O and run on [io].
  */
 class GroupRepository(
     private val snapshots: Snapshots,
@@ -181,7 +181,7 @@ class GroupRepository(
     }
 
     /**
-     * The «Leave group» button (spec §9.5, preflight C5/C6), on the app scope:
+     * The «Leave group» button (spec §9.5), on the app scope:
      * 1. refuse ([leaveError]) without a group or for the sole admin of others ([SnapshotViews.canLeave]);
      * 2. sign LEFT_GROUP and start a fast sync; a failure here wipes nothing ([LeaveError.NOT_SIGNED]);
      * 3. right after the commit, take the session baseline and wait (bounded by [leaveTimeoutMs]) for a session that

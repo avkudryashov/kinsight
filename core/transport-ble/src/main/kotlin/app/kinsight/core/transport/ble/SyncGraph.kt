@@ -185,7 +185,7 @@ object SyncGraph {
         retryStopInterval(context)
     }
 
-    /** A SYNC_STOPPED that was refused at the start from the app: tried again before every session (fix round 2). */
+    /** A SYNC_STOPPED that was refused at the start from the app: tried again before every session. */
     suspend fun retryStopInterval(context: Context) = stateLock.withLock {
         if (groups(context).exists()) StopTracker(state(context), recorder(context), gate(context)).retryPending()
     }
@@ -283,7 +283,7 @@ object SyncGraph {
     /**
      * Leaving, removal or a new identity (LocalReset, core/data): no group file and no transport state of the old
      * group, under [stateLock] so no tracker writes a stale interval after the clear. The force-stop marks stay (see
-     * TransportStateStore.clear). The group file is fsynced file I/O, so it runs on IO (preflight C20).
+     * TransportStateStore.clear). The group file is fsynced file I/O, so it runs on IO.
      *
      * Lock order is [stateLock], then the pipeline lock: the caller must NOT hold the pipeline lock (no
      * pipeline.exclusive around this), or it deadlocks against a tracker waiting in queueEvent. Call it before the

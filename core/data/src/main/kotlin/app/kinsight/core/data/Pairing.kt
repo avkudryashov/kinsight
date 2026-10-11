@@ -9,10 +9,10 @@ import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.MembershipState
+import app.kinsight.core.model.WireConstants
 import app.kinsight.core.model.addMember
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.PairReject
-import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.sync.ByteStream
 import app.kinsight.core.sync.pairing.GuestResult
 import app.kinsight.core.sync.pairing.HostDecision
@@ -115,7 +115,7 @@ internal object InviteRules {
  *
  * Locks: the coordinator holds none of the app's locks itself. A session's own monitor guards its state and is never
  * held across a suspension. LocalReset.forgetGroup (controlLock → stateLock → pipeline lock) is called outside any
- * pipeline.exclusive; AddMember goes through pipeline.appendOwn. GroupStore file I/O runs on [io] (preflight C20).
+ * pipeline.exclusive; AddMember goes through pipeline.appendOwn. GroupStore file I/O runs on [io].
  */
 class PairingCoordinator(
     private val link: PairingLink,
@@ -159,7 +159,7 @@ class PairingCoordinator(
         val store = RoomEntryStore(db, group.groupId)
         val membership = Membership.compute(group.groupId, store.membershipEntries()) ?: return
         if (membership.active[self]?.isChild != true) return
-        if (store.stateEvents().any { it.author == self && it.body.state_event?.kind in SHARING_KINDS }) return
+        if (store.stateEvents().any { it.author == self && it.body.state_event?.kind in WireConstants.SHARING_KINDS }) return
         Log.i(TAG, "finishing an interrupted join: sharing on as consented")
         pipeline.setSharing(true)
     }
@@ -283,7 +283,7 @@ class PairingCoordinator(
                 try {
                     when (val outcome = host.serve(stream) { joiner -> decide(joiner, group) }) {
                         is HostOutcome.Welcomed -> {
-                            // Preflight C7: everything done before Added is published.
+                            // Everything is done before Added is published.
                             shutdown()
                             try {
                                 snapshots.invalidate()
@@ -458,7 +458,7 @@ class PairingCoordinator(
 
         /**
          * Under [commitLock], refusing when a group appeared meanwhile (another join, or «create group»): a fresh database
-         * (no stale cursor, markers or entries: stage 3b review), the membership, the child's consent (before the group
+         * (no stale cursor, markers or entries), the membership, the child's consent (before the group
          * file, so [finishInterruptedJoin] can finish it after a crash), the group file, then sharing and a fast sync.
          * Steps after the group file are best effort: the device is in the group whatever they do.
          */
@@ -493,7 +493,6 @@ class PairingCoordinator(
 }
 
 private const val TAG = "KinsightPairing"
-private val SHARING_KINDS = setOf(StateEvent.Kind.SHARING_PAUSED, StateEvent.Kind.SHARING_RESUMED)
 
 /** An invite on the air: its QR text and when its token stops being accepted. */
 private class Opened(val uri: String, val expiresAtMs: Long)

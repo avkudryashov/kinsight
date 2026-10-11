@@ -26,7 +26,7 @@ object AppGraph {
 }
 
 class Graph internal constructor(app: Context) {
-    /** App-wide work that must outlive a screen (leaving the group, preflight C5). */
+    /** App-wide work that must outlive a screen (leaving the group). */
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val db = KinsightDatabaseFactory.shared(app)
     val groups = SyncGraph.groups(app)

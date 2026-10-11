@@ -462,8 +462,8 @@ private fun versus(todayMs: Long, usual: Long, same: Int, more: Int, less: Int):
 }
 
 /**
- * «No contact» uses the same setting and comparison as the alert (AlertPlanner), not a fixed day (preflight C19); the
- * data time is under the figure (U3).
+ * «No contact» uses the same setting and comparison as the alert (AlertPlanner), not a fixed day; the data time is
+ * under the figure (U3).
  */
 @Composable
 private fun status(u: DeviceUsage, nowMs: Long, noContactMs: Long): String? = when (val s = u.sharing) {

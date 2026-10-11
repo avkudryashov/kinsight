@@ -5,7 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Caches the first successful [select] for the process (3a review: one identity lookup shared by the service, the
+ * Caches the first successful [select] for the process (one identity lookup shared by the service, the
  * worker and the screens). Failures are not cached: a KeyStorageException repeats on the next call by itself, and a
  * transient one gets another chance. [get] runs select() on [io] without interruption (no runInterruptible): a
  * cancelled caller must not cut a first-run key or choice write in half; select() finishes and the result is cached.

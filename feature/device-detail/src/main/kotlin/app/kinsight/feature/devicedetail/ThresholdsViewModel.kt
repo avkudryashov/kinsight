@@ -77,7 +77,7 @@ data class ThresholdsState(val childName: String, val canEdit: Boolean, val rule
  * drops a removed rule's «already notified» markers, so removing at once and restoring on «Undo» could notify twice
  * the same day.
  *
- * Final fix item 5: the pending deletes and the end of their window live in [saved], so a recreated screen (rotation
+ * The pending deletes and the end of their window live in [saved], so a recreated screen (rotation
  * or process death) offers their «Undo» again ([pendingDeletes]), and one whose window passed meanwhile is committed.
  * Every storage write (save, commit) runs on [writes], one serial lane on [commitScope], so a delete committed just
  * before a save of the same target can never land after it.

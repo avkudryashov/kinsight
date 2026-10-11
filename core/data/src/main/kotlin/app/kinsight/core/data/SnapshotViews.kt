@@ -22,8 +22,8 @@ sealed interface GroupState {
     data object Removed : GroupState
 
     /**
-     * This device signed LEFT_GROUP and waits (bounded) for a session to carry it before the local wipe (preflight
-     * C5/C6): the root shows «Leaving: telling your family…», not the removal screen.
+     * This device signed LEFT_GROUP and waits (bounded) for a session to carry it before the local wipe:
+     * the root shows «Leaving: telling your family…», not the removal screen.
      */
     data object Leaving : GroupState
 

@@ -114,7 +114,7 @@ class Publisher(
 
         val catalog = mutableListOf<String>()
         // This run's packages, then any package of an earlier published day that never got its catalog entry (a crash
-        // after the day went out, or an app that was invisible then): stage 4 review of 3b.
+        // after the day went out, or an app that was invisible then).
         for (pkg in packages + queue.packagesWithoutCatalog()) {
             val info = apps.info(pkg) ?: continue
             val hash = info.hash()

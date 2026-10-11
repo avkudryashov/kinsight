@@ -8,7 +8,7 @@ enum class Start { LOADING, ONBOARDING, MAIN, KEY_ERROR, REMOVED, LEAVING, RESET
 
 /**
  * Which root screen to show. A local wipe (LocalReset.status) comes first: running it blocks every screen, a failure
- * stays visible with a retry. Leaving (preflight C5) is its own root, also through the wipe at its end. Onboarding
+ * stays visible with a retry. Leaving is its own root, also through the wipe at its end. Onboarding
  * stays until its DONE step even after the group exists (join path); a finished wipe reads NoGroup → onboarding.
  */
 object AppStart {

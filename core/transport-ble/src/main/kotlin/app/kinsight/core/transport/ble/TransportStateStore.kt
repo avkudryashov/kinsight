@@ -125,7 +125,7 @@ class TransportStateStore(private val store: DataStore<Preferences>) {
     /**
      * A wiped group or identity: everything here belonged to the old group, except the force-stop marks. Those
      * describe this device's exit history, and a wiped seen set would swallow the first force stop after the next
-     * join (fix round 1).
+     * join.
      */
     suspend fun clear() {
         store.edit {

@@ -56,8 +56,8 @@ sealed interface GroupError {
 }
 
 /**
- * The group screen's state and actions. Leaving runs on the app scope inside [GroupRepository.leaveAndForget]
- * (preflight C5), so it outlives this view model; its failures arrive through [GroupRepository.leaveError].
+ * The group screen's state and actions. Leaving runs on the app scope inside [GroupRepository.leaveAndForget],
+ * so it outlives this view model; its failures arrive through [GroupRepository.leaveError].
  */
 class GroupViewModel internal constructor(private val actions: GroupActions) : ViewModel() {
     constructor(group: GroupRepository) : this(RepositoryActions(group))

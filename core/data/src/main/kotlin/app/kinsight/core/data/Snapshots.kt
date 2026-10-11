@@ -66,7 +66,7 @@ sealed interface GroupSnapshot {
  * outside Room) and when «last seen» changes. Loading runs on [io] (Room, the keystore and the group file); a newer
  * trigger cancels an older load.
  *
- * [snapshots] is one shared load for every collector (final fix item 4): the dashboard, detail, app and thresholds
+ * [snapshots] is one shared load for every collector: the dashboard, detail, app and thresholds
  * flows, the group state and the widget derive from it on [scope] (the app scope), instead of each doing its own Room
  * read and decode per change. It runs while someone collects and [stopTimeoutMs] longer (a screen rotation keeps it);
  * when it stops, its last snapshot is dropped, so a later subscriber starts from a fresh load, never a stale one.
