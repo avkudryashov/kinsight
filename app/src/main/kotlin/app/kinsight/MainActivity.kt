@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.annotation.VisibleForTesting
 import app.kinsight.core.data.AppGraph
 import app.kinsight.core.designsystem.theme.KinsightTheme
 import app.kinsight.feature.widget.KinsightWidget
@@ -59,11 +60,13 @@ class MainActivity : ComponentActivity() {
         AppGraph.get(this).sync.refreshNotification()
     }
 
-    /** Leaving the app after a reset, a leave or a pause: the widget shows it now, not at the next hourly run. */
+    /**
+     * Leaving the app after a reset, a leave or a pause: the widget shows it now, not at the next hourly run. A rotation
+     * or another configuration change stops the activity too, but nothing was left: no redraw then.
+     */
     override fun onStop() {
         super.onStop()
-        val app = applicationContext
-        AppGraph.get(app).scope.launch { KinsightWidget.update(app) }
+        if (!isChangingConfigurations) refreshWidget(applicationContext)
     }
 
     /**
@@ -92,5 +95,9 @@ class MainActivity : ComponentActivity() {
         fun deviceOf(intent: Intent?): String? = intent?.getStringExtra(EXTRA_DEVICE)?.takeIf { HEX_ID.matches(it) }
 
         private const val ACTION_OPEN_DEVICE = "app.kinsight.OPEN_DEVICE"
+
+        /** Redraws the widget on the app scope (never blocks the stop); replaced by tests. */
+        @VisibleForTesting
+        internal var refreshWidget: (Context) -> Unit = { app -> AppGraph.get(app).scope.launch { KinsightWidget.update(app) } }
     }
 }

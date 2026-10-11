@@ -111,6 +111,24 @@ class MainActivityTest {
         }
     }
 
+    /** Final fix item 3: a rotation is not «leaving the app»; only a real stop redraws the widget. */
+    @Test
+    fun onlyARealStopRefreshesTheWidget() {
+        var refreshes = 0
+        val previous = MainActivity.refreshWidget
+        MainActivity.refreshWidget = { refreshes++ }
+        try {
+            Robolectric.buildActivity(MainActivity::class.java).setup().use { controller ->
+                controller.recreate()
+                assertEquals("a configuration change", 0, refreshes)
+                controller.pause().stop()
+                assertEquals(1, refreshes)
+            }
+        } finally {
+            MainActivity.refreshWidget = previous
+        }
+    }
+
     @Test
     fun tabsReadInEnglish() {
         assertEquals("Overview", app.getString(R.string.nav_overview))
