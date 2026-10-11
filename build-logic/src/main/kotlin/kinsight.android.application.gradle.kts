@@ -22,6 +22,30 @@ android {
     packaging {
         resources.excludes += KinsightAndroid.PACKAGING_EXCLUDES
     }
+
+    // Play upload key (spec §12, stage 6). The keystore lives outside the repo; local.properties points at a
+    // properties file with storeFile/storePassword/keyAlias/keyPassword. Without it the release stays unsigned.
+    val upload = KinsightAndroid.uploadSigning(rootProject.file("local.properties"))
+    if (upload != null) {
+        signingConfigs.create("upload") {
+            storeFile = file(upload.getProperty("storeFile"))
+            storePassword = upload.getProperty("storePassword")
+            keyAlias = upload.getProperty("keyAlias")
+            keyPassword = upload.getProperty("keyPassword")
+        }
+    }
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.findByName("upload")
+        }
+    }
+    bundle {
+        // Two small languages and a per-app language list: no on-demand language splits.
+        language.enableSplit = false
+    }
 }
 
 kotlin {
