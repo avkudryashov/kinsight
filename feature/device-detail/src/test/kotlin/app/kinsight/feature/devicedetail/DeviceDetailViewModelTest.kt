@@ -190,8 +190,10 @@ class DeviceDetailViewModelTest {
         assertEquals(listOf(total), vm.thresholds.value)
     }
 
-    private fun source(detail: Flow<DeviceDetail?>) = object : DetailSource {
+    private fun source(detail: Flow<DeviceDetail?>, ready: Boolean = true) = object : DetailSource {
         override fun today(): LocalDate = sat
+
+        override fun groupReady(): Flow<Boolean> = flowOf(ready)
 
         override fun detail(range: DetailRange): Flow<DeviceDetail?> = detail
     }
@@ -209,5 +211,12 @@ class DeviceDetailViewModelTest {
         val vm = DeviceDetailViewModel(source(MutableSharedFlow()), SavedStateHandle(), sunFirst, ticks = ticks)
         backgroundScope.launch { vm.detail.collect {} }
         assertEquals(false, vm.loaded.value)
+    }
+
+    @Test
+    fun anUnreadableGroupIsNotAMissingDevice() = runTest(dispatcher) {
+        val vm = DeviceDetailViewModel(source(flowOf(null), ready = false), SavedStateHandle(), sunFirst, ticks = ticks)
+        backgroundScope.launch { vm.detail.collect {} }
+        assertEquals(false, vm.loaded.value, "a storage or key error never reads as «no longer in the group»")
     }
 }

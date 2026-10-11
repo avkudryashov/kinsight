@@ -29,6 +29,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
@@ -260,5 +261,33 @@ class AppDetailViewModelTest {
         val vm = vm(source, week(sat))
         vm.setThreshold(3_600_000L)
         assertNull(source.limit.value)
+    }
+
+    private fun appSource(app: Flow<AppDetail?>, ready: Boolean = true) = object : AppSource {
+        override fun today(): LocalDate = sat
+
+        override fun groupReady(): Flow<Boolean> = flowOf(ready)
+
+        override fun app(range: DetailRange): Flow<AppDetail?> = app
+
+        override suspend fun setCategory(category: AppCategory?) {}
+    }
+
+    @Test
+    fun anUnknownDeviceIsMissingOnTheAppScreen() = runTest(dispatcher) {
+        val vm = AppDetailViewModel(appSource(flowOf(null)), SavedStateHandle(), sunFirst, week(sat), ticks = ticks)
+        backgroundScope.launch { vm.detail.collect {} }
+        assertNull(vm.detail.value)
+        assertTrue(vm.loaded.value)
+    }
+
+    @Test
+    fun theAppScreenIsLoadingBeforeTheFirstViewAndOnAnUnreadableGroup() = runTest(dispatcher) {
+        val waiting = AppDetailViewModel(appSource(MutableSharedFlow()), SavedStateHandle(), sunFirst, week(sat), ticks = ticks)
+        backgroundScope.launch { waiting.detail.collect {} }
+        assertFalse(waiting.loaded.value)
+        val broken = AppDetailViewModel(appSource(flowOf(null), ready = false), SavedStateHandle(), sunFirst, week(sat), ticks = ticks)
+        backgroundScope.launch { broken.detail.collect {} }
+        assertFalse(broken.loaded.value)
     }
 }

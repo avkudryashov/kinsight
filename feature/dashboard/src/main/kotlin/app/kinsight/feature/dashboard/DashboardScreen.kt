@@ -162,10 +162,9 @@ fun DashboardScreen(
     var searchSince by rememberSaveable { mutableStateOf<Long?>(null) }
     LaunchedEffect(searchSince) {
         val since = searchSince ?: return@LaunchedEffect
-        delay(SyncService.FAST_MS)
+        delay((SyncService.FAST_MS - (wallClock() - since)).coerceAtLeast(0))
         if (searchSince == since) searchSince = null
     }
-    val searching = stillSearching(searchSince, ui.service?.lastSyncMs)
     val syncNow = {
         searchSince = wallClock()
         onSyncNow()
@@ -173,6 +172,7 @@ fun DashboardScreen(
     // While the user's Stop holds, «Sync now» does nothing (the start honours the Stop): no pull, no action; the banner's
     // Start is the way back.
     val canSync = attention != SyncAttention.STOPPED
+    val searching = canSync && stillSearching(searchSince, ui.service?.lastSyncMs)
     val listState = rememberLazyListState() // kept when the pull comes and goes with the Stop
     val list: @Composable BoxScope.() -> Unit = {
         LazyColumn(

@@ -24,6 +24,9 @@ import java.util.Locale
 internal interface DetailSource {
     fun today(): LocalDate
 
+    /** False while the group is not readable (no group, key or storage error): a null view is then not «missing». */
+    fun groupReady(): Flow<Boolean> = flowOf(true)
+
     fun detail(range: DetailRange): Flow<DeviceDetail?>
 
     /** Only a parent sets thresholds (spec §9.7, stage 5b). */
@@ -37,6 +40,8 @@ private class RepositorySource(private val usage: UsageRepository, private val i
     override fun today(): LocalDate = usage.today()
 
     override fun detail(range: DetailRange): Flow<DeviceDetail?> = usage.detail(id, range, weekFields)
+
+    override fun groupReady(): Flow<Boolean> = usage.groupReady
 
     override fun viewerIsParent(): Flow<Boolean> = usage.viewerIsParent
 
@@ -67,7 +72,10 @@ class DeviceDetailViewModel internal constructor(
     val range: StateFlow<DetailRange> = nav.range
 
     val detail: StateFlow<DeviceDetail?> = nav.detail
-    val loaded: StateFlow<Boolean> = nav.loaded
+
+    /** The first view arrived while the group is readable: a null detail is then «no such device», not an error or loading. */
+    val loaded: StateFlow<Boolean> = combine(nav.loaded, source.groupReady()) { l, ready -> l && ready }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     /** The device's thresholds on a parent's phone (the «Limits» entry and the total's line); null on a child's. */
     val thresholds: StateFlow<List<ThresholdRule>?> = combine(source.viewerIsParent(), source.thresholds()) { parent, rules ->

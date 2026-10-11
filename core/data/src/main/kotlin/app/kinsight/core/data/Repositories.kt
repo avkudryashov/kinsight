@@ -431,6 +431,9 @@ class UsageRepository(
         ready?.membership?.active?.get(ready.self)?.isChild == false
     }.distinctUntilChanged()
 
+    /** Whether the group is readable (a Ready snapshot): a null view then means «no such device», otherwise it is not an answer yet. */
+    val groupReady: Flow<Boolean> = snapshots.snapshots.map { it is GroupSnapshot.Ready }.distinctUntilChanged()
+
     /** Adds or replaces the rule of [rule]'s (child, target); build it with [ThresholdRule.of]. */
     suspend fun setThreshold(rule: ThresholdRule) = prefs.setThreshold(rule)
 

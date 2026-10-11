@@ -18,6 +18,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -31,6 +32,9 @@ import java.util.Locale
 /** What the app view model reads and writes: the viewer's date, one range of the app, the app's category override. */
 internal interface AppSource {
     fun today(): LocalDate
+
+    /** False while the group is not readable (no group, key or storage error): a null view is then not «missing». */
+    fun groupReady(): Flow<Boolean> = flowOf(true)
 
     fun app(range: DetailRange): Flow<AppDetail?>
 
@@ -52,6 +56,8 @@ private class RepositoryAppSource(private val usage: UsageRepository, private va
     override fun today(): LocalDate = usage.today()
 
     override fun app(range: DetailRange): Flow<AppDetail?> = usage.app(id, packageName, range)
+
+    override fun groupReady(): Flow<Boolean> = usage.groupReady
 
     override suspend fun setCategory(category: AppCategory?) = usage.setCategory(packageName, category)
 
@@ -101,7 +107,10 @@ class AppDetailViewModel internal constructor(
     val range: StateFlow<DetailRange> = nav.range
 
     val detail: StateFlow<AppDetail?> = nav.detail
-    val loaded: StateFlow<Boolean> = nav.loaded
+
+    /** The first view arrived while the group is readable: a null detail is then «no such device», not an error or loading. */
+    val loaded: StateFlow<Boolean> = combine(nav.loaded, source.groupReady()) { l, ready -> l && ready }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     /** This app's limit («Notify if more than…»). */
     val threshold: StateFlow<ThresholdRule?> = source.threshold().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
