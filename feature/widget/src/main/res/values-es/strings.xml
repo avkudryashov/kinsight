@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wid_label">Tiempo de pantalla hoy</string>
+    <string name="wid_description">El tiempo de pantalla de hoy de los menores, o el tuyo y quién lo ve.</string>
+    <string name="wid_app_name">Kinsight</string>
+    <string name="wid_open_app">Abrir Kinsight</string>
+    <string name="wid_today">Hoy</string>
+    <string name="wid_no_children">Todavía no hay menores</string>
+    <string name="wid_no_data_today">Sin datos hoy</string>
+    <string name="wid_paused">En pausa desde %1$s</string>
+    <string name="wid_no_contact">Sin contacto desde %1$s</string>
+    <string name="wid_updated">Actualizado: %1$s</string>
+    <string name="wid_not_sharing">El intercambio está desactivado</string>
+    <string name="wid_no_data">Todavía no hay datos</string>
+    <string name="wid_seen_by">Lo ven: %1$s</string>
+    <string name="wid_no_parents">Todavía no hay ningún adulto en el grupo</string>
+    <string name="wid_own_today_spoken">Tu tiempo de pantalla hoy: %1$s</string>
+    <string name="wid_child_spoken">%1$s: %2$s hoy. %3$s. Abrir detalles</string>
+    <plurals name="wid_more">
+        <item quantity="one">+%d menor más</item>
+        <item quantity="other">+%d menores más</item>
+    </plurals>
+    <string name="wid_preview_name">Álex</string>
+    <string name="wid_preview_status">Actualizado: 14:05</string>
+    <string name="wid_preview_total">2 h 10 min</string>
+</resources>
