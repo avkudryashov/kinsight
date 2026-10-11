@@ -4,29 +4,50 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+
+/** The first run's step for [Page] (OnboardingRoute provides it); null elsewhere (consent from Settings, battery guide). */
+internal val LocalStepProgress = staticCompositionLocalOf<StepProgress?> { null }
 
 /** One onboarding page: a heading, scrollable text, actions at the bottom; edge-to-edge safe. */
 @Composable
@@ -36,6 +57,17 @@ internal fun Page(title: String, actions: @Composable ColumnScope.() -> Unit, bo
             Modifier.weight(1f).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            LocalStepProgress.current?.let { p ->
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        stringResource(R.string.onb_step, p.number, p.total),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("onb_step"),
+                    )
+                    LinearProgressIndicator(progress = { p.number.toFloat() / p.total }, modifier = Modifier.fillMaxWidth())
+                }
+            }
             Text(title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
             body()
         }
@@ -88,6 +120,8 @@ internal fun NameScreen(name: String, invalid: Boolean, onName: (String) -> Unit
         singleLine = true,
         isError = invalid,
         supportingText = if (invalid) ({ Text(stringResource(R.string.onb_name_error)) }) else null,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { onNext() }),
         modifier = Modifier.fillMaxWidth().testTag("onb_name"),
     )
 }
@@ -102,27 +136,49 @@ internal fun ParentInfoScreen(onNext: () -> Unit) = Page(
 }
 
 /**
- * Research §6.3, a child's phone only: a plain line for the child first, then what is collected, who sees it (every
- * parent of the group including [recipients], and parents who join later), background counting, the 7-day backlog of the first collection, the persistent notification,
- * an open pause the parents see, Play Protect. Explicit «Agree» / «Not now»; nothing is read before «Agree».
+ * Research §6.3, a child's phone only (U13): the child's line, then three short points with icons that carry the
+ * prominent disclosure (what is seen and counted in the background, every parent including later ones, the open
+ * pause and the always-on notification), the privacy policy link, then «More details» with every earlier paragraph
+ * word for word (who receives it, the 7-day backlog, privacy, the pause, Play Protect, «Not now»). Explicit «Agree» /
+ * «Not now»; nothing is read before «Agree».
  */
 @Composable
-fun ConsentScreen(recipients: String, onAgree: () -> Unit, onNotNow: () -> Unit, error: String? = null, onPrivacyPolicy: () -> Unit = {}) = Page(
-    title = stringResource(R.string.onb_consent_title),
-    actions = {
-        Primary(stringResource(R.string.onb_agree), "onb_agree", onAgree)
-        Secondary(stringResource(R.string.onb_not_now), "onb_not_now", onNotNow)
-    },
-) {
-    Body(stringResource(R.string.onb_consent_child))
-    Body(if (recipients.isBlank()) stringResource(R.string.onb_consent_body_group) else stringResource(R.string.onb_consent_body, recipients))
-    Body(stringResource(R.string.onb_consent_backlog))
-    Body(stringResource(R.string.onb_consent_privacy))
-    TextButton(onPrivacyPolicy, Modifier.testTag("onb_privacy")) { Text(stringResource(R.string.onb_privacy_policy)) }
-    Body(stringResource(R.string.onb_consent_pause))
-    Body(stringResource(R.string.onb_consent_protect))
-    Body(stringResource(R.string.onb_consent_not_now))
-    error?.let { ErrorNote(it) }
+fun ConsentScreen(recipients: String, onAgree: () -> Unit, onNotNow: () -> Unit, error: String? = null, onPrivacyPolicy: () -> Unit = {}) {
+    var more by rememberSaveable { mutableStateOf(false) }
+    Page(
+        title = stringResource(R.string.onb_consent_title),
+        actions = {
+            Primary(stringResource(R.string.onb_agree), "onb_agree", onAgree)
+            Secondary(stringResource(R.string.onb_not_now), "onb_not_now", onNotNow)
+        },
+    ) {
+        Body(stringResource(R.string.onb_consent_child))
+        ConsentPoint(Icons.Filled.DateRange, stringResource(R.string.onb_consent_point_what))
+        ConsentPoint(
+            Icons.Filled.Person,
+            if (recipients.isBlank()) stringResource(R.string.onb_consent_point_who_group) else stringResource(R.string.onb_consent_point_who, recipients),
+        )
+        ConsentPoint(Icons.Filled.Notifications, stringResource(R.string.onb_consent_point_pause))
+        TextButton(onPrivacyPolicy, Modifier.testTag("onb_privacy")) { Text(stringResource(R.string.onb_privacy_policy)) }
+        TextButton({ more = !more }, Modifier.testTag("onb_consent_more")) {
+            Text(stringResource(if (more) R.string.onb_consent_less else R.string.onb_consent_more))
+        }
+        if (more) {
+            Body(if (recipients.isBlank()) stringResource(R.string.onb_consent_body_group) else stringResource(R.string.onb_consent_body, recipients))
+            Body(stringResource(R.string.onb_consent_backlog))
+            Body(stringResource(R.string.onb_consent_privacy))
+            Body(stringResource(R.string.onb_consent_pause))
+            Body(stringResource(R.string.onb_consent_protect))
+            Body(stringResource(R.string.onb_consent_not_now))
+        }
+        error?.let { ErrorNote(it) }
+    }
+}
+
+@Composable
+private fun ConsentPoint(icon: ImageVector, text: String) = Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {
+    Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+    Text(text, style = MaterialTheme.typography.titleMedium)
 }
 
 /**

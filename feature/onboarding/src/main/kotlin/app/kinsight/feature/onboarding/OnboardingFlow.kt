@@ -32,6 +32,9 @@ data class OnboardingState(
     val role: DeviceRole? get() = joinedRole ?: invite?.role
 }
 
+/** «Step [number] of [total]» on an onboarding page (U13). */
+data class StepProgress(val number: Int, val total: Int)
+
 /**
  * Spec §9.4 with the Play disclosure rules (research §6.2). Create: name, what a parent's phone does, Nearby,
  * notifications, battery. Join: name, Nearby (needed to pair), the camera disclosure and the QR (both skipped with a
@@ -83,6 +86,21 @@ object OnboardingFlow {
         if (i < 0) return s.step
         val floor = order.indexOf(Step.PAIR).let { if (it in 0 until i) it + 1 else 0 }
         return order.subList(floor, i).lastOrNull { !skipped(it, s, env) } ?: if (floor > 0) s.step else Step.WELCOME
+    }
+
+    /**
+     * The page's place for «Шаг N из M» (U13): counted over the path's [order] without WELCOME and DONE and without
+     * skips, so a number never goes back when a permission is granted on the way (a skipped step makes the next
+     * number jump). While a JOIN does not know its role yet, its role step (consent or the parent text) is counted
+     * too. Null before a path is chosen, on WELCOME and DONE, and for a step outside the order.
+     */
+    fun progress(s: OnboardingState): StepProgress? {
+        if (s.path == null) return null
+        val steps = order(s).filter { it != Step.WELCOME && it != Step.DONE }
+        val i = steps.indexOf(s.step)
+        if (i < 0) return null
+        val roleStepToCome = s.path == Path.JOIN && s.role == null
+        return StepProgress(i + 1, steps.size + if (roleStepToCome) 1 else 0)
     }
 
     /** True once the phone is in the group or the step is past pairing: no new invite applies any more. */

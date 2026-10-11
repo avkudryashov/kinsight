@@ -7,6 +7,7 @@ import app.kinsight.core.sync.pairing.Invite
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class OnboardingFlowTest {
@@ -106,5 +107,37 @@ class OnboardingFlowTest {
         val dad = OnboardingState(step = Step.PAIR, path = Path.JOIN, joinedRole = DeviceRole.PARENT, consent = true)
         assertFalse(Step.USAGE_ACCESS in OnboardingFlow.order(dad))
         assertEquals(Step.NOTIFICATIONS, OnboardingFlow.next(dad, none))
+    }
+
+    @Test
+    fun progressCountsThePathWithoutWelcomeAndDone() {
+        val create = OnboardingState(step = Step.NAME, path = Path.CREATE, name = "Mom")
+        assertEquals(StepProgress(1, 5), OnboardingFlow.progress(create)) // name, parent text, Nearby, notifications, battery
+        assertEquals(StepProgress(5, 5), OnboardingFlow.progress(create.copy(step = Step.BATTERY)))
+        assertNull(OnboardingFlow.progress(create.copy(step = Step.WELCOME)))
+        assertNull(OnboardingFlow.progress(create.copy(step = Step.DONE)))
+        assertNull(OnboardingFlow.progress(OnboardingState(step = Step.NAME)), "no path chosen yet")
+    }
+
+    @Test
+    fun aJoinCountsItsRoleStepBeforeTheInviteIsKnown() {
+        // name, Nearby, camera, QR, (role step), pair, notifications, battery
+        val join = OnboardingState(step = Step.NAME, path = Path.JOIN, name = "Kid")
+        assertEquals(StepProgress(1, 8), OnboardingFlow.progress(join))
+        val child = join.copy(step = Step.CONSENT, invite = invite(DeviceRole.CHILD))
+        assertEquals(StepProgress(5, 8), OnboardingFlow.progress(child))
+        assertEquals(StepProgress(7, 9), OnboardingFlow.progress(child.copy(step = Step.USAGE_ACCESS, consent = true)))
+        assertEquals(StepProgress(5, 8), OnboardingFlow.progress(join.copy(step = Step.PARENT_INFO, invite = invite(DeviceRole.PARENT))))
+    }
+
+    @Test
+    fun numbersOnlyGoForwardEvenWhenGrantedStepsAreSkipped() {
+        var s = OnboardingState(step = Step.NAME, path = Path.JOIN, name = "Kid", invite = invite(DeviceRole.CHILD), consent = true)
+        val numbers = mutableListOf<Int>()
+        while (s.step != Step.DONE) {
+            numbers += OnboardingFlow.progress(s)!!.number
+            s = s.copy(step = OnboardingFlow.next(s, all))
+        }
+        assertEquals(numbers.sorted().distinct(), numbers)
     }
 }

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -187,67 +188,69 @@ fun OnboardingRoute(
         else -> null
     }
 
-    when (state.step) {
-        Step.WELCOME -> WelcomeScreen(onCreate = { vm.choose(Path.CREATE) }, onJoin = { vm.choose(Path.JOIN) }, message = inviteError)
-        Step.NAME -> NameScreen(state.name, message == OnboardingMessage.NAME_INVALID, vm::setName, vm::next, vm::back)
-        Step.PARENT_INFO -> ParentInfoScreen(vm::next)
-        Step.NEARBY -> DisclosureScreen(
-            title = stringResource(R.string.onb_nearby_title),
-            body = stringResource(R.string.onb_nearby_body),
-            agreeLabel = stringResource(R.string.onb_agree),
-            onAgree = { nearby.launch(BlePermissions.REQUIRED.toTypedArray()) },
-            onNotNow = vm::onNearbyNotNow,
-            note = when {
-                blocked -> stringResource(R.string.onb_nearby_blocked)
-                message == OnboardingMessage.NEARBY_REQUIRED -> stringResource(R.string.onb_nearby_required)
-                else -> null
-            },
-            onOpenSettings = if (blocked) ({ openAppSettings(context) }) else null,
-        )
-        Step.CAMERA -> DisclosureScreen(
-            title = stringResource(R.string.onb_camera_title),
-            body = stringResource(R.string.onb_camera_body),
-            agreeLabel = stringResource(R.string.onb_agree),
-            onAgree = { camera.launch(Manifest.permission.CAMERA) },
-            onNotNow = vm::next,
-        )
-        Step.SCAN -> ScanScreen(
-            message = inviteError ?: if (message == OnboardingMessage.SCANNER_UNAVAILABLE) stringResource(R.string.onb_scan_unavailable) else null,
-            cameraGranted = cameraGranted,
-            onAllowCamera = {
-                // Denied and Android will not ask again: only the app's settings page can allow it now.
-                if (cameraBlocked) openAppSettings(context) else camera.launch(Manifest.permission.CAMERA)
-            },
-            onBack = vm::back,
-        ) {
-            QrScanner(onText = { vm.onInviteText(it) }, onUnavailable = { vm.show(OnboardingMessage.SCANNER_UNAVAILABLE) })
+    CompositionLocalProvider(LocalStepProgress provides OnboardingFlow.progress(state)) {
+        when (state.step) {
+            Step.WELCOME -> WelcomeScreen(onCreate = { vm.choose(Path.CREATE) }, onJoin = { vm.choose(Path.JOIN) }, message = inviteError)
+            Step.NAME -> NameScreen(state.name, message == OnboardingMessage.NAME_INVALID, vm::setName, vm::next, vm::back)
+            Step.PARENT_INFO -> ParentInfoScreen(vm::next)
+            Step.NEARBY -> DisclosureScreen(
+                title = stringResource(R.string.onb_nearby_title),
+                body = stringResource(R.string.onb_nearby_body),
+                agreeLabel = stringResource(R.string.onb_agree),
+                onAgree = { nearby.launch(BlePermissions.REQUIRED.toTypedArray()) },
+                onNotNow = vm::onNearbyNotNow,
+                note = when {
+                    blocked -> stringResource(R.string.onb_nearby_blocked)
+                    message == OnboardingMessage.NEARBY_REQUIRED -> stringResource(R.string.onb_nearby_required)
+                    else -> null
+                },
+                onOpenSettings = if (blocked) ({ openAppSettings(context) }) else null,
+            )
+            Step.CAMERA -> DisclosureScreen(
+                title = stringResource(R.string.onb_camera_title),
+                body = stringResource(R.string.onb_camera_body),
+                agreeLabel = stringResource(R.string.onb_agree),
+                onAgree = { camera.launch(Manifest.permission.CAMERA) },
+                onNotNow = vm::next,
+            )
+            Step.SCAN -> ScanScreen(
+                message = inviteError ?: if (message == OnboardingMessage.SCANNER_UNAVAILABLE) stringResource(R.string.onb_scan_unavailable) else null,
+                cameraGranted = cameraGranted,
+                onAllowCamera = {
+                    // Denied and Android will not ask again: only the app's settings page can allow it now.
+                    if (cameraBlocked) openAppSettings(context) else camera.launch(Manifest.permission.CAMERA)
+                },
+                onBack = vm::back,
+            ) {
+                QrScanner(onText = { vm.onInviteText(it) }, onUnavailable = { vm.show(OnboardingMessage.SCANNER_UNAVAILABLE) })
+            }
+            // OnboardingFlow puts CONSENT only on a child invite's path.
+            Step.CONSENT -> ConsentScreen(state.invite?.adminName.orEmpty(), onAgree = { vm.consent(true) }, onNotNow = { vm.consent(false) }, onPrivacyPolicy = { openPrivacyPolicy(context) })
+            Step.PAIR -> state.invite?.let { pairContent(it, state.name.trim(), child && state.consent, vm::next, vm::back) }
+            Step.USAGE_ACCESS -> DisclosureScreen(
+                title = stringResource(R.string.onb_usage_title),
+                body = stringResource(R.string.onb_usage_body),
+                agreeLabel = stringResource(R.string.onb_usage_agree),
+                onAgree = { openUsageAccessSettings(context) },
+                onNotNow = vm::next,
+            )
+            Step.NOTIFICATIONS -> DisclosureScreen(
+                title = stringResource(R.string.onb_notifications_title),
+                body = stringResource(if (child) R.string.onb_notifications_body_child else R.string.onb_notifications_body_parent),
+                agreeLabel = stringResource(R.string.onb_agree),
+                onAgree = {
+                    if (Build.VERSION.SDK_INT >= 33) notifications.launch(Manifest.permission.POST_NOTIFICATIONS) else vm.next()
+                },
+                onNotNow = vm::next,
+            )
+            Step.BATTERY -> BatteryScreen(BatteryGuide.vendor(Build.MANUFACTURER), unrestricted, { openBatterySettings(context) }, vm::next)
+            Step.DONE -> DoneScreen(
+                child = child,
+                admin = state.path == Path.CREATE,
+                message = if (message == OnboardingMessage.CREATE_FAILED) stringResource(R.string.onb_create_failed) else null,
+                onDone = { vm.finish(onFinished) },
+            )
         }
-        // OnboardingFlow puts CONSENT only on a child invite's path.
-        Step.CONSENT -> ConsentScreen(state.invite?.adminName.orEmpty(), onAgree = { vm.consent(true) }, onNotNow = { vm.consent(false) }, onPrivacyPolicy = { openPrivacyPolicy(context) })
-        Step.PAIR -> state.invite?.let { pairContent(it, state.name.trim(), child && state.consent, vm::next, vm::back) }
-        Step.USAGE_ACCESS -> DisclosureScreen(
-            title = stringResource(R.string.onb_usage_title),
-            body = stringResource(R.string.onb_usage_body),
-            agreeLabel = stringResource(R.string.onb_usage_agree),
-            onAgree = { openUsageAccessSettings(context) },
-            onNotNow = vm::next,
-        )
-        Step.NOTIFICATIONS -> DisclosureScreen(
-            title = stringResource(R.string.onb_notifications_title),
-            body = stringResource(if (child) R.string.onb_notifications_body_child else R.string.onb_notifications_body_parent),
-            agreeLabel = stringResource(R.string.onb_agree),
-            onAgree = {
-                if (Build.VERSION.SDK_INT >= 33) notifications.launch(Manifest.permission.POST_NOTIFICATIONS) else vm.next()
-            },
-            onNotNow = vm::next,
-        )
-        Step.BATTERY -> BatteryScreen(BatteryGuide.vendor(Build.MANUFACTURER), unrestricted, { openBatterySettings(context) }, vm::next)
-        Step.DONE -> DoneScreen(
-            child = child,
-            admin = state.path == Path.CREATE,
-            message = if (message == OnboardingMessage.CREATE_FAILED) stringResource(R.string.onb_create_failed) else null,
-            onDone = { vm.finish(onFinished) },
-        )
     }
 }
 

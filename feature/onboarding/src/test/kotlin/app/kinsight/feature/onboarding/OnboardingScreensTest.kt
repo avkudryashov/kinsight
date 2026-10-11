@@ -1,10 +1,12 @@
 package app.kinsight.feature.onboarding
 
 import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -28,6 +30,7 @@ class OnboardingScreensTest {
     fun consentNamesTheRecipientAndTheBacklog() {
         var agreed = false
         rule.setContent { KinsightTheme(dynamicColor = false) { ConsentScreen("Mom", onAgree = { agreed = true }, onNotNow = {}) } }
+        rule.onNodeWithTag("onb_consent_more").performScrollTo().performClick()
         rule.onNodeWithText("every parent in your family group (currently Mom) and parents who join later", substring = true).assertExists()
         rule.onNodeWithText("Your parents will see", substring = true).assertExists()
         rule.onNodeWithText("last 7 days", substring = true).performScrollTo().assertIsDisplayed()
@@ -69,6 +72,7 @@ class OnboardingScreensTest {
     @Config(qualifiers = "ru")
     fun russianConsentUsesPrinimayuAndNeSeichas() {
         rule.setContent { KinsightTheme(dynamicColor = false) { ConsentScreen("Мама", onAgree = {}, onNotNow = {}) } }
+        rule.onNodeWithTag("onb_consent_more").performScrollTo().performClick()
         rule.onNodeWithText("всех родителей вашей семейной группы (сейчас это Мама) и тех, кто вступит позже", substring = true).assertExists()
         rule.onNodeWithText("Ваши родители увидят, сколько времени вы проводите", substring = true).assertExists()
         rule.onNodeWithText("не более чем за 7 последних дней", substring = true).assertExists()
@@ -159,5 +163,44 @@ class OnboardingScreensTest {
         rule.setContent { KinsightTheme(dynamicColor = false) { ConsentScreen("Mom", onAgree = {}, onNotNow = {}, onPrivacyPolicy = { opened = true }) } }
         rule.onNodeWithTag("onb_privacy").performScrollTo().performClick()
         assertTrue(opened)
+    }
+
+    @Test
+    fun consentLeadsWithThreePointsAndHidesTheDetailsUntilAsked() {
+        rule.setContent { KinsightTheme(dynamicColor = false) { ConsentScreen("Mom", onAgree = {}, onNotNow = {}) } }
+        rule.onNodeWithText("What is seen:", substring = true).assertExists()
+        rule.onNodeWithText("Who sees it: every parent of your family group (now Mom)", substring = true).assertExists()
+        rule.onNodeWithText("How to stop:", substring = true).assertExists()
+        rule.onNodeWithText("Play Protect", substring = true).assertDoesNotExist()
+        rule.onNodeWithTag("onb_consent_more").performScrollTo().performClick()
+        rule.onNodeWithText("Play Protect", substring = true).performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("If you choose Not now", substring = true).performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun aPageSaysWhichStepItIs() {
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                CompositionLocalProvider(LocalStepProgress provides StepProgress(3, 8)) { ParentInfoScreen(onNext = {}) }
+            }
+        }
+        rule.onNodeWithTag("onb_step").assertTextEquals("Step 3 of 8")
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun theStepInRussian() {
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                CompositionLocalProvider(LocalStepProgress provides StepProgress(3, 8)) { ParentInfoScreen(onNext = {}) }
+            }
+        }
+        rule.onNodeWithTag("onb_step").assertTextEquals("Шаг 3 из 8")
+    }
+
+    @Test
+    fun aPageOutsideTheFirstRunHasNoStep() {
+        rule.setContent { KinsightTheme(dynamicColor = false) { ConsentScreen("Mom", onAgree = {}, onNotNow = {}) } }
+        rule.onNodeWithTag("onb_step").assertDoesNotExist()
     }
 }

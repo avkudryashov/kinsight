@@ -63,6 +63,13 @@
     <string name="onb_create_failed">Не удалось создать группу. Откройте Настройки → Диагностика на этом телефоне.</string>
     <string name="onb_consent_child">Ваши родители увидят, сколько времени вы проводите в телефоне и в каких приложениях.</string>
     <string name="onb_consent_failed">Не удалось включить обмен. Попробуйте ещё раз или откройте Настройки → Диагностика на этом телефоне.</string>
+    <string name="onb_step">Шаг %1$d из %2$d</string>
+    <string name="onb_consent_point_what">Что видно: сколько времени вы проводите в каждом приложении, сколько раз разблокируете телефон и в какие часы. Kinsight считает это в фоне.</string>
+    <string name="onb_consent_point_who">Кто видит: все родители вашей семейной группы (сейчас это %1$s) и те, кто вступит позже.</string>
+    <string name="onb_consent_point_who_group">Кто видит: все родители вашей семейной группы, в том числе те, кто вступит позже.</string>
+    <string name="onb_consent_point_pause">Как остановить: пауза ставится в два касания на вкладке Обзор. Семья увидит паузу, а пока обмен включён, на телефоне всегда видно уведомление.</string>
+    <string name="onb_consent_more">Подробнее</string>
+    <string name="onb_consent_less">Свернуть</string>
     <string name="onb_open_settings">Открыть настройки приложения</string>
     <string name="onb_nearby_blocked">Разрешение «Устройства поблизости» для Kinsight выключено, и Android больше не спросит. Откройте настройки приложения, затем «Разрешения» → «Устройства поблизости» → «Разрешить».</string>
     <string name="onb_done_body_joined_parent">Этот телефон в вашей семейной группе. Он покажет экранное время детей, когда их телефоны синхронизируются.</string>
