@@ -11,7 +11,20 @@ import app.kinsight.core.data.Role
 import app.kinsight.core.data.ThresholdRule
 import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.model.DeviceId
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.job
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -79,8 +92,10 @@ class AppDetailViewModelTest {
         }
 
         var failWrites = false
+        var beforeWrite: suspend () -> Unit = {}
 
         override suspend fun setCategory(category: AppCategory?) {
+            beforeWrite()
             if (failWrites) throw IllegalStateException("disk full")
             overrides.value = if (category == null) overrides.value - pkg else overrides.value + (pkg to category)
         }
@@ -99,6 +114,38 @@ class AppDetailViewModelTest {
     }
 
     private fun week(anchor: LocalDate) = DetailRange.of(Period.WEEK, anchor, sunFirst)
+
+    /** The category write runs on the app's scope (like limit writes): leaving the screen at once does not cancel it. */
+    @Test
+    fun aCategoryWriteOutlivesTheScreen() = runBlocking<Unit> {
+        val gate = CompletableDeferred<Unit>()
+        val started = CompletableDeferred<Unit>()
+        val source = FakeSource().apply {
+            beforeWrite = {
+                started.complete(Unit)
+                gate.await()
+            }
+        }
+        val app = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val store = ViewModelStore()
+        try {
+            val vm = ViewModelProvider.create(
+                store,
+                viewModelFactory { initializer { AppDetailViewModel(source, SavedStateHandle(), sunFirst, week(sat), ticks = ticks, writeScope = app) } },
+            )[AppDetailViewModel::class]
+            val collector = app.launch { vm.detail.collect {} }
+            withTimeout(5_000) { while (vm.detail.value?.canChangeCategory != true) delay(5) }
+            vm.setCategory(AppCategory.SOCIAL)
+            withTimeout(5_000) { started.await() }
+            collector.cancel()
+            store.clear() // the screen is gone while the write is in flight
+            gate.complete(Unit)
+            withTimeout(5_000) { source.overrides.first { it == mapOf(pkg to AppCategory.SOCIAL) } }
+        } finally {
+            app.coroutineContext.job.cancelAndJoin()
+            store.clear()
+        }
+    }
 
     @Test
     fun opensOnTheGivenRangeAndNavigatesLikeTheDetail() = runTest(dispatcher) {

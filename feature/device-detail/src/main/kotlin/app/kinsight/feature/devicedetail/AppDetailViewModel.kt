@@ -69,7 +69,7 @@ private class RepositoryAppSource(private val usage: UsageRepository, private va
 /**
  * The app screen (spec §9.3, stage 5a): opens on the range the detail screen showed ([initial]) and navigates like it
  * ([RangeNavigator]); a range saved before process death wins over the route's argument. [setCategory] writes the
- * parent's local override; the flows re-emit, so this screen and the detail's level 3 update.
+ * family's shared override; the flows re-emit, so this screen and the detail's level 3 update.
  */
 class AppDetailViewModel internal constructor(
     private val source: AppSource,
@@ -90,7 +90,7 @@ class AppDetailViewModel internal constructor(
     ) : this(RepositoryAppSource(usage, id, packageName), saved, weekFields, initial, writeScope = writeScope)
 
     /**
-     * Limit writes run here (the app's scope in production), so leaving the screen at once does not cancel them, on the
+     * Limit and category writes run here (the app's scope in production), so leaving the screen at once does not cancel them, on the
      * one serial lane of threshold writes ([ThresholdWrites]) shared with the thresholds screen.
      */
     private val writes: CoroutineScope = writeScope ?: viewModelScope
@@ -117,10 +117,14 @@ class AppDetailViewModel internal constructor(
     /** A tapped bar of a week or month: that day. */
     fun openDay(date: LocalDate) = nav.openDay(date)
 
-    /** Only when [AppDetail.canChangeCategory] (a parent, not `~other`); null clears the override. */
+    /**
+     * Only when [AppDetail.canChangeCategory] (a parent, not `~other`); null clears the override. Runs on [writes] (the
+     * app's scope in production) on the same serial lane as limit writes, so leaving the screen at once does not cancel
+     * the signing.
+     */
     fun setCategory(category: AppCategory?) {
         if (detail.value?.canChangeCategory != true) return
-        viewModelScope.launch {
+        writes.launch(lane) {
             try {
                 source.setCategory(category)
             } catch (e: CancellationException) {
