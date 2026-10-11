@@ -128,6 +128,17 @@ class ThresholdsTest {
     }
 
     @Test
+    fun todayUsageOfAChildBehindTheParentIsItsActualDate() {
+        // Final fix item 7: 07:30 UTC on the 11th for the parent is 22:30 on the 10th for a child 9 h behind (UTC−9).
+        val by = byDate(summary(date, 200, zone = "Pacific/Gambier"))
+        val parentMorning = date.plusDays(1).atTime(7, 30).toInstant(ZoneOffset.UTC).toEpochMilli()
+        assertEquals(date, UsageReadModel.childToday(by, date.plusDays(1), parentMorning, thresholds = true))
+        assertEquals(200 * min, assertNotNull(UsageReadModel.todayUsage(child, by, emptyMap(), date.plusDays(1), emptyMap(), parentMorning)).totalMs)
+        // The screens keep the later of the two dates: the detail and the dashboard open on the parent's today.
+        assertEquals(date.plusDays(1), UsageReadModel.childToday(by, date.plusDays(1), parentMorning))
+    }
+
+    @Test
     fun todayUsageOnlyForChildren() {
         val by = byDate(summary(date, 100))
         val noon = date.atTime(12, 0).toInstant(ZoneOffset.UTC).toEpochMilli()

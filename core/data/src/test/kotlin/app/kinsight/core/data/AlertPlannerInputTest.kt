@@ -77,13 +77,38 @@ class AlertPlannerInputTest {
     }
 
     @Test
-    fun afterTheParentsMidnightYesterdaysTotalNeverFires() {
-        // Review Focus 1: 00:30 in Tokyo, the child (UTC) is still on the 10th; its 10th is not the parent's today.
+    fun afterTheParentsMidnightAChildStillOnItsDayIsJudgedOnItOnce() {
+        // 00:30 in Tokyo, the child (UTC) is still on the 10th: its 10th is its today (final fix item 7). Already
+        // notified for the 10th: nothing again; the child's yesterday is never read as its today.
         val tokyo = ZoneId.of("Asia/Tokyo")
         val now = at(tokyo, 11, 0, 30)
+        val total = rule(ThresholdTarget.Total, h)
         val snapshot = ready(summaries(now - h, "UTC", oct10 to 5 * h))
-        val plan = AlertPlanner.plan(AlertPlanner.input(snapshot, Prefs(), AlertMarkers(initialized = true), now, tokyo, listOf(rule(ThresholdTarget.Total, h))))
-        assertTrue(plan.alerts.none { it is Alert.Threshold }, "${plan.alerts}")
+        val notified = AlertMarkers(initialized = true, thresholdNotified = setOf(AlertMarkers.thresholdKey(total.id, h, oct10)))
+        val again = AlertPlanner.plan(AlertPlanner.input(snapshot, Prefs(), notified, now, tokyo, listOf(total)))
+        assertTrue(again.alerts.none { it is Alert.Threshold }, "${again.alerts}")
+        // Once the child's own midnight passed (UTC 00:30 on the 11th), its 10th is yesterday: nothing fires.
+        val later = at(utc, 11, 0, 30)
+        val next = AlertPlanner.plan(AlertPlanner.input(snapshot, Prefs(), AlertMarkers(initialized = true), later, tokyo, listOf(total)))
+        assertTrue(next.alerts.none { it is Alert.Threshold }, "${next.alerts}")
+    }
+
+    @Test
+    fun aChildNineHoursBehindCrossingItsLimitAfterTheParentsMidnightIsCaught() {
+        // Final fix item 7: 00:30 on the 11th for the parent in Madrid (UTC+2) is 15:30 on the 10th for the child in
+        // Los Angeles (UTC−7). The child passes its one-hour limit in its afternoon, after the parent's midnight.
+        val madrid = ZoneId.of("Europe/Madrid")
+        val now = at(madrid, 11, 0, 30)
+        val total = rule(ThresholdTarget.Total, h)
+        val snapshot = ready(summaries(now - 10 * min, "America/Los_Angeles", oct10 to 70 * min))
+        val input = AlertPlanner.input(snapshot, Prefs(), AlertMarkers(initialized = true), now, madrid, listOf(total))
+        assertEquals(oct10, input.todays.getValue(kidKeys.deviceId).date)
+        val plan = AlertPlanner.plan(input)
+        assertEquals(
+            listOf(Alert.Threshold(kidKeys.deviceId, "Kid", ThresholdTarget.Total, null, 70 * min, h)),
+            plan.alerts.filterIsInstance<Alert.Threshold>(),
+        )
+        assertEquals(setOf(AlertMarkers.thresholdKey(total.id, h, oct10)), plan.markers.thresholdNotified)
     }
 
     @Test

@@ -396,8 +396,8 @@ object UsageReadModel {
     }
 
     /**
-     * [member]'s today for the thresholds (spec §9.7, stage 5b): the summary of the child's own date ([childToday] with
-     * the same [today] and [nowMs]), categories as in [dayCategories] with the viewer's [overrides], apps as summed per
+     * [member]'s today for the thresholds (spec §9.7, stage 5b): the summary of the child's actual date ([childToday]
+     * with the same [today] and [nowMs], thresholds = true), categories as in [dayCategories] with the viewer's [overrides], apps as summed per
      * day (each clamped). Null when [member] is not a CHILD or has no summary for that date yet: never yesterday's
      * total read as today's.
      */
@@ -410,7 +410,7 @@ object UsageReadModel {
         nowMs: Long?,
     ): TodayUsage? {
         val own = surfaced(member, byDate) ?: return null
-        val date = childToday(own, today, nowMs)
+        val date = childToday(own, today, nowMs, thresholds = true)
         val day = days(own, listOf(date), date).single().takeIf { it.known } ?: return null
         return TodayUsage(day.totalMs, dayCategories(own, day, catalog, overrides), dayApps(own, date).filterValues { it > 0 })
     }
@@ -420,13 +420,17 @@ object UsageReadModel {
      * viewer's [today]: a child in a zone ahead of the parent can already be on the next day (Review Focus 3). Never
      * earlier than [today] and at most one day later (zone offsets span 26 h); an unparsable zone (untrusted peer), no
      * summary or a null [nowMs] keeps [today].
+     *
+     * [thresholds]: the child's actual date, also one day earlier than [today] (final fix item 7): a child west of the
+     * parent is still on its day after the parent's midnight, and a limit it passes in its evening must be caught.
+     * The screens keep the later of the two (the detail and the dashboard never open on the parent's yesterday).
      */
-    fun childToday(byDate: Map<LocalDate, DecodedEntry>?, today: LocalDate, nowMs: Long?): LocalDate {
+    fun childToday(byDate: Map<LocalDate, DecodedEntry>?, today: LocalDate, nowMs: Long?, thresholds: Boolean = false): LocalDate {
         if (nowMs == null) return today
         val zoneId = byDate?.values?.maxByOrNull { it.seq }?.body?.usage_summary?.zone_id ?: return today
         val zone = runCatching { ZoneId.of(zoneId) }.getOrNull() ?: return today
         val theirs = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
-        return theirs.coerceIn(today, today.plusDays(1))
+        return theirs.coerceIn(if (thresholds) today.minusDays(1) else today, today.plusDays(1))
     }
 
     /**

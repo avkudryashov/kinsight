@@ -41,8 +41,8 @@ sealed interface Alert {
 }
 
 /**
- * A child's today as the thresholds read it (AlertPlanner.input): its own date (spec §9.3: the zone of its latest
- * summary) and the usage of that date; [usage] null when no summary of that date arrived yet (nothing to evaluate,
+ * A child's today as the thresholds read it (AlertPlanner.input): its actual date (the zone of its latest summary; one
+ * day before or after the parent's, UsageReadModel.childToday with thresholds = true) and the usage of that date; [usage] null when no summary of that date arrived yet (nothing to evaluate,
  * never the day before). [appLabels]: catalog labels of the apps the parent's rules name.
  */
 data class ThresholdDay(val date: LocalDate, val usage: TodayUsage?, val appLabels: Map<String, String> = emptyMap())
@@ -146,7 +146,7 @@ object AlertPlanner {
             val catalog = UsageReadModel.catalogOf(ready.catalog, child.id)
             val apps = thresholds.filter { it.child == child.id }.mapNotNull { (it.target as? ThresholdTarget.App)?.packageName }
             child.id to ThresholdDay(
-                date = UsageReadModel.childToday(byDate, today, nowMs),
+                date = UsageReadModel.childToday(byDate, today, nowMs, thresholds = true),
                 usage = UsageReadModel.todayUsage(child, byDate, catalog, today, overrides, nowMs),
                 appLabels = apps.mapNotNull { p -> catalog[p]?.label?.takeIf { it.isNotBlank() }?.let { p to it } }.toMap(),
             )
