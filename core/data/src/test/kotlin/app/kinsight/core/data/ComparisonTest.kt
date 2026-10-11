@@ -45,9 +45,13 @@ class ComparisonTest {
         )
     }
 
-    private fun compare(today: LocalDate, vararg e: DecodedEntry): TodayComparison? = UsageReadModel.comparison(
-        UsageReadModel.summaries(e.toList())[kidKeys.deviceId], UsageReadModel.details(e.toList())[kidKeys.deviceId], today,
+    /** [minDays] 1 by default: the DST and zone cases test the cut, not the minimum of [UsageReadModel.MIN_BY_THIS_TIME_DAYS]. */
+    private fun compare(today: LocalDate, vararg e: DecodedEntry, minDays: Int = 1): TodayComparison? = UsageReadModel.comparison(
+        UsageReadModel.summaries(e.toList())[kidKeys.deviceId], UsageReadModel.details(e.toList())[kidKeys.deviceId], today, minDays = minDays,
     )
+
+    /** The summary and the hourly detail of [date] (detail second, so it is usable), [cells] as in [detail]. */
+    private fun day(date: LocalDate, minutes: Long, vararg cells: Pair<Int, Long>) = listOf(summary(date, minutes), detail(date, *cells))
 
     @Test
     fun usualByThisTimeAveragesTheEarlierDaysUpToTheSameClockTime() {
@@ -143,7 +147,7 @@ class ComparisonTest {
 
     @Test
     fun theCardCarriesTheComparisonOfAChildOnly() {
-        val entries = listOf(summary(wed.minusDays(1), 60), detail(wed.minusDays(1), 9 to 60L), summary(wed, 30, createdMs = ms(wed, 12, 0)))
+        val entries = (1..3).flatMap { day(wed.minusDays(it.toLong()), 60, 9 to 60L) } + summary(wed, 30, createdMs = ms(wed, 12, 0))
         val sums = UsageReadModel.summaries(entries)[kidKeys.deviceId]
         val dets = UsageReadModel.details(entries)[kidKeys.deviceId]
         val now = ms(wed, 12, 5)
@@ -156,5 +160,36 @@ class ComparisonTest {
         val h = 3_600_000L
         assertTrue(UsageReadModel.isStale(0, 2 * h + 1))
         assertEquals(false, UsageReadModel.isStale(0, 2 * h))
+    }
+
+    @Test
+    fun usualByThisTimeNeedsThreeDaysWithHourlyData() {
+        val two = (1..2).flatMap { day(wed.minusDays(it.toLong()), 60, 9 to 60L) } + summary(wed.minusDays(3), 90)
+        fun of(entries: List<DecodedEntry>) = UsageReadModel.comparison(
+            UsageReadModel.summaries(entries)[kidKeys.deviceId], UsageReadModel.details(entries)[kidKeys.deviceId], wed,
+        )
+        assertNull(of(two + summary(wed, 30, createdMs = ms(wed, 12, 0))), "two days of hours, before 20:00: nothing")
+        assertEquals(TodayComparison.FullDay(70 * min), of(two + summary(wed, 30, createdMs = ms(wed, 20, 30))), "then whole days")
+        val three = two + day(wed.minusDays(4), 60, 9 to 60L)
+        assertEquals(TodayComparison.ByThisTime(60 * min, 3), of(three + summary(wed, 30, createdMs = ms(wed, 12, 0))))
+    }
+
+    @Test
+    fun theBandIsATenthWithAFiveMinuteFloor() {
+        assertTrue(UsageReadModel.aboutTheSame(5 * min, 2 * min), "3 min apart early in the day")
+        assertTrue(UsageReadModel.aboutTheSame(34 * min, 30 * min), "4 min: above 10 % but under the floor")
+        assertEquals(false, UsageReadModel.aboutTheSame(35 * min, 30 * min), "5 min is out")
+        assertTrue(UsageReadModel.aboutTheSame(108 * min, 100 * min), "8 min: under 10 %")
+        assertEquals(false, UsageReadModel.aboutTheSame(110 * min, 100 * min), "10 % is out")
+        assertTrue(UsageReadModel.aboutTheSame(0, 0))
+    }
+
+    @Test
+    fun theCardAndTheDetailCarryTheChildsZone() {
+        val ny = ZoneId.of("America/New_York")
+        val entries = listOf(summary(wed.minusDays(1), 60), summary(wed, 30, createdMs = ms(wed, 9, 0, ny), zone = ny))
+        val sums = UsageReadModel.summaries(entries)[kidKeys.deviceId]
+        assertEquals("America/New_York", UsageReadModel.usage(member, sums, emptyList(), wed, nowMs = ms(wed, 9, 5, ny)).childZoneId)
+        assertNull(UsageReadModel.usage(member.copy(role = Role.PARENT), sums, emptyList(), wed).childZoneId)
     }
 }

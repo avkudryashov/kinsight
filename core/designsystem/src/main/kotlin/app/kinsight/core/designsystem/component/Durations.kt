@@ -35,8 +35,9 @@ fun relativeTime(ms: Long, nowMs: Long): String =
     DateUtils.getRelativeTimeSpanString(ms, nowMs, DateUtils.MINUTE_IN_MILLIS).toString()
 
 /**
- * An absolute moment: «14:05» on [nowMs]'s day in [zone], «10 Oct, 14:05» on another day (U3; the widget's form since
- * stage 5b). It stays true on a screen left open, unlike «5 minutes ago».
+ * An absolute moment on the clock of [zone] (the viewer's by default): «14:05» on [nowMs]'s day there, «10 Oct, 14:05»
+ * on another day (U3; the widget's form since stage 5b). It stays true on a screen left open, unlike «5 minutes ago».
+ * The 12/24 h system setting is honoured.
  */
 fun absoluteMoment(context: Context, ms: Long, nowMs: Long, zone: ZoneId = ZoneId.systemDefault()): String {
     val sameDay = Instant.ofEpochMilli(ms).atZone(zone).toLocalDate() == Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
@@ -45,5 +46,31 @@ fun absoluteMoment(context: Context, ms: Long, nowMs: Long, zone: ZoneId = ZoneI
     } else {
         DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH or DateUtils.FORMAT_NO_YEAR or DateUtils.FORMAT_SHOW_TIME
     }
-    return DateUtils.formatDateTime(context, ms, flags)
+    return inZone(context, ms, flags, zone)
 }
+
+/**
+ * The child's clock at [ms] («09:00») when its zone [childZoneId] is at another offset than [viewerZone] at that
+ * instant; null when the offsets agree or the zone does not parse (untrusted peer).
+ */
+fun childClock(context: Context, ms: Long, childZoneId: String?, viewerZone: ZoneId = ZoneId.systemDefault()): String? {
+    val child = childZoneId?.let { runCatching { ZoneId.of(it) }.getOrNull() } ?: return null
+    val at = Instant.ofEpochMilli(ms)
+    if (child.rules.getOffset(at) == viewerZone.rules.getOffset(at)) return null
+    return inZone(context, ms, DateUtils.FORMAT_SHOW_TIME, child)
+}
+
+/**
+ * When data is from (U3): [absoluteMoment] on the viewer's clock, followed by the child's own clock when that reads
+ * differently: «15:00 (у ребёнка 09:00)».
+ */
+fun dataMoment(context: Context, ms: Long, nowMs: Long, childZoneId: String?, viewerZone: ZoneId = ZoneId.systemDefault()): String {
+    val viewer = absoluteMoment(context, ms, nowMs, viewerZone)
+    val child = childClock(context, ms, childZoneId, viewerZone) ?: return viewer
+    return context.getString(R.string.ds_moment_with_child, viewer, child)
+}
+
+private fun inZone(context: Context, ms: Long, flags: Int, zone: ZoneId): String =
+    DateUtils.formatDateRange(context, java.util.Formatter(StringBuilder(), currentLocale(context)), ms, ms, flags, zone.id).toString()
+
+private fun currentLocale(context: Context) = context.resources.configuration.locales[0]

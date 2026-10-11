@@ -29,6 +29,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -70,11 +73,12 @@ import app.kinsight.core.designsystem.component.CategoryLegend
 import app.kinsight.core.designsystem.component.EmptyState
 import app.kinsight.core.designsystem.component.PeriodHeader
 import app.kinsight.core.designsystem.component.StackedBarChart
-import app.kinsight.core.designsystem.component.absoluteMoment
+import app.kinsight.core.designsystem.component.dataMoment
 import app.kinsight.core.designsystem.component.categoryColor
 import app.kinsight.core.designsystem.component.durationText
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.usage.UsageSettings
+import kotlinx.coroutines.delay
 import java.time.LocalDate
 import java.time.format.TextStyle
 import java.util.Locale
@@ -108,6 +112,14 @@ fun DeviceDetailRoute(
     val detail by vm.detail.collectAsStateWithLifecycle()
     val settings by graph.settingsRepository.usageSettings.collectAsStateWithLifecycle(initialValue = UsageSettings())
     val thresholds by vm.thresholds.collectAsStateWithLifecycle()
+    // «may be out of date» must appear on a screen left open, without new data (U3 review Q3).
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60_000)
+            now = System.currentTimeMillis()
+        }
+    }
     detail?.let { d ->
         DeviceDetailScreen(
             d, vm::select, onAllApps, onBack,
@@ -116,6 +128,7 @@ fun DeviceDetailRoute(
             detailRetentionDays = settings.detailRetentionDays,
             thresholds = thresholds,
             onThresholds = onThresholds,
+            nowMs = now,
         )
     } ?: Loading()
 }
@@ -236,12 +249,12 @@ fun DeviceDetailScreen(
                 item(key = "total") {
                     Column {
                         Text(durationText(detail.totalMs), style = MaterialTheme.typography.displaySmall)
-                        // Only a range that holds the child's today: «Data as of 14:05» (U3).
+                        // Only a range that holds the child's today: «Data as of 14:05», with the child's clock when it differs (U3).
                         val updated = detail.updatedMs
                         if (updated != null && !today.isBefore(detail.range.start) && !today.isAfter(detail.range.end)) {
                             val stale = UsageReadModel.isStale(updated, nowMs)
                             Text(
-                                stringResource(if (stale) R.string.det_data_stale else R.string.det_data_at, absoluteMoment(LocalContext.current, updated, nowMs)),
+                                stringResource(if (stale) R.string.det_data_stale else R.string.det_data_at, dataMoment(LocalContext.current, updated, nowMs, detail.childZoneId)),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (stale) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.testTag("det_data_at"),

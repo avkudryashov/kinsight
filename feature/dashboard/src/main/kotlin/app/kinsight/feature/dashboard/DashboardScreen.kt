@@ -68,7 +68,7 @@ import app.kinsight.core.data.UsageReadModel
 import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.BarChart
 import app.kinsight.core.designsystem.component.EmptyState
-import app.kinsight.core.designsystem.component.absoluteMoment
+import app.kinsight.core.designsystem.component.dataMoment
 import app.kinsight.core.designsystem.component.durationText
 import app.kinsight.core.designsystem.component.relativeTime
 import app.kinsight.core.model.DeviceId
@@ -77,7 +77,6 @@ import app.kinsight.core.transport.ble.SyncProblem
 import app.kinsight.core.usage.UsageAccessSettings
 import kotlinx.coroutines.delay
 import java.time.format.TextStyle
-import kotlin.math.abs
 
 private const val HOUR_MS = 3_600_000L
 
@@ -420,7 +419,7 @@ private fun DeviceCard(u: DeviceUsage, nowMs: Long, noContactMs: Long, onClick: 
             } else {
                 Text(stringResource(R.string.dash_no_data_today), style = MaterialTheme.typography.titleLarge)
             }
-            u.updatedMs?.let { DataAt(it, nowMs) }
+            u.updatedMs?.let { DataAt(it, nowMs, u.childZoneId) }
             if (u.today.hasData) comparison(u)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             BarChart(values = bars, labels = emptyList(), summary = summary, height = 40.dp)
             status(u, nowMs, noContactMs)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
@@ -428,12 +427,15 @@ private fun DeviceCard(u: DeviceUsage, nowMs: Long, noContactMs: Long, onClick: 
     }
 }
 
-/** «Data as of 14:05» under the figure (U3); older than STALE_AFTER_MS it also says it may be out of date. */
+/**
+ * «Data as of 14:05» under the figure (U3), on the viewer's clock with the child's own when it differs; older than
+ * STALE_AFTER_MS it also says it may be out of date.
+ */
 @Composable
-private fun DataAt(updatedMs: Long, nowMs: Long) {
+private fun DataAt(updatedMs: Long, nowMs: Long, childZoneId: String?) {
     val stale = UsageReadModel.isStale(updatedMs, nowMs)
     Text(
-        stringResource(if (stale) R.string.dash_data_stale else R.string.dash_data_at, absoluteMoment(LocalContext.current, updatedMs, nowMs)),
+        stringResource(if (stale) R.string.dash_data_stale else R.string.dash_data_at, dataMoment(LocalContext.current, updatedMs, nowMs, childZoneId)),
         style = MaterialTheme.typography.bodySmall,
         color = if (stale) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.testTag("dash_data_at"),
@@ -448,12 +450,12 @@ private fun comparison(u: DeviceUsage): String? = when (val c = u.comparison) {
     null -> null
 }
 
-/** Text, never colour alone (spec §9.8): within 10 % of [usual] counts as «about the same». */
+/** Text, never colour alone (spec §9.8): within the band of [UsageReadModel.aboutTheSame] counts as «about the same». */
 @Composable
 private fun versus(todayMs: Long, usual: Long, same: Int, more: Int, less: Int): String {
     val diff = todayMs - usual
     return when {
-        diff == 0L || (usual > 0 && abs(diff) * 10 < usual) -> stringResource(same)
+        UsageReadModel.aboutTheSame(todayMs, usual) -> stringResource(same)
         diff > 0 -> stringResource(more, durationText(diff))
         else -> stringResource(less, durationText(-diff))
     }

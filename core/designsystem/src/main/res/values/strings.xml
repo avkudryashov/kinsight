@@ -8,4 +8,5 @@
     <string name="ds_qr_error_body">The code is empty or too long.</string>
     <string name="ds_period_previous">Previous period</string>
     <string name="ds_period_next">Next period</string>
+    <string name="ds_moment_with_child">%1$s (child\'s time %2$s)</string>
 </resources>

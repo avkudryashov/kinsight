@@ -91,7 +91,7 @@ class KinsightWidgetContentTest {
     @Test
     fun statusTimeIsClockTodayAndDateBefore() {
         val today = statusText(context, ChildStatus.Updated(now - 3_600_000), now)
-        assertTrue(today, today.startsWith("Updated "))
+        assertTrue(today, today.startsWith("Data as of "))
         assertFalse(today, today.contains("Oct"))
         val before = statusText(context, ChildStatus.Updated(now - 86_400_000), now)
         assertTrue(before, before.contains("Oct 8") || before.contains("8 Oct"))

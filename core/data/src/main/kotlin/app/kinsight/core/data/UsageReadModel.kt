@@ -13,6 +13,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.WeekFields
 import java.util.Locale
+import kotlin.math.abs
 
 /**
  * Pure views over signed entries for the v1 screens. Totals (levels 1 to 3 of spec §9.3) come only from UsageSummary;
@@ -47,6 +48,12 @@ object UsageReadModel {
 
     /** Data older than this reads «могли устареть» next to the figure (U3). */
     const val STALE_AFTER_MS = 2 * 3_600_000L
+
+    /** «Usual by this time» needs at least this many earlier days with usable hourly detail (U2 review Q1). */
+    const val MIN_BY_THIS_TIME_DAYS = 3
+
+    /** A difference below the larger of this and a tenth of the usual reads «about as usual» (U2 review Q2). */
+    const val BAND_FLOOR_MS = 5 * 60_000L
 
     private const val MINUTES_PER_DAY = 24 * 60
 
@@ -203,11 +210,21 @@ object UsageReadModel {
     /**
      * Today against what is usual by now (U2). The cutoff is the clock time, in the child's own zone (its summary's
      * zone_id), at which today's summary was written; a summary written on a later date covers the whole day. With
-     * usable hourly detail ([detailOf]) on any of the [n] earlier days: [TodayComparison.ByThisTime], the mean of
-     * those days' [usedBy] the cutoff. Without: [TodayComparison.FullDay] once the cutoff is [FULL_DAY_FROM_HOUR] or
-     * later, else null. Null without a summary of [today] or an unparsable zone (untrusted peer).
+     * usable hourly detail ([detailOf]) on at least [minDays] of the [n] earlier days: [TodayComparison.ByThisTime],
+     * the mean of those days' [usedBy] the cutoff. Otherwise: [TodayComparison.FullDay] once the cutoff is
+     * [FULL_DAY_FROM_HOUR] or later, else null. Null without a summary of [today] or an unparsable zone (untrusted peer).
+     *
+     * DST: the cut is by clock time, not elapsed time. On a fall-back day after the second run of the repeated hour,
+     * today's figure covers one real hour more than the earlier days' cut; on a spring-forward day, one hour less.
+     * Accepted: it only shifts night use, and the earlier days themselves are cut to each hour's real length ([usedBy]).
      */
-    fun comparison(own: Map<LocalDate, DecodedEntry>?, ownDetails: Map<LocalDate, DecodedEntry>?, today: LocalDate, n: Int = 7): TodayComparison? {
+    fun comparison(
+        own: Map<LocalDate, DecodedEntry>?,
+        ownDetails: Map<LocalDate, DecodedEntry>?,
+        today: LocalDate,
+        n: Int = 7,
+        minDays: Int = MIN_BY_THIS_TIME_DAYS,
+    ): TodayComparison? {
         val summary = own?.get(today) ?: return null
         val zone = summary.body.usage_summary?.zone_id?.let { runCatching { ZoneId.of(it) }.getOrNull() } ?: return null
         val at = Instant.ofEpochMilli(summary.body.created_at_ms).atZone(zone)
@@ -217,10 +234,19 @@ object UsageReadModel {
             else -> at.hour * 60 + at.minute
         }
         val usual = (1..n).mapNotNull { k -> detailOf(own, ownDetails, today.minusDays(k.toLong()))?.let { usedBy(it, minute) } }
-        if (usual.isNotEmpty()) return TodayComparison.ByThisTime(usual.sum() / usual.size, usual.size)
+        if (usual.isNotEmpty() && usual.size >= minDays) return TodayComparison.ByThisTime(usual.sum() / usual.size, usual.size)
         if (minute < FULL_DAY_FROM_HOUR * 60) return null
         return average(own, today, n)?.let(TodayComparison::FullDay)
     }
+
+    /**
+     * Whether [todayMs] reads «about as usual» against [usualMs]: the difference is below the larger of a tenth of
+     * [usualMs] and [BAND_FLOOR_MS], so a few minutes early in the day never flip the text.
+     */
+    fun aboutTheSame(todayMs: Long, usualMs: Long): Boolean = abs(todayMs - usualMs) < maxOf(usualMs / 10, BAND_FLOOR_MS)
+
+    /** The zone_id of the latest (highest seq) summary in [byDate]; null without one. Untrusted: may not parse. */
+    fun latestZoneId(byDate: Map<LocalDate, DecodedEntry>?): String? = byDate?.values?.maxByOrNull { it.seq }?.body?.usage_summary?.zone_id
 
     /**
      * Time of [detail] before the clock time [minuteOfDay] (0..1440): every earlier clock hour whole plus the elapsed
@@ -334,6 +360,7 @@ object UsageReadModel {
         return DeviceUsage(
             member, week.last(), week, average(own, today), sharing, updated,
             collectionOff = off, comparison = comparison(own, surfaced(member, details), today),
+            childZoneId = latestZoneId(own),
         )
     }
 
@@ -387,6 +414,7 @@ object UsageReadModel {
             heatmap = if (range.period == Period.DAY) null else heatmap(own, ownDetails, range.dates(), today, catalog, overrides, weekFields),
             today = today,
             updatedMs = updated,
+            childZoneId = latestZoneId(own),
         )
     }
 
@@ -518,7 +546,7 @@ object UsageReadModel {
      */
     fun childToday(byDate: Map<LocalDate, DecodedEntry>?, today: LocalDate, nowMs: Long?, thresholds: Boolean = false): LocalDate {
         if (nowMs == null) return today
-        val zoneId = byDate?.values?.maxByOrNull { it.seq }?.body?.usage_summary?.zone_id ?: return today
+        val zoneId = latestZoneId(byDate) ?: return today
         val zone = runCatching { ZoneId.of(zoneId) }.getOrNull() ?: return today
         val theirs = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
         return theirs.coerceIn(if (thresholds) today.minusDays(1) else today, today.plusDays(1))

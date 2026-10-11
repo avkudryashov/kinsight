@@ -157,6 +157,8 @@ data class DeviceUsage(
     val collectionOff: Boolean = false,
     /** What today's figure is compared with (U2); null: no honest comparison yet. */
     val comparison: TodayComparison? = null,
+    /** The zone_id of the child's latest summary (untrusted, may not parse): its own clock next to «Данные на …» (U3). */
+    val childZoneId: String? = null,
 )
 
 /** What a dashboard card compares today with (U2, audit 2026-10-11): never a part day against whole days. */
@@ -199,6 +201,8 @@ data class DeviceDetail(
     override val today: LocalDate? = null,
     /** When the child's newest summary was written (at most MAX_CLOCK_SKEW_MS ahead of now): «Данные на …» (U3). */
     val updatedMs: Long? = null,
+    /** The zone_id of the child's latest summary (untrusted, may not parse): its own clock next to «Данные на …» (U3). */
+    val childZoneId: String? = null,
 ) : RangedView {
     val period: Period get() = range.period
 }

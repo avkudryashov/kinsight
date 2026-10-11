@@ -9,7 +9,7 @@
     <string name="wid_no_data_today">No data today</string>
     <string name="wid_paused">Paused since %1$s</string>
     <string name="wid_no_contact">No contact since %1$s</string>
-    <string name="wid_updated">Updated %1$s</string>
+    <string name="wid_updated">Data as of %1$s</string>
     <string name="wid_not_sharing">Not sharing</string>
     <string name="wid_no_data">No data yet</string>
     <string name="wid_seen_by">Visible to: %1$s</string>
@@ -21,6 +21,6 @@
         <item quantity="other">+%d more children</item>
     </plurals>
     <string name="wid_preview_name">Alex</string>
-    <string name="wid_preview_status">Updated 14:05</string>
+    <string name="wid_preview_status">Data as of 14:05</string>
     <string name="wid_preview_total">2 h 10 min</string>
 </resources>

@@ -19,7 +19,9 @@ import java.time.temporal.WeekFields
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 class UsageRepositoryTest {
     private val mom = TestDevice()
@@ -171,5 +173,48 @@ class UsageRepositoryTest {
         assertEquals(true, withTimeout(10_000) { usage.dashboard.first { off(it) != null } }.let(::off), "default 24 h: 30 h silent is off")
         mom.prefs.setNoContactHours(72)
         assertEquals(false, withTimeout(10_000) { usage.dashboard.first { off(it) == false } }.let(::off), "inside the 72 h window")
+    }
+
+    /** Three earlier days (UTC) with 30 min by noon and 60 min after, then today's summary written at noon. */
+    private suspend fun dashboardWithUsual(todayMinutes: Long): TodayComparison? {
+        mom.group.createGroup("Mom")
+        val kidKeys = DeviceKeys.generate()
+        mom.pipeline.appendOwn { a -> listOf(a.addMember(kidKeys.sign.publicKey, kidKeys.dh.publicKey, "Kid", DeviceRole.CHILD)) }
+        val kid = EntryAuthor(mom.groups.read()!!.groupId, kidKeys, lastSeq = 0)
+        val min = 60_000L
+        val earlier = (1L..3L).flatMap { k ->
+            val date = today.minusDays(k)
+            listOf(
+                kid.create { it.copy(usage_summary = UsageSummary(local_date = date.toString(), zone_id = "UTC", total_ms = 90 * min)) },
+                kid.create {
+                    it.copy(
+                        usage_detail = UsageDetail(
+                            local_date = date.toString(), zone_id = "UTC",
+                            hours = listOf(
+                                HourBucket(hour = 9, apps = listOf(AppTotal("com.example.game", 30 * min))),
+                                HourBucket(hour = 15, apps = listOf(AppTotal("com.example.game", 60 * min))),
+                            ),
+                        ),
+                    )
+                },
+            )
+        }
+        val todays = kid.create {
+            it.copy(created_at_ms = noonMs, usage_summary = UsageSummary(local_date = today.toString(), zone_id = "UTC", total_ms = todayMinutes * min))
+        }
+        mom.store().applyBatch(earlier + todays)
+        val usage = UsageRepository(mom.snapshots, mom.prefs, mom.appendOwn, date = { today }, clock = { noonMs })
+        return withTimeout(10_000) { usage.dashboard.first { it?.children?.singleOrNull()?.comparison != null } }!!.children.single().comparison
+    }
+
+    @Test
+    fun theDashboardComparesWithUsualByThisTimeFromStoredDetails() = runBlocking<Unit> {
+        assertEquals(TodayComparison.ByThisTime(30 * 60_000L, 3), dashboardWithUsual(todayMinutes = 60))
+    }
+
+    @Test
+    fun aFewMinutesOverTheUsualReadAboutTheSame() = runBlocking<Unit> {
+        val c = assertIs<TodayComparison.ByThisTime>(dashboardWithUsual(todayMinutes = 34))
+        assertTrue(UsageReadModel.aboutTheSame(34 * 60_000L, c.usualMs), "4 min over a usual 30 min")
     }
 }

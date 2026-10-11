@@ -294,6 +294,23 @@ class DashboardScreenTest {
     }
 
     @Test
+    fun aFewMinutesEarlyInTheDayReadAsUsual() {
+        // 5 min against a usual 2 min: 3 min apart, inside the 5 min floor though far above 10 %.
+        val u = usage(kid, 5, null).copy(comparison = TodayComparison.ByThisTime(2 * 60_000, 3))
+        show(DashboardUi(DashboardState(mom, null, listOf(u), listOf(dad)), running, true))
+        rule.onNodeWithText("About as usual by this time").assertExists()
+        rule.onNodeWithText("more than", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun aChildInAnotherZoneShowsItsOwnClock() {
+        // UTC+14: at another offset than any host zone the tests run in.
+        val u = usage(kid, 30, 30).copy(childZoneId = "Pacific/Kiritimati")
+        show(DashboardUi(DashboardState(mom, null, listOf(u), emptyList()), running, true))
+        rule.onNodeWithTag("dash_data_at", useUnmergedTree = true).assertTextContains("(child's time ", substring = true)
+    }
+
+    @Test
     fun withoutAComparisonTheCardComparesNothing() {
         show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 120, 60)), listOf(dad)), running, true))
         rule.onNodeWithText("average", substring = true).assertDoesNotExist()

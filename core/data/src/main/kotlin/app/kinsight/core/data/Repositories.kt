@@ -298,8 +298,9 @@ class UsageRepository(
         .distinctUntilChanged()
 
     /**
-     * The dashboard (spec §9.2). Each shown child's UsageDetail of the last 8 days and tomorrow (a child already on its
-     * next day) is read with every snapshot, so a card compares today with «usual by this time» (U2).
+     * The dashboard (spec §9.2). Each shown child's UsageDetail of today-7..today is read with every snapshot, so a card
+     * compares today with «usual by this time» (U2): the 7 days before the child's today, which is the viewer's today
+     * or, for a child already on its next day, tomorrow.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     val dashboard: Flow<DashboardState?> = combine(snapshots.snapshots, noContactMs, ::Pair).mapLatest { (s, noContact) ->
@@ -310,7 +311,7 @@ class UsageRepository(
         } else {
             ready.membership.active.values.filter { it.isChild }.map { it.id }
         }
-        val details = shown.associateWith { snapshots.details(ready.groupId, it, today.minusDays(8), today.plusDays(1)) }
+        val details = shown.associateWith { snapshots.details(ready.groupId, it, today.minusDays(7), today) }
         SnapshotViews.dashboard(ready, today, clock(), noContact, details)
     }.distinctUntilChanged()
 
