@@ -2,15 +2,13 @@ package app.kinsight.feature.settings
 
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Density
-import app.kinsight.core.data.SummaryMode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -19,6 +17,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.unit.Density
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.kinsight.core.data.GroupState
 import app.kinsight.core.data.MemberView
@@ -26,6 +25,7 @@ import app.kinsight.core.data.Prefs
 import app.kinsight.core.data.Role
 import app.kinsight.core.data.ServiceStatus
 import app.kinsight.core.data.Sharing
+import app.kinsight.core.data.SummaryMode
 import app.kinsight.core.designsystem.theme.KinsightTheme
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.GroupId
@@ -381,6 +381,24 @@ class SettingsScreenTest {
         rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_reset")) // no click on «Advanced» first
         rule.onNodeWithTag("set_reset").assertExists()
         rule.onNodeWithTag("set_advanced").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Expanded"))
+    }
+
+    @Test
+    fun aStorageErrorBehindAMissingPermissionLeavesAdvancedClosed() {
+        val blocked = running.copy(state = ServiceState.STORAGE_ERROR, missingPermissions = listOf("android.permission.BLUETOOTH_SCAN"))
+        assertEquals(SyncStateLine.NO_PERMISSION, syncState(blocked))
+        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1), Prefs(), blocked))
+        rule.onNodeWithText("Secure storage problem", substring = true).assertDoesNotExist()
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_advanced"))
+        rule.onNodeWithTag("set_advanced").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Collapsed"))
+    }
+
+    @Test
+    fun theSyncLineOrderIsStopThenPermissionThenRadioThenKey() {
+        assertEquals(SyncStateLine.RUNNING, syncState(null))
+        assertEquals(SyncStateLine.STOPPED, syncState(running.copy(stoppedByUser = true, state = ServiceState.STORAGE_ERROR)))
+        assertEquals(SyncStateLine.BLUETOOTH_OFF, syncState(running.copy(state = ServiceState.BLUETOOTH_OFF)))
+        assertEquals(SyncStateLine.KEY_ERROR, syncState(running.copy(state = ServiceState.STORAGE_ERROR, syncing = true)))
     }
 
     @Test

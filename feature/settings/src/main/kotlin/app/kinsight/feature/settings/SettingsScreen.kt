@@ -151,7 +151,8 @@ fun SettingsScreen(
     val child = role == Role.CHILD
     var advanced by rememberSaveable { mutableStateOf(false) }
     // A storage error sends the user to Diagnostics and the disconnect button: on a child's phone they must be in sight.
-    val keyError = ui.service?.let { !it.stoppedByUser && it.state == ServiceState.STORAGE_ERROR } == true
+    // The same precedence as the sync line: Advanced opens for a key error only when the line says so.
+    val keyError = syncState(ui.service) == SyncStateLine.KEY_ERROR
     val open = advanced || keyError
     val retentionSection: LazyListScope.() -> Unit = {
         section(R.string.set_retention) {
@@ -364,19 +365,33 @@ private fun Confirm(title: String, body: String, confirm: String, tag: String, o
     dismissButton = { TextButton(onDismiss, Modifier.testTag("${tag}_cancel")) { Text(stringResource(R.string.set_cancel)) } },
 )
 
+/** The Settings sync line, one value per text. */
+internal enum class SyncStateLine { RUNNING, STOPPED, NO_PERMISSION, BLUETOOTH_OFF, KEY_ERROR, RADIO_ERROR, SYNCING, PEER_UPDATE }
+
 /** What the service is doing now; the user's Stop first, then what blocks the radio (as Overview's banner). */
+internal fun syncState(s: ServiceStatus?): SyncStateLine = when {
+    s == null -> SyncStateLine.RUNNING
+    s.stoppedByUser -> SyncStateLine.STOPPED
+    s.missingPermissions.isNotEmpty() || s.state == ServiceState.NO_PERMISSION -> SyncStateLine.NO_PERMISSION
+    s.state == ServiceState.BLUETOOTH_OFF -> SyncStateLine.BLUETOOTH_OFF
+    s.state == ServiceState.STORAGE_ERROR -> SyncStateLine.KEY_ERROR
+    s.state == ServiceState.RADIO_ERROR -> SyncStateLine.RADIO_ERROR
+    s.syncing -> SyncStateLine.SYNCING
+    s.problem == SyncProblem.PEER_NEEDS_UPDATE -> SyncStateLine.PEER_UPDATE
+    else -> SyncStateLine.RUNNING
+}
+
 @Composable
 private fun syncStateText(s: ServiceStatus?): String = stringResource(
-    when {
-        s == null -> R.string.set_sync_running
-        s.stoppedByUser -> R.string.set_sync_stopped
-        s.missingPermissions.isNotEmpty() || s.state == ServiceState.NO_PERMISSION -> R.string.set_sync_no_permission
-        s.state == ServiceState.BLUETOOTH_OFF -> R.string.set_sync_bluetooth_off
-        s.state == ServiceState.STORAGE_ERROR -> R.string.set_sync_key_error
-        s.state == ServiceState.RADIO_ERROR -> R.string.set_sync_radio_error
-        s.syncing -> R.string.set_sync_syncing
-        s.problem == SyncProblem.PEER_NEEDS_UPDATE -> R.string.set_sync_peer_update
-        else -> R.string.set_sync_running
+    when (syncState(s)) {
+        SyncStateLine.RUNNING -> R.string.set_sync_running
+        SyncStateLine.STOPPED -> R.string.set_sync_stopped
+        SyncStateLine.NO_PERMISSION -> R.string.set_sync_no_permission
+        SyncStateLine.BLUETOOTH_OFF -> R.string.set_sync_bluetooth_off
+        SyncStateLine.KEY_ERROR -> R.string.set_sync_key_error
+        SyncStateLine.RADIO_ERROR -> R.string.set_sync_radio_error
+        SyncStateLine.SYNCING -> R.string.set_sync_syncing
+        SyncStateLine.PEER_UPDATE -> R.string.set_sync_peer_update
     },
 )
 
