@@ -99,9 +99,15 @@ message StateEvent {
   int64 clock_shift_ms = 4;
 }
 
+// Superseded by the author's next Heartbeat. The live set (audit A-2) is the author's signed statement: of its own seqs
+// in (live_floor, live_upto] it still held exactly the listed ones when it signed; every other seq in that range was
+// superseded or pruned there for good, so a receiver may account it. A Heartbeat without live_upto states nothing.
 message Heartbeat {
   string app_version = 1;
   uint32 protocol_version = 2;
+  uint64 live_upto = 3;
+  uint64 live_floor = 4;
+  repeated uint64 live_deltas = 5;  // ascending seqs: the first as a delta from live_floor, then from the previous
 }
 
 message CreateGroup {

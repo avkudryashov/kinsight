@@ -268,6 +268,13 @@ class SyncSession internal constructor(
                         val inBatch = HashSet<Pair<DeviceId, Long>>()
                         val accepted = mutableListOf<DecodedEntry>()
                         val seen = mutableMapOf<DeviceId, MutableSet<Long>>()
+                        // A-2: the newest live set per author in this batch, applied after the batch itself.
+                        val liveSets = HashMap<DeviceId, LiveSet>()
+                        fun noteLiveSet(e: DecodedEntry) {
+                            val set = LiveSet.of(e) ?: return
+                            val known = liveSets[e.author]
+                            if (known == null || set.upTo > known.upTo) liveSets[e.author] = set
+                        }
                         for (raw in msg.batch!!.entries) {
                             val e = decodeOrNull(raw)
                             val verdict = if (e == null) {
@@ -280,12 +287,14 @@ class SyncSession internal constructor(
                                 Verdict.Accept -> {
                                     accepted += e!!
                                     inBatch += e.author to e.seq
+                                    noteLiveSet(e)
                                 }
                                 Verdict.Expired -> {
                                     seen.getOrPut(e!!.author) { mutableSetOf() } += e.seq
                                     inBatch += e.author to e.seq
                                 }
-                                Verdict.Duplicate, Verdict.Unwanted -> Unit
+                                Verdict.Duplicate -> noteLiveSet(e!!) // still useful while gaps remain below it
+                                Verdict.Unwanted -> Unit
                                 is Verdict.Invalid -> {
                                     invalid++
                                     log("invalid entry from ${peer.id.hex}: ${verdict.reason}")
@@ -298,6 +307,7 @@ class SyncSession internal constructor(
                             return@coroutineScope SessionResult.TooManyInvalid(peer.id)
                         }
                         store.applyBatch(accepted, seen)
+                        for ((author, set) in liveSets) store.accountLiveSet(author, set)
                         received += accepted.size
                         send(ch, SyncMessage(ack = BatchAck(vector = store.versionVector().toProto())))
                     }

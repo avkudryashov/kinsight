@@ -1,5 +1,6 @@
 package app.kinsight.core.sync
 
+import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
@@ -64,6 +65,15 @@ suspend fun lamportOf(store: EntryStore): Long = store.observedLamport()
 fun Node.lamportSource(): () -> Long = { runBlocking { lamportOf(store) } }
 
 suspend fun Node.publish(vararg entries: app.kinsight.core.model.DecodedEntry) = store.applyBatch(entries.toList())
+
+/** The author's Heartbeat, stored like any own entry (the app signs one before sessions when its own log moved). */
+suspend fun Node.heartbeat(): DecodedEntry {
+    val own = store.liveEntries().filter { it.author == keys.deviceId }
+    val current = own.lastOrNull { it.kind == app.kinsight.core.model.EntryKind.HEARTBEAT }?.seq
+    val e = author.create { it.copy(heartbeat = LiveSet.heartbeat("test", PROTOCOL_VERSION, own.map { o -> o.seq }, current)) }
+    store.applyBatch(listOf(e))
+    return e
+}
 
 /** [versionsA]/[versionsB]: the ranges each side offers; [legacyA]/[legacyB]: that side speaks like 0.7.2 (no range in Hello). */
 suspend fun syncPair(
