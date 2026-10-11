@@ -7,6 +7,7 @@ import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,11 +47,14 @@ import app.kinsight.core.data.Prefs
 import app.kinsight.core.data.ResetStatus
 import app.kinsight.core.designsystem.component.formatDuration
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
@@ -69,11 +73,11 @@ class KinsightWidget : GlanceAppWidget() {
      * The data is read inside the composition: a live session only recomposes on updateAll, so a state read once here
      * would stay on screen. The first frame is read before the content, so the widget never draws a placeholder.
      */
-    override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val frames = frames(context)
-        val initial = frames.first()
+    override suspend fun provideGlance(context: Context, id: GlanceId): Unit = coroutineScope {
+        // The session's frames live in this scope: provideContent never returns, the session's end cancels both.
+        val live = liveFrames(this, frames(context))
         provideContent {
-            val frame by frames.collectAsState(initial)
+            val frame by live.collectAsState()
             // Plain GlanceTheme: the system's dynamic colours (API 31+), light and dark, follow wallpaper changes live.
             GlanceTheme { WidgetContent(frame.state, frame.nowMs, links) }
         }
@@ -122,6 +126,32 @@ class KinsightWidget : GlanceAppWidget() {
     }
 }
 
+/**
+ * The session's frames as a state in [scope]: one subscription gives the first frame (awaited, so the widget never
+ * draws a placeholder) and every update after it; no second dashboard read for the content.
+ */
+internal suspend fun liveFrames(scope: CoroutineScope, frames: Flow<WidgetFrame>): StateFlow<WidgetFrame> = frames.stateIn(scope)
+
+/** Sizes of the widget's layout, checked against the 2×1 minimum height by the tests. */
+internal object WidgetMetrics {
+    const val NAME_SP = 14f
+    const val STATUS_SP = 12f
+    const val COMPACT_NAME_SP = 13f
+    const val COMPACT_STATUS_SP = 11f
+
+    /** 12 dp around the list; 4 dp above and below the 2×1 line, which is 40 dp high at its minimum. */
+    fun verticalPadding(compact: Boolean): Dp = if (compact) 4.dp else 12.dp
+
+    /**
+     * A list row is at least 48 dp (spec §9.8). The compact widget is one row and the whole widget is its touch
+     * target, so the row takes no 48 dp spacer, which would clip it at 40 dp.
+     */
+    fun rowMinHeight(compact: Boolean): Dp = if (compact) 0.dp else 48.dp
+
+    /** A text line's height at the default font scale (font size plus leading). */
+    fun lineHeightDp(sp: Float): Float = sp * 1.2f
+}
+
 /** [open]: the app as the launcher opens it; [openDevice]: the detail screen of a child (hex id). */
 class WidgetLinks(
     val open: (Context) -> Intent = { c -> c.packageManager.getLaunchIntentForPackage(c.packageName) ?: Intent() },
@@ -134,7 +164,8 @@ internal fun WidgetContent(state: WidgetState, nowMs: Long, links: WidgetLinks) 
     val compact = LocalSize.current.height < KinsightWidget.LIST.height || LocalSize.current.width < KinsightWidget.LIST.width
     Column(
         modifier = GlanceModifier.fillMaxSize().appWidgetBackground().cornerRadius(16.dp)
-            .background(GlanceTheme.colors.widgetBackground).padding(12.dp)
+            .background(GlanceTheme.colors.widgetBackground)
+            .padding(horizontal = 12.dp, vertical = WidgetMetrics.verticalPadding(compact))
             .clickable(actionStartActivity(links.open(context))),
         verticalAlignment = if (compact) Alignment.CenterVertically else Alignment.Top,
     ) {
@@ -202,18 +233,19 @@ private fun ChildLine(row: ChildRow, nowMs: Long, links: WidgetLinks, compact: B
             },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Glance has no heightIn: a zero-width 48 dp spacer makes the row's touch target at least 48 dp (spec §9.8)
-        // and lets it grow with the font scale.
-        Spacer(GlanceModifier.width(0.dp).height(MIN_TOUCH))
+        // Glance has no heightIn: in the list a zero-width 48 dp spacer makes the row's touch target at least 48 dp
+        // (spec §9.8) and lets it grow with the font scale. The compact row is the whole widget and has none.
+        if (!compact) Spacer(GlanceModifier.width(0.dp).height(WidgetMetrics.rowMinHeight(compact = false)))
+        val nameSp = if (compact) WidgetMetrics.COMPACT_NAME_SP else WidgetMetrics.NAME_SP
+        val statusSp = if (compact) WidgetMetrics.COMPACT_STATUS_SP else WidgetMetrics.STATUS_SP
         Column(GlanceModifier.defaultWeight()) {
-            Text(row.name, style = TextStyle(color = GlanceTheme.colors.onSurface, fontWeight = FontWeight.Medium, fontSize = 14.sp), maxLines = 1)
-            Text(status, style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 12.sp), maxLines = 1)
+            Text(row.name, style = TextStyle(color = GlanceTheme.colors.onSurface, fontWeight = FontWeight.Medium, fontSize = nameSp.sp), maxLines = 1)
+            Text(status, style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = statusSp.sp), maxLines = 1)
         }
         Text(total, style = TextStyle(color = GlanceTheme.colors.onSurface, fontWeight = FontWeight.Bold, fontSize = 16.sp), maxLines = 1)
     }
 }
 
-private val MIN_TOUCH = 48.dp
 
 @Composable
 private fun Line(text: String, tag: String, bold: Boolean = false) {

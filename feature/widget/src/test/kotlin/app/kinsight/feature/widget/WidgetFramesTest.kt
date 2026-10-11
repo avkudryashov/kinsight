@@ -57,6 +57,24 @@ class WidgetFramesTest {
         }
     }
 
+    /**
+     * Final fix item 4: the session's first frame and its live updates come from one subscription, not a first()
+     * read followed by a second collection (two dashboard reads per widget draw).
+     */
+    @Test
+    fun liveFramesReadTheDashboardOnce() {
+        runTest(UnconfinedTestDispatcher()) {
+            var reads = 0
+            val dashboard = MutableStateFlow<DashboardState?>(parent)
+            val frames = widgetFrames(flowOf(0L), { reads++; dashboard }, flowOf(24), { 1L })
+            val live = liveFrames(backgroundScope, frames)
+            assertEquals(WidgetState.Parent(emptyList(), 0), live.value.state)
+            dashboard.value = null
+            assertEquals(WidgetState.Empty, live.value.state)
+            assertEquals(1, reads)
+        }
+    }
+
     @Test
     fun readFailureIsEmpty() {
         runTest {

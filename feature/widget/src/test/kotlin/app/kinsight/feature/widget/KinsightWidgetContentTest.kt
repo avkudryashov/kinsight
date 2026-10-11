@@ -105,4 +105,25 @@ class KinsightWidgetContentTest {
         assertEquals("Not sharing", statusText(context, ChildStatus.NotSharing, now))
         assertEquals("No data yet", statusText(context, ChildStatus.NoData, now))
     }
+
+    /**
+     * Final fix item 8: the 2×1 widget is 40 dp high at its minimum; the compact parent row (two text lines, no 48 dp
+     * spacer) with the compact padding fits in it at the default font, while list rows keep their 48 dp target.
+     */
+    @Test
+    fun theCompactRowFitsTheMinimumHeightAndListRowsKeep48Dp() {
+        val padding = 2 * WidgetMetrics.verticalPadding(compact = true).value
+        val lines = WidgetMetrics.lineHeightDp(WidgetMetrics.COMPACT_NAME_SP) + WidgetMetrics.lineHeightDp(WidgetMetrics.COMPACT_STATUS_SP)
+        val needed = padding + maxOf(WidgetMetrics.rowMinHeight(compact = true).value, lines)
+        assertTrue("compact needs $needed dp", needed <= KinsightWidget.COMPACT.height.value)
+        assertEquals(48f, WidgetMetrics.rowMinHeight(compact = false).value)
+    }
+
+    @Test
+    fun compactParentRowStillShowsTheChild(): Unit = runGlanceAppWidgetUnitTest {
+        setContext(context)
+        setAppWidgetSize(KinsightWidget.COMPACT)
+        provideComposable { GlanceTheme { WidgetContent(WidgetState.Parent(listOf(kid(1)), more = 0), now, links) } }
+        onNode(hasText("Kid1")).assertExists()
+    }
 }
