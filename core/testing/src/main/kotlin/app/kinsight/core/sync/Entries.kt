@@ -17,7 +17,7 @@ fun EntryAuthor.detail(date: String): DecodedEntry = create {
     it.copy(usage_detail = UsageDetail(local_date = date, zone_id = "Europe/Madrid"))
 }
 
-/** [category] is the wire value: AppCategory ordinal + 1, 0 = cleared. */
-fun EntryAuthor.categoryOverride(packageName: String, category: Int): DecodedEntry = create {
-    it.copy(category_override = CategoryOverride(package_name = packageName, category = category))
+/** [category] is the wire value: AppCategory ordinal + 1, 0 = cleared; [rank] orders it before Lamport (spec §4.4). */
+fun EntryAuthor.categoryOverride(packageName: String, category: Int, rank: Long = 0): DecodedEntry = create {
+    it.copy(category_override = CategoryOverride(package_name = packageName, category = category, rank = rank))
 }

@@ -132,8 +132,20 @@ class EntryValidatorTest {
         )
     }
 
-    private fun overrideOf(author: EntryAuthor, pkg: String = "com.example.game", category: Int = 1) =
-        author.create { it.copy(category_override = CategoryOverride(package_name = pkg, category = category)) }
+    private fun overrideOf(author: EntryAuthor, pkg: String = "com.example.game", category: Int = 1, rank: Long = 0) =
+        author.create { it.copy(category_override = CategoryOverride(package_name = pkg, category = category, rank = rank)) }
+
+    @Test
+    fun categoryOverrideRankRange() {
+        val v = validator()
+        assertEquals(1L shl 53, CategoryOverrideRules.MAX_RANK)
+        for (ok in listOf(0L, 1L, CategoryOverrideRules.MAX_RANK)) {
+            assertEquals(Verdict.Accept, v.check(overrideOf(bob, rank = ok), alreadyAccounted = false), "rank $ok")
+        }
+        for (bad in listOf(-1L, CategoryOverrideRules.MAX_RANK + 1, Long.MAX_VALUE, Long.MIN_VALUE)) {
+            assertIs<Verdict.Invalid>(v.check(overrideOf(bob, rank = bad), alreadyAccounted = false), "rank $bad")
+        }
+    }
 
     @Test
     fun categoryOverrideFromParentsIsAccepted() {

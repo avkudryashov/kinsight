@@ -64,6 +64,39 @@ class CategoryOverridesTest {
     }
 
     @Test
+    fun theHighestRankWinsBeforeLamport() {
+        // Dad's entry has a far higher Lamport, but Mom's change was made on top of rank 1: rank decides first.
+        val dads = EntryAuthor(gid, dadKeys, lastSeq = 0, lastLamport = 1_000).categoryOverride("com.game", wire(AppCategory.VIDEO), rank = 1)
+        val moms = mom.categoryOverride("com.game", wire(AppCategory.GAMES), rank = 2)
+        val expected = EffectiveCategory(AppCategory.GAMES, momKeys.deviceId)
+        assertEquals(expected, CategoryOverrides.effectiveWithAuthors(listOf(dads, moms), membership())["com.game"])
+        assertEquals(expected, CategoryOverrides.effectiveWithAuthors(listOf(moms, dads), membership())["com.game"])
+    }
+
+    @Test
+    fun concurrentChangesOnTheSameRankConvergeEverywhere() {
+        // Both parents changed the same winner (rank 3) before seeing each other: rank ties, then (Lamport, author).
+        val es = listOf(
+            EntryAuthor(gid, momKeys, lastSeq = 5, lastLamport = 7).categoryOverride("com.game", wire(AppCategory.NEWS), rank = 4),
+            EntryAuthor(gid, dadKeys, lastSeq = 5, lastLamport = 7).categoryOverride("com.game", wire(AppCategory.MAPS), rank = 4),
+            EntryAuthor(gid, granKeys, lastSeq = 5, lastLamport = 30).categoryOverride("com.game", wire(AppCategory.SOCIAL), rank = 3),
+        )
+        val expected = if (momKeys.deviceId.hex > dadKeys.deviceId.hex) AppCategory.NEWS else AppCategory.MAPS
+        listOf(es, es.reversed(), listOf(es[1], es[2], es[0])).forEach {
+            assertEquals(expected, CategoryOverrides.effective(it, membership())["com.game"])
+        }
+    }
+
+    @Test
+    fun ranksOutOfRangeAreIgnored() {
+        val big = CategoryOverrideRules.MAX_RANK + 1
+        val bad = EntryAuthor(gid, dadKeys, lastSeq = 0, lastLamport = 100).categoryOverride("com.a", wire(AppCategory.GAMES), rank = big)
+        val neg = EntryAuthor(gid, granKeys, lastSeq = 0, lastLamport = 100).categoryOverride("com.a", wire(AppCategory.VIDEO), rank = -1)
+        val ok = mom.categoryOverride("com.a", wire(AppCategory.NEWS), rank = 0)
+        assertEquals(mapOf("com.a" to AppCategory.NEWS), CategoryOverrides.effective(listOf(bad, neg, ok), membership()))
+    }
+
+    @Test
     fun aClearedWinnerMeansNoOverride() {
         val set = EntryAuthor(gid, dadKeys, lastSeq = 0).categoryOverride("com.game", wire(AppCategory.GAMES)) // lamport 1
         val cleared = mom.categoryOverride("com.game", 0) // lamport 4

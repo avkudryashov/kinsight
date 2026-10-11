@@ -10,7 +10,6 @@ import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
-import app.kinsight.core.model.MembershipLimits
 import app.kinsight.core.model.grantAdminEntry
 import app.kinsight.core.model.leaveGroupEntry
 import app.kinsight.core.model.removeMemberEntry
@@ -348,8 +347,8 @@ class UsageRepository(
         val winners = CategoryOverrides.winners(ready.categoryOverrides, ready.membership)
         val current = winners[packageName]?.let { CategoryOverrides.fromWire(it.body.category_override!!.category) }
         if (current == category) return@withLock
-        val above = winners[packageName]?.lamport ?: 0L
-        if (!appendOwn { a -> listOf(a.categoryOverrideEntry(packageName, wire, above)) }) Log.w(TAG, "category override: no group to sign in")
+        val rank = CategoryOverrides.nextRank(winners[packageName])
+        if (!appendOwn { a -> listOf(a.categoryOverrideEntry(packageName, wire, rank)) }) Log.w(TAG, "category override: no group to sign in")
     }
 
     /**
@@ -375,9 +374,10 @@ class UsageRepository(
                 winners[pkg] == null && own[pkg]?.body?.category_override?.category != wire
         }
         if (publish.isNotEmpty()) {
-            // No winner to order after: every published package has no entry from an active parent.
+            // No winner to order after: every published package has no entry from an active parent (rank 0 + 1).
+            val rank = CategoryOverrides.nextRank(null)
             val ok = appendOwn { a ->
-                publish.entries.sortedBy { it.key }.map { (pkg, c) -> a.categoryOverrideEntry(pkg, CategoryOverrides.wire(c), above = 0L) }
+                publish.entries.sortedBy { it.key }.map { (pkg, c) -> a.categoryOverrideEntry(pkg, CategoryOverrides.wire(c), rank) }
             }
             if (!ok) return
             Log.i(TAG, "published ${publish.size} local category overrides")
@@ -447,14 +447,12 @@ class UsageRepository(
 }
 
 /**
- * A CategoryOverride whose Lamport orders after [above] (the package's current winner): EntryAuthor only observes
- * effective membership Lamports, so without this a parent's change could lose to the very choice it replaces.
+ * A CategoryOverride with [rank] (CategoryOverrides.nextRank over the package's current winner), which orders it after
+ * the choice it replaces. Its Lamport is EntryAuthor's own (membership-only observed rule): other parents' overrides
+ * never move this author's clock.
  */
-private fun EntryAuthor.categoryOverrideEntry(packageName: String, wire: Int, above: Long): DecodedEntry = create {
-    it.copy(
-        category_override = CategoryOverride(package_name = packageName, category = wire),
-        lamport = maxOf(it.lamport, minOf(above + 1, MembershipLimits.MAX_LAMPORT)),
-    )
+private fun EntryAuthor.categoryOverrideEntry(packageName: String, wire: Int, rank: Long): DecodedEntry = create {
+    it.copy(category_override = CategoryOverride(package_name = packageName, category = wire, rank = rank))
 }
 
 data class ServiceStatus(

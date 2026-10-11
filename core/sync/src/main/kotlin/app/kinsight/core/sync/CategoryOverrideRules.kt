@@ -18,6 +18,9 @@ object CategoryOverrideRules {
     const val MAX_BODY_BYTES = 1024
     const val MAX_PACKAGE_BYTES = 255
 
+    /** Largest `rank` (2^53): far beyond honest use (one step per change), exact in any JSON/double tooling. */
+    const val MAX_RANK = 1L shl 53
+
     /** The remainder bucket of usage summaries (core/data `Categories.REMAINDER_PACKAGE`); not an app. */
     const val REMAINDER_PACKAGE = "~other"
 
@@ -34,6 +37,7 @@ object CategoryOverrideRules {
         if (role == DeviceRole.CHILD) return "category override from a child"
         if (e.bodySize > MAX_BODY_BYTES) return "category override over $MAX_BODY_BYTES bytes"
         if (o.category !in 0..MAX_CATEGORY) return "category ${o.category} out of range"
+        if (o.rank !in 0..MAX_RANK) return "rank ${o.rank} out of range"
         if (!packageOk(o.package_name)) return "bad package"
         return null
     }

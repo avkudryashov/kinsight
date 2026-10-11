@@ -66,10 +66,14 @@ message AppCatalog {
 }
 
 // A parent's category for an app, shared with the other parents (spec §4.4). One live entry per author and package
-// (supersede key <author>/cat/<package>); the effective one is the active parent's with the highest (lamport, author).
+// (supersede key <author>/cat/<package>); the effective one is the active parent's with the highest
+// (rank, lamport, author).
 message CategoryOverride {
   string package_name = 1;
   int32 category = 2;  // AppCategory ordinal + 1; 0 = back to the default (override cleared)
+  // The winner's rank + 1 at write time (0 without a winner), at most 2^53. Orders a later change after the choice it
+  // replaces without raising anyone's Lamport clock (EntryAuthor observes membership Lamports only).
+  int64 rank = 3;
 }
 
 message StateEvent {

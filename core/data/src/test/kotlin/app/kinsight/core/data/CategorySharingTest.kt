@@ -6,6 +6,7 @@ import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.addMember
 import app.kinsight.core.model.proto.DeviceRole
+import app.kinsight.core.sync.CategoryOverrideRules
 import app.kinsight.core.sync.categoryOverride
 import app.kinsight.core.transport.ble.GroupConfig
 import kotlinx.coroutines.flow.first
@@ -79,17 +80,49 @@ class CategorySharingTest {
         assertEquals(dadKeys.deviceId, withTimeout(10_000) { mom.usage.categoryAuthor("com.game").first { it != null } })
         assertEquals("Dad", withTimeout(10_000) { mom.usage.categoryChangedBy("com.game").first { it != null } })
 
-        // Mom changes it back: her entry orders after Dad's (Lamport), so it wins.
+        // Mom changes it back: her entry ranks above Dad's (rank 0 -> 1), so it wins without touching her Lamport.
+        val lamportBefore = mom.store().authorState(mom.keys.deviceId).lastLamport
         mom.usage.setCategory("com.game", AppCategory.GAMES)
         mom.usage.overridesWhere { it == mapOf("com.game" to AppCategory.GAMES) }
         assertEquals(mom.keys.deviceId, withTimeout(10_000) { mom.usage.categoryAuthor("com.game").first { it == mom.keys.deviceId } })
         assertNull(withTimeout(10_000) { mom.usage.categoryChangedBy("com.game").first { it == null } }, "her own choice names nobody")
         val hers = overrideEntries(mom).single { it.author == mom.keys.deviceId }
-        assertEquals(51L, hers.lamport, "orders right after Dad's 50")
-        assertEquals(51L, mom.store().authorState(mom.keys.deviceId).lastLamport)
+        assertEquals(1L, hers.body.category_override!!.rank, "one above the winner's rank 0")
+        assertTrue(hers.lamport < 50L, "Dad's override does not pull her clock: ${hers.lamport}")
+        assertEquals(lamportBefore + 1, hers.lamport)
         mom.usage.setCategory("com.next", AppCategory.NEWS)
         val next = overrideEntries(mom).single { it.author == mom.keys.deviceId && it.body.category_override!!.package_name == "com.next" }
-        assertTrue(next.lamport >= 52L, "her next own entry follows: ${next.lamport}")
+        assertEquals(hers.lamport + 1, next.lamport, "her next own entry follows her own clock")
+        assertEquals(1L, next.body.category_override!!.rank, "no winner yet: rank 0 + 1")
+    }
+
+    @Test
+    fun aLaterChangeByAnyParentBeatsTheWinnerAndAHugeRankMovesNoClock() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val dadKeys = DeviceKeys.generate()
+        mom.pipeline.appendOwn { a -> listOf(a.addMember(dadKeys.sign.publicKey, dadKeys.dh.publicKey, "Dad", DeviceRole.PARENT)) }
+        val gid = mom.groups.read()!!.groupId
+        mom.usage.setCategory("com.game", AppCategory.GAMES) // rank 1
+        // Dad changes it on top of Mom's (rank 2) with a huge Lamport, and puts a huge rank on another app.
+        val dad = EntryAuthor(gid, dadKeys, lastSeq = 0, lastLamport = 1_000_000)
+        val huge = CategoryOverrideRules.MAX_RANK - 1
+        mom.store().applyBatch(
+            listOf(
+                dad.categoryOverride("com.game", CategoryOverrides.wire(AppCategory.VIDEO), rank = 2),
+                dad.categoryOverride("com.tube", CategoryOverrides.wire(AppCategory.SOCIAL), rank = huge),
+            ),
+        )
+        mom.usage.overridesWhere { it == mapOf("com.game" to AppCategory.VIDEO, "com.tube" to AppCategory.SOCIAL) }
+        val lamportBefore = mom.store().authorState(mom.keys.deviceId).lastLamport
+
+        mom.usage.setCategory("com.game", AppCategory.NEWS)
+        mom.usage.setCategory("com.tube", AppCategory.MAPS)
+        mom.usage.overridesWhere { it == mapOf("com.game" to AppCategory.NEWS, "com.tube" to AppCategory.MAPS) }
+        val mine = overrideEntries(mom).filter { it.author == mom.keys.deviceId }.associateBy { it.body.category_override!!.package_name }
+        assertEquals(3L, mine.getValue("com.game").body.category_override!!.rank)
+        assertEquals(CategoryOverrideRules.MAX_RANK, mine.getValue("com.tube").body.category_override!!.rank)
+        assertEquals(listOf(lamportBefore + 1, lamportBefore + 2), listOf(mine.getValue("com.game").lamport, mine.getValue("com.tube").lamport))
+        assertEquals(lamportBefore + 2, mom.store().authorState(mom.keys.deviceId).lastLamport, "Dad's entries never move her clock")
     }
 
     @Test
