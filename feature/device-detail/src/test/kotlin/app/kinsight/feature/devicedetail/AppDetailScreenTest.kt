@@ -42,6 +42,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import java.time.LocalDate
+import androidx.compose.ui.test.SemanticsMatcher
+import app.kinsight.core.designsystem.component.ChartAverageLine
+import app.kinsight.core.designsystem.component.ChartLimitLine
+import app.kinsight.core.designsystem.component.formatDuration
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35])
@@ -290,5 +294,16 @@ class AppDetailScreenTest {
         showLimit(app(), limit)
         list.performScrollToNode(hasTestTag("app_chart"))
         rule.onNodeWithTag("app_chart").assert(hasContentDescription("Limit 2 h", substring = true))
+            .assert(SemanticsMatcher.expectValue(ChartLimitLine, 2 * 3_600_000L))
+    }
+
+    @Test
+    fun theAppsAverageLineIsTheAverageTheSummaryStates() {
+        show(app())
+        list.performScrollToNode(hasTestTag("app_chart"))
+        val average = rule.onNodeWithTag("app_chart").fetchSemanticsNode().config[ChartAverageLine]
+        assertEquals(10 * 60_000L, average)
+        val text = formatDuration(ApplicationProvider.getApplicationContext<Context>().resources, average)
+        rule.onNodeWithTag("app_chart").assert(hasContentDescription("Average $text a day", substring = true))
     }
 }

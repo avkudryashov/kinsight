@@ -1,6 +1,19 @@
 package app.kinsight.core.designsystem
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.text.rememberTextMeasurer
+import app.kinsight.core.designsystem.component.ChartAverageLine
+import app.kinsight.core.designsystem.component.ChartLimitLine
+import app.kinsight.core.designsystem.component.ChartScale
+import app.kinsight.core.designsystem.component.gridTicks
+import app.kinsight.core.designsystem.component.tickText
+import org.junit.Assert.assertTrue
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertHeightIsAtLeast
@@ -27,6 +40,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35])
@@ -186,5 +200,54 @@ class DetailChartsTest {
         rule.onNodeWithContentDescription("Week. Limit 3 h").assertExists()
         rule.onNodeWithContentDescription("Clickable. Limit 1 h").assertExists()
         rule.onNodeWithContentDescription("Bars. Limit 2 h").assertExists()
+    }
+
+    /** The widest duration tick label of any max from 1 min to 24 h, plus the 4 dp gap: the scale gutter at 100 % font. */
+    private fun widestGutterDp(): Float {
+        var gutter = 0f
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                val resources = LocalResources.current
+                val density = LocalDensity.current
+                val measurer = rememberTextMeasurer()
+                val style = MaterialTheme.typography.labelSmall
+                val texts = (1L..24 * 60).flatMap { gridTicks(it * 60_000L, ChartScale.DURATION) }.toSet().map { tickText(it, ChartScale.DURATION, resources) }
+                gutter = with(density) { texts.maxOf { measurer.measure(it, style).size.width }.toDp().value } + 4f
+            }
+        }
+        rule.waitForIdle()
+        return gutter
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE) // real text widths
+    fun theScaleGutterStaysNarrow() {
+        val gutter = widestGutterDp()
+        println("scale gutter en: $gutter dp")
+        assertTrue("gutter $gutter dp", gutter in 20f..44f)
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun theScaleGutterStaysNarrowInRussian() {
+        val gutter = widestGutterDp()
+        println("scale gutter ru: $gutter dp")
+        assertTrue("gutter $gutter dp", gutter in 20f..44f)
+    }
+
+    @Test
+    fun theDrawnLinesAreExposedForTests() {
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                Column {
+                    StackedBarChart(listOf(listOf(1L), listOf(4L)), colors, listOf("M", "T"), "Stacked", Modifier.testTag("s"), onBarClick = {}, limit = 3L, average = 2L, averageLabel = "Avg")
+                    BarChart(listOf(1L, 2L), listOf("M", "T"), "Bars", Modifier.testTag("b"), average = 0L, averageLabel = "Avg")
+                }
+            }
+        }
+        rule.onNodeWithTag("s").assert(SemanticsMatcher.expectValue(ChartLimitLine, 3L)).assert(SemanticsMatcher.expectValue(ChartAverageLine, 2L))
+        rule.onNodeWithTag("b").assert(SemanticsMatcher.keyNotDefined(ChartLimitLine)).assert(SemanticsMatcher.keyNotDefined(ChartAverageLine))
+        rule.onNodeWithText("Avg").assertDoesNotExist() // the note is hidden from TalkBack: the summary has the average
     }
 }

@@ -6,7 +6,9 @@ import app.kinsight.core.designsystem.component.ChartScale
 import app.kinsight.core.designsystem.component.HEAT_LEGEND
 import app.kinsight.core.designsystem.component.HEAT_MIN_INTENSITY
 import app.kinsight.core.designsystem.component.barLayout
+import app.kinsight.core.designsystem.component.fitTicks
 import app.kinsight.core.designsystem.component.gridTicks
+import app.kinsight.core.designsystem.component.slotRange
 import app.kinsight.core.designsystem.component.limitChipOffset
 import app.kinsight.core.designsystem.component.tickLabelTop
 import app.kinsight.core.designsystem.component.CATEGORY_COLOR_COUNT
@@ -188,9 +190,42 @@ class ChartMathTest {
         assertEquals(listOf(60L, 120, 180).map { it * m }, gridTicks(190 * m, ChartScale.DURATION))
         assertEquals(listOf(60L, 120).map { it * m }, gridTicks(120 * m, ChartScale.DURATION))
         assertEquals(listOf(240L, 480, 720).map { it * m }, gridTicks(720 * m, ChartScale.DURATION))
-        assertEquals(listOf(5 * m), gridTicks(7 * m, ChartScale.DURATION), "one line rather than none")
-        assertEquals(emptyList(), gridTicks(3 * m, ChartScale.DURATION))
+        assertEquals(listOf(2L, 4, 6).map { it * m }, gridTicks(7 * m, ChartScale.DURATION))
+        assertEquals(listOf(1L, 2, 3).map { it * m }, gridTicks(3 * m, ChartScale.DURATION))
+        assertEquals(listOf(m), gridTicks(m, ChartScale.DURATION), "one minute: one line rather than none")
+        assertEquals(emptyList(), gridTicks(30_000L, ChartScale.DURATION))
         assertEquals(emptyList(), gridTicks(0, ChartScale.DURATION))
+    }
+
+    @Test
+    fun durationTicksAtTheEdgesOfAnHourAndADay() {
+        val m = 60_000L
+        assertEquals(listOf(15L, 30, 45).map { it * m }, gridTicks(59 * m, ChartScale.DURATION))
+        assertEquals(listOf(30L, 60).map { it * m }, gridTicks(60 * m, ChartScale.DURATION))
+        assertEquals(listOf(6L, 12, 18).map { it * 60 * m }, gridTicks(23 * 60 * m + 59 * m, ChartScale.DURATION))
+        assertEquals(listOf(8L, 16, 24).map { it * 60 * m }, gridTicks(24 * 60 * m, ChartScale.DURATION))
+    }
+
+    @Test
+    fun everyMinuteMaxHasOneToThreeTicksAndNoHalfHourAboveAnHour() {
+        val m = 60_000L
+        (1L..24 * 60).forEach { min ->
+            val ticks = gridTicks(min * m, ChartScale.DURATION)
+            assertTrue(ticks.size in 1..3, "$min min: $ticks")
+            assertTrue(ticks.all { it <= 60 * m || it % (60 * m) == 0L }, "$min min: $ticks")
+        }
+        assertEquals(listOf(60 * m), gridTicks(90 * m, ChartScale.DURATION), "90 min: one line at 1 h, not «1 h 30 min»")
+        assertEquals(listOf(60 * m), gridTicks(119 * m, ChartScale.DURATION))
+    }
+
+    @Test
+    fun ticksThinOutWhenTheirLabelsWouldTouch() {
+        val m = 60_000L
+        val ticks = listOf(15L, 30, 45).map { it * m }
+        assertEquals(ticks, fitTicks(ticks, 50 * m, heightPx = 240f, labelHeightPx = 20f))
+        assertEquals(listOf(30 * m), fitTicks(ticks, 50 * m, heightPx = 240f, labelHeightPx = 64f), "200 % font: every second")
+        assertEquals(listOf(4L), fitTicks(listOf(2L, 4, 6), 7, heightPx = 120f, labelHeightPx = 32f), "a 120 dp chart at 200 % font")
+        assertEquals(emptyList(), fitTicks(emptyList(), 1, 100f, 20f))
     }
 
     @Test
@@ -221,8 +256,21 @@ class ChartMathTest {
 
     @Test
     fun theLimitChipSitsAtTheLeftAboveItsLine() {
-        assertEquals(Offset(2f, 78f), limitChipOffset(y = 100f, chipHeight = 20f, gap = 2f))
-        assertEquals(Offset(2f, 12f), limitChipOffset(y = 10f, chipHeight = 20f, gap = 2f), "no room above: below the line")
+        assertEquals(Offset(2f, 78f), limitChipOffset(y = 100f, chipWidth = 50f, chipHeight = 20f, gap = 2f, barsWidth = 300f))
+        assertEquals(Offset(2f, 12f), limitChipOffset(y = 10f, chipWidth = 50f, chipHeight = 20f, gap = 2f, barsWidth = 300f), "no room above: below the line")
+    }
+
+    @Test
+    fun theLimitChipNeverCoversTodaysBar() {
+        val l = barLayout(widthPx = 300f, gutterPx = 0f, count = 7)
+        fun chip(today: Int) = limitChipOffset(y = 100f, chipWidth = 50f, chipHeight = 20f, gap = 2f, barsWidth = l.barsWidth, avoid = l.slotRange(today))
+        assertEquals(Offset(248f, 78f), chip(0), "today first: the chip goes to the right end")
+        assertEquals(Offset(248f, 78f), chip(1), "today second: the left chip would reach into its slot")
+        assertEquals(Offset(2f, 78f), chip(6), "today last: the left edge")
+        assertEquals(Offset(2f, 78f), chip(3), "today in the middle: the left edge")
+        val one = barLayout(widthPx = 60f, gutterPx = 0f, count = 1)
+        assertEquals(Offset(2f, 102f), limitChipOffset(100f, 50f, 20f, 2f, one.barsWidth, one.slotRange(0)), "both ends on today: below the line")
+        assertEquals(null, l.slotRange(null))
     }
 
     @Test

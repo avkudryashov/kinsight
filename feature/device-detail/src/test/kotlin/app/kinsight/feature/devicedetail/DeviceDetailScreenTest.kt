@@ -49,6 +49,12 @@ import org.robolectric.annotation.Config
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.util.Locale
+import android.content.Context
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.test.core.app.ApplicationProvider
+import app.kinsight.core.designsystem.component.ChartAverageLine
+import app.kinsight.core.designsystem.component.ChartLimitLine
+import app.kinsight.core.designsystem.component.formatDuration
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35])
@@ -171,7 +177,7 @@ class DeviceDetailScreenTest {
     fun russianChartSummaryNamesTheBusiestDay() {
         val days = (6 downTo 0).map { DayTotal(today.minusDays(it.toLong()), if (it == 0) 60 * 60_000L else 10 * 60_000L, 1) }
         show(detail.copy(days = days))
-        rule.onNode(hasContentDescription("больше всего — суббота (1 ч)", substring = true)).assertExists()
+        rule.onNode(hasContentDescription("больше всего: суббота (1 ч)", substring = true)).assertExists()
     }
 
     @Test
@@ -530,6 +536,17 @@ class DeviceDetailScreenTest {
     fun theTotalLimitIsDrawnOnTheMonthToo() {
         showWithLimits(monthDetail, listOf(totalLimit))
         rule.onNodeWithTag("det_chart").assert(hasContentDescription("Limit 3 h", substring = true))
+            .assert(SemanticsMatcher.expectValue(ChartLimitLine, 3 * 3_600_000L))
+    }
+
+    @Test
+    fun theAverageLineIsTheAverageTheSummaryStates() {
+        show(detail)
+        val node = rule.onNodeWithTag("det_chart").fetchSemanticsNode()
+        val average = node.config[ChartAverageLine]
+        assertEquals(90 * 60_000L / 7, average)
+        val text = formatDuration(ApplicationProvider.getApplicationContext<Context>().resources, average)
+        rule.onNodeWithTag("det_chart").assert(hasContentDescription("Average $text a day", substring = true))
     }
 
     @Test

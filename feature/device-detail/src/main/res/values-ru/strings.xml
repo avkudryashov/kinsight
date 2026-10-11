@@ -18,7 +18,7 @@
     <string name="det_all_apps_title">%1$s: все приложения, %2$s</string>
     <string name="det_events">События</string>
     <string name="det_no_events">Событий нет.</string>
-    <string name="det_chart_summary">В среднем %1$s в день, больше всего — %2$s (%3$s)</string>
+    <string name="det_chart_summary">В среднем %1$s в день, больше всего: %2$s (%3$s)</string>
     <string name="det_chart_average">Пунктир: в среднем %1$s в день</string>
     <string name="det_paused_note">Обмен на паузе с %1$s. Время за паузу придёт после её снятия.</string>
     <string name="det_never_note">Этот телефон не делится экранным временем.</string>
@@ -76,12 +76,12 @@
         <item quantity="many">В среднем по %1$d из %2$d дней</item>
         <item quantity="other">В среднем по %1$d из %2$d дня</item>
     </plurals>
-    <string name="det_heatmap_summary">Больше всего — %1$s, около %2$s</string>
-    <string name="det_hours_summary">Больше всего — в %1$s (%2$s)</string>
+    <string name="det_heatmap_summary">Больше всего: %1$s, около %2$s</string>
+    <string name="det_hours_summary">Больше всего: в %1$s (%2$s)</string>
     <string name="det_hours_none">По часам времени нет</string>
     <string name="det_unlocks_by_hour">Разблокировки по часам</string>
     <string name="det_unlocks_by_hour_average">Разблокировки по часам, в среднем</string>
-    <string name="det_unlocks_summary">Больше всего разблокировок — в %1$s (%2$d)</string>
+    <string name="det_unlocks_summary">Больше всего разблокировок: в %1$s (%2$d)</string>
     <string name="det_unlocks_none">По часам разблокировок нет</string>
     <string name="det_open_app">Открыть сведения о приложении</string>
     <string name="det_hours_not_arrived">Почасовые данные за этот период ещё не пришли</string>
