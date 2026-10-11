@@ -27,6 +27,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -73,6 +74,25 @@ class PairingTest {
     private fun requestOf(token: ByteArray, signer: DeviceKeys, provenDh: ByteArray, name: String = "Kid"): PairMessage {
         val proof = signer.sign.sign(PairingProtocol.proofMessage(token, provenDh))
         return PairMessage(request = PairRequest(token.toByteString(), signer.sign.publicKey.toByteString(), name, proof.toByteString()))
+    }
+
+    @Test
+    fun bothSidesDeriveTheSameCodeAndEachHandshakeItsOwn() = runTest {
+        var guestCode = ""
+        val (h, g) = pair({ host().serve(it, welcomeAs(DeviceRole.CHILD)) }, { guest().join(it) { code -> guestCode = code } })
+        assertIs<GuestResult.Joined>(g.getOrThrow())
+        val hostCode = assertIs<HostOutcome.Welcomed>(h.getOrThrow()).joiner.sas
+        assertEquals(PairingSas.DIGITS, hostCode.length)
+        assertEquals(hostCode, guestCode)
+
+        // Another handshake (fresh ephemerals) shows another code: one seen earlier cannot be replayed. Equal by chance
+        // with probability 10^-6.
+        var otherCode = ""
+        val otherKid = DeviceKeys.generate()
+        val (h2, g2) = pair({ host().serve(it, welcomeAs(DeviceRole.CHILD)) }, { guest(keys = otherKid).join(it) { code -> otherCode = code } })
+        assertIs<GuestResult.Joined>(g2.getOrThrow())
+        assertEquals(assertIs<HostOutcome.Welcomed>(h2.getOrThrow()).joiner.sas, otherCode)
+        assertNotEquals(hostCode, otherCode)
     }
 
     @Test

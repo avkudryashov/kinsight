@@ -16,6 +16,8 @@ class SecureChannel private constructor(
     private val stream: ByteStream,
     private val transport: NoiseTransport,
     val remoteStaticKey: ByteArray,
+    /** The completed handshake's hash, equal on both ends of this channel only (pairing derives its SAS from it). */
+    val handshakeHash: ByteArray,
 ) {
     private val writeLock = Mutex()
 
@@ -58,7 +60,7 @@ class SecureChannel private constructor(
                 hs.readMessage(Frames.read(stream))
                 Frames.write(stream, hs.writeMessage())
             }
-            return SecureChannel(stream, hs.split(), hs.remoteStaticPublicKey!!)
+            return SecureChannel(stream, hs.split(), hs.remoteStaticPublicKey!!, hs.handshakeHash)
         }
 
         /** Runs the responder side; a peer that stalls longer than [handshakeTimeout] gives an IOException. */
@@ -74,7 +76,7 @@ class SecureChannel private constructor(
                 Frames.write(stream, hs.writeMessage())
                 hs.readMessage(Frames.read(stream))
             }
-            return SecureChannel(stream, hs.split(), hs.remoteStaticPublicKey!!)
+            return SecureChannel(stream, hs.split(), hs.remoteStaticPublicKey!!, hs.handshakeHash)
         }
 
         private suspend fun handshake(stream: ByteStream, timeout: Duration, steps: suspend () -> Unit) {

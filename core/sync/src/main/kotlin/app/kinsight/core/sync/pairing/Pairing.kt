@@ -38,8 +38,8 @@ class PairingException(val kind: Kind, message: String, cause: Throwable? = null
     enum class Kind { WRONG_ADMIN, MALFORMED, INVALID_WELCOME }
 }
 
-/** A device asking to join; [dhPublicKey] is its Noise static key, proven by the handshake. */
-class Joiner(val signPublicKey: ByteArray, val dhPublicKey: ByteArray, val displayName: String) {
+/** A device asking to join; [dhPublicKey] is its Noise static key, proven by the handshake; [sas] the channel's code. */
+class Joiner(val signPublicKey: ByteArray, val dhPublicKey: ByteArray, val displayName: String, val sas: String = "") {
     val id: DeviceId = DeviceId.fromSignPublicKey(signPublicKey)
 }
 
@@ -116,7 +116,8 @@ object PairingProtocol {
  * One instance serves one invite and may serve several connections. Once a joiner has been welcomed, the token is bound
  * to its X25519 key: any other key presenting the token is refused with BAD_TOKEN before [decide] is asked, while the
  * same key again still reaches [decide], which must answer it with a re-welcome (no new AddMember). Expiry is checked on
- * the request and again right before a welcome is sent.
+ * the request and again right before a welcome is sent. The joiner carries the channel's SAS ([PairingSas]) for the
+ * admin's confirmation.
  */
 class PairingHost(
     private val invite: Invite,
@@ -133,7 +134,7 @@ class PairingHost(
             val first = withTimeoutOrNull(PairingProtocol.REQUEST_TIMEOUT) { PairingProtocol.receive(ch) }
                 ?: throw IOException("no pairing request within ${PairingProtocol.REQUEST_TIMEOUT}")
             val request = first.request ?: return reject(ch, PairReject.Reason.REASON_UNSPECIFIED, null)
-            val joiner = Joiner(request.sign_public_key.toByteArray(), ch.remoteStaticKey, request.display_name)
+            val joiner = Joiner(request.sign_public_key.toByteArray(), ch.remoteStaticKey, request.display_name, PairingSas.code(ch.handshakeHash))
             problem(request, ch.remoteStaticKey)?.let { return reject(ch, it, joiner) }
             PairingProtocol.send(ch, PairMessage(pending = PairPending()))
             return when (val d = withTimeoutOrNull(decisionTimeout) { decide(joiner) } ?: HostDecision.Reject(PairReject.Reason.EXPIRED)) {
@@ -217,7 +218,8 @@ class PairingGuest(
     private val displayName: String,
     private val decisionTimeout: Duration = PairingProtocol.DECISION_TIMEOUT + 30.seconds,
 ) {
-    suspend fun join(stream: ByteStream, onPending: () -> Unit = {}): GuestResult {
+    /** [onPending] gets this channel's SAS ([PairingSas]) once the admin answered «wait»: the screen shows it to compare. */
+    suspend fun join(stream: ByteStream, onPending: (sas: String) -> Unit = {}): GuestResult {
         try {
             val ch = SecureChannel.initiate(stream, keys.dh, PairingProtocol.prologue(invite.groupId, invite.token))
             if (!ch.remoteStaticKey.contentEquals(invite.adminDhKey)) {
@@ -235,7 +237,7 @@ class PairingGuest(
                 ?: throw IOException("no answer from the admin within $decisionTimeout")
             first.reject?.let { return GuestResult.Rejected(it.reason) }
             if (first.pending == null) throw PairingException(PairingException.Kind.MALFORMED, "expected PairPending")
-            onPending()
+            onPending(PairingSas.code(ch.handshakeHash))
             val result = withTimeoutOrNull(decisionTimeout) { readDecision(ch) }
                 ?: throw IOException("no decision from the admin within $decisionTimeout")
             ch.close()
