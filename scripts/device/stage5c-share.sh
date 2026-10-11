@@ -34,6 +34,13 @@ tap_re() {
   $ADB -s "$d" shell input tap $(((b[0] + b[2]) / 2)) $(((b[1] + b[3]) / 2))
   sleep 1.5
 }
+home() {
+  # Back out of nested screens (detail, app) until the bottom navigation shows.
+  local d=$1
+  $ADB -s "$d" shell am start -n $PKG/.MainActivity >/dev/null 2>&1 || true
+  for _ in $(seq 6); do has "$d" 'resource-id="nav_overview"' && return 0; $ADB -s "$d" shell input keyevent BACK; sleep 1; done
+  has "$d" 'resource-id="nav_overview"'
+}
 tap() { tap_re "$1" "resource-id=\"$2\"" "${3:-60}"; }
 # The top-apps rows sit below the charts: swipe up (at most 8 times) until <regex> is in the dump.
 scroll_to() {
@@ -61,7 +68,7 @@ for p in BLUETOOTH_SCAN BLUETOOTH_ADVERTISE BLUETOOTH_CONNECT POST_NOTIFICATIONS
 done
 
 echo "== first parent invites a parent's phone"
-$ADB -s "$P" shell am start -n $PKG/.MainActivity >/dev/null
+home "$P"
 tap "$P" nav_group 30
 tap "$P" grp_invite_parent
 URI=none
@@ -90,7 +97,7 @@ echo "parent2: $(dbg "$Q" STATUS)"
 echo "== first parent changes the category of a child's app"
 for d in "$C" "$P"; do dbg "$d" SYNC_NOW >/dev/null; done
 sleep 10
-$ADB -s "$P" shell am start -n $PKG/.MainActivity >/dev/null
+home "$P"
 tap "$P" nav_overview 30
 tap_re "$P" "text=\"$CHILD_NAME\"" 60
 wait_for "$P" 'resource-id="det_' 60
@@ -117,7 +124,7 @@ SHARED=0
 for _ in $(seq 60); do
   for d in "$P" "$Q"; do dbg "$d" SYNC_NOW >/dev/null; done
   sleep 5
-  $ADB -s "$Q" shell am start -n $PKG/.MainActivity >/dev/null
+  home "$Q" || true
   tap "$Q" nav_overview 10 || true
   tap_re "$Q" "text=\"$CHILD_NAME\"" 10 || continue
   wait_for "$Q" 'resource-id="det_' 10 || continue
