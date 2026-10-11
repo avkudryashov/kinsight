@@ -10,12 +10,16 @@ message VectorItem {
 }
 
 // Sent before the peer is known to be a member, so it carries nothing about the group's contents.
+// protocol_version is the sender's LOWEST version, so a peer that predates the range (0.7.2, exact match) accepts any
+// range that starts at its version. Both range fields absent (0) means exactly protocol_version.
 message Hello {
   uint32 protocol_version = 1;
   bytes group_id = 2;
   bytes membership_hash = 3;
   reserved 4;  // was the vector; now in VectorAnnounce
   bool wants_foreign_entries = 5;
+  uint32 min_protocol_version = 6;
+  uint32 max_protocol_version = 7;
 }
 
 // Sent by each side only after the peer has been authenticated as an active member.

@@ -33,25 +33,37 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
-/** 2: CategoryOverride entries (stage 5c); a protocol-1 peer gets PROTOCOL_VERSION in Hello, before any entry. */
+/** 2: CategoryOverride entries (stage 5c). The highest version this build speaks. */
 const val PROTOCOL_VERSION = 2
 
+/**
+ * The lowest version this build speaks (A-1). Raise it only when the oldest phones in the field no longer matter: a
+ * peer whose range ends below it gets PROTOCOL_VERSION in Hello, before any entry.
+ */
+const val MIN_PROTOCOL_VERSION = 2
+
 sealed interface SessionResult {
-    data class Completed(val peer: DeviceId, val received: Int, val sentBatches: Int) : SessionResult
+    /** [protocolVersion]: the version both sides agreed on in Hello. */
+    data class Completed(val peer: DeviceId, val received: Int, val sentBatches: Int, val protocolVersion: Int = PROTOCOL_VERSION) : SessionResult
     data class Rejected(val reason: Reject.Reason, val byPeer: Boolean) : SessionResult
     data class TooManyInvalid(val peer: DeviceId) : SessionResult
     data class Failed(val cause: Throwable) : SessionResult
 }
 
-/** One symmetric sync session over an established [SecureChannel]. Both sides run the same code. */
+/**
+ * One symmetric sync session over an established [SecureChannel]. Both sides run the same code.
+ * [versions]: the protocol range we offer. [legacyHello]: for mixed-version tests only, speak like 0.7.2 (no range
+ * fields in Hello, exact match on protocol_version = versions.first).
+ */
 class SyncSession(
     private val store: EntryStore,
     private val policy: SyncPolicy,
-    private val protocolVersion: Int = PROTOCOL_VERSION,
+    private val versions: IntRange = ProtocolVersions.SUPPORTED,
     private val idleTimeout: Duration = 30.seconds,
     private val sessionTimeout: Duration = 5.minutes,
     private val lingerTimeout: Duration = LINGER,
     private val log: (String) -> Unit = {},
+    private val legacyHello: Boolean = false,
 ) {
     suspend fun run(channel: SecureChannel): SessionResult = try {
         withTimeout(sessionTimeout) { exchange(channel) }
@@ -119,17 +131,25 @@ class SyncSession(
             ch,
             SyncMessage(
                 hello = Hello(
-                    protocol_version = protocolVersion,
+                    protocol_version = versions.first,
                     group_id = groupBytes,
                     membership_hash = ourHash,
                     wants_foreign_entries = policy.showOthers,
+                    min_protocol_version = if (legacyHello) 0 else versions.first,
+                    max_protocol_version = if (legacyHello) 0 else versions.last,
                 ),
             ),
         )
         val first = receive(ch)
         first.reject?.let { return@coroutineScope SessionResult.Rejected(it.reason, byPeer = true) }
         val hello = first.hello ?: throw ProtocolException("expected hello")
-        if (hello.protocol_version != protocolVersion) {
+        val peerVersions = ProtocolVersions.of(hello)
+        val agreed = when {
+            legacyHello -> hello.protocol_version.takeIf { it == versions.first }
+            peerVersions == null -> null
+            else -> ProtocolVersions.negotiate(versions, peerVersions)
+        }
+        if (agreed == null) {
             reject(ch, Reject.Reason.PROTOCOL_VERSION)
             return@coroutineScope SessionResult.Rejected(Reject.Reason.PROTOCOL_VERSION, byPeer = false)
         }
@@ -290,7 +310,7 @@ class SyncSession(
                     else -> throw ProtocolException("unexpected message")
                 }
             }
-            val completed = SessionResult.Completed(peer.id, received, sentBatches)
+            val completed = SessionResult.Completed(peer.id, received, sentBatches, agreed)
             closingHandshake(ch, inbox)
             completed
         } finally {

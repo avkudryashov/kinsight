@@ -65,22 +65,25 @@ fun Node.lamportSource(): () -> Long = { runBlocking { lamportOf(store) } }
 
 suspend fun Node.publish(vararg entries: app.kinsight.core.model.DecodedEntry) = store.applyBatch(entries.toList())
 
+/** [versionsA]/[versionsB]: the ranges each side offers; [legacyA]/[legacyB]: that side speaks like 0.7.2 (no range in Hello). */
 suspend fun syncPair(
     a: Node,
     b: Node,
     faults: LinkFaults = LinkFaults(),
     capacity: Int = Channel.UNLIMITED,
-    versionA: Int = PROTOCOL_VERSION,
-    versionB: Int = PROTOCOL_VERSION,
+    versionsA: IntRange = ProtocolVersions.SUPPORTED,
+    versionsB: IntRange = ProtocolVersions.SUPPORTED,
+    legacyA: Boolean = false,
+    legacyB: Boolean = false,
 ): Pair<SessionResult, SessionResult> = coroutineScope {
     val (sa, sb) = MemoryPipe.pair(faults, capacity)
     val prologue = SecureChannel.prologue(a.store.groupId)
     val ra = async {
-        runCatching { SyncSession(a.store, a.policy, protocolVersion = versionA).run(SecureChannel.initiate(sa, a.keys.dh, prologue)) }
+        runCatching { SyncSession(a.store, a.policy, versions = versionsA, legacyHello = legacyA).run(SecureChannel.initiate(sa, a.keys.dh, prologue)) }
             .getOrElse { SessionResult.Failed(it) }
     }
     val rb = async {
-        runCatching { SyncSession(b.store, b.policy, protocolVersion = versionB).run(SecureChannel.accept(sb, b.keys.dh, prologue)) }
+        runCatching { SyncSession(b.store, b.policy, versions = versionsB, legacyHello = legacyB).run(SecureChannel.accept(sb, b.keys.dh, prologue)) }
             .getOrElse { SessionResult.Failed(it) }
     }
     ra.await() to rb.await()

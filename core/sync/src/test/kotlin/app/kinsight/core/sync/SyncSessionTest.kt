@@ -210,7 +210,7 @@ class SyncSessionTest {
     @Test
     fun protocolVersionMismatchIsRejectedOnBothSides() = runBlocking {
         val (a, b) = buildGroup(2)
-        val (ra, rb) = syncPair(a, b, versionA = 1, versionB = 2)
+        val (ra, rb) = syncPair(a, b, versionsA = 1..1, versionsB = 2..2, legacyA = true)
         assertEquals(SessionResult.Rejected(Reject.Reason.PROTOCOL_VERSION, byPeer = false), ra)
         assertEquals(SessionResult.Rejected(Reject.Reason.PROTOCOL_VERSION, byPeer = false), rb)
     }
@@ -221,8 +221,8 @@ class SyncSessionTest {
         val (old, new) = buildGroup(2)
         new.publish(new.author.categoryOverride("com.example.game", 1))
         val before = old.store.liveEntries().toSet()
-        for ((va, vb) in listOf(1 to PROTOCOL_VERSION, PROTOCOL_VERSION to 1)) {
-            val (ra, rb) = syncPair(old, new, versionA = va, versionB = vb)
+        for ((va, vb) in listOf(1..1 to ProtocolVersions.SUPPORTED, ProtocolVersions.SUPPORTED to 1..1)) {
+            val (ra, rb) = syncPair(old, new, versionsA = va, versionsB = vb, legacyA = va == 1..1, legacyB = vb == 1..1)
             // A version reject, never TOO_MANY_INVALID (which would block the peer for an hour), and nothing crosses.
             assertEquals(SessionResult.Rejected(Reject.Reason.PROTOCOL_VERSION, byPeer = false), ra)
             assertEquals(SessionResult.Rejected(Reject.Reason.PROTOCOL_VERSION, byPeer = false), rb)
