@@ -48,6 +48,17 @@ android {
     }
 }
 
+// The release manifest gate (audit S-M4): `./gradlew :app:checkReleaseManifestRules` (AGP already owns `checkReleaseManifest`), also run by `check`.
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        val gate = tasks.register<CheckReleaseManifestTask>("check${variant.name.replaceFirstChar { it.uppercase() }}ManifestRules") {
+            manifest.set(variant.artifacts.get(com.android.build.api.artifact.SingleArtifact.MERGED_MANIFEST))
+            report.set(layout.buildDirectory.file("reports/manifest-check/${variant.name}.txt"))
+        }
+        tasks.named("check") { dependsOn(gate) }
+    }
+}
+
 kotlin {
     jvmToolchain(21)
 }
