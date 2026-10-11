@@ -55,10 +55,14 @@ class ReleaseManifestRulesTest {
                     <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
                     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
                     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+                    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+                    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+                    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+                    <uses-permission-sdk-23 android:name="android.permission.USE_EXACT_ALARM" />
                 """,
             ),
         )
-        assertEquals(5, v.size, v.toString())
+        assertEquals(9, v.size, v.toString())
     }
 
     @Test
