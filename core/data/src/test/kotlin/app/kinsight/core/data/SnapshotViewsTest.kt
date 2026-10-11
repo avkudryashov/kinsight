@@ -32,6 +32,9 @@ class SnapshotViewsTest {
         mom.addMember(dadKeys.sign.publicKey, dadKeys.dh.publicKey, "Dad", DeviceRole.PARENT),
     )
     private val today = LocalDate.of(2026, 10, 10)
+
+    // The viewer's clock on [today]: never the wall clock, the child's own day (UTC) depends on it.
+    private val noonMs = today.atTime(12, 0).toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
     private val sum = kid.create { it.copy(usage_summary = UsageSummary(local_date = today.toString(), zone_id = "UTC", total_ms = 600_000)) }
     private val resumed = kid.create { it.copy(state_event = StateEvent(kind = StateEvent.Kind.SHARING_RESUMED)) }
     private val beat = kid.create { it.copy(heartbeat = Heartbeat(app_version = "t")) }
@@ -60,7 +63,7 @@ class SnapshotViewsTest {
 
     @Test
     fun parentDashboardShowsChildrenOnly() {
-        val d = SnapshotViews.dashboard(ready(momKeys), today)
+        val d = SnapshotViews.dashboard(ready(momKeys), today, noonMs)
         assertEquals(listOf("Kid"), d.children.map { it.member.name })
         assertEquals(600_000L, d.children.single().today.totalMs)
         assertEquals(Sharing.On, d.children.single().sharing)
@@ -82,7 +85,7 @@ class SnapshotViewsTest {
 
     @Test
     fun childDashboardShowsItselfAndWhoSeesIt() {
-        val d = SnapshotViews.dashboard(ready(kidKeys), today)
+        val d = SnapshotViews.dashboard(ready(kidKeys), today, noonMs)
         assertTrue(d.children.isEmpty())
         assertEquals(600_000L, d.selfUsage!!.today.totalMs)
         assertEquals(listOf("Dad", "Mom"), d.parents.map { it.name }.sorted())

@@ -23,6 +23,9 @@ import kotlin.test.assertNotNull
 class UsageRepositoryTest {
     private val mom = TestDevice()
     private val today = LocalDate.of(2026, 10, 10)
+
+    // The viewer's clock on [today]: never the wall clock, the child's own day (UTC) depends on it.
+    private val noonMs = today.atTime(12, 0).toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
     private val sunFirst = WeekFields.of(DayOfWeek.SUNDAY, 1)
 
     @AfterTest
@@ -51,7 +54,7 @@ class UsageRepositoryTest {
         )
         // A detail outside the requested range must not leak in.
         mom.store().applyBatch(day(monday, 9) + day(today, 15) + day(LocalDate.of(2026, 9, 30), 7))
-        val usage = UsageRepository(mom.snapshots, mom.prefs, date = { today })
+        val usage = UsageRepository(mom.snapshots, mom.prefs, date = { today }, clock = { noonMs })
 
         val dayRange = DetailRange.of(Period.DAY, today, sunFirst)
         val hours = assertNotNull(usage.detail(kidKeys.deviceId, dayRange).firstWithin { it?.hours != null }.hours)
@@ -83,7 +86,7 @@ class UsageRepositoryTest {
         mom.store().applyBatch(
             listOf(day(today, "a" to 60_000L, "b" to 120_000L), day(today.minusDays(1), "a" to 120_000L), day(today.minusDays(9), "c" to 1L)),
         )
-        val usage = UsageRepository(mom.snapshots, mom.prefs, date = { today })
+        val usage = UsageRepository(mom.snapshots, mom.prefs, date = { today }, clock = { noonMs })
         val week = DetailRange.of(Period.WEEK, today, sunFirst)
         val list = withTimeout(10_000) { usage.apps(kidKeys.deviceId, week).first { it != null }!! }
         assertEquals(listOf("a" to 180_000L, "b" to 120_000L), list.apps.map { it.packageName to it.totalMs })
@@ -107,7 +110,7 @@ class UsageRepositoryTest {
                 },
             ),
         )
-        val usage = UsageRepository(mom.snapshots, mom.prefs, date = { today })
+        val usage = UsageRepository(mom.snapshots, mom.prefs, date = { today }, clock = { noonMs })
         val week = DetailRange.of(Period.WEEK, today, sunFirst)
         fun categories(d: DeviceDetail) = d.categories.map { it.category to it.totalMs }
 
@@ -131,7 +134,7 @@ class UsageRepositoryTest {
         mom.group.createGroup("Mom")
         val kidKeys = DeviceKeys.generate()
         mom.pipeline.appendOwn { a -> listOf(a.addMember(kidKeys.sign.publicKey, kidKeys.dh.publicKey, "Kid", DeviceRole.CHILD)) }
-        val usage = UsageRepository(mom.snapshots, mom.prefs, date = { today })
+        val usage = UsageRepository(mom.snapshots, mom.prefs, date = { today }, clock = { noonMs })
         val kidRule = ThresholdRule.of(kidKeys.deviceId, ThresholdTarget.Total, 3_600_000L)!!
         val gone = ThresholdRule.of(DeviceKeys.generate().deviceId, ThresholdTarget.Total, 3_600_000L)!!
         val self = (withTimeout(10_000) { mom.snapshots.snapshots.first { it is GroupSnapshot.Ready } } as GroupSnapshot.Ready).self
@@ -148,7 +151,7 @@ class UsageRepositoryTest {
 
     @Test
     fun onlyAParentOfAGroupMaySetThresholds() = runBlocking<Unit> {
-        val usage = UsageRepository(mom.snapshots, mom.prefs, date = { today })
+        val usage = UsageRepository(mom.snapshots, mom.prefs, date = { today }, clock = { noonMs })
         assertEquals(false, withTimeout(10_000) { usage.viewerIsParent.first() }, "no group yet")
         mom.group.createGroup("Mom")
         assertEquals(true, withTimeout(10_000) { usage.viewerIsParent.first { it } })
