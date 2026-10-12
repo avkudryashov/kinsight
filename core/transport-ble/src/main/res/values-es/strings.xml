@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="kinsight_channel_service">Servicio</string>
+    <string name="kinsight_status_starting">Iniciando la sincronización</string>
+    <string name="kinsight_status_storage_error">Problema con el almacenamiento seguro: abre Kinsight</string>
+    <string name="kinsight_status_no_permission">Permite «Dispositivos cercanos» para sincronizar</string>
+    <string name="kinsight_status_bluetooth_off">El Bluetooth está desactivado: actívalo para sincronizar</string>
+    <string name="kinsight_status_radio_error">Error de la radio Bluetooth: sincronización en pausa</string>
+    <string name="kinsight_status_syncing">Sincronizando</string>
+    <string name="kinsight_status_peer_needs_update">Un teléfono de la familia necesita actualizar la aplicación</string>
+    <string name="kinsight_status_waiting">Esperando a los teléfonos de la familia</string>
+    <string name="kinsight_last_sync">Última sincronización: %1$s</string>
+    <string name="kinsight_never_synced">Todavía no se ha sincronizado</string>
+    <string name="kinsight_peers">Se sincroniza con: %1$s</string>
+    <string name="kinsight_sharing_paused">El intercambio está en pausa: no se envía el tiempo de pantalla nuevo</string>
+    <string name="kinsight_shared_with">Ven tu tiempo de pantalla: %1$s</string>
+    <string name="kinsight_action_stop">Detener</string>
+</resources>

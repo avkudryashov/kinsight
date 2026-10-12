@@ -1,1 +1,9 @@
 .superpowers/
+.gradle/
+build/
+*.class
+.kotlin/
+local.properties
+dist/
+docs/superpowers/plans/
+docs/

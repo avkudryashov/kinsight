@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Brand mark: the ring of a day in two segments, the parent (long, white) and the child (short, mint). Fits the 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M71.26,37.33 A24,24 0 1,1 30.93,60.62"
+        android:strokeWidth="10"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M30.93,47.38 A24,24 0 0,1 59.81,30.71"
+        android:strokeWidth="10"
+        android:strokeColor="#FF9EF2E4"
+        android:strokeLineCap="round" />
+</vector>

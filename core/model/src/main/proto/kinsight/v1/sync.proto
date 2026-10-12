@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package kinsight.v1;
+
+option java_package = "app.kinsight.core.model.proto";
+
+message VectorItem {
+  bytes author_id = 1;
+  uint64 seq = 2;
+}
+
+// Sent before the peer is known to be a member, so it carries nothing about the group's contents.
+// protocol_version is the sender's LOWEST version, so a peer that predates the range (0.7.2, exact match) accepts any
+// range that starts at its version. Both range fields absent (0) means exactly protocol_version.
+message Hello {
+  uint32 protocol_version = 1;
+  bytes group_id = 2;
+  bytes membership_hash = 3;
+  reserved 4;  // was the vector; now in VectorAnnounce
+  bool wants_foreign_entries = 5;
+  uint32 min_protocol_version = 6;
+  uint32 max_protocol_version = 7;
+}
+
+// Sent by each side only after the peer has been authenticated as an active member.
+message VectorAnnounce {
+  repeated VectorItem vector = 1;  // contiguous vector, see EntryStore
+}
+
+// One page of the sender's effective membership entries; pages follow each other until more = false.
+// A sender that does not consider the peer an active member sends a single empty page.
+message MembershipOffer {
+  repeated bytes entries = 1;  // SignedEntry bytes
+  bool more = 2;
+}
+
+message EntryBatch {
+  repeated bytes entries = 1;  // SignedEntry bytes
+}
+
+message BatchAck {
+  repeated VectorItem vector = 1;
+}
+
+message Done {}
+
+message Reject {
+  enum Reason {
+    REASON_UNSPECIFIED = 0;
+    PROTOCOL_VERSION = 1;
+    WRONG_GROUP = 2;
+    NOT_A_MEMBER = 3;
+    TOO_MANY_INVALID = 4;
+  }
+  Reason reason = 1;
+}
+
+message SyncMessage {
+  oneof msg {
+    Hello hello = 1;
+    MembershipOffer membership = 2;
+    EntryBatch batch = 3;
+    BatchAck ack = 4;
+    Done done = 5;
+    Reject reject = 6;
+    VectorAnnounce vector_announce = 7;
+  }
+}

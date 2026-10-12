@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">Kinsight</string>
+    <!-- Diagnostics (from Settings): technical, English only. -->
+    <string name="diagnostics_loading" translatable="false">Selecting key backend...</string>
+    <string name="diagnostics_sync_now" translatable="false">Sync now</string>
+    <string name="diagnostics_refresh" translatable="false">Refresh</string>
+    <string name="channel_summaries">Summaries</string>
+    <string name="channel_summaries_description">Daily or weekly screen time of the children</string>
+    <string name="alert_public_integrity">Kinsight: an event on a child\'s phone</string>
+    <string name="alert_public_summary">Screen time summary</string>
+    <string name="alert_paused">%1$s: sharing paused</string>
+    <string name="alert_access_revoked">%1$s: usage access turned off</string>
+    <string name="alert_left">%1$s: the phone left the family group</string>
+    <string name="alert_sync_stopped">%1$s: sync was stopped</string>
+    <string name="alert_notification_hidden">%1$s: the sync notification is hidden</string>
+    <string name="alert_nearby_off">%1$s: the Nearby devices permission was turned off</string>
+    <string name="alert_force_stopped">%1$s: Kinsight was force-stopped</string>
+    <string name="alert_bluetooth_off">%1$s: Bluetooth was turned off</string>
+    <string name="alert_data_gap">%1$s: part of the screen time history is missing</string>
+    <string name="alert_clock_changed">%1$s: the phone clock was changed</string>
+    <string name="alert_event">%1$s: something changed</string>
+    <string name="alert_at">When: %1$s</string>
+    <string name="alert_no_contact">%1$s is out of contact</string>
+    <string name="alert_no_contact_body">Last in contact %1$s. Keep the phones close, or check that Bluetooth is on.</string>
+    <string name="alert_new_parent">%1$s can now see your screen time</string>
+    <string name="alert_new_parent_body">A new parent joined your family group. Settings → Who sees my data shows everyone.</string>
+    <string name="alert_summary_daily">Screen time today</string>
+    <string name="alert_summary_weekly">Screen time this week</string>
+    <string name="channel_thresholds">Limits</string>
+    <string name="channel_thresholds_description">A child passed a daily limit you set (it only notifies, nothing is blocked)</string>
+    <string name="alert_public_threshold">Daily limit passed</string>
+    <string name="alert_threshold_total">%1$s: %2$s today (limit %3$s)</string>
+    <string name="alert_threshold_target">%1$s: %2$s %3$s today (limit %4$s)</string>
+    <string name="alert_threshold_body">Tap to see today\'s screen time.</string>
+    <string name="nav_overview">Overview</string>
+    <string name="nav_group">Group</string>
+    <string name="nav_settings">Settings</string>
+    <string name="app_already_in_group">This phone is already in a family group. To join another one, leave the current group first.</string>
+    <string name="app_leaving">Leaving the group: telling your family…</string>
+    <string name="app_resetting">Clearing this phone\'s Kinsight data…</string>
+    <string name="app_reset_failed_title">Could not clear the data</string>
+    <string name="app_reset_failed_body">Kinsight stopped part way while clearing this phone\'s data (%1$s). Try again. If it keeps failing, clear the app\'s storage in Android settings.</string>
+    <string name="app_reset_retry">Try again</string>
+    <string name="app_reset_dismiss">Not now</string>
+    <string name="channel_important">Important</string>
+    <string name="channel_important_description">A child\'s phone stopped sharing or counting: a pause, a permission or access turned off, a stop, leaving the group, no contact</string>
+    <string name="channel_events">Other events</string>
+    <string name="channel_events_description">Things that need nothing from you: a short Bluetooth break, a clock change, a gap in the data</string>
+    <string name="channel_transparency">Who sees my data</string>
+    <string name="channel_transparency_description">Someone new can see your screen time</string>
+    <string name="alert_public_transparency">Kinsight: who sees your data</string>
+    <string name="alert_advice_paused">Time during the pause is sent once sharing is resumed.</string>
+    <string name="alert_advice_access_revoked">Ask for usage access to be turned back on: Android Settings → Usage access → Kinsight.</string>
+    <string name="alert_advice_left">To see its screen time again, invite this phone again.</string>
+    <string name="alert_advice_sync_stopped">Sync is started again in Kinsight on the child\'s phone: Settings → Start sync.</string>
+    <string name="alert_advice_notification_hidden">Ask for Kinsight\'s notifications to be allowed again on the child\'s phone.</string>
+    <string name="alert_advice_nearby_off">Without this permission the phone cannot reach the family. Ask for it to be allowed in Kinsight\'s app settings.</string>
+    <string name="alert_advice_force_stopped">Kinsight works again once it is opened on the child\'s phone.</string>
+    <string name="alert_advice_bluetooth_off">The data of that time arrives once the phones are in contact again.</string>
+    <string name="alert_advice_data_gap">No screen time was recorded for this time. If it happens often, check the battery settings on the child\'s phone.</string>
+    <string name="alert_advice_clock_changed">Nothing to do: Kinsight keeps the hours right after a clock change.</string>
+    <string name="alert_advice_event">Open Kinsight to see what changed.</string>
+</resources>

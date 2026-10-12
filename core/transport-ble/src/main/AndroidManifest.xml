@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- BLE only (spec §2): the app has no other transport. -->
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
+
+    <!-- neverForLocation: scanning never derives location, so no location permission (spec §2; minSdk 31, so no targetApi guard). -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- No REQUEST_IGNORE_BATTERY_OPTIMIZATIONS (spec §8): the spike synced in deep Doze without it. -->
+
+    <application>
+        <!-- Not directBootAware: keys and the database are used only after the first unlock. -->
+        <service
+            android:name=".SyncService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+
+        <!-- Background scan results arrive here through a PendingIntent (works in deep Doze, spike 2026-10-09). -->
+        <receiver
+            android:name=".ScanReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".RotationReceiver"
+            android:exported="false" />
+
+        <!-- System broadcasts reach non-exported receivers; both are exempt from the background FGS start limits. -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

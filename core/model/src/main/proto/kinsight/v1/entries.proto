@@ -1,0 +1,158 @@
+syntax = "proto3";
+
+package kinsight.v1;
+
+option java_package = "app.kinsight.core.model.proto";
+
+// Set by the admin at pairing (spec §4.8). Unspecified reads as PARENT: such a device never shares its own usage.
+enum DeviceRole {
+  DEVICE_ROLE_UNSPECIFIED = 0;
+  PARENT = 1;
+  CHILD = 2;
+}
+
+message SignedEntry {
+  bytes body = 1;       // encoded EntryBody
+  bytes signature = 2;  // Ed25519 over body bytes
+}
+
+message EntryBody {
+  bytes group_id = 1;
+  bytes author_id = 2;
+  uint64 seq = 3;
+  int64 created_at_ms = 4;  // informational only; never used for ordering
+  uint64 lamport = 5;       // > every Lamport value the author had observed and > its own previous one
+  oneof payload {
+    UsageSummary usage_summary = 10;
+    UsageDetail usage_detail = 11;
+    AppCatalog app_catalog = 12;
+    StateEvent state_event = 13;
+    Heartbeat heartbeat = 14;
+    MembershipOp membership_op = 15;
+    CategoryOverride category_override = 16;  // protocol 2 (spec §4.4, stage 5c)
+  }
+}
+
+message AppTotal {
+  string package_name = 1;
+  int64 foreground_ms = 2;
+}
+
+message UsageSummary {
+  string local_date = 1;  // ISO yyyy-MM-dd in zone_id
+  string zone_id = 2;
+  int64 total_ms = 3;
+  repeated AppTotal apps = 4;
+  uint32 unlocks = 5;
+}
+
+message HourBucket {
+  uint32 hour = 1;
+  repeated AppTotal apps = 2;
+  uint32 unlocks = 3;
+}
+
+message UsageDetail {
+  string local_date = 1;
+  string zone_id = 2;
+  repeated HourBucket hours = 3;
+}
+
+message AppCatalog {
+  string package_name = 1;
+  string label = 2;
+  bytes icon_webp = 3;
+  int32 category = 4;
+}
+
+// A parent's category for an app, shared with the other parents (spec §4.4). One live entry per author and package
+// (supersede key <author>/cat/<package>); the effective one is the active parent's with the highest
+// (rank, author).
+message CategoryOverride {
+  string package_name = 1;
+  int32 category = 2;  // AppCategory ordinal + 1; 0 = back to the default (override cleared)
+  // The winner's rank + 1 at write time (0 without a winner), at most 2^20. Orders a later change after the choice it
+  // replaces without raising anyone's Lamport clock (EntryAuthor observes membership Lamports only).
+  int64 rank = 3;
+}
+
+message StateEvent {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    SHARING_PAUSED = 1;
+    SHARING_RESUMED = 2;
+    USAGE_ACCESS_REVOKED = 3;
+    USAGE_ACCESS_RESTORED = 4;
+    CLOCK_CHANGED = 5;
+    BLUETOOTH_OFF = 6;
+    DATA_GAP = 7;
+    LEFT_GROUP = 8;
+    SYNC_STOPPED = 9;          // the user stopped sync on this device: from = stop, to = restart from the app
+    NOTIFICATION_HIDDEN = 10;  // the sync notification cannot be seen (permission or channel off): from = detected
+    NOTIFICATION_SHOWN = 11;   // it can be seen again: from = hidden since, to = now
+    NEARBY_PERMISSION_OFF = 12;  // «Nearby devices» was revoked: from = noticed, to = granted again
+    APP_FORCE_STOPPED = 13;      // the user force-stopped the app: from = the stop (system exit record), to = next start
+  }
+  Kind kind = 1;
+  int64 from_ms = 2;
+  int64 to_ms = 3;
+  int64 clock_shift_ms = 4;
+}
+
+// Superseded by the author's next Heartbeat. The live set (audit A-2) is the author's signed statement: of its own seqs
+// in (live_floor, live_upto] it still held exactly the listed ones when it signed; every other seq in that range was
+// superseded or pruned there for good, so a receiver may account it. A Heartbeat without live_upto states nothing.
+message Heartbeat {
+  string app_version = 1;
+  uint32 protocol_version = 2;
+  uint64 live_upto = 3;
+  uint64 live_floor = 4;
+  repeated uint64 live_deltas = 5;  // ascending seqs: the first as a delta from live_floor, then from the previous
+}
+
+message CreateGroup {
+  bytes salt = 1;
+  bytes sign_public_key = 2;
+  bytes dh_public_key = 3;
+  string display_name = 4;
+  DeviceRole role = 5;  // always PARENT from the app; CHILD makes the genesis invalid
+}
+
+message AddMember {
+  bytes sign_public_key = 1;
+  bytes dh_public_key = 2;
+  string display_name = 3;
+  DeviceRole role = 4;
+}
+
+message RemoveMember {
+  bytes device_id = 1;
+  uint64 last_seq = 2;
+}
+
+message SetAdmin {
+  bytes device_id = 1;
+  bool admin = 2;
+  uint64 last_seq = 3;  // when admin = false: admin ops of target after this seq are void
+}
+
+message SealedKey {
+  bytes device_id = 1;
+  bytes enc = 2;
+  bytes ciphertext = 3;
+}
+
+message RotateDiscoveryKey {
+  uint32 epoch = 1;
+  repeated SealedKey keys = 2;
+}
+
+message MembershipOp {
+  oneof op {
+    CreateGroup create = 1;
+    AddMember add = 2;
+    RemoveMember remove = 3;
+    SetAdmin set_admin = 4;
+    RotateDiscoveryKey rotate = 5;
+  }
+}

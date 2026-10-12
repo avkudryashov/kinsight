@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Debug builds only: adb (whose shell holds DUMP) reads state and the open invite for the two-phone test and
+         starts the service directly. Release builds have neither entry point. -->
+    <application>
+        <receiver
+            android:name="app.kinsight.debug.DebugGroupReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+
+        <service
+            android:name="app.kinsight.core.transport.ble.SyncService"
+            android:exported="true"
+            android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+    </application>
+</manifest>

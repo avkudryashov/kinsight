@@ -1,0 +1,105 @@
+package app.kinsight.core.sync
+
+import app.kinsight.core.crypto.CryptoException
+import app.kinsight.core.crypto.X25519
+import app.kinsight.core.model.DeviceKeys
+import app.kinsight.core.model.GroupGenesis
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import java.io.IOException
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
+
+class SecureChannelTest {
+    private val groupId = GroupGenesis.create(DeviceKeys.generate(), "g").groupId
+    private val prologue = SecureChannel.prologue(groupId)
+
+    @Test
+    fun handshakeAndExchange() = runBlocking {
+        val a = X25519.generate()
+        val b = X25519.generate()
+        val (sa, sb) = MemoryPipe.pair()
+        coroutineScope {
+            val ca = async { SecureChannel.initiate(sa, a, prologue) }
+            val cb = async { SecureChannel.accept(sb, b, prologue) }
+            val chA = ca.await()
+            val chB = cb.await()
+            assertContentEquals(b.publicKey, chA.remoteStaticKey)
+            assertContentEquals(a.publicKey, chB.remoteStaticKey)
+            chA.send("hi".encodeToByteArray())
+            chB.send(ByteArray(SecureChannel.MAX_PLAINTEXT) { 7 })
+            assertEquals("hi", chB.receive().decodeToString())
+            assertEquals(SecureChannel.MAX_PLAINTEXT, chA.receive().size)
+        }
+    }
+
+    @Test
+    fun oversizedPlaintextRejected(): Unit = runBlocking {
+        val (sa, sb) = MemoryPipe.pair()
+        coroutineScope {
+            val ca = async { SecureChannel.initiate(sa, X25519.generate(), prologue) }
+            async { SecureChannel.accept(sb, X25519.generate(), prologue) }.await()
+            assertFailsWith<IllegalArgumentException> { ca.await().send(ByteArray(SecureChannel.MAX_PLAINTEXT + 1)) }
+        }
+    }
+
+    @Test
+    fun differentGroupsFailHandshake() = runBlocking {
+        val other = SecureChannel.prologue(GroupGenesis.create(DeviceKeys.generate(), "x").groupId)
+        val (sa, sb) = MemoryPipe.pair()
+        coroutineScope {
+            val ca = async { runCatching { SecureChannel.initiate(sa, X25519.generate(), prologue) } }
+            val cb = async { runCatching { SecureChannel.accept(sb, X25519.generate(), other) } }
+            val ra = ca.await()
+            val rb = cb.await()
+            val failure = ra.exceptionOrNull() ?: rb.exceptionOrNull()
+            assertEquals(true, failure is CryptoException || failure is IOException, "got $failure")
+        }
+    }
+
+    @Test
+    fun prologueBindsGroupAndProtocolFamilyOnly() {
+        val expected = "kinsight".encodeToByteArray() + groupId.bytes() + byteArrayOf(0, 0, 0, 1)
+        assertContentEquals(expected, SecureChannel.prologue(groupId))
+        assertEquals(1, SecureChannel.PROTOCOL_FAMILY)
+    }
+
+    @Test
+    fun droppedLinkGivesEofToBothSides() = runBlocking {
+        val (sa, sb) = MemoryPipe.pair(LinkFaults(byteBudget = 10))
+        coroutineScope {
+            val ca = async { runCatching { SecureChannel.initiate(sa, X25519.generate(), prologue) } }
+            val cb = async { runCatching { SecureChannel.accept(sb, X25519.generate(), prologue) } }
+            assertEquals(true, ca.await().exceptionOrNull() is IOException)
+            assertEquals(true, cb.await().exceptionOrNull() is IOException)
+        }
+    }
+
+    @Test
+    fun silentPeerTimesOutHandshakeOnBothRoles(): Unit = runBlocking {
+        val (sa, _) = MemoryPipe.pair()
+        val (_, sb) = MemoryPipe.pair()
+        val initiator = assertFailsWith<IOException> {
+            withTimeout(5.seconds) { SecureChannel.initiate(sa, X25519.generate(), prologue, handshakeTimeout = 200.milliseconds) }
+        }
+        assertTrue("timed out" in initiator.message.orEmpty(), "got $initiator")
+        val responder = assertFailsWith<IOException> {
+            withTimeout(5.seconds) { SecureChannel.accept(sb, X25519.generate(), prologue, handshakeTimeout = 200.milliseconds) }
+        }
+        assertTrue("timed out" in responder.message.orEmpty(), "got $responder")
+    }
+
+    @Test
+    fun oversizedFrameHeaderRejected(): Unit = runBlocking {
+        val (sa, sb) = MemoryPipe.pair()
+        sa.write(byteArrayOf(0x7f, 0, 0, 0))
+        assertFailsWith<IOException> { Frames.read(sb) }
+    }
+}
