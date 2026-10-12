@@ -8,9 +8,9 @@ This Privacy Policy explains what information the Kinsight app reads, where it g
 
 ## 1. Who is responsible and how to contact us
 
-Kinsight is developed and published by [Full name], an individual developer located in Spain ("we", "us").
+Kinsight is developed and published by Anatolii Kudriashov, an individual developer located in Spain ("we", "us").
 
-Contact for any privacy question or request: [e-mail]
+Contact for any privacy question or request: kav2k13@gmail.com
 
 ## 2. Summary
 
@@ -91,7 +91,7 @@ Older records are deleted automatically and are no longer accepted from other ph
 - **Uninstall the app** or clear its storage in Android settings: everything Kinsight stored on this phone is deleted.
 - **An admin can remove a phone** from the group; after that the group no longer accepts new data from it.
 
-**Important:** copies that have already reached other family phones are stored on those phones. Deleting data on one phone does not erase these copies right away; they are deleted by each phone's own retention setting (by default after 90 days for details and 1 year for daily totals), or immediately when that phone leaves the group, is reset or Kinsight is uninstalled there. Because we never receive the data, we cannot delete it for you, but you can write to us at [e-mail] and we will explain how to remove it from each phone.
+**Important:** copies that have already reached other family phones are stored on those phones. Deleting data on one phone does not erase these copies right away; they are deleted by each phone's own retention setting (by default after 90 days for details and 1 year for daily totals), or immediately when that phone leaves the group, is reset or Kinsight is uninstalled there. Because we never receive the data, we cannot delete it for you, but you can write to us at kav2k13@gmail.com and we will explain how to remove it from each phone.
 
 ## 9. Your choices and control
 
@@ -118,7 +118,7 @@ Because Kinsight shares a child's screen time with the parents, it is declared t
 
 ## 12. Your rights
 
-You have rights under the EU General Data Protection Regulation (GDPR), including the rights of access, correction, deletion, restriction, objection and portability. The data created by Kinsight stays on your family's phones, and you exercise these rights directly in the app (see sections 8 and 9). We do not hold any of your data, so there is nothing for us to access, correct or delete on our side. You can contact us at [e-mail] with any question, and you can lodge a complaint with a data protection authority; in Spain this is the Agencia Española de Protección de Datos (www.aepd.es).
+You have rights under the EU General Data Protection Regulation (GDPR), including the rights of access, correction, deletion, restriction, objection and portability. The data created by Kinsight stays on your family's phones, and you exercise these rights directly in the app (see sections 8 and 9). We do not hold any of your data, so there is nothing for us to access, correct or delete on our side. You can contact us at kav2k13@gmail.com with any question, and you can lodge a complaint with a data protection authority; in Spain this is the Agencia Española de Protección de Datos (www.aepd.es).
 
 If you write to us by e-mail, we use your address and your message only to answer you, and we delete the correspondence when it is no longer needed to answer you.
 
@@ -128,5 +128,5 @@ If we change this policy, we will publish the new version at this address with a
 
 ## 14. Contact
 
-[Full name], Spain
-E-mail: [e-mail]
+Anatolii Kudriashov, Spain
+E-mail: kav2k13@gmail.com

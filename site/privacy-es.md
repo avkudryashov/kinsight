@@ -8,9 +8,9 @@ Esta Política de privacidad explica qué información lee la aplicación Kinsig
 
 ## 1. Responsable y contacto
 
-Kinsight está desarrollada y publicada por [Full name], desarrollador particular con domicilio en España («nosotros»).
+Kinsight está desarrollada y publicada por Anatolii Kudriashov, desarrollador particular con domicilio en España («nosotros»).
 
-Contacto para cualquier pregunta o solicitud sobre privacidad: [e-mail]
+Contacto para cualquier pregunta o solicitud sobre privacidad: kav2k13@gmail.com
 
 ## 2. Resumen
 
@@ -91,7 +91,7 @@ Los registros más antiguos se borran automáticamente y ya no se aceptan de otr
 - **Desinstalar la aplicación** o borrar su almacenamiento en los ajustes de Android: se borra todo lo que Kinsight guardó en este teléfono.
 - **Un administrador puede eliminar un teléfono** del grupo; a partir de entonces el grupo ya no acepta datos nuevos de ese teléfono.
 
-**Importante:** las copias que ya han llegado a otros teléfonos de la familia se guardan en esos teléfonos. Borrar los datos en un teléfono no elimina esas copias de inmediato; se borran según el ajuste de conservación de cada teléfono (por defecto, a los 90 días los detalles y al año los totales diarios), o de inmediato cuando ese teléfono sale del grupo, se restablece o se desinstala Kinsight en él. Como nunca recibimos los datos, no podemos borrarlos por ti, pero puedes escribirnos a [e-mail] y te explicaremos cómo eliminarlos de cada teléfono.
+**Importante:** las copias que ya han llegado a otros teléfonos de la familia se guardan en esos teléfonos. Borrar los datos en un teléfono no elimina esas copias de inmediato; se borran según el ajuste de conservación de cada teléfono (por defecto, a los 90 días los detalles y al año los totales diarios), o de inmediato cuando ese teléfono sale del grupo, se restablece o se desinstala Kinsight en él. Como nunca recibimos los datos, no podemos borrarlos por ti, pero puedes escribirnos a kav2k13@gmail.com y te explicaremos cómo eliminarlos de cada teléfono.
 
 ## 9. Tus opciones y tu control
 
@@ -118,7 +118,7 @@ Como Kinsight comparte el tiempo de pantalla de un menor con los adultos, está 
 
 ## 12. Tus derechos
 
-Tienes los derechos que te reconoce el Reglamento General de Protección de Datos de la UE (RGPD), entre ellos los derechos de acceso, rectificación, supresión, limitación, oposición y portabilidad. Los datos que crea Kinsight se quedan en los teléfonos de tu familia, y ejerces estos derechos directamente en la aplicación (consulta las secciones 8 y 9). No tenemos ninguno de tus datos, así que por nuestra parte no hay nada a lo que acceder, que corregir o que borrar. Puedes escribirnos a [e-mail] con cualquier pregunta, y puedes presentar una reclamación ante una autoridad de protección de datos; en España es la Agencia Española de Protección de Datos (www.aepd.es).
+Tienes los derechos que te reconoce el Reglamento General de Protección de Datos de la UE (RGPD), entre ellos los derechos de acceso, rectificación, supresión, limitación, oposición y portabilidad. Los datos que crea Kinsight se quedan en los teléfonos de tu familia, y ejerces estos derechos directamente en la aplicación (consulta las secciones 8 y 9). No tenemos ninguno de tus datos, así que por nuestra parte no hay nada a lo que acceder, que corregir o que borrar. Puedes escribirnos a kav2k13@gmail.com con cualquier pregunta, y puedes presentar una reclamación ante una autoridad de protección de datos; en España es la Agencia Española de Protección de Datos (www.aepd.es).
 
 Si nos escribes por correo electrónico, usamos tu dirección y tu mensaje solo para responderte, y borramos la correspondencia cuando ya no la necesitamos para ello.
 
@@ -128,5 +128,5 @@ Si cambiamos esta política, publicaremos la nueva versión en esta dirección c
 
 ## 14. Contacto
 
-[Full name], España
-Correo electrónico: [e-mail]
+Anatolii Kudriashov, España
+Correo electrónico: kav2k13@gmail.com
