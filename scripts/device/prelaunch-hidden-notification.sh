@@ -7,7 +7,7 @@
 # is Settings, Apps, Kinsight, Notifications, off.
 # Usage: scripts/device/prelaunch-hidden-notification.sh <parent-serial> <child-serial>
 set -euo pipefail
-ADB=${ADB:-/home/anatoly/.local/opt/android-sdk/platform-tools/adb}
+ADB=${ADB:-$HOME/.local/opt/android-sdk/platform-tools/adb}
 P=$1
 C=$2
 PKG=app.kinsight

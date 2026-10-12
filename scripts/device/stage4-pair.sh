@@ -5,7 +5,7 @@
 # language does not matter. Clears the data of app.kinsight only; never reboots and never touches other packages.
 # Usage: scripts/device/stage4-pair.sh <parent-serial> <child-serial> <apk>
 set -euo pipefail
-ADB=${ADB:-/home/anatoly/.local/opt/android-sdk/platform-tools/adb}
+ADB=${ADB:-$HOME/.local/opt/android-sdk/platform-tools/adb}
 P=$1
 C=$2
 APK=$3

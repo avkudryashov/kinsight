@@ -5,7 +5,7 @@
 # Taps Compose test tags exposed as resource ids. Clears the data of app.kinsight on <parent2> only; never reboots.
 # Usage: scripts/device/stage5c-share.sh <parent-serial> <child-serial> <parent2-serial> <apk>
 set -euo pipefail
-ADB=${ADB:-/home/anatoly/.local/opt/android-sdk/platform-tools/adb}
+ADB=${ADB:-$HOME/.local/opt/android-sdk/platform-tools/adb}
 P=$1
 C=$2
 Q=$3
