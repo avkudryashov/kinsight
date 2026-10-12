@@ -65,6 +65,12 @@ class DebugGroupReceiver : BroadcastReceiver() {
             }
             "published=${report.publish} heartbeat=$beat"
         }
+        "$PREFIX.DEFAULT_NAME" -> {
+            // The onboarding name field starts from the stored device name (screenshots: adb cannot type Cyrillic).
+            val name = intent.getStringExtra("name") ?: error("name extra missing")
+            AppGraph.get(c).prefs.setDeviceName(name)
+            "name=${AppGraph.get(c).prefs.current().deviceName}"
+        }
         "$PREFIX.SYNC_NOW" -> SyncService.instance?.syncNow() ?: "service not running"
         "$PREFIX.STATUS" -> status(c)
         else -> error("unknown action ${intent.action}")

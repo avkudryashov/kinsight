@@ -185,6 +185,16 @@ class OnboardingViewModelTest {
     }
 
     @Test
+    fun aStoredNameReplacesTheModelWhenNothingIsSaved() = runBlocking<Unit> {
+        // The debug DEFAULT_NAME hook stores the name before the first run: it wins over Build.MODEL.
+        assertEquals("Pixel 8a", vm(FakeGroup(GroupState.NoGroup)).state.value.name)
+        prefs.setDeviceName("Галина")
+        assertEquals("Галина", vm(FakeGroup(GroupState.NoGroup)).state.value.name)
+        val saved = SavedStateHandle(mapOf("onb_name" to "Kid"))
+        assertEquals("Kid", vm(FakeGroup(GroupState.NoGroup), saved).state.value.name)
+    }
+
+    @Test
     fun anInvalidRestoredNameIsReplaced() = runBlocking<Unit> {
         prefs.setDeviceName("Kid‮phone")
         assertEquals("Pixel 8a", vm(FakeGroup(GroupState.NoGroup)).state.value.name)
