@@ -50,7 +50,7 @@ La información solo sale de un teléfono por Bluetooth, y solo hacia los demás
 
 Nadie más recibe la información: ni nosotros, ni Google, ni anunciantes, ni ninguna otra empresa. No vendemos, alquilamos ni cedemos datos a terceros, porque nunca los tenemos.
 
-Google Play instala y actualiza la aplicación. La información que Google recopila en Play Store y en los servicios de Google Play se rige por la política de privacidad de Google, no por esta. Kinsight no envía ningún dato a Google.
+La aplicación se distribuye a través de tiendas de aplicaciones (RuStore, Google Play) y como archivo APK desde nuestro sitio web. La información que una tienda recopila al instalar y actualizar se rige por la política de privacidad de esa tienda, no por esta. Kinsight no envía ningún dato a Google.
 
 ## 5. Cómo se protege la información
 
@@ -104,7 +104,7 @@ Los registros más antiguos se borran automáticamente y ya no se aceptan de otr
 
 ## 10. Menores
 
-Kinsight está pensada para padres, madres y tutores, y figura en Google Play para adultos (18+). Un adulto instala Kinsight en el teléfono del menor y lo empareja con el grupo familiar. Antes de que se comparta ningún dato, el menor ve en ese teléfono una pantalla de consentimiento redactada en lenguaje sencillo («Los adultos de tu familia verán cuánto tiempo pasas con el teléfono y en qué aplicaciones») y tiene que aceptarla expresamente. El menor puede ver en cualquier momento quién recibe los datos y puede pausar o detener el intercambio; los adultos ven la pausa o la detención.
+Kinsight está pensada para padres, madres y tutores, y en las tiendas de aplicaciones está dirigida a adultos. Un adulto instala Kinsight en el teléfono del menor y lo empareja con el grupo familiar. Antes de que se comparta ningún dato, el menor ve en ese teléfono una pantalla de consentimiento redactada en lenguaje sencillo («Los adultos de tu familia verán cuánto tiempo pasas con el teléfono y en qué aplicaciones») y tiene que aceptarla expresamente. El menor puede ver en cualquier momento quién recibe los datos y puede pausar o detener el intercambio; los adultos ven la pausa o la detención.
 
 Solo comparten tiempo de pantalla los teléfonos configurados como teléfono de un menor. Kinsight no debe usarse para vigilar a un adulto, ni siquiera con su consentimiento.
 
@@ -112,9 +112,9 @@ No recopilamos datos de menores ni de nadie más: los datos del menor solo van a
 
 El adulto que instala Kinsight en el teléfono de un menor es responsable de hacerlo de forma lícita y de implicar al menor de la manera adecuada a su edad.
 
-## 11. Aviso de Google Play Protect
+## 11. Avisos de las tiendas y del sistema
 
-Como Kinsight comparte el tiempo de pantalla de un menor con los adultos, está declarada en Google Play como aplicación de supervisión de menores. Por eso, Google Play Protect puede mostrar en el teléfono un mensaje de que hay instalada una aplicación de supervisión o de control parental. Es lo esperado: el mensaje está ahí para que todas las personas que usan el teléfono sepan que Kinsight está instalada. No significa que la aplicación tenga ningún problema.
+Como Kinsight comparte el tiempo de pantalla de un menor con los adultos, está declarada en Google Play como aplicación de supervisión de menores y descrita en RuStore como aplicación de control parental. Por eso, Google Play Protect u otra comprobación del teléfono puede mostrar en el teléfono un mensaje de que hay instalada una aplicación de supervisión o de control parental. Es lo esperado: el mensaje está ahí para que todas las personas que usan el teléfono sepan que Kinsight está instalada. No significa que la aplicación tenga ningún problema.
 
 ## 12. Tus derechos
 
