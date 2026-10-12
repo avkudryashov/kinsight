@@ -50,7 +50,7 @@ Information leaves a phone only over Bluetooth, and only to the other phones of 
 
 Nobody else receives the information: not us, not Google, not advertisers, not any other company. We do not sell, rent or share data with third parties, because we never have it.
 
-Google Play installs and updates the app. Information that Google collects in the Play Store and in Google Play services is governed by Google's own privacy policy, not by this one. Kinsight does not send any data to Google.
+The app is distributed through app stores (RuStore, Google Play) and as an APK file from our website. Information that a store collects when installing and updating is governed by that store's own privacy policy, not by this one. Kinsight does not send any data to the stores.
 
 ## 5. How the information is protected
 
@@ -104,7 +104,7 @@ Older records are deleted automatically and are no longer accepted from other ph
 
 ## 10. Children
 
-Kinsight is intended for parents and is listed on Google Play for adults (18+). A parent installs Kinsight on the child's phone and pairs it with the family group. Before any data is shared, the child sees a consent screen on that phone, written in plain language ("Your parents will see how much time you spend on your phone and in which apps"), and must actively agree. The child can see at any time who receives the data and can pause or stop sharing; the parents see the pause or stop.
+Kinsight is intended for parents and is listed in app stores for adults. A parent installs Kinsight on the child's phone and pairs it with the family group. Before any data is shared, the child sees a consent screen on that phone, written in plain language ("Your parents will see how much time you spend on your phone and in which apps"), and must actively agree. The child can see at any time who receives the data and can pause or stop sharing; the parents see the pause or stop.
 
 Only phones set up as a child's phone share screen time. Kinsight must not be used to watch an adult, even with that adult's agreement.
 
@@ -112,9 +112,9 @@ We do not collect any data from children, or from anyone else: the child's data 
 
 The parent who installs Kinsight on a child's phone is responsible for doing so lawfully, and for involving the child as appropriate for the child's age.
 
-## 11. Google Play Protect warning
+## 11. Store and system warnings
 
-Because Kinsight shares a child's screen time with the parents, it is declared to Google Play as a child monitoring app. For this reason Google Play Protect may show a message on the phone that a monitoring or parental control app is installed. This is expected: the message is there so that everyone using the phone knows about Kinsight. It does not mean that anything is wrong with the app.
+Because Kinsight shares a child's screen time with the parents, it is declared to Google Play as a child monitoring app and described in RuStore as a parental control app. For this reason Google Play Protect or another check on the phone may show a message on the phone that a monitoring or parental control app is installed. This is expected: the message is there so that everyone using the phone knows about Kinsight. It does not mean that anything is wrong with the app.
 
 ## 12. Your rights
 

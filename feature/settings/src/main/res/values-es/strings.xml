@@ -57,7 +57,7 @@
     <string name="set_cancel">Cancelar</string>
     <string name="set_ok">Aceptar</string>
     <string name="set_back">Atrás</string>
-    <string name="set_version">Kinsight %1$s</string>
+    <string name="set_version">Kinsight %1$s · 0+</string>
     <string name="set_error_title">No ha funcionado</string>
     <string name="set_error_sharing">El cambio del intercambio no ha terminado. Revisa el interruptor e inténtalo de nuevo.</string>
     <string name="set_error_retention">No se ha guardado el ajuste del historial, o todavía no se ha borrado el historial antiguo. Inténtalo de nuevo.</string>

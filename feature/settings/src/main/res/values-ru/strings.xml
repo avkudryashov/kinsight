@@ -57,7 +57,7 @@
     <string name="set_cancel">Отмена</string>
     <string name="set_ok">Понятно</string>
     <string name="set_back">Назад</string>
-    <string name="set_version">Kinsight %1$s</string>
+    <string name="set_version">Kinsight %1$s · 0+</string>
     <string name="set_error_title">Не получилось</string>
     <string name="set_error_sharing">Изменить обмен до конца не удалось. Проверьте переключатель и попробуйте ещё раз.</string>
     <string name="set_error_retention">Настройка истории не сохранилась, или старая история ещё не удалена. Попробуйте ещё раз.</string>
