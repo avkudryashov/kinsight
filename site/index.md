@@ -16,6 +16,7 @@ The app is distributed as an APK while it is in family testing.
 <img src="img/overview.webp" width="200" alt="Parent overview with the child card">
 <img src="img/day.webp" width="200" alt="Child's day: total, data time, hourly chart">
 <img src="img/week.webp" width="200" alt="Week view with gridlines and the average line">
+<img src="img/month.webp" width="200" alt="Month view with daily totals and the limit line">
 <img src="img/limits.webp" width="200" alt="Daily limits that only notify">
 <img src="img/child.webp" width="200" alt="Child's overview: who sees my screen time, pause">
 <img src="img/who-sees.webp" width="200" alt="Who sees my data screen on the child's phone">
