@@ -57,7 +57,7 @@
     <string name="set_cancel">Cancel</string>
     <string name="set_ok">OK</string>
     <string name="set_back">Back</string>
-    <string name="set_version">Kinsight %1$s</string>
+    <string name="set_version">Kinsight %1$s · 0+</string>
     <string name="set_error_title">That did not work</string>
     <string name="set_error_sharing">Changing sharing did not finish. Check the switch and try again.</string>
     <string name="set_error_retention">The history setting was not saved, or old history was not removed yet. Try again.</string>
