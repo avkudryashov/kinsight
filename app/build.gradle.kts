@@ -11,8 +11,8 @@ android {
     defaultConfig {
         // Provisional (spec §13): free on Google Play as of 2026-10-09; fixed only before the first release.
         applicationId = "app.kinsight"
-        versionCode = 17
-        versionName = "0.8.2"
+        versionCode = 18
+        versionName = "0.8.3"
     }
 }
 
