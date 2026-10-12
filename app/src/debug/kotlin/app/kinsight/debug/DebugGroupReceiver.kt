@@ -3,6 +3,9 @@ package app.kinsight.debug
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.util.Log
 import app.kinsight.core.crypto.toHex
 import app.kinsight.core.data.AppGraph
@@ -11,6 +14,8 @@ import app.kinsight.core.database.RoomEntryStore
 import app.kinsight.core.keystore.DeviceIdentity
 import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.Membership
+import app.kinsight.core.model.proto.AppCatalog
+import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.Heartbeat
 import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.sync.PROTOCOL_VERSION
@@ -21,6 +26,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import okio.ByteString.Companion.toByteString
+import java.io.ByteArrayOutputStream
+import java.time.LocalDateTime
+import java.time.ZoneId
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -71,9 +80,55 @@ class DebugGroupReceiver : BroadcastReceiver() {
             AppGraph.get(c).prefs.setDeviceName(name)
             "name=${AppGraph.get(c).prefs.current().deviceName}"
         }
+        "$PREFIX.DEMO_USAGE" -> demoUsage(c, intent.getIntExtra("days", 14), intent.getLongExtra("seed", 1L))
         "$PREFIX.SYNC_NOW" -> SyncService.instance?.syncNow() ?: "service not running"
         "$PREFIX.STATUS" -> status(c)
         else -> error("unknown action ${intent.action}")
+    }
+
+    /**
+     * Store screenshots: signs a generated history ([DemoUsage]) as this child's own UsageSummary/UsageDetail per date
+     * (same supersede keys as the Publisher), plus an AppCatalog per demo app; today is signed last, so it is the
+     * newest summary. The real collector's next publish of a changed day supersedes the demo day again.
+     */
+    private suspend fun demoUsage(c: Context, days: Int, seed: Long): String {
+        val group = SyncGraph.groups(c).read() ?: error("no group")
+        val self = DeviceIdentity.get(c).keys.deviceId
+        val store = RoomEntryStore(KinsightDatabaseFactory.shared(c), group.groupId)
+        val role = Membership.compute(group.groupId, store.membershipEntries())?.roleOf(self)
+        check(role == DeviceRole.CHILD) { "DEMO_USAGE needs a CHILD device, this one is $role" }
+        val zone = ZoneId.systemDefault()
+        val now = LocalDateTime.now(zone)
+        val generated = DemoUsage.generate(now.toLocalDate(), days, seed, now.hour, now.minute)
+        val icons = DemoUsage.APPS.associate { it.packageName to demoIcon(it.color) }
+        val ok = UsageGraph.pipeline(c).appendOwn { author ->
+            DemoUsage.APPS.map { app ->
+                author.create {
+                    it.copy(app_catalog = AppCatalog(app.packageName, app.label, icons.getValue(app.packageName).toByteString(), app.category))
+                }
+            } + generated.flatMap { day ->
+                listOf(
+                    author.create { it.copy(usage_summary = day.summary(zone.id)) },
+                    author.create { it.copy(usage_detail = day.detail(zone.id)) },
+                )
+            }
+        }
+        check(ok) { "no publish target" }
+        return generated.joinToString(" ", prefix = "demo days=${generated.size} ") { "${it.date}=${it.totalMs / 60_000}m/${it.unlocks}u" }
+    }
+
+    private fun demoIcon(color: Int): ByteArray {
+        val size = 48
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        try {
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
+            Canvas(bitmap).drawRoundRect(0f, 0f, size.toFloat(), size.toFloat(), 11f, 11f, paint)
+            val out = ByteArrayOutputStream()
+            check(bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSLESS, 100, out)) { "WebP encoding failed" }
+            return out.toByteArray()
+        } finally {
+            bitmap.recycle()
+        }
     }
 
     private suspend fun status(c: Context): String {
