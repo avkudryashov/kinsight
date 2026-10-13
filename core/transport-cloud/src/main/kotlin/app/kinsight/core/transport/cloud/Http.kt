@@ -13,7 +13,10 @@ class HttpResponse(val code: Int, val body: ByteArray, val headers: Map<String, 
     fun header(name: String): String? = headers[name.lowercase()]?.firstOrNull()
 }
 
-/** Plain HttpURLConnection (cloud plan R6). Redirects are followed; no cookies, no cache. */
+/**
+ * Plain HttpURLConnection (cloud plan R6). Redirects are followed only by requests without an Authorization header (upload
+ * and download links): HttpURLConnection would resend the token to wherever an API redirect points. No cookies, no cache.
+ */
 open class Http(
     private val connectTimeoutMs: Int = 15_000,
     private val readTimeoutMs: Int = 60_000,
@@ -30,7 +33,7 @@ open class Http(
             c.requestMethod = method
             c.connectTimeout = connectTimeoutMs
             c.readTimeout = readTimeoutMs
-            c.instanceFollowRedirects = true
+            c.instanceFollowRedirects = headers.keys.none { it.equals("Authorization", ignoreCase = true) }
             c.useCaches = false
             headers.forEach { (k, v) -> c.setRequestProperty(k, v) }
             if (body != null) {
