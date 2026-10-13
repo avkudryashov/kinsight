@@ -1,5 +1,7 @@
 package app.kinsight.core.transport.cloud
 
+import app.kinsight.core.model.DecodedEntry
+import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.addMember
@@ -7,7 +9,10 @@ import app.kinsight.core.model.grantAdminEntry
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.removeMemberEntry
 import app.kinsight.core.model.storageOwnerEntry
+import app.kinsight.core.sync.EntryStore
 import app.kinsight.core.sync.InMemoryEntryStore
+import app.kinsight.core.sync.SyncPolicy
+import app.kinsight.core.sync.TODAY
 import app.kinsight.core.sync.summary
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -204,6 +209,35 @@ class CloudSyncTest {
         assertEquals(CloudResult.StorageFull, mom.sync(FullDisk(disk)).run())
         assertTrue(day in mom.store.liveEntries())
         assertEquals(0L, mom.cursor.cursor.uploadedUpTo)
+    }
+
+    @Test
+    fun localStoreFailureAbortsTheRunAndTheNextRunIngests() = runTest {
+        val (mom, kid) = family(DeviceRole.CHILD)
+        val day = kid.author.summary("2026-10-13", 5)
+        kid.publish(day)
+        kid.sync(disk).run()
+        val flaky = FlakyStore(mom.store)
+        val sync = CloudSync(flaky, mom.keys, SyncPolicy(mom.id, showOthers = true, today = { TODAY }), disk, mom.ring, mom.cursor, { 1_000L })
+        assertIs<CloudResult.Retry>(sync.run())
+        assertTrue(mom.cursor.cursor.seen.isEmpty())
+        assertTrue(day !in mom.store.liveEntries())
+        assertIs<CloudResult.Synced>(sync.run())
+        assertTrue(day in mom.store.liveEntries())
+        assertEquals(1, mom.cursor.cursor.seen.size)
+    }
+
+    /** Fails the first applyBatch, as a full or locked local database would. */
+    private class FlakyStore(private val inner: InMemoryEntryStore) : EntryStore by inner {
+        private var failed = false
+
+        override suspend fun applyBatch(entries: List<DecodedEntry>, seen: Map<DeviceId, Set<Long>>) {
+            if (!failed) {
+                failed = true
+                throw IllegalStateException("database is locked")
+            }
+            inner.applyBatch(entries, seen)
+        }
     }
 
     private class FullDisk(private val inner: DiskApi) : DiskApi by inner {
