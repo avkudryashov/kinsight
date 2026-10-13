@@ -14,6 +14,8 @@ import app.kinsight.core.sync.SyncPolicy
 import app.kinsight.core.sync.Verdict
 import app.kinsight.core.sync.accountLiveSet
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.IOException
 
 sealed interface CloudResult {
@@ -58,7 +60,12 @@ class CloudSync(
     private fun keyUpdates(epoch: Int): List<DecodedEntry> =
         listOfNotNull(rotationEntry?.takeIf { it.body.membership_op!!.rotate!!.epoch == epoch })
 
-    suspend fun run(forceCompaction: Boolean = false): CloudResult = try {
+    /** Runs never overlap: [rotationEntry], [storageFull] and the cursor belong to one run at a time. */
+    private val running = Mutex()
+
+    suspend fun run(forceCompaction: Boolean = false): CloudResult = running.withLock { guardedRun(forceCompaction) }
+
+    private suspend fun guardedRun(forceCompaction: Boolean): CloudResult = try {
         exchange(forceCompaction)
     } catch (e: DiskException.Unauthorized) {
         CloudResult.Unauthorized
@@ -320,7 +327,7 @@ class CloudSync(
                 membership = learnKeyUpdates(fetched.updates, membership)
                 val held = ring.keys() // outside the guard: a ring failure is ours, not the file's
                 val outcome = guarded(seen, deferred, device, p) {
-                    PackCodec.open(fetched.bytes, held, groupId, device, membership)
+                    PackCodec.open(fetched.bytes, held, groupId, device, membership, expected = p.range)
                 } ?: continue
                 when (outcome) {
                     is PackOutcome.UnknownAuthor -> {
@@ -361,11 +368,21 @@ class CloudSync(
         return received to cursor.copy(seen = keptSeen, deferred = keptDeferred)
     }
 
-    /** The key generation of the current owner's newest CloudAccess: readers need it to open the access token. */
+    /**
+     * The key generation of the current owner's newest CloudAccess: readers need it to open the access token. Pages through
+     * the owner's log only (a parent's: small), never the whole database.
+     */
     private suspend fun accessEpoch(membership: MembershipState): Int? {
         val owner = membership.storageOwner ?: return null
-        return store.liveEntries().filter { it.author == owner.deviceId && it.kind == EntryKind.CLOUD_ACCESS }
-            .maxByOrNull { it.seq }?.body?.cloud_access?.key_epoch
+        var newest: DecodedEntry? = null
+        var after = 0L
+        while (true) {
+            val page = store.entriesAfter(owner.deviceId, after, PAGE)
+            if (page.isEmpty()) break
+            page.lastOrNull { it.kind == EntryKind.CLOUD_ACCESS }?.let { newest = it }
+            after = page.last().seq
+        }
+        return newest?.body?.cloud_access?.key_epoch
     }
 
     /**

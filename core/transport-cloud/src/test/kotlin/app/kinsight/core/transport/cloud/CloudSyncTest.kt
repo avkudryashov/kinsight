@@ -14,6 +14,9 @@ import app.kinsight.core.sync.InMemoryEntryStore
 import app.kinsight.core.sync.SyncPolicy
 import app.kinsight.core.sync.TODAY
 import app.kinsight.core.sync.summary
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -225,6 +228,76 @@ class CloudSyncTest {
         assertIs<CloudResult.Synced>(sync.run())
         assertTrue(day in mom.store.liveEntries())
         assertEquals(1, mom.cursor.cursor.seen.size)
+    }
+
+    @Test
+    fun renamedPackIsRejected() = runTest {
+        val (mom, kid) = family(DeviceRole.CHILD)
+        kid.publish(kid.author.summary("2026-10-01", 1), kid.author.summary("2026-10-02", 2))
+        kid.sync(disk).run()
+        val dir = CloudPaths.deviceDir(kid.store.groupId, kid.id)
+        val (path, bytes) = disk.files(dir).entries.single()
+        disk.delete(path)
+        disk.upload("$dir/${CloudPaths.packName(1, 1)}", bytes)
+        mom.sync(disk).run()
+        assertEquals(0L, mom.store.versionVector()[kid.id])
+        assertEquals(listOf(-1), mom.cursor.cursor.seen.values.toList())
+    }
+
+    @Test
+    fun runsOfOneInstanceDoNotOverlap() = runTest {
+        val (_, kid) = family(DeviceRole.CHILD)
+        kid.publish(kid.author.summary("2026-10-13", 1))
+        val gated = GatedDisk(disk)
+        val sync = kid.sync(gated)
+        val a = launch { sync.run() }
+        val b = launch { sync.run() }
+        runCurrent()
+        gated.gate.complete(Unit)
+        a.join()
+        b.join()
+        assertEquals(1, gated.maxInside)
+    }
+
+    @Test
+    fun theAccessGenerationIsFoundWithoutDecodingTheWholeDatabase() = runTest {
+        val (mom, kid) = family(DeviceRole.CHILD)
+        mom.publish(mom.author.storageOwnerEntry(mom.id, ByteArray(16) { 1 }, 1))
+        mom.publish(CloudAccessView.issue(mom.author, mom.membership(), 0, GEN0, "AT", expiresAtMs = 9))
+        mom.sync(disk).run()
+        val store = NoFullScanStore(kid.store)
+        val sync = CloudSync(store, kid.keys, SyncPolicy(kid.id, showOthers = false, today = { TODAY }), disk, kid.ring, kid.cursor, { 1_000L })
+        assertIs<CloudResult.Synced>(sync.run())
+        assertIs<CloudResult.Synced>(sync.run())
+        assertEquals(0, store.fullScans)
+    }
+
+    /** Counts liveEntries calls: on Room each one decodes every row of the database. */
+    private class NoFullScanStore(private val inner: InMemoryEntryStore) : EntryStore by inner {
+        var fullScans = 0
+
+        override suspend fun liveEntries(): List<DecodedEntry> {
+            fullScans++
+            return inner.liveEntries()
+        }
+    }
+
+    /** The first list call of every run waits for [gate]; [maxInside] is the most runs seen inside list at once. */
+    private class GatedDisk(private val inner: DiskApi) : DiskApi by inner {
+        val gate = CompletableDeferred<Unit>()
+        private var inside = 0
+        var maxInside = 0
+
+        override suspend fun list(path: String): List<DiskItem> {
+            inside++
+            maxInside = maxOf(maxInside, inside)
+            try {
+                gate.await()
+                return inner.list(path)
+            } finally {
+                inside--
+            }
+        }
     }
 
     /** Fails the first applyBatch, as a full or locked local database would. */
