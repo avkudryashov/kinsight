@@ -5,6 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import java.util.Locale
 
 class InMemoryDiskTest {
     private val disk = InMemoryDisk()
@@ -38,6 +39,18 @@ class InMemoryDiskTest {
         disk.upload("app:/Kinsight/g/x.kb", byteArrayOf(1))
         disk.deleteTree("app:/Kinsight/g")
         assertEquals(emptyList(), disk.list("app:/Kinsight"))
+    }
+
+    @Test
+    fun packNameIgnoresTheDefaultLocale() {
+        val previous = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.forLanguageTag("fa"))
+            assertEquals("00000000000000000001-00000000000000000042.kb", CloudPaths.packName(1, 42))
+            assertEquals(1L..42L, CloudPaths.parsePack(CloudPaths.packName(1, 42)))
+        } finally {
+            Locale.setDefault(previous)
+        }
     }
 
     @Test
