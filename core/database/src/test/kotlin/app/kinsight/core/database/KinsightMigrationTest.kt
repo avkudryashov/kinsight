@@ -196,38 +196,54 @@ class KinsightMigrationTest {
         val keys = DeviceKeys.generate()
         val genesis = GroupGenesis.create(keys, "Mom")
         val author = EntryAuthor(genesis.groupId, keys, lastSeq = 1)
-        val access = author.create { it.copy(cloud_access = CloudAccess(generation = 1, storage_id = ByteArray(16).toByteString())) }
+        val zoneId = ByteArray(16) { 7 }.toByteString()
+        val oldAccess = author.create { it.copy(cloud_access = CloudAccess(generation = 1, storage_id = ByteArray(16).toByteString())) }
+        val access = author.create { it.copy(cloud_access = CloudAccess(generation = 2, storage_id = ByteArray(16).toByteString())) }
         val point = author.create { it.copy(location = Location(lat_e7 = 1, lon_e7 = 2)) }
-        val zone = author.create { it.copy(safe_zone = SafeZone(zone_id = ByteArray(16).toByteString(), name = "Дом", radius_m = 100)) }
+        val zone = author.create { it.copy(safe_zone = SafeZone(zone_id = zoneId, name = "Дом", radius_m = 100)) }
+        val zoneExit = author.create { it.copy(state_event = StateEvent(kind = StateEvent.Kind.ZONE_EXIT, from_ms = 1, to_ms = 9, zone_id = zoneId)) }
         val summary = author.summary("2026-10-08", 60_000)
         val v3 = File(dir, "v3.db").absolutePath
         ExportedSchema.create(v3, 3) { c ->
-            // A 0.8.x build stored these with kind 0 (UNKNOWN): it could not decode the payload.
-            for (e in listOf(access, point, zone)) insertV3(c, e, kind = EntryKinds.UNKNOWN)
+            // A 0.8.x build stored these with kind 0 (UNKNOWN) and no supersede key: it could not decode the payload.
+            for (e in listOf(oldAccess, access, point, zone)) insertV3(c, e, kind = EntryKinds.UNKNOWN, key = null)
+            // ...and a StateEvent of a kind it did not know with event_kind 0 (unknown enum = KIND_UNSPECIFIED).
+            insertV3(c, zoneExit, kind = EntryKinds.STATE_EVENT, key = null, eventKind = 0, eventToMs = 9)
             insertV3(c, summary, kind = EntryKinds.USAGE_SUMMARY)
         }
         val db = KinsightDatabaseFactory.open(HostContext(), v3)
         val dao = db.entryDao()
         val a = keys.deviceId.hex
+        assertNull(dao.get(a, oldAccess.seq), "the older CloudAccess is superseded")
         assertEquals(EntryKinds.CLOUD_ACCESS, dao.get(a, access.seq)!!.kind)
+        assertEquals("$a/access", dao.get(a, access.seq)!!.supersedeKey)
         assertEquals(EntryKinds.LOCATION, dao.get(a, point.seq)!!.kind)
+        assertNull(dao.get(a, point.seq)!!.supersedeKey)
         assertEquals(EntryKinds.SAFE_ZONE, dao.get(a, zone.seq)!!.kind)
+        assertEquals("$a/zone/${"07".repeat(16)}", dao.get(a, zone.seq)!!.supersedeKey)
+        val exit = dao.get(a, zoneExit.seq)!!
+        assertEquals(EntryKinds.STATE_EVENT, exit.kind)
+        assertEquals(StateEvent.Kind.ZONE_EXIT.value, exit.eventKind)
         assertEquals(EntryKinds.USAGE_SUMMARY, dao.get(a, summary.seq)!!.kind)
         db.close()
     }
 
-    private fun insertV3(c: SQLiteConnection, e: DecodedEntry, kind: Int) {
+    private fun insertV3(
+        c: SQLiteConnection, e: DecodedEntry, kind: Int, key: String? = e.supersedeKey, eventKind: Int? = null, eventToMs: Long? = null,
+    ) {
         c.prepare(
             "INSERT INTO entries (author, seq, kind, supersede_key, membership, usage_date, event_kind, event_to_ms, bytes) " +
-                "VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         ).use { st ->
             st.bindText(1, e.author.hex)
             st.bindLong(2, e.seq)
             st.bindLong(3, kind.toLong())
-            e.supersedeKey?.let { st.bindText(4, it) } ?: st.bindNull(4)
+            key?.let { st.bindText(4, it) } ?: st.bindNull(4)
             st.bindLong(5, if (e.isMembershipRelevant) 1 else 0)
             (e.body.usage_summary?.local_date ?: e.body.usage_detail?.local_date)?.let { st.bindText(6, it) } ?: st.bindNull(6)
-            st.bindBlob(7, e.bytes)
+            eventKind?.let { st.bindLong(7, it.toLong()) } ?: st.bindNull(7)
+            eventToMs?.let { st.bindLong(8, it) } ?: st.bindNull(8)
+            st.bindBlob(9, e.bytes)
             st.step()
         }
     }

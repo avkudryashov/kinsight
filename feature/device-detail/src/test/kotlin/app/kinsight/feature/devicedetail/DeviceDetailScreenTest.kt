@@ -96,13 +96,13 @@ class DeviceDetailScreenTest {
 
     private val list get() = rule.onNodeWithTag("det_list")
 
-    /** Every kind's line in the current locale, in Kind.entries order. */
     // The location kinds (protocol 3) have no text of their own yet: they read as unknown.
     private val shownKinds = StateEvent.Kind.entries - setOf(
         StateEvent.Kind.LOCATION_PERMISSION_OFF, StateEvent.Kind.LOCATION_DISABLED,
         StateEvent.Kind.ZONE_ENTER, StateEvent.Kind.ZONE_EXIT,
     )
 
+    /** Every kind's line in the current locale, in Kind.entries order. */
     private fun allEventTexts(): List<String> {
         val texts = mutableListOf<String>()
         rule.setContent {
