@@ -3,6 +3,7 @@ package app.kinsight.core.transport.cloud
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.DeviceKeys
+import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.MembershipLimits
 import app.kinsight.core.model.MembershipState
@@ -51,6 +52,9 @@ class CloudSync(
     /** The effective rotation op of the group's newest generation, if any: sent in clear next to each own pack. */
     private var rotationEntry: DecodedEntry? = null
 
+    /** Set by [upload] when the Disk refused a pack for lack of space. */
+    private var storageFull = false
+
     private fun keyUpdates(epoch: Int): List<DecodedEntry> =
         listOfNotNull(rotationEntry?.takeIf { it.body.membership_op!!.rotate!!.epoch == epoch })
 
@@ -81,11 +85,13 @@ class CloudSync(
             cursors.save(cursor)
         }
         rotationEntry = membership.effectiveEntries.firstOrNull { it.body.membership_op?.rotate?.epoch == GroupKey.currentEpoch(membership) && it.body.membership_op?.rotate?.epoch != 0 }
+        storageFull = false
         val (uploaded, afterUpload) = upload(epoch, cursor)
-        val afterCompaction = compactIfDue(epoch, afterUpload, forceCompaction)
+        // A full Disk still lets us read the others.
+        val afterCompaction = if (storageFull) afterUpload else compactIfDue(epoch, afterUpload, forceCompaction)
         val (received, afterDownload) = download(listing, membership, afterCompaction)
         cursors.save(afterDownload)
-        return CloudResult.Synced(uploaded, received)
+        return if (storageFull) CloudResult.StorageFull else CloudResult.Synced(uploaded, received)
     }
 
     /** The newest generation, if it was sealed to us, joins the ring. */
@@ -134,7 +140,12 @@ class CloudSync(
         var packs = 0
         for ((range, entries) in chunks(start.uploadedUpTo + 1, upTo)) {
             val bytes = PackCodec.seal(keys, groupId, entries, range.first, range.last, epoch, groupKey, clock(), keyUpdates(epoch))
-            uploadPack(CloudPaths.packName(range.first, range.last), bytes)
+            try {
+                uploadPack(CloudPaths.packName(range.first, range.last), bytes)
+            } catch (e: DiskException.StorageFull) {
+                storageFull = true
+                break
+            }
             cursor = cursor.copy(uploadedUpTo = range.last, ownEpochs = cursor.ownEpochs + epoch)
             cursors.save(cursor)
             packs++
@@ -193,58 +204,92 @@ class CloudSync(
     private suspend fun download(listing: Map<DeviceId, List<PackItem>>, start: MembershipState, cursor: CloudCursor): Pair<Int, CloudCursor> {
         var membership = start
         val seen = cursor.seen.toMutableMap()
+        // Deferred packs (author or key generation unknown) are not final: kept apart from [seen], retried once the ring holds their epoch.
+        val deferred = cursor.deferred.toMutableMap()
         val vector = store.versionVector()
         var pending = listing.filterKeys { it != self }
             .flatMap { (device, items) -> items.map { device to it } }
-            .filter { (device, p) -> key(device, p) !in seen }
             .filter { (device, p) ->
-                val covered = p.range.last <= vector[device]
-                if (covered) seen[key(device, p)] = -1
-                !covered
+                val k = key(device, p)
+                k !in seen && (k !in deferred || deferred.getValue(k) in ring.keys())
             }
             .sortedWith(compareBy({ it.first }, { it.second.range.first }))
         var received = 0
         var round = 0
         while (pending.isNotEmpty() && round++ < MAX_ROUNDS) {
-            val deferred = mutableListOf<Pair<DeviceId, PackItem>>()
+            val next = mutableListOf<Pair<DeviceId, PackItem>>()
             for ((device, p) in pending) {
-                val bytes = try {
-                    disk.download("${CloudPaths.deviceDir(groupId, device)}/${p.name}")
-                } catch (e: DiskException.NotFound) {
-                    continue // compacted away since the listing
-                }
-                membership = learnKeyUpdates(bytes, membership)
-                when (val o = PackCodec.open(bytes, ring.keys(), groupId, device, membership)) {
-                    is PackOutcome.UnknownAuthor, is PackOutcome.KeyUnknown -> deferred += device to p
-                    is PackOutcome.Rejected -> {
-                        log("rejected pack ${device.hex.take(8)}/${p.name}: ${o.reason}")
-                        seen[key(device, p)] = -1
+                val k = key(device, p)
+                try {
+                    val bytes = try {
+                        disk.download("${CloudPaths.deviceDir(groupId, device)}/${p.name}")
+                    } catch (e: DiskException.NotFound) {
+                        continue // compacted away since the listing
                     }
-                    is PackOutcome.Opened -> {
-                        val r = ingest(o.pack, membership)
-                        if (r.first !== membership) absorbRotation(r.first)
-                        membership = r.first
-                        received += r.second
-                        seen[key(device, p)] = o.pack.epoch
+                    if (p.range.last <= vector[device]) {
+                        // Nothing to ingest, but the file still pins its key generation.
+                        seen[k] = PackCodec.epochOf(bytes) ?: -1
+                        deferred.remove(k)
+                        continue
                     }
+                    membership = learnKeyUpdates(bytes, membership)
+                    when (val o = PackCodec.open(bytes, ring.keys(), groupId, device, membership)) {
+                        is PackOutcome.UnknownAuthor -> {
+                            deferred[k] = PackCodec.epochOf(bytes) ?: -1
+                            next += device to p
+                        }
+                        is PackOutcome.KeyUnknown -> {
+                            deferred[k] = o.epoch
+                            next += device to p
+                        }
+                        is PackOutcome.Rejected -> {
+                            log("rejected pack ${device.hex.take(8)}/${p.name}: ${o.reason}")
+                            seen[k] = -1
+                            deferred.remove(k)
+                        }
+                        is PackOutcome.Opened -> {
+                            val r = ingest(o.pack, membership)
+                            if (r.first !== membership) absorbRotation(r.first)
+                            membership = r.first
+                            received += r.second
+                            seen[k] = o.pack.epoch
+                            deferred.remove(k)
+                        }
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: DiskException.Unauthorized) {
+                    throw e
+                } catch (e: DiskException.StorageFull) {
+                    throw e
+                } catch (e: IOException) {
+                    throw e // network trouble: the whole run is retried
+                } catch (e: Exception) {
+                    log("pack ${device.hex.take(8)}/${p.name} skipped: $e")
+                    seen[k] = -1
+                    deferred.remove(k)
                 }
             }
-            if (deferred.size == pending.size) {
-                // No progress: author or key generation still unknown. Not retried until the file changes (re-encryption).
-                deferred.forEach { (device, p) -> seen[key(device, p)] = -1 }
-                break
-            }
-            pending = deferred
+            // No progress (nothing opened this round): they wait in [deferred] for a key or a membership change.
+            if (next.size == pending.size) break
+            pending = next
         }
         val present = listing.filterKeys { it != self }.flatMap { (device, items) -> items.map { key(device, it) } }.toSet()
-        val kept = seen.filterKeys { it in present }
-        // Spec §5: keep a previous generation only while files sealed with it remain.
-        if (present.all { it in kept }) {
-            val inUse = kept.values.filter { it >= 0 }.toSet()
-            val newest = writeEpoch(membership)
-            ring.retain(inUse + setOfNotNull(newest))
+        val keptSeen = seen.filterKeys { it in present }
+        val keptDeferred = deferred.filterKeys { it in present && it !in keptSeen }
+        // Spec §5: keep a previous generation only while files sealed with it remain (and the CloudAccess is sealed with it).
+        if (present.all { it in keptSeen || it in keptDeferred }) {
+            val inUse = (keptSeen.values + keptDeferred.values).filter { it >= 0 }.toSet()
+            ring.retain(inUse + setOfNotNull(writeEpoch(membership), accessEpoch(membership)))
         }
-        return received to cursor.copy(seen = kept)
+        return received to cursor.copy(seen = keptSeen, deferred = keptDeferred)
+    }
+
+    /** The key generation of the current owner's newest CloudAccess: readers need it to open the access token. */
+    private suspend fun accessEpoch(membership: MembershipState): Int? {
+        val owner = membership.storageOwner ?: return null
+        return store.liveEntries().filter { it.author == owner.deviceId && it.kind == EntryKind.CLOUD_ACCESS }
+            .maxByOrNull { it.seq }?.body?.cloud_access?.key_epoch
     }
 
     /**

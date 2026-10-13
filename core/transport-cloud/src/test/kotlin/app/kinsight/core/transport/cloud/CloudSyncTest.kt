@@ -90,7 +90,7 @@ class CloudSyncTest {
         kid.sync(disk).run()
         val file = disk.files(CloudPaths.deviceDir(kid.store.groupId, kid.id)).values.last()
         assertEquals(1, PackCodec.epochOf(file))
-        dad.sync(disk).run() // Dad still has a working token and generation 0
+        assertIs<CloudResult.Synced>(dad.sync(disk).run()) // Dad still has a working token and generation 0
         assertTrue(after !in dad.store.liveEntries())
     }
 
@@ -147,5 +147,66 @@ class CloudSyncTest {
         kid.publish(kid.author.summary("2026-10-13", 1))
         assertEquals(CloudResult.NoGroupKey, kid.sync(disk).run())
         assertTrue(disk.files("app:").isEmpty())
+    }
+
+    @Test
+    fun theGenerationOfTheCurrentAccessSurvivesRotation() = runTest {
+        val (mom, dad, kid) = family(DeviceRole.PARENT, DeviceRole.CHILD)
+        mom.publish(mom.author.storageOwnerEntry(mom.id, ByteArray(16) { 1 }, 1))
+        mom.publish(CloudAccessView.issue(mom.author, mom.membership(), 0, GEN0, "AT", expiresAtMs = 9))
+        mom.publish(mom.author.removeMemberEntry(dad.id, lastSeq = 0))
+        mom.publish(GroupKey.rotate(mom.author, mom.membership())) // the access is not re-issued under generation 1
+        mom.sync(disk).run()
+        kid.sync(disk).run()
+        assertTrue(1 in kid.ring.keys())
+        kid.publish(kid.author.summary("2026-10-13", 3)) // only generation 1 packs from here on
+        kid.sync(disk).run()
+        mom.sync(disk).run()
+        kid.sync(disk).run()
+        assertTrue(0 in kid.ring.keys())
+        assertEquals("AT", CloudAccessView.current(kid.membership(), kid.store.liveEntries(), kid.ring.keys())!!.accessToken)
+    }
+
+    @Test
+    fun packOfAnUnknownAuthorIsRetriedWhenItsMembershipArrives() = runTest {
+        val (mom, kid) = family(DeviceRole.CHILD)
+        val grandmaKeys = DeviceKeys.generate()
+        mom.publish(mom.author.addMember(grandmaKeys.sign.publicKey, grandmaKeys.dh.publicKey, "Grandma"))
+        val all = mom.store.membershipEntries()
+        val kidAdd = all.single { it.seq == 2L && it.author == mom.id }
+        val gen1 = ByteArray(32) { 7 }
+        kid.ring.put(1, gen1)
+        kid.ring.retain(setOf(1))
+        val day = kid.author.summary("2026-10-13", 4)
+        kid.publish(day)
+        kid.sync(disk).run()
+        val store = InMemoryEntryStore(mom.store.groupId).also { it.storeMembership(all - kidAdd) }
+        val grandma = Phone("grandma", grandmaKeys, EntryAuthor(mom.store.groupId, grandmaKeys, lastSeq = 0), store, isChild = false, ring = InMemoryKeyRing(mapOf(1 to gen1)))
+        grandma.sync(disk).run()
+        assertTrue(day !in grandma.store.liveEntries())
+        assertEquals(1, grandma.cursor.cursor.deferred.size)
+        assertTrue(1 in grandma.ring.keys()) // a deferred pack still pins its generation
+        grandma.store.storeMembership(listOf(kidAdd))
+        val before = disk.downloads.size
+        grandma.sync(disk).run()
+        assertTrue(disk.downloads.size > before)
+        assertTrue(day in grandma.store.liveEntries())
+        assertTrue(grandma.cursor.cursor.deferred.isEmpty())
+    }
+
+    @Test
+    fun fullStorageStillReadsTheOthers() = runTest {
+        val (mom, kid) = family(DeviceRole.CHILD)
+        val day = kid.author.summary("2026-10-13", 5)
+        kid.publish(day)
+        kid.sync(disk).run()
+        mom.publish(mom.author.summary("2026-10-12", 1))
+        assertEquals(CloudResult.StorageFull, mom.sync(FullDisk(disk)).run())
+        assertTrue(day in mom.store.liveEntries())
+        assertEquals(0L, mom.cursor.cursor.uploadedUpTo)
+    }
+
+    private class FullDisk(private val inner: DiskApi) : DiskApi by inner {
+        override suspend fun upload(path: String, bytes: ByteArray) = throw DiskException.StorageFull()
     }
 }
