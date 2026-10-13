@@ -37,7 +37,7 @@ class MixedVersionTest {
         val newCategory = future.author.categoryOverride("com.example.game", CategoryOverrideRules.MAX_CATEGORY + 1)
         future.publish(newKind, newEvent, newCategory)
 
-        val (rf, rc) = syncPair(future, current, versionsA = 2..3)
+        val (rf, rc) = syncPair(future, current, versionsA = 2..3, versionsB = 2..2)
         assertEquals(2, assertIs<SessionResult.Completed>(rf).protocolVersion)
         assertEquals(2, assertIs<SessionResult.Completed>(rc).protocolVersion)
         val held = current.store.liveEntries()

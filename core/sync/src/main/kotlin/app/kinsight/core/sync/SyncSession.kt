@@ -33,8 +33,12 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
-/** 2: CategoryOverride entries (stage 5c). The highest version this build speaks. */
-const val PROTOCOL_VERSION = 2
+/**
+ * 2: CategoryOverride entries (stage 5c).
+ * 3: cloud storage, location and safe zones (entry kinds only; sessions behave as in 2).
+ * The highest version this build speaks.
+ */
+const val PROTOCOL_VERSION = 3
 
 /**
  * The lowest version this build speaks (A-1). Raise it only when the oldest phones in the field no longer matter: a

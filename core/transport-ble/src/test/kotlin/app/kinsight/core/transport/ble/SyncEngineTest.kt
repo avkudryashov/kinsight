@@ -140,7 +140,7 @@ class SyncEngineTest {
         val g = TestGroup.create(2)
         val (d0, d1) = g.devices
         d0.store.applyBatch(listOf(d0.author.summary(TODAY.toString(), 5)))
-        var v0 = 3..3
+        var v0 = PROTOCOL_VERSION + 1..PROTOCOL_VERSION + 1
         val e0 = engine(g, d0, versions = { v0 })
         val e1 = engine(g, d1)
         seeEachOther("d0", e0, "d1", e1)

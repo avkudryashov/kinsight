@@ -75,3 +75,28 @@ val MIGRATION_2_3: Migration = object : Migration(2, 3) {
         for (sql in V3_ENTRIES_INDICES) connection.execSQL(sql.replace("\${TABLE_NAME}", "entries"))
     }
 }
+
+/**
+ * Version 4 (protocol 3): no table changes. Rows a 0.8.x build stored as UNKNOWN may be CloudAccess, Location or SafeZone
+ * entries; each is decoded once and gets its code (EntryKinds: adding a code needs this pass).
+ */
+val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+    override fun migrate(connection: SQLiteConnection) {
+        val updates = mutableListOf<Triple<String, Long, Int>>()
+        connection.prepare("SELECT author, seq, bytes FROM entries WHERE kind = ${EntryKinds.UNKNOWN}").use { rows ->
+            while (rows.step()) {
+                val kind = EntryColumns.of(runCatching { DecodedEntry.decode(rows.getBlob(2)) }.getOrNull()).kind
+                if (kind != EntryKinds.UNKNOWN) updates += Triple(rows.getText(0), rows.getLong(1), kind)
+            }
+        }
+        connection.prepare("UPDATE entries SET kind = ? WHERE author = ? AND seq = ?").use { st ->
+            for ((author, seq, kind) in updates) {
+                st.bindLong(1, kind.toLong())
+                st.bindText(2, author)
+                st.bindLong(3, seq)
+                st.step()
+                st.reset()
+            }
+        }
+    }
+}

@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package kinsight.v1;
+
+option java_package = "app.kinsight.core.model.proto";
+
+// Plaintext of CloudAccess.ciphertext, and of the direct owner handover (Y3).
+message CloudGrant {
+  string access_token = 1;
+  string refresh_token = 2;  // only in a direct handover to the device taking the owner role (spec §6); never in CloudAccess
+  int64 expires_at_ms = 3;
+}
+
+// The signed part of a pack file. Seqs of [from_seq, to_seq] the pack does not carry are dead at the author.
+message PackHeader {
+  bytes group_id = 1;
+  bytes author_id = 2;
+  uint64 from_seq = 3;
+  uint64 to_seq = 4;
+  bytes body_hash = 5;   // SHA-256 of the encoded PackBody (the plaintext)
+  int64 created_at_ms = 6;
+  uint32 key_epoch = 7;  // the group key generation the body is sealed with (spec §5: every file carries it)
+}
+
+// One file app:/Kinsight/<group>/<author>/<from>-<to>.kb
+message PackFile {
+  bytes header = 1;                // encoded PackHeader
+  bytes signature = 2;             // Ed25519 by the author over "kinsight-pack-v1" || header
+  bytes nonce = 3;                 // 12 bytes
+  bytes ciphertext = 4;            // ChaCha20-Poly1305(pack key of key_epoch, nonce, aad = header) of the encoded PackBody
+  repeated bytes key_updates = 5;  // SignedEntry: the rotation op of key_epoch, in clear (only HPKE-sealed keys inside)
+}
+
+message PackBody {
+  repeated bytes entries = 1;    // SignedEntry bytes of the author, ascending seq
+}

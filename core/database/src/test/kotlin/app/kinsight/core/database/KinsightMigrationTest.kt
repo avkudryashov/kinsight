@@ -8,13 +8,17 @@ import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.proto.AppCatalog
+import app.kinsight.core.model.proto.CloudAccess
 import app.kinsight.core.model.proto.Heartbeat
+import app.kinsight.core.model.proto.Location
+import app.kinsight.core.model.proto.SafeZone
 import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.sync.categoryOverride
 import app.kinsight.core.sync.detail
 import app.kinsight.core.sync.summary
 import kotlinx.coroutines.test.runTest
 import okio.ByteString.Companion.decodeHex
+import okio.ByteString.Companion.toByteString
 import java.io.File
 import java.time.LocalDate
 import java.nio.file.Files
@@ -87,8 +91,8 @@ class KinsightMigrationTest {
         val detail = author.detail("2026-10-08")
         val beat = author.create { it.copy(heartbeat = Heartbeat(app_version = "t", protocol_version = 1)) }
         val override = author.categoryOverride("com.example.game", 1)
-        // A payload field this build does not know (EntryBody field 17): decodes, but has no kind here.
-        val future = author.create { it.copy(unknownFields = "8a01020801".decodeHex()) }
+        // A payload field this build does not know (EntryBody field 99): decodes, but has no kind here.
+        val future = author.create { it.copy(unknownFields = "9a06020801".decodeHex()) }
         val a = keys.deviceId.hex
         val garbage = "bb".repeat(16)
         val v2 = File(dir, "v2.db").absolutePath
@@ -177,6 +181,54 @@ class KinsightMigrationTest {
             assertTrue(File(dir, KinsightDatabaseFactory.DEFAULT_NAME).exists())
         } finally {
             KinsightDatabaseFactory.resetShared()
+        }
+    }
+
+    @Test
+    fun v4SchemaKeepsTheV3Tables() {
+        val json = schemaJson(4)
+        assertTrue(json.contains(V3_ENTRIES_TABLE), "4.json lacks: $V3_ENTRIES_TABLE")
+        for (sql in V3_ENTRIES_INDICES) assertTrue(json.contains(sql), "4.json lacks: $sql")
+    }
+
+    @Test
+    fun migratesV3GivingStoredUnknownRowsTheirNewKinds() = runTest {
+        val keys = DeviceKeys.generate()
+        val genesis = GroupGenesis.create(keys, "Mom")
+        val author = EntryAuthor(genesis.groupId, keys, lastSeq = 1)
+        val access = author.create { it.copy(cloud_access = CloudAccess(generation = 1, storage_id = ByteArray(16).toByteString())) }
+        val point = author.create { it.copy(location = Location(lat_e7 = 1, lon_e7 = 2)) }
+        val zone = author.create { it.copy(safe_zone = SafeZone(zone_id = ByteArray(16).toByteString(), name = "Дом", radius_m = 100)) }
+        val summary = author.summary("2026-10-08", 60_000)
+        val v3 = File(dir, "v3.db").absolutePath
+        ExportedSchema.create(v3, 3) { c ->
+            // A 0.8.x build stored these with kind 0 (UNKNOWN): it could not decode the payload.
+            for (e in listOf(access, point, zone)) insertV3(c, e, kind = EntryKinds.UNKNOWN)
+            insertV3(c, summary, kind = EntryKinds.USAGE_SUMMARY)
+        }
+        val db = KinsightDatabaseFactory.open(HostContext(), v3)
+        val dao = db.entryDao()
+        val a = keys.deviceId.hex
+        assertEquals(EntryKinds.CLOUD_ACCESS, dao.get(a, access.seq)!!.kind)
+        assertEquals(EntryKinds.LOCATION, dao.get(a, point.seq)!!.kind)
+        assertEquals(EntryKinds.SAFE_ZONE, dao.get(a, zone.seq)!!.kind)
+        assertEquals(EntryKinds.USAGE_SUMMARY, dao.get(a, summary.seq)!!.kind)
+        db.close()
+    }
+
+    private fun insertV3(c: SQLiteConnection, e: DecodedEntry, kind: Int) {
+        c.prepare(
+            "INSERT INTO entries (author, seq, kind, supersede_key, membership, usage_date, event_kind, event_to_ms, bytes) " +
+                "VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?)",
+        ).use { st ->
+            st.bindText(1, e.author.hex)
+            st.bindLong(2, e.seq)
+            st.bindLong(3, kind.toLong())
+            e.supersedeKey?.let { st.bindText(4, it) } ?: st.bindNull(4)
+            st.bindLong(5, if (e.isMembershipRelevant) 1 else 0)
+            (e.body.usage_summary?.local_date ?: e.body.usage_detail?.local_date)?.let { st.bindText(6, it) } ?: st.bindNull(6)
+            st.bindBlob(7, e.bytes)
+            st.step()
         }
     }
 }

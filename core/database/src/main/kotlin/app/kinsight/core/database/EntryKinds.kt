@@ -19,6 +19,9 @@ object EntryKinds {
     const val HEARTBEAT = 5
     const val MEMBERSHIP_OP = 6
     const val CATEGORY_OVERRIDE = 7
+    const val CLOUD_ACCESS = 8
+    const val LOCATION = 9
+    const val SAFE_ZONE = 10
 
     fun code(kind: EntryKind): Int = when (kind) {
         EntryKind.USAGE_SUMMARY -> USAGE_SUMMARY
@@ -28,6 +31,9 @@ object EntryKinds {
         EntryKind.HEARTBEAT -> HEARTBEAT
         EntryKind.MEMBERSHIP_OP -> MEMBERSHIP_OP
         EntryKind.CATEGORY_OVERRIDE -> CATEGORY_OVERRIDE
+        EntryKind.CLOUD_ACCESS -> CLOUD_ACCESS
+        EntryKind.LOCATION -> LOCATION
+        EntryKind.SAFE_ZONE -> SAFE_ZONE
         EntryKind.UNKNOWN -> UNKNOWN
     }
 }
