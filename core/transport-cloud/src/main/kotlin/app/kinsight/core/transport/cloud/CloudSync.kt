@@ -45,11 +45,12 @@ class CloudSync(
     private val clock: () -> Long = System::currentTimeMillis,
     private val log: (String) -> Unit = {},
     private val maxPackEntries: Int = MAX_PACK_ENTRIES,
+    private val smallPackBytes: Int = SMALL_PACK_BYTES,
 ) {
     private val self = keys.deviceId
     private val groupId = store.groupId
 
-    private class PackItem(val name: String, val sha: String, val range: LongRange)
+    private class PackItem(val name: String, val sha: String, val range: LongRange, val size: Long)
 
     /** The effective rotation op of the group's newest generation, if any: sent in clear next to each own pack. */
     private var rotationEntry: DecodedEntry? = null
@@ -90,9 +91,11 @@ class CloudSync(
         var cursor = cursors.load()
         val listing = listAll()
         // Spec §11: our folder lost what we uploaded (deleted in the Disk UI, or a new storage): upload everything again.
-        if (cursor.uploadedUpTo > 0 && listing[self].orEmpty().none { it.range.last >= cursor.uploadedUpTo }) {
+        // Checked by the names we wrote, not by the ranges listed: a renamed file must not stand in for a lost one.
+        val ownNames = listing[self].orEmpty().map { it.name }.toSet()
+        if (cursor.uploadedUpTo > 0 && (cursor.ownPacks.isEmpty() || cursor.ownPacks.keys.any { it !in ownNames })) {
             log("own packs up to ${cursor.uploadedUpTo} are gone: uploading the whole log again")
-            cursor = cursor.copy(uploadedUpTo = 0, ownKeys = emptySet())
+            cursor = cursor.copy(uploadedUpTo = 0, ownPacks = emptyMap())
             cursors.save(cursor)
         }
         rotationEntry = membership.effectiveEntries.firstOrNull { it.body.membership_op?.rotate?.epoch == GroupKey.currentEpoch(membership) && it.body.membership_op?.rotate?.epoch != 0 }
@@ -144,7 +147,7 @@ class CloudSync(
                 continue
             }
             out[device] = items.mapNotNull { i ->
-                if (i.isDir) null else CloudPaths.parsePack(i.name)?.let { PackItem(i.name, i.sha256 ?: "size${i.size}", it) }
+                if (i.isDir) null else CloudPaths.parsePack(i.name)?.let { PackItem(i.name, i.sha256 ?: "size${i.size}", it, i.size) }
             }
         }
         return out
@@ -161,13 +164,14 @@ class CloudSync(
         var packs = 0
         for ((range, entries) in chunks(start.uploadedUpTo + 1, upTo)) {
             val bytes = PackCodec.seal(keys, groupId, entries, range.first, range.last, epoch, groupKey, clock(), keyUpdates(epoch))
+            val name = CloudPaths.packName(range.first, range.last)
             try {
-                uploadPack(CloudPaths.packName(range.first, range.last), bytes)
+                uploadPack(name, bytes)
             } catch (e: DiskException.StorageFull) {
                 storageFull = true
                 break
             }
-            cursor = cursor.copy(uploadedUpTo = range.last, ownKeys = cursor.ownKeys + keyId)
+            cursor = cursor.copy(uploadedUpTo = range.last, ownPacks = cursor.ownPacks + (name to keyId))
             cursors.save(cursor)
             packs++
         }
@@ -220,55 +224,63 @@ class CloudSync(
 
     /**
      * Spec §5: once a day the author merges its small files into one; after a key change it re-encrypts all of them with
-     * the new key at this nearest compaction. All own live entries up to the cursor go into as few packs as the size caps
-     * allow, then the older files are deleted. New files first, deletions after: a crash in between leaves duplicates,
-     * which readers drop as Duplicate.
+     * the new key at this nearest compaction. Daily, only the tail of small packs (the newest ones, each under
+     * [smallPackBytes]) is merged, so older big packs stay untouched and readers fetch kilobytes (spec §9). After a key change
+     * (or when forced) all own live entries up to the cursor are re-sealed. New files first, then the replaced ones are
+     * forgotten and deleted: a crash in between leaves duplicates, which readers drop as Duplicate.
      */
     private suspend fun compactIfDue(epoch: Int, start: CloudCursor, force: Boolean): CloudCursor {
         val now = clock()
         val current = keyId(epoch)
         // An older generation, or another key of this one (a concurrent rotation we lost): re-encrypt everything.
-        val stale = start.ownKeys.any { it != current }
-        if (!force && !stale && now - start.lastCompactionMs < COMPACTION_INTERVAL_MS) return start
+        val full = force || start.ownPacks.values.any { it != current }
+        if (!full && now - start.lastCompactionMs < COMPACTION_INTERVAL_MS) return start
         val done = start.copy(lastCompactionMs = now)
         val dir = CloudPaths.deviceDir(groupId, self)
         val existing = try {
-            disk.list(dir).mapNotNull { i -> if (!i.isDir && CloudPaths.parsePack(i.name) != null) i.name else null }
+            disk.list(dir).mapNotNull { i -> if (i.isDir) null else CloudPaths.parsePack(i.name)?.let { PackItem(i.name, "", it, i.size) } }
         } catch (e: DiskException.NotFound) {
             emptyList()
         }
-        if (start.uploadedUpTo == 0L || (!force && !stale && existing.size < 2)) {
-            cursors.save(done)
-            return done
+        if (start.uploadedUpTo == 0L) return done.also { cursors.save(it) }
+        val replaced = if (full) {
+            existing
+        } else {
+            existing.filter { it.range.last <= start.uploadedUpTo }
+                .sortedWith(compareBy({ it.range.first }, { it.range.last }))
+                .takeLastWhile { it.size < smallPackBytes }
         }
+        if (!full && replaced.size < 2) return done.also { cursors.save(it) }
+        val from = if (full) 1L else replaced.first().range.first
+        val replacedNames = replaced.map { it.name }.toSet()
         val groupKey = ring.keys().getValue(epoch)
-        val planned = chunks(1, start.uploadedUpTo)
-        // Already as compact as the caps allow: nothing to merge, so do not re-seal the whole log every day.
-        if (!force && !stale && existing.toSet() == planned.map { (r, _) -> CloudPaths.packName(r.first, r.last) }.toSet()) {
-            cursors.save(done)
-            return done
-        }
-        val written = mutableSetOf<String>()
+        val planned = chunks(from, start.uploadedUpTo).map { (r, entries) -> CloudPaths.packName(r.first, r.last) to (r to entries) }
+        val written = mutableMapOf<String, KeyId>()
         try {
-            for ((range, entries) in planned) {
-                val name = CloudPaths.packName(range.first, range.last)
+            for ((name, chunk) in planned) {
+                // A merge keeps a tail file whose range comes out the same: it is already as compact as the caps allow.
+                if (!full && name in replacedNames) continue
+                val (range, entries) = chunk
                 uploadPack(name, PackCodec.seal(keys, groupId, entries, range.first, range.last, epoch, groupKey, now, keyUpdates(epoch)))
-                written += name
+                written[name] = current
             }
         } catch (e: DiskException.StorageFull) {
             // Nothing is deleted and the cursor stays: compaction is retried at the next run, reading still goes on.
             storageFull = true
             return start
         }
-        for (name in existing) {
-            if (name in written) continue
+        val obsolete = replacedNames - planned.map { it.first }.toSet()
+        // After a full re-seal every own pack on the Disk is one just written.
+        val compacted = done.copy(ownPacks = if (full) written else start.ownPacks + written - obsolete)
+        cursors.save(compacted) // forgotten before deleted: a lost delete leaves a stray file, never a missing own name
+        for (name in obsolete) {
             try {
                 disk.delete("$dir/$name")
             } catch (e: DiskException.NotFound) {
                 // already gone
             }
         }
-        return done.copy(ownKeys = setOf(current)).also { cursors.save(it) }
+        return compacted
     }
 
     // ---- download ----
@@ -313,7 +325,8 @@ class CloudSync(
             .flatMap { (device, items) -> items.map { device to it } }
             .filter { (device, p) ->
                 val k = key(device, p)
-                k !in seen && deferred[k]?.let { mayOpen(it, ringAtStart) } != false
+                val unread = seen[k] == COVERED_UNREAD && ringAtStart.size > 1 // its generation matters now
+                (k !in seen || unread) && deferred[k]?.let { mayOpen(it, ringAtStart) } != false
             }
             .sortedWith(compareBy({ it.first }, { it.second.range.first }))
         var received = 0
@@ -322,6 +335,14 @@ class CloudSync(
             val next = mutableListOf<Pair<DeviceId, PackItem>>()
             for ((device, p) in pending) {
                 val k = key(device, p)
+                // Everything in it is ours already (its name says so). Its generation only decides which keys the ring keeps,
+                // which cannot matter while the ring holds one: skip the download and read it when the ring holds more.
+                val covered = p.range.last <= vector[device]
+                if (covered && ring.keys().size <= 1) {
+                    seen[k] = COVERED_UNREAD
+                    deferred.remove(k)
+                    continue
+                }
                 // Only the hostile part of a file (download, decoding, opening) is guarded: a file that fails there is marked
                 // seen = -1. Local store errors below propagate and abort the run, leaving the pack unseen.
                 val fetched = guarded(seen, deferred, device, p) {
@@ -332,13 +353,7 @@ class CloudSync(
                     }
                     Fetched(bytes, PackCodec.epochOf(bytes), PackCodec.keyUpdates(bytes))
                 } ?: continue
-                if (p.range.last <= vector[device]) {
-                    // Nothing to ingest, but the file still pins its key generation.
-                    seen[k] = fetched.epoch ?: REJECTED
-                    deferred.remove(k)
-                    continue
-                }
-                membership = learnKeyUpdates(fetched.updates, membership)
+                if (!covered) membership = learnKeyUpdates(fetched.updates, membership)
                 val held = ring.keys() // outside the guard: a ring failure is ours, not the file's
                 val outcome = guarded(seen, deferred, device, p) {
                     PackCodec.open(fetched.bytes, held, groupId, device, membership, expected = p.range)
@@ -348,7 +363,10 @@ class CloudSync(
                         deferred[k] = DeferredPack(fetched.epoch ?: -1)
                         next += device to p
                     }
-                    is PackOutcome.KeyUnknown -> {
+                    is PackOutcome.KeyUnknown -> if (covered) {
+                        seen[k] = outcome.epoch // nothing to read in it, and a generation we lack pins nothing
+                        deferred.remove(k)
+                    } else {
                         deferred[k] = DeferredPack(outcome.epoch)
                         next += device to p
                     }
@@ -362,7 +380,11 @@ class CloudSync(
                         seen[k] = REJECTED
                         deferred.remove(k)
                     }
-                    is PackOutcome.Opened -> {
+                    is PackOutcome.Opened -> if (covered) {
+                        // Nothing to ingest, but the file (signed, its range matching its name) pins its key generation.
+                        seen[k] = outcome.pack.epoch
+                        deferred.remove(k)
+                    } else {
                         val r = ingest(outcome.pack, membership)
                         if (r.first !== membership) absorbRotation(r.first)
                         membership = r.first
@@ -380,7 +402,9 @@ class CloudSync(
         val keptSeen = seen.filterKeys { it in present }
         val keptDeferred = deferred.filterKeys { it in present && it !in keptSeen }
         // Spec §5: keep a previous generation only while files sealed with it remain (and the CloudAccess is sealed with it).
-        if (present.all { it in keptSeen || it in keptDeferred }) {
+        // A covered pack skipped unread has an unknown generation: it blocks this once the ring holds more than one.
+        val unread = ring.keys().size > 1 && keptSeen.values.any { it == COVERED_UNREAD }
+        if (!unread && present.all { it in keptSeen || it in keptDeferred }) {
             val inUse = (keptSeen.values + keptDeferred.values.map { it.epoch }).filter { it >= 0 }.toSet()
             ring.retain(inUse + setOfNotNull(writeEpoch(membership), accessEpoch(membership)))
         }
@@ -479,5 +503,11 @@ class CloudSync(
 
         /** [CloudCursor.seen] value of a pack that did not open and never will. */
         const val REJECTED = -1
+
+        /** [CloudCursor.seen] value of a pack skipped as covered by its name: its generation is unknown, read when it matters. */
+        const val COVERED_UNREAD = -2
+
+        /** Daily compaction merges the newest own packs below this size; bigger ones stay as they are. */
+        const val SMALL_PACK_BYTES = 256 shl 10
     }
 }

@@ -26,9 +26,14 @@ class Phone(
 ) {
     val id get() = keys.deviceId
 
-    fun sync(disk: DiskApi, now: () -> Long = { 1_000L }, maxPackEntries: Int = CloudSync.MAX_PACK_ENTRIES) = CloudSync(
+    fun sync(
+        disk: DiskApi,
+        now: () -> Long = { 1_000L },
+        maxPackEntries: Int = CloudSync.MAX_PACK_ENTRIES,
+        smallPackBytes: Int = CloudSync.SMALL_PACK_BYTES,
+    ) = CloudSync(
         store, keys, SyncPolicy(keys.deviceId, showOthers = !isChild, today = { TODAY }), disk, ring, cursor, now,
-        maxPackEntries = maxPackEntries,
+        maxPackEntries = maxPackEntries, smallPackBytes = smallPackBytes,
     )
 
     suspend fun publish(vararg e: DecodedEntry) = store.applyBatch(e.toList())

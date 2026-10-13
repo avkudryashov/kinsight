@@ -11,16 +11,17 @@ data class DeferredPack(val epoch: Int, val failedKey: String? = null)
 
 /**
  * Per-device cloud progress. [uploadedUpTo]: own seqs up to here are in packs on the Disk. [seen]: packs already handled,
- * "<device>/<name>/<sha256>" to the key generation they were sealed with (-1 when they did not open), pruned to the last
- * listing. [lastCompactionMs]: wall clock of the last compaction. [ownKeys]: keys the own packs on the Disk are sealed with.
- * [deferred]: packs that could not be opened yet (unknown author, key generation or key), same keys as [seen]; retried once
- * the ring holds a key that may open them, and they keep their generation in the ring.
+ * "<device>/<name>/<sha256>" to the key generation they were sealed with (-1 when they did not open, -2 when skipped as
+ * covered by their name without reading the generation), pruned to the last listing. [lastCompactionMs]: wall clock of the
+ * last compaction. [ownPacks]: names of the own packs on the Disk to the key each is sealed with. [deferred]: packs that
+ * could not be opened yet (unknown author, key generation or key), same keys as [seen]; retried once the ring holds a key
+ * that may open them, and they keep their generation in the ring.
  */
 data class CloudCursor(
     val uploadedUpTo: Long = 0,
     val seen: Map<String, Int> = emptyMap(),
     val lastCompactionMs: Long = 0,
-    val ownKeys: Set<KeyId> = emptySet(),
+    val ownPacks: Map<String, KeyId> = emptyMap(),
     val deferred: Map<String, DeferredPack> = emptyMap(),
 )
 

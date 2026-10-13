@@ -11,6 +11,7 @@ import app.kinsight.core.sync.InMemoryEntryStore
 import app.kinsight.core.sync.summary
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -150,6 +151,75 @@ class CompactionTest {
         assertTrue(kidDay in mom.store.liveEntries())
         assertEquals(before.keys, disk.files(dir).keys)
         assertEquals(lastCompaction, mom.cursor.cursor.lastCompactionMs)
+    }
+
+    @Test
+    fun dailyCompactionMergesOnlyTheSmallTail() = runTest {
+        val (mom, kid) = family(DeviceRole.CHILD)
+        var now = 10L
+        repeat(8) { kid.publish(kid.author.summary("2026-09-${10 + it}", 1)) }
+        kid.sync(disk, { now }).run()
+        val dir = CloudPaths.deviceDir(kid.store.groupId, kid.id)
+        val (bigPath, big) = disk.files(dir).entries.single()
+        mom.sync(disk).run()
+        for (d in 1..3) {
+            now += day
+            kid.publish(kid.author.summary("2026-10-0$d", 1))
+            kid.sync(disk, { now }, smallPackBytes = big.size).run() // the 8-entry pack is big, the others small
+            val before = disk.downloads.size
+            mom.sync(disk).run()
+            val tail = "$dir/${CloudPaths.packName(9, 8L + d)}"
+            assertEquals(listOf(tail), disk.downloads.drop(before), "day $d: the reader fetches the new tail pack only")
+            assertEquals(setOf(bigPath, tail), disk.files(dir).keys)
+            assertContentEquals(big, disk.files(dir).getValue(bigPath), "day $d: the big pack is untouched")
+        }
+        now += day
+        kid.sync(disk, { now }, smallPackBytes = big.size).run()
+        val before = disk.downloads.size
+        mom.sync(disk).run()
+        assertEquals(before, disk.downloads.size, "a day without new entries moves nothing")
+        assertEquals(11L, mom.store.versionVector()[kid.id])
+    }
+
+    @Test
+    fun coveredPackIsSkippedUntilItsGenerationMatters() = runTest {
+        val (mom, kid) = family(DeviceRole.CHILD)
+        var now = 10L
+        repeat(2) {
+            kid.publish(kid.author.summary("2026-10-0${it + 1}", 1))
+            kid.sync(disk, { now }).run()
+        }
+        mom.sync(disk).run()
+        now += day
+        kid.sync(disk, { now }).run() // merges 1-1 and 2-2 into 1-2, which Mom already holds
+        val dir = CloudPaths.deviceDir(kid.store.groupId, kid.id)
+        val merged = "$dir/${CloudPaths.packName(1, 2)}"
+        assertEquals(setOf(merged), disk.files(dir).keys)
+        var before = disk.downloads.size
+        mom.sync(disk).run()
+        assertEquals(before, disk.downloads.size, "one key in the ring: a covered pack's generation cannot matter")
+        assertEquals(listOf(CloudSync.COVERED_UNREAD), mom.cursor.cursor.seen.values.toList())
+        mom.publish(GroupKey.rotate(mom.author, mom.membership()))
+        before = disk.downloads.size
+        mom.sync(disk).run() // generation 1 joins the ring: now the pack's generation decides what the ring keeps
+        assertEquals(listOf(merged), disk.downloads.drop(before))
+        assertEquals(listOf(0), mom.cursor.cursor.seen.values.toList())
+        assertEquals(setOf(0, 1), mom.ring.keys().keys) // the kid's file still needs generation 0
+    }
+
+    @Test
+    fun renamedOwnPackDoesNotHideALostFolder() = runTest {
+        val (mom, kid) = family(DeviceRole.CHILD)
+        repeat(2) { kid.publish(kid.author.summary("2026-10-0${it + 1}", 1)) }
+        kid.sync(disk).run()
+        val dir = CloudPaths.deviceDir(kid.store.groupId, kid.id)
+        val (path, bytes) = disk.files(dir).entries.single()
+        disk.delete(path)
+        disk.upload("$dir/${CloudPaths.packName(1, 9)}", bytes) // claims to reach past what the kid uploaded
+        kid.sync(disk).run()
+        assertTrue(path in disk.files(dir))
+        mom.sync(disk).run()
+        assertEquals(2L, mom.store.versionVector()[kid.id])
     }
 
     private class FullDisk(private val inner: DiskApi) : DiskApi by inner {
