@@ -223,11 +223,23 @@ class CloudSync(
             return done
         }
         val groupKey = ring.keys().getValue(epoch)
+        val planned = chunks(1, start.uploadedUpTo)
+        // Already as compact as the caps allow: nothing to merge, so do not re-seal the whole log every day.
+        if (!force && !stale && existing.toSet() == planned.map { (r, _) -> CloudPaths.packName(r.first, r.last) }.toSet()) {
+            cursors.save(done)
+            return done
+        }
         val written = mutableSetOf<String>()
-        for ((range, entries) in chunks(1, start.uploadedUpTo)) {
-            val name = CloudPaths.packName(range.first, range.last)
-            uploadPack(name, PackCodec.seal(keys, groupId, entries, range.first, range.last, epoch, groupKey, now, keyUpdates(epoch)))
-            written += name
+        try {
+            for ((range, entries) in planned) {
+                val name = CloudPaths.packName(range.first, range.last)
+                uploadPack(name, PackCodec.seal(keys, groupId, entries, range.first, range.last, epoch, groupKey, now, keyUpdates(epoch)))
+                written += name
+            }
+        } catch (e: DiskException.StorageFull) {
+            // Nothing is deleted and the cursor stays: compaction is retried at the next run, reading still goes on.
+            storageFull = true
+            return start
         }
         for (name in existing) {
             if (name in written) continue
@@ -306,8 +318,9 @@ class CloudSync(
                     continue
                 }
                 membership = learnKeyUpdates(fetched.updates, membership)
+                val held = ring.keys() // outside the guard: a ring failure is ours, not the file's
                 val outcome = guarded(seen, deferred, device, p) {
-                    PackCodec.open(fetched.bytes, ring.keys(), groupId, device, membership)
+                    PackCodec.open(fetched.bytes, held, groupId, device, membership)
                 } ?: continue
                 when (outcome) {
                     is PackOutcome.UnknownAuthor -> {

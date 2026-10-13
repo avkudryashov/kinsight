@@ -4,6 +4,8 @@ import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.addMember
 import app.kinsight.core.model.proto.DeviceRole
+import app.kinsight.core.model.proto.PackFile
+import app.kinsight.core.model.proto.PackHeader
 import app.kinsight.core.model.removeMemberEntry
 import app.kinsight.core.sync.InMemoryEntryStore
 import app.kinsight.core.sync.summary
@@ -106,7 +108,51 @@ class CompactionTest {
         kid.sync(disk).run()
         val dir = CloudPaths.deviceDir(kid.store.groupId, kid.id)
         val before = disk.files(dir).values.single()
-        kid.sync(disk).run(forceCompaction = true)
-        assertTrue(!before.contentEquals(disk.files(dir).values.single()))
+        kid.sync(disk, { 5_000L }).run(forceCompaction = true)
+        val after = disk.files(dir).values.single()
+        assertTrue(!before.contentEquals(after))
+        assertEquals(5_000L, PackHeader.ADAPTER.decode(PackFile.ADAPTER.decode(after).header_).created_at_ms)
+    }
+
+    @Test
+    fun alreadyCompactLogIsNotResealedEveryDay() = runTest {
+        val (_, kid) = family(DeviceRole.CHILD)
+        var now = 10L
+        repeat(4) { kid.publish(kid.author.summary("2026-10-0${it + 1}", 1)) }
+        kid.sync(disk, { now }, maxPackEntries = 2).run()
+        val dir = CloudPaths.deviceDir(kid.store.groupId, kid.id)
+        assertEquals(2, disk.files(dir).size)
+        now += day
+        kid.sync(disk, { now }, maxPackEntries = 2).run()
+        val before = disk.files(dir)
+        now += day
+        kid.sync(disk, { now }, maxPackEntries = 2).run()
+        val after = disk.files(dir)
+        assertEquals(before.keys, after.keys)
+        assertTrue(before.all { (k, v) -> v.contentEquals(after.getValue(k)) })
+        assertEquals(now, kid.cursor.cursor.lastCompactionMs)
+    }
+
+    @Test
+    fun fullStorageDuringCompactionStillReadsTheOthers() = runTest {
+        val (mom, kid) = family(DeviceRole.CHILD)
+        repeat(3) {
+            mom.publish(mom.author.summary("2026-10-0${it + 1}", 1))
+            mom.sync(disk, { 10L }).run()
+        }
+        val dir = CloudPaths.deviceDir(mom.store.groupId, mom.id)
+        val before = disk.files(dir)
+        val kidDay = kid.author.summary("2026-10-09", 7)
+        kid.publish(kidDay)
+        kid.sync(disk, { 10L }).run()
+        val lastCompaction = mom.cursor.cursor.lastCompactionMs
+        assertEquals(CloudResult.StorageFull, mom.sync(FullDisk(disk), { 10L + day }).run())
+        assertTrue(kidDay in mom.store.liveEntries())
+        assertEquals(before.keys, disk.files(dir).keys)
+        assertEquals(lastCompaction, mom.cursor.cursor.lastCompactionMs)
+    }
+
+    private class FullDisk(private val inner: DiskApi) : DiskApi by inner {
+        override suspend fun upload(path: String, bytes: ByteArray) = throw DiskException.StorageFull()
     }
 }
