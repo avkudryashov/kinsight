@@ -35,6 +35,9 @@ sealed interface PackOutcome {
 object PackCodec {
     private val SIGN_CONTEXT = "kinsight-pack-v1".encodeToByteArray()
 
+    /** Rotation ops read from one pack's key_updates; the rest are ignored before any membership work. */
+    const val MAX_KEY_UPDATES = 4
+
     fun seal(
         keys: DeviceKeys,
         groupId: GroupId,
@@ -73,8 +76,18 @@ object PackCodec {
         )
     }
 
-    /** [folder]: the device folder the file was found in; a pack signed by anyone else is rejected. */
-    fun open(file: ByteArray, ring: Map<Int, ByteArray>, groupId: GroupId, folder: DeviceId, membership: MembershipState): PackOutcome {
+    /**
+     * [folder]: the device folder the file was found in; a pack signed by anyone else is rejected. [expected]: the range in
+     * the file name; a header stating another range is rejected (a renamed pack).
+     */
+    fun open(
+        file: ByteArray,
+        ring: Map<Int, ByteArray>,
+        groupId: GroupId,
+        folder: DeviceId,
+        membership: MembershipState,
+        expected: LongRange? = null,
+    ): PackOutcome {
         val pf = try {
             PackFile.ADAPTER.decode(file)
         } catch (e: IOException) {
@@ -91,6 +104,9 @@ object PackCodec {
         val author = DeviceId.fromBytes(header.author_id.toByteArray())
         if (author != folder) return PackOutcome.Rejected("pack of ${author.hex} in the folder of ${folder.hex}")
         if (header.from_seq < 1 || header.to_seq < header.from_seq) return PackOutcome.Rejected("bad range")
+        if (expected != null && (header.from_seq != expected.first || header.to_seq != expected.last)) {
+            return PackOutcome.Rejected("range differs from the file name")
+        }
         val signKey = membership.signKeyOf(author) ?: return PackOutcome.UnknownAuthor(author)
         if (!Ed25519.verify(signKey, SIGN_CONTEXT + headerBytes, pf.signature.toByteArray())) return PackOutcome.Rejected("bad signature")
         val groupKey = ring[header.key_epoch] ?: return PackOutcome.KeyUnknown(header.key_epoch)
@@ -114,7 +130,7 @@ object PackCodec {
      * them (its own sealed copy inside), as the rotation op itself sits in an author's pack sealed with the new key.
      */
     fun keyUpdates(file: ByteArray): List<DecodedEntry> = try {
-        PackFile.ADAPTER.decode(file).key_updates.mapNotNull { raw ->
+        PackFile.ADAPTER.decode(file).key_updates.take(MAX_KEY_UPDATES).mapNotNull { raw ->
             runCatching { DecodedEntry.decode(raw.toByteArray()) }.getOrNull()?.takeIf { it.body.membership_op?.rotate != null }
         }
     } catch (e: IOException) {

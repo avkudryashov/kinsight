@@ -65,6 +65,21 @@ class PackCodecTest {
     }
 
     @Test
+    fun atMostFourKeyUpdatesAreReadFromAPack() {
+        val rotations = List(6) { GroupKey.rotate(mom, membership) }
+        val pack = PackCodec.seal(annaKeys, genesis.groupId, listOf(e1), 1, 1, 1, Primitives.randomBytes(32), 5, keyUpdates = rotations)
+        assertEquals(rotations.take(PackCodec.MAX_KEY_UPDATES), PackCodec.keyUpdates(pack))
+        assertEquals(4, PackCodec.MAX_KEY_UPDATES)
+    }
+
+    @Test
+    fun headerRangeDifferentFromTheFileNameIsRejected() {
+        assertIs<PackOutcome.Opened>(PackCodec.open(annaPack(), ring, genesis.groupId, annaKeys.deviceId, membership, expected = 1L..2L))
+        val renamed = assertIs<PackOutcome.Rejected>(PackCodec.open(annaPack(), ring, genesis.groupId, annaKeys.deviceId, membership, expected = 1L..9L))
+        assertEquals("range differs from the file name", renamed.reason)
+    }
+
+    @Test
     fun aGenerationNotInTheRingIsReported() {
         val pack = annaPack(epoch = 1, key = Primitives.randomBytes(32))
         assertEquals(1, assertIs<PackOutcome.KeyUnknown>(PackCodec.open(pack, ring, genesis.groupId, annaKeys.deviceId, membership)).epoch)
