@@ -46,6 +46,16 @@ class CloudAccessViewTest {
     }
 
     @Test
+    fun tokenNeverAppearsInClearInTheLogEntryOrToString() {
+        val token = "y0_AgAAAAB-test-token-1234567890"
+        val access = CloudAccessView.issue(mom, membership, 0, gen0, token, expiresAtMs = 99)
+        assertFalse(contains(access.bytes, token.toByteArray()))
+        val seen = CloudAccessView.current(membership, base + owner + access, mapOf(0 to gen0))!!
+        assertEquals(token, seen.accessToken)
+        assertFalse(token in seen.toString())
+    }
+
+    @Test
     fun accessOfAnotherParentIsNotUsed() {
         val withDadAdmin = Membership.compute(genesis.groupId, base + owner + mom.grantAdminEntry(dadKeys.deviceId))!!
         // issue() refuses a non-owner; Dad's entry is valid on the wire but is not the owner's.
@@ -74,5 +84,63 @@ class CloudAccessViewTest {
         val entries = base + owner + removal + rotation + access
         assertEquals("NEW", CloudAccessView.current(rotated, entries, mapOf(0 to gen0, 1 to GroupKey.open(kidKeys, rotated)!!.second))!!.accessToken)
         assertNull(CloudAccessView.current(rotated, entries, mapOf(0 to gen0))) // all Dad holds
+    }
+
+    private fun contains(hay: ByteArray, needle: ByteArray) =
+        (0..hay.size - needle.size).any { i -> needle.indices.all { hay[i + it] == needle[it] } }
+
+    /** Re-signs [sealed]'s ciphertext with outer fields rewritten to match the current owner, so only the AAD can catch it. */
+    private fun rewritten(sealed: CloudAccess) = mom.create {
+        it.copy(cloud_access = sealed.copy(generation = 1, storage_id = storage.toByteString(), key_epoch = 0))
+    }
+
+    private fun sealedBy(storageId: Byte, generation: Long, epoch: Int): CloudAccess {
+        val st = mom.storageOwnerEntry(momKeys.deviceId, ByteArray(16) { storageId }, generation)
+        val m = Membership.compute(genesis.groupId, base + st)!!
+        return CloudAccessView.issue(mom, m, epoch, gen0, "AT", expiresAtMs = 1).body.cloud_access!!
+    }
+
+    @Test
+    fun recordSealedForAnotherStorageIdIsNotAccepted() {
+        val forged = rewritten(sealedBy(9, 1, 0))
+        assertNull(CloudAccessView.current(membership, base + owner + forged, mapOf(0 to gen0)))
+    }
+
+    @Test
+    fun recordSealedForAnotherGenerationIsNotAccepted() {
+        val forged = rewritten(sealedBy(3, 2, 0))
+        assertNull(CloudAccessView.current(membership, base + owner + forged, mapOf(0 to gen0)))
+    }
+
+    @Test
+    fun recordSealedForAnotherKeyEpochIsNotAccepted() {
+        val forged = rewritten(sealedBy(3, 1, 5))
+        assertNull(CloudAccessView.current(membership, base + owner + forged, mapOf(0 to gen0)))
+    }
+
+    private fun malformed(edit: (CloudAccess) -> CloudAccess): StorageAccess? {
+        val good = CloudAccessView.issue(mom, membership, 0, gen0, "AT", expiresAtMs = 1).body.cloud_access!!
+        val bad = mom.create { it.copy(cloud_access = edit(good)) }
+        return CloudAccessView.current(membership, base + owner + bad, mapOf(0 to gen0))
+    }
+
+    @Test
+    fun shortNonceGivesNull() {
+        assertNull(malformed { it.copy(nonce = ByteArray(11).toByteString()) })
+    }
+
+    @Test
+    fun ciphertextShorterThanTheTagGivesNull() {
+        assertNull(malformed { it.copy(ciphertext = ByteArray(15).toByteString()) })
+        assertNull(malformed { it.copy(ciphertext = okio.ByteString.EMPTY) })
+    }
+
+    @Test
+    fun authenticCiphertextOfGarbageGivesNull() {
+        val groupId = genesis.groupId.bytes()
+        val aad = groupId + java.nio.ByteBuffer.allocate(12).putLong(1L).putInt(0).array() + storage
+        val nonce = ByteArray(12) { 1 }
+        val sealed = Primitives.chachaSeal(GroupKey.accessKey(gen0), nonce, aad, ByteArray(64) { 0xFF.toByte() })
+        assertNull(malformed { it.copy(nonce = nonce.toByteString(), ciphertext = sealed.toByteString()) })
     }
 }
