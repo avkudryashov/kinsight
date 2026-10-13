@@ -22,6 +22,14 @@ data class SyncPolicy(
         return date.isBefore(today().minusDays(days))
     }
 
-    /** With showOthers off, only membership flows in; foreign log entries are not taken. */
-    fun acceptsFromPeers(e: DecodedEntry): Boolean = showOthers || e.author == self
+    /**
+     * With showOthers off (a child), only membership and the kinds every member needs from the parents flow in
+     * ([FROM_PARENTS_TO_ALL]); the parents' other entries are not taken.
+     */
+    fun acceptsFromPeers(e: DecodedEntry): Boolean = showOthers || e.author == self || e.kind in FROM_PARENTS_TO_ALL
+
+    companion object {
+        /** Parent-signed kinds a child takes as well (R5 of the cloud plan): storage access now, safe zones in Y4. */
+        val FROM_PARENTS_TO_ALL: Set<EntryKind> = setOf(EntryKind.CLOUD_ACCESS)
+    }
 }

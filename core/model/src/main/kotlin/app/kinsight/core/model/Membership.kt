@@ -21,12 +21,16 @@ data class Member(
 
 data class Departed(val member: Member, val lastSeq: Long)
 
+/** The current cloud storage owner (spec §4): an active admin parent when set, but it may have left since. */
+data class StorageOwnerState(val deviceId: DeviceId, val storageId: ByteString, val generation: Long)
+
 data class MembershipState(
     val groupId: GroupId,
     val active: Map<DeviceId, Member>,
     val departed: Map<DeviceId, Departed>,
     val discoveryRotation: RotateDiscoveryKey?,
     val effectiveEntries: Set<DecodedEntry>,
+    val storageOwner: StorageOwnerState? = null,
 ) {
     fun signKeyOf(id: DeviceId): ByteArray? =
         (active[id] ?: departed[id]?.member)?.signPublicKey?.toByteArray()
@@ -182,6 +186,7 @@ object Membership {
         val adminCut = mutableMapOf<DeviceId, Long>()
         val demoted = mutableSetOf<DeviceId>()
         var rotation: RotateDiscoveryKey? = null
+        var owner: StorageOwnerState? = null
         val effective = mutableSetOf(genesis)
 
         for (e in ordered) {
@@ -261,11 +266,25 @@ object Membership {
                         false
                     }
                 }
+                op.storage_owner != null -> {
+                    val so = op.storage_owner!!
+                    val id = idOrNull(so.device_id)
+                    val target = id?.let { active[it] }
+                    val current = owner
+                    if (target == null || !target.isAdmin || target.isChild || so.storage_id.size != 16 || so.generation < 1 ||
+                        (current != null && so.generation <= current.generation)
+                    ) {
+                        false
+                    } else {
+                        owner = StorageOwnerState(id, so.storage_id, so.generation)
+                        true
+                    }
+                }
                 else -> false
             }
             if (applied) effective += e
         }
-        val state = MembershipState(groupId, active.toMap(), departed.toMap(), rotation, effective.toSet())
+        val state = MembershipState(groupId, active.toMap(), departed.toMap(), rotation, effective.toSet(), owner)
         return Pass(state, Cutoffs(memberCut.toMap(), adminCut.toMap()))
     }
 }

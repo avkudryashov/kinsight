@@ -39,6 +39,7 @@ class EntryValidator(
         if (!e.verifySignature(key)) return Verdict.Invalid("bad signature")
         // Meaning: rules of known kinds. Unknown kinds and unknown enum values pass (they decode as UNKNOWN/default).
         if (e.kind == EntryKind.CATEGORY_OVERRIDE) CategoryOverrideRules.violation(e, membership)?.let { return Verdict.Skipped(it) }
+        if (e.kind == EntryKind.CLOUD_ACCESS) CloudAccessRules.violation(e, membership)?.let { return Verdict.Skipped(it) }
         if (!policy.acceptsFromPeers(e)) return Verdict.Unwanted
         if (alreadyAccounted) return Verdict.Duplicate
         if (policy.isExpired(e)) return Verdict.Expired
