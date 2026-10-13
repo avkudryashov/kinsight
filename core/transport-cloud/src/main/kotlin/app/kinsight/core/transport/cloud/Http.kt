@@ -2,6 +2,7 @@ package app.kinsight.core.transport.cloud
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
@@ -47,8 +48,14 @@ open class Http(
     }
 
     private fun readCapped(input: InputStream): ByteArray {
-        val bytes = input.readNBytes(maxBodyBytes + 1)
-        if (bytes.size > maxBodyBytes) throw IOException("response over $maxBodyBytes bytes")
-        return bytes
+        val out = ByteArrayOutputStream()
+        val buf = ByteArray(8192)
+        while (true) {
+            val n = input.read(buf)
+            if (n < 0) break
+            if (out.size() + n > maxBodyBytes) throw IOException("response over $maxBodyBytes bytes")
+            out.write(buf, 0, n)
+        }
+        return out.toByteArray()
     }
 }

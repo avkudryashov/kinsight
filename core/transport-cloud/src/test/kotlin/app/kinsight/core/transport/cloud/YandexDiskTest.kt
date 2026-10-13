@@ -80,4 +80,29 @@ class YandexDiskTest {
         assertFailsWith<DiskException.Conflict> { disk.mkdir("app:/a/b") }
         disk.delete("app:/gone")
     }
+
+    @Test
+    fun malformedListingsSurfaceAsIoException() = runTest {
+        y.on({ it.query["path"] == "app:/bad1" }) { _, ex -> y.respond(ex, 200, """{"_embedded":[]}""") }
+        y.on({ it.query["path"] == "app:/bad2" }) { _, ex -> y.respond(ex, 200, """{"_embedded":{"items":{}}}""") }
+        y.on({ it.query["path"] == "app:/bad3" }) { _, ex -> y.respond(ex, 200, """{"_embedded":{"items":[5,{"name":"ok","type":"file"}],"total":2}}""") }
+        assertFailsWith<java.io.IOException> { disk.list("app:/bad1") }
+        assertFailsWith<java.io.IOException> { disk.list("app:/bad2") }
+        assertEquals(listOf("ok"), disk.list("app:/bad3").map { it.name }) // a non-object item is skipped
+    }
+
+    @Test
+    fun missingTotalKeepsPagingWhilePagesAreFull() = runTest {
+        y.on({ it.path == "/v1/disk/resources" }) { r, ex ->
+            val items = if (r.query["offset"] == "0") """[{"name":"a","type":"file"},{"name":"b","type":"file"}]""" else """[{"name":"c","type":"file"}]"""
+            y.respond(ex, 200, """{"_embedded":{"items":$items}}""")
+        }
+        val items = YandexDisk({ "T" }, base = "${y.base}/v1/disk", pageSize = 2).list("app:/x")
+        assertEquals(listOf("a", "b", "c"), items.map { it.name })
+    }
+
+    @Test
+    fun notFoundCarriesTheDiskPath() = runTest {
+        assertEquals("app:/missing", assertFailsWith<DiskException.NotFound> { disk.list("app:/missing") }.path)
+    }
 }

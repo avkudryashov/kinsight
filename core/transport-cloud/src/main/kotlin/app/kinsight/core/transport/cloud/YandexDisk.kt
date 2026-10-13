@@ -1,8 +1,9 @@
 package app.kinsight.core.transport.cloud
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
@@ -25,21 +26,30 @@ class YandexDisk(
         val out = mutableListOf<DiskItem>()
         var offset = 0
         while (true) {
-            val r = api("GET", "/resources?path=${enc(path)}&limit=$pageSize&offset=$offset&fields=$FIELDS")
-            val embedded = json(r)["_embedded"]?.jsonObject ?: return out
-            val items = embedded["items"]?.jsonArray.orEmpty()
-            for (it in items) {
-                val o = it.jsonObject
+            val r = api("GET", "/resources?path=${enc(path)}&limit=$pageSize&offset=$offset&fields=$FIELDS", path)
+            val root = json(r)
+            val embedded = when (val e = root["_embedded"]) {
+                null -> return out
+                is JsonObject -> e
+                else -> throw IOException("unexpected _embedded in listing")
+            }
+            val items = when (val i = embedded["items"]) {
+                null -> JsonArray(emptyList())
+                is JsonArray -> i
+                else -> throw IOException("unexpected items in listing")
+            }
+            for (element in items) {
+                val o = element as? JsonObject ?: continue // a malformed entry is skipped, not fatal
                 out += DiskItem(
-                    name = o["name"]?.jsonPrimitive?.contentOrNull ?: continue,
-                    isDir = o["type"]?.jsonPrimitive?.contentOrNull == "dir",
-                    size = o["size"]?.jsonPrimitive?.longOrNull ?: 0,
-                    sha256 = o["sha256"]?.jsonPrimitive?.contentOrNull,
+                    name = (o["name"] as? JsonPrimitive)?.contentOrNull ?: continue,
+                    isDir = (o["type"] as? JsonPrimitive)?.contentOrNull == "dir",
+                    size = (o["size"] as? JsonPrimitive)?.longOrNull ?: 0,
+                    sha256 = (o["sha256"] as? JsonPrimitive)?.contentOrNull,
                 )
             }
             offset += items.size
-            val total = embedded["total"]?.jsonPrimitive?.longOrNull ?: offset.toLong()
-            if (items.isEmpty() || offset >= total) return out
+            val total = (embedded["total"] as? JsonPrimitive)?.longOrNull
+            if (items.isEmpty() || (total != null && offset >= total) || (total == null && items.size < pageSize)) return out
         }
     }
 
@@ -51,13 +61,13 @@ class YandexDisk(
     }
 
     override suspend fun upload(path: String, bytes: ByteArray) {
-        val link = json(api("GET", "/resources/upload?path=${enc(path)}&overwrite=true"))
+        val link = json(api("GET", "/resources/upload?path=${enc(path)}&overwrite=true", path))
         val r = http.request(method(link, "PUT"), href(link), body = bytes)
         if (r.code !in 200..299) throw fail(r, path)
     }
 
     override suspend fun download(path: String): ByteArray {
-        val link = json(api("GET", "/resources/download?path=${enc(path)}"))
+        val link = json(api("GET", "/resources/download?path=${enc(path)}", path))
         val r = http.request(method(link, "GET"), href(link))
         if (r.code != 200) throw fail(r, path)
         return r.body
@@ -69,9 +79,9 @@ class YandexDisk(
         throw fail(r, path)
     }
 
-    private suspend fun api(method: String, pathAndQuery: String): HttpResponse {
+    private suspend fun api(method: String, pathAndQuery: String, path: String): HttpResponse {
         val r = raw(method, pathAndQuery)
-        if (r.code !in 200..299) throw fail(r, pathAndQuery)
+        if (r.code !in 200..299) throw fail(r, path)
         return r
     }
 
@@ -82,7 +92,7 @@ class YandexDisk(
         const val API_BASE = "https://cloud-api.yandex.net/v1/disk"
         private const val FIELDS = "_embedded.items.name,_embedded.items.type,_embedded.items.size,_embedded.items.sha256,_embedded.total"
 
-        private fun enc(s: String) = URLEncoder.encode(s, Charsets.UTF_8)
+        private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
         private fun json(r: HttpResponse): JsonObject = try {
             Json.parseToJsonElement(r.text()).jsonObject
