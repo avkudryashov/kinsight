@@ -4,6 +4,7 @@ import app.kinsight.core.crypto.CryptoException
 import app.kinsight.core.crypto.Hpke
 import app.kinsight.core.crypto.HpkeSealed
 import app.kinsight.core.crypto.Primitives
+import app.kinsight.core.crypto.toHex
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.DeviceKeys
@@ -59,6 +60,12 @@ object GroupKey {
         val holders = r.keys.map { it.device_id }.toSet()
         return membership.departed.keys.any { it.bytes().toByteString() in holders }
     }
+
+    /**
+     * Tells two keys of one generation apart (two admins rotating at once each create one; Membership keeps one of them).
+     * The first 8 bytes of SHA-256, hex; kept only in the local cursor.
+     */
+    fun fingerprint(groupKey: ByteArray): String = Primitives.sha256(groupKey).copyOf(8).toHex()
 
     fun packKey(groupKey: ByteArray): ByteArray = Primitives.hmacSha256(groupKey, PACK_LABEL)
 

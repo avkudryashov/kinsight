@@ -86,9 +86,9 @@ class PackCodecTest {
     }
 
     @Test
-    fun wrongKeyForTheGenerationIsRejected() {
+    fun wrongKeyForTheGenerationIsAKeyMismatch() {
         val pack = annaPack(epoch = 0, key = Primitives.randomBytes(32))
-        assertIs<PackOutcome.Rejected>(PackCodec.open(pack, ring, genesis.groupId, annaKeys.deviceId, membership))
+        assertEquals(0, assertIs<PackOutcome.KeyMismatch>(PackCodec.open(pack, ring, genesis.groupId, annaKeys.deviceId, membership)).epoch)
     }
 
     @Test
@@ -97,11 +97,12 @@ class PackCodecTest {
     }
 
     @Test
-    fun tamperedCiphertextIsRejected() {
+    fun tamperedCiphertextDoesNotOpen() {
         val file = PackFile.ADAPTER.decode(annaPack())
         val ct = file.ciphertext.toByteArray().also { it[0] = (it[0].toInt() xor 1).toByte() }
         val bad = PackFile.ADAPTER.encode(file.copy(ciphertext = ct.toByteString()))
-        assertIs<PackOutcome.Rejected>(PackCodec.open(bad, ring, genesis.groupId, annaKeys.deviceId, membership))
+        // Indistinguishable from another key of the same generation: not final, retried when the ring's key changes.
+        assertIs<PackOutcome.KeyMismatch>(PackCodec.open(bad, ring, genesis.groupId, annaKeys.deviceId, membership))
     }
 
     @Test

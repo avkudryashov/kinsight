@@ -25,6 +25,13 @@ sealed interface PackOutcome {
     /** Sealed with a key generation this device does not hold (it left before it, or joined after and the author has not re-encrypted yet). */
     class KeyUnknown(val epoch: Int) : PackOutcome
 
+    /**
+     * Sealed with a generation this device holds, but the ciphertext does not open under its key of it: another key of the
+     * same generation (two admins rotated at once and this device holds the other one) or a damaged file. Not final: it
+     * may open once the ring's key for [epoch] changes.
+     */
+    class KeyMismatch(val epoch: Int) : PackOutcome
+
     class Rejected(val reason: String) : PackOutcome
 }
 
@@ -114,7 +121,7 @@ object PackCodec {
         val body = try {
             Primitives.chachaOpen(GroupKey.packKey(groupKey), pf.nonce.toByteArray(), headerBytes, pf.ciphertext.toByteArray())
         } catch (e: CryptoException) {
-            return PackOutcome.Rejected("ciphertext does not open")
+            return PackOutcome.KeyMismatch(header.key_epoch)
         }
         if (!Primitives.sha256(body).contentEquals(header.body_hash.toByteArray())) return PackOutcome.Rejected("body hash")
         val entries = try {

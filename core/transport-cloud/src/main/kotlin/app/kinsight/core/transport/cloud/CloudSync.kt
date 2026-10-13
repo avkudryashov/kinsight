@@ -92,7 +92,7 @@ class CloudSync(
         // Spec §11: our folder lost what we uploaded (deleted in the Disk UI, or a new storage): upload everything again.
         if (cursor.uploadedUpTo > 0 && listing[self].orEmpty().none { it.range.last >= cursor.uploadedUpTo }) {
             log("own packs up to ${cursor.uploadedUpTo} are gone: uploading the whole log again")
-            cursor = cursor.copy(uploadedUpTo = 0, ownEpochs = emptySet())
+            cursor = cursor.copy(uploadedUpTo = 0, ownKeys = emptySet())
             cursors.save(cursor)
         }
         rotationEntry = membership.effectiveEntries.firstOrNull { it.body.membership_op?.rotate?.epoch == GroupKey.currentEpoch(membership) && it.body.membership_op?.rotate?.epoch != 0 }
@@ -105,11 +105,20 @@ class CloudSync(
         return if (storageFull) CloudResult.StorageFull else CloudResult.Synced(uploaded, received)
     }
 
-    /** The newest generation, if it was sealed to us, joins the ring. */
+    /**
+     * The newest generation, if it was sealed to us, joins the ring. It replaces a key we hold for that generation: when two
+     * admins rotate at once, each holds its own key until it learns that Membership kept the other one.
+     */
     private suspend fun absorbRotation(membership: MembershipState) {
         val (epoch, key) = GroupKey.open(keys, membership) ?: return
-        if (epoch !in ring.keys()) ring.put(epoch, key)
+        val held = ring.keys()[epoch]
+        if (held == null || !held.contentEquals(key)) {
+            if (held != null) log("generation $epoch: another admin's key won, switching to it")
+            ring.put(epoch, key)
+        }
     }
+
+    private suspend fun keyId(epoch: Int) = KeyId(epoch, GroupKey.fingerprint(ring.keys().getValue(epoch)))
 
     /** Seal with the group's newest generation when we hold it, else with the newest we hold. */
     private suspend fun writeEpoch(membership: MembershipState): Int? {
@@ -147,6 +156,7 @@ class CloudSync(
         val upTo = store.versionVector()[self]
         if (upTo <= start.uploadedUpTo) return 0 to start
         val groupKey = ring.keys().getValue(epoch)
+        val keyId = keyId(epoch)
         var cursor = start
         var packs = 0
         for ((range, entries) in chunks(start.uploadedUpTo + 1, upTo)) {
@@ -157,7 +167,7 @@ class CloudSync(
                 storageFull = true
                 break
             }
-            cursor = cursor.copy(uploadedUpTo = range.last, ownEpochs = cursor.ownEpochs + epoch)
+            cursor = cursor.copy(uploadedUpTo = range.last, ownKeys = cursor.ownKeys + keyId)
             cursors.save(cursor)
             packs++
         }
@@ -216,7 +226,9 @@ class CloudSync(
      */
     private suspend fun compactIfDue(epoch: Int, start: CloudCursor, force: Boolean): CloudCursor {
         val now = clock()
-        val stale = start.ownEpochs.any { it != epoch }
+        val current = keyId(epoch)
+        // An older generation, or another key of this one (a concurrent rotation we lost): re-encrypt everything.
+        val stale = start.ownKeys.any { it != current }
         if (!force && !stale && now - start.lastCompactionMs < COMPACTION_INTERVAL_MS) return start
         val done = start.copy(lastCompactionMs = now)
         val dir = CloudPaths.deviceDir(groupId, self)
@@ -256,7 +268,7 @@ class CloudSync(
                 // already gone
             }
         }
-        return done.copy(ownEpochs = setOf(epoch)).also { cursors.save(it) }
+        return done.copy(ownKeys = setOf(current)).also { cursors.save(it) }
     }
 
     // ---- download ----
@@ -269,7 +281,7 @@ class CloudSync(
      */
     private inline fun <T : Any> guarded(
         seen: MutableMap<String, Int>,
-        deferred: MutableMap<String, Int>,
+        deferred: MutableMap<String, DeferredPack>,
         device: DeviceId,
         p: PackItem,
         block: () -> T?,
@@ -285,21 +297,23 @@ class CloudSync(
         throw e // network trouble: the whole run is retried
     } catch (e: Exception) {
         log("pack ${device.hex.take(8)}/${p.name} skipped: $e")
-        key(device, p).let { seen[it] = -1; deferred.remove(it) }
+        key(device, p).let { seen[it] = REJECTED; deferred.remove(it) }
         null
     }
 
     private suspend fun download(listing: Map<DeviceId, List<PackItem>>, start: MembershipState, cursor: CloudCursor): Pair<Int, CloudCursor> {
         var membership = start
         val seen = cursor.seen.toMutableMap()
-        // Deferred packs (author or key generation unknown) are not final: kept apart from [seen], retried once the ring holds their epoch.
+        // Deferred packs (author, key generation or key unknown) are not final: kept apart from [seen], retried once the ring
+        // holds a key that may open them.
         val deferred = cursor.deferred.toMutableMap()
         val vector = store.versionVector()
+        val ringAtStart = ring.keys()
         var pending = listing.filterKeys { it != self }
             .flatMap { (device, items) -> items.map { device to it } }
             .filter { (device, p) ->
                 val k = key(device, p)
-                k !in seen && (k !in deferred || deferred.getValue(k) in ring.keys())
+                k !in seen && deferred[k]?.let { mayOpen(it, ringAtStart) } != false
             }
             .sortedWith(compareBy({ it.first }, { it.second.range.first }))
         var received = 0
@@ -320,7 +334,7 @@ class CloudSync(
                 } ?: continue
                 if (p.range.last <= vector[device]) {
                     // Nothing to ingest, but the file still pins its key generation.
-                    seen[k] = fetched.epoch ?: -1
+                    seen[k] = fetched.epoch ?: REJECTED
                     deferred.remove(k)
                     continue
                 }
@@ -331,16 +345,21 @@ class CloudSync(
                 } ?: continue
                 when (outcome) {
                     is PackOutcome.UnknownAuthor -> {
-                        deferred[k] = fetched.epoch ?: -1
+                        deferred[k] = DeferredPack(fetched.epoch ?: -1)
                         next += device to p
                     }
                     is PackOutcome.KeyUnknown -> {
-                        deferred[k] = outcome.epoch
+                        deferred[k] = DeferredPack(outcome.epoch)
+                        next += device to p
+                    }
+                    is PackOutcome.KeyMismatch -> {
+                        log("pack ${device.hex.take(8)}/${p.name} does not open under our key of generation ${outcome.epoch}")
+                        deferred[k] = DeferredPack(outcome.epoch, GroupKey.fingerprint(held.getValue(outcome.epoch)))
                         next += device to p
                     }
                     is PackOutcome.Rejected -> {
                         log("rejected pack ${device.hex.take(8)}/${p.name}: ${outcome.reason}")
-                        seen[k] = -1
+                        seen[k] = REJECTED
                         deferred.remove(k)
                     }
                     is PackOutcome.Opened -> {
@@ -362,7 +381,7 @@ class CloudSync(
         val keptDeferred = deferred.filterKeys { it in present && it !in keptSeen }
         // Spec §5: keep a previous generation only while files sealed with it remain (and the CloudAccess is sealed with it).
         if (present.all { it in keptSeen || it in keptDeferred }) {
-            val inUse = (keptSeen.values + keptDeferred.values).filter { it >= 0 }.toSet()
+            val inUse = (keptSeen.values + keptDeferred.values.map { it.epoch }).filter { it >= 0 }.toSet()
             ring.retain(inUse + setOfNotNull(writeEpoch(membership), accessEpoch(membership)))
         }
         return received to cursor.copy(seen = keptSeen, deferred = keptDeferred)
@@ -385,13 +404,22 @@ class CloudSync(
         return newest?.body?.cloud_access?.key_epoch
     }
 
+    private fun mayOpen(d: DeferredPack, ring: Map<Int, ByteArray>): Boolean {
+        val key = ring[d.epoch] ?: return false
+        return d.failedKey == null || GroupKey.fingerprint(key) != d.failedKey
+    }
+
     /**
      * A pack sealed with a generation we lack may carry, in clear, the rotation op that introduced it. Signed and checked
-     * against membership like any op (admin-only, HPKE-sealed keys), so it only helps a member it was sealed to.
+     * against membership like any op (admin-only, HPKE-sealed keys), so it only helps a member it was sealed to. An op of
+     * a generation we already hold still counts: another admin may have created it at the same time, and Membership may
+     * keep that one.
      */
     private suspend fun learnKeyUpdates(offered: List<DecodedEntry>, membership: MembershipState): MembershipState {
-        val held = ring.keys().keys
-        val updates = offered.filter { MembershipLimits.withinLimits(it) && it.body.membership_op!!.rotate!!.epoch !in held }
+        val current = GroupKey.currentEpoch(membership)
+        val updates = offered.filter {
+            MembershipLimits.withinLimits(it) && it.body.membership_op!!.rotate!!.epoch >= current && it !in membership.effectiveEntries
+        }
         if (updates.isEmpty()) return membership
         val next = Membership.compute(groupId, store.membershipEntries() + updates) ?: return membership
         if (next.discoveryRotation == membership.discoveryRotation) return membership
@@ -448,5 +476,8 @@ class CloudSync(
         const val PAGE = 500
         const val MAX_ROUNDS = 3
         const val COMPACTION_INTERVAL_MS = 24L * 60 * 60 * 1000
+
+        /** [CloudCursor.seen] value of a pack that did not open and never will. */
+        const val REJECTED = -1
     }
 }
