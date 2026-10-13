@@ -16,8 +16,8 @@ import app.kinsight.core.sync.TODAY
 import app.kinsight.core.sync.summary
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.yield
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -252,7 +252,7 @@ class CloudSyncTest {
         val sync = kid.sync(gated)
         val a = launch { sync.run() }
         val b = launch { sync.run() }
-        runCurrent()
+        yield() // both runs start: one waits at the gate, the other at the mutex
         gated.gate.complete(Unit)
         a.join()
         b.join()
