@@ -1,6 +1,7 @@
 package app.kinsight.core.model
 
 import app.kinsight.core.model.proto.CloudAccess
+import app.kinsight.core.model.proto.CloudGrant
 import app.kinsight.core.model.proto.CloudHandoff
 import app.kinsight.core.model.proto.PairWelcome
 import app.kinsight.core.model.proto.Location
@@ -50,5 +51,12 @@ class WireV3Test {
             assertFalse(key.hex() in text, text)
         }
         assertFalse(key.hex() in welcome)
+    }
+
+    /** Final review Minor 4: the CloudAccess plaintext and the owner handover hide both tokens too. */
+    @Test
+    fun cloudGrantTokensNeverShowInToString() {
+        val text = CloudGrant(access_token = "y0_SECRET_ACCESS", refresh_token = "1:SECRET_REFRESH", expires_at_ms = 5).toString()
+        assertFalse("SECRET" in text, text)
     }
 }

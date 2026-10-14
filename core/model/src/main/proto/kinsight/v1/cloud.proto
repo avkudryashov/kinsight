@@ -4,10 +4,12 @@ package kinsight.v1;
 
 option java_package = "app.kinsight.core.model.proto";
 
+import "kinsight/v1/options.proto";
+
 // Plaintext of CloudAccess.ciphertext, and of the direct owner handover (Y3).
 message CloudGrant {
-  string access_token = 1;
-  string refresh_token = 2;  // only in a direct handover to the device taking the owner role (spec §6); never in CloudAccess
+  string access_token = 1 [(kinsight.v1.redacted) = true];
+  string refresh_token = 2 [(kinsight.v1.redacted) = true];  // only in a direct handover to the device taking the owner role (spec §6); never in CloudAccess
   int64 expires_at_ms = 3;
 }
 
