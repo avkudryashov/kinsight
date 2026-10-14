@@ -2,7 +2,18 @@ package app.kinsight.core.transport.cloud
 
 import java.io.IOException
 
-class DiskItem(val name: String, val isDir: Boolean, val size: Long, val sha256: String?)
+/**
+ * [sha256], [md5] and [modified] are what the Disk reports to tell two versions of one file apart; any may be missing.
+ * The size never does: a pack sealed again under the same key keeps it.
+ */
+class DiskItem(
+    val name: String,
+    val isDir: Boolean,
+    val size: Long,
+    val sha256: String?,
+    val md5: String? = null,
+    val modified: String? = null,
+)
 
 /** Disk failures the sync reacts to (spec §11); plain IOExceptions are network failures. */
 sealed class DiskException(message: String) : IOException(message) {

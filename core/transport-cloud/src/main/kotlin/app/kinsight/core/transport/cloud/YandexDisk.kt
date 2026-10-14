@@ -45,6 +45,8 @@ class YandexDisk(
                     isDir = (o["type"] as? JsonPrimitive)?.contentOrNull == "dir",
                     size = (o["size"] as? JsonPrimitive)?.longOrNull ?: 0,
                     sha256 = (o["sha256"] as? JsonPrimitive)?.contentOrNull,
+                    md5 = (o["md5"] as? JsonPrimitive)?.contentOrNull,
+                    modified = (o["modified"] as? JsonPrimitive)?.contentOrNull,
                 )
             }
             offset += items.size
@@ -90,7 +92,8 @@ class YandexDisk(
 
     companion object {
         const val API_BASE = "https://cloud-api.yandex.net/v1/disk"
-        private const val FIELDS = "_embedded.items.name,_embedded.items.type,_embedded.items.size,_embedded.items.sha256,_embedded.total"
+        private const val FIELDS = "_embedded.items.name,_embedded.items.type,_embedded.items.size,_embedded.items.sha256," +
+            "_embedded.items.md5,_embedded.items.modified,_embedded.total"
 
         private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 

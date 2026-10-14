@@ -1,5 +1,6 @@
 package app.kinsight.core.transport.cloud
 
+import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -104,5 +105,18 @@ class YandexDiskTest {
     @Test
     fun notFoundCarriesTheDiskPath() = runTest {
         assertEquals("app:/missing", assertFailsWith<DiskException.NotFound> { disk.list("app:/missing") }.path)
+    }
+
+    @Test
+    fun listingKeepsMd5AndModifiedForAVersionWithoutSha256() = runTest {
+        y.on({ it.path == "/v1/disk/resources" }) { _, ex ->
+            y.respond(ex, 200, """{"_embedded":{"items":[{"name":"x.kb","type":"file","size":3,"md5":"aa","modified":"2026-10-14T10:00:00+00:00"}],"total":1}}""")
+        }
+        val item = disk.list("app:/Kinsight/g").single()
+        assertNull(item.sha256)
+        assertEquals("aa", item.md5)
+        assertEquals("2026-10-14T10:00:00+00:00", item.modified)
+        val fields = y.requests.single().query["fields"]!!
+        assertTrue("_embedded.items.md5" in fields && "_embedded.items.modified" in fields, fields)
     }
 }

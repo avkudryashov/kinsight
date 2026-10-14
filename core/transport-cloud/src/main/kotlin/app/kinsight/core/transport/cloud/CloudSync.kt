@@ -1,5 +1,6 @@
 package app.kinsight.core.transport.cloud
 
+import app.kinsight.core.crypto.toHex
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.DeviceKeys
@@ -147,7 +148,7 @@ class CloudSync(
                 continue
             }
             out[device] = items.mapNotNull { i ->
-                if (i.isDir) null else CloudPaths.parsePack(i.name)?.let { PackItem(i.name, i.sha256 ?: "size${i.size}", it, i.size) }
+                if (i.isDir) null else CloudPaths.parsePack(i.name)?.let { PackItem(i.name, versionOf(i), it, i.size) }
             }
         }
         return out
@@ -258,8 +259,9 @@ class CloudSync(
         val written = mutableMapOf<String, KeyId>()
         try {
             for ((name, chunk) in planned) {
-                // A merge keeps a tail file whose range comes out the same: it is already as compact as the caps allow.
-                if (!full && name in replacedNames) continue
+                // A merge keeps a tail file whose range comes out the same, but only one recorded with the current key: an
+                // unrecorded file of that name is written again and recorded, or it would stay out of ownPacks for good.
+                if (!full && name in replacedNames && start.ownPacks[name] == current) continue
                 val (range, entries) = chunk
                 uploadPack(name, PackCodec.seal(keys, groupId, entries, range.first, range.last, epoch, groupKey, now, keyUpdates(epoch)))
                 written[name] = current
@@ -321,12 +323,16 @@ class CloudSync(
         val deferred = cursor.deferred.toMutableMap()
         val vector = store.versionVector()
         val ringAtStart = ring.keys()
+        // Spec §5: a covered pack's generation only decides which keys the ring keeps. Keys we write with or need for the
+        // access are kept anyway, so it matters only while the ring holds another one.
+        val pinned = setOfNotNull(writeEpoch(start), accessEpoch(start))
+        fun generationMatters(held: Map<Int, ByteArray>) = (held.keys - pinned).isNotEmpty()
         var pending = listing.filterKeys { it != self }
             .flatMap { (device, items) -> items.map { device to it } }
             .filter { (device, p) ->
                 val k = key(device, p)
-                val unread = seen[k] == COVERED_UNREAD && ringAtStart.size > 1 // its generation matters now
-                (k !in seen || unread) && deferred[k]?.let { mayOpen(it, ringAtStart) } != false
+                val unread = seen[k] == COVERED_UNREAD && generationMatters(ringAtStart)
+                (k !in seen || unread) && retryNow(deferred[k], ringAtStart, membership)
             }
             .sortedWith(compareBy({ it.first }, { it.second.range.first }))
         var received = 0
@@ -338,7 +344,7 @@ class CloudSync(
                 // Everything in it is ours already (its name says so). Its generation only decides which keys the ring keeps,
                 // which cannot matter while the ring holds one: skip the download and read it when the ring holds more.
                 val covered = p.range.last <= vector[device]
-                if (covered && ring.keys().size <= 1) {
+                if (covered && !generationMatters(ring.keys())) {
                     seen[k] = COVERED_UNREAD
                     deferred.remove(k)
                     continue
@@ -360,7 +366,7 @@ class CloudSync(
                 } ?: continue
                 when (outcome) {
                     is PackOutcome.UnknownAuthor -> {
-                        deferred[k] = DeferredPack(fetched.epoch ?: -1)
+                        deferred[k] = DeferredPack(fetched.epoch ?: -1, membershipHash = membershipHash(membership))
                         next += device to p
                     }
                     is PackOutcome.KeyUnknown -> if (covered) {
@@ -396,17 +402,25 @@ class CloudSync(
             }
             // No progress (nothing opened this round): they wait in [deferred] for a key or a membership change.
             if (next.size == pending.size) break
-            pending = next
+            // Only what may open now goes round again: a key that did not open a pack still does not.
+            val held = ring.keys()
+            pending = next.filter { (device, p) -> retryNow(deferred[key(device, p)], held, membership) }
         }
-        val present = listing.filterKeys { it != self }.flatMap { (device, items) -> items.map { key(device, it) } }.toSet()
-        val keptSeen = seen.filterKeys { it in present }
-        val keptDeferred = deferred.filterKeys { it in present && it !in keptSeen }
+        val listed = listing.filterKeys { it != self }.flatMap { (device, items) -> items.map { device to key(device, it) } }
+        val allKeys = listed.map { it.second }.toSet()
+        val keptSeen = seen.filterKeys { it in allKeys }
+        val keptDeferred = deferred.filterKeys { it in allKeys && it !in keptSeen }
         // Spec §5: keep a previous generation only while files sealed with it remain (and the CloudAccess is sealed with it).
-        // A covered pack skipped unread has an unknown generation: it blocks this once the ring holds more than one.
-        val unread = ring.keys().size > 1 && keptSeen.values.any { it == COVERED_UNREAD }
-        if (!unread && present.all { it in keptSeen || it in keptDeferred }) {
-            val inUse = (keptSeen.values + keptDeferred.values.map { it.epoch }).filter { it >= 0 }.toSet()
-            ring.retain(inUse + setOfNotNull(writeEpoch(membership), accessEpoch(membership)))
+        // Only packs of members count: a folder planted by a token holder must not keep an old key alive. A covered pack
+        // skipped unread has an unknown generation: it blocks dropping while the ring holds a key nothing pins.
+        val members = membership.active.keys + membership.departed.keys
+        val memberKeys = listed.filter { it.first in members }.map { it.second }.toSet()
+        val keep = setOfNotNull(writeEpoch(membership), accessEpoch(membership))
+        val unread = (ring.keys().keys - keep).isNotEmpty() && keptSeen.filterKeys { it in memberKeys }.values.any { it == COVERED_UNREAD }
+        if (!unread && memberKeys.all { it in keptSeen || it in keptDeferred }) {
+            val inUse = (keptSeen.filterKeys { it in memberKeys }.values + keptDeferred.filterKeys { it in memberKeys }.values.map { it.epoch })
+                .filter { it >= 0 }.toSet()
+            ring.retain(inUse + keep)
         }
         return received to cursor.copy(seen = keptSeen, deferred = keptDeferred)
     }
@@ -493,6 +507,23 @@ class CloudSync(
     }
 
     private fun key(device: DeviceId, p: PackItem) = "${device.hex}/${p.name}/${p.sha}"
+
+    /**
+     * What tells two versions of one pack apart: the Disk's sha256, else its md5, else its modified time. A listing with
+     * none of them (never seen from Yandex) gets a key of this run: such a pack is read again on every run, never trusted
+     * by its size.
+     */
+    private fun versionOf(i: DiskItem): String =
+        i.sha256 ?: i.md5?.let { "md5:$it" } ?: i.modified?.let { "mod:$it" } ?: "run:${clock()}"
+
+    private fun membershipHash(m: MembershipState): String = Membership.hash(groupId, m.effectiveEntries).copyOf(8).toHex()
+
+    /** A deferred pack goes round again only when something changed that may open it. */
+    private fun retryNow(d: DeferredPack?, held: Map<Int, ByteArray>, membership: MembershipState): Boolean = when {
+        d == null -> true
+        d.membershipHash != null -> d.membershipHash != membershipHash(membership)
+        else -> mayOpen(d, held)
+    }
 
     companion object {
         const val MAX_PACK_ENTRIES = 5_000

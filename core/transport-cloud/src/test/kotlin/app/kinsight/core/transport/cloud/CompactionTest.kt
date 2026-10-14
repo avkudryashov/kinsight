@@ -1,5 +1,6 @@
 package app.kinsight.core.transport.cloud
 
+import app.kinsight.core.model.storageOwnerEntry
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.addMember
@@ -224,5 +225,44 @@ class CompactionTest {
 
     private class FullDisk(private val inner: DiskApi) : DiskApi by inner {
         override suspend fun upload(path: String, bytes: ByteArray) = throw DiskException.StorageFull()
+    }
+
+    @Test
+    fun anUntrackedFileOfAKeptNameIsRewrittenAndRecorded() = runTest {
+        val (_, kid) = family(DeviceRole.CHILD)
+        var now = 10L
+        kid.publish(kid.author.summary("2026-10-01", 1), kid.author.summary("2026-10-02", 1))
+        kid.sync(disk, { now }, maxPackEntries = 2).run() // 1-2
+        repeat(2) {
+            kid.publish(kid.author.summary("2026-10-0${it + 3}", 1))
+            kid.sync(disk, { now }, maxPackEntries = 2).run() // 3-3, then 4-4
+        }
+        val first = CloudPaths.packName(1, 2)
+        kid.cursor.cursor = kid.cursor.cursor.copy(ownPacks = kid.cursor.cursor.ownPacks - first) // written, never recorded
+        now += day
+        kid.sync(disk, { now }, maxPackEntries = 2).run() // the small tail 1-2, 3-3, 4-4 becomes 1-2 and 3-4
+        assertEquals(setOf(first, CloudPaths.packName(3, 4)), kid.cursor.cursor.ownPacks.keys)
+    }
+
+    @Test
+    fun aCoveredPackStaysUnreadWhileTheRingHoldsOnlyPinnedKeys() = runTest {
+        val (mom, kid) = family(DeviceRole.CHILD)
+        mom.publish(mom.author.storageOwnerEntry(mom.id, ByteArray(16) { 1 }, 1))
+        mom.publish(CloudAccessView.issue(mom.author, mom.membership(), 0, GEN0, "AT", expiresAtMs = 9))
+        mom.publish(GroupKey.rotate(mom.author, mom.membership())) // the access stays under generation 0
+        var now = 10L
+        mom.sync(disk, { now }).run()
+        kid.sync(disk, { now }).run() // learns generation 1
+        repeat(2) {
+            kid.publish(kid.author.summary("2026-10-0${it + 1}", 1))
+            kid.sync(disk, { now }).run()
+        }
+        mom.sync(disk, { now }).run()
+        assertEquals(setOf(0, 1), mom.ring.keys().keys) // 0 pinned by the access, 1 by writing
+        now += day
+        kid.sync(disk, { now }).run() // merges 1-1 and 2-2 into 1-2, which Mom already holds
+        val before = disk.downloads.size
+        mom.sync(disk, { now }).run()
+        assertEquals(before, disk.downloads.size, "every key in the ring is pinned: a covered pack's generation cannot matter")
     }
 }

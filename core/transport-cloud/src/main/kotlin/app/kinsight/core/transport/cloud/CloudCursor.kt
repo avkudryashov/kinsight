@@ -6,8 +6,10 @@ data class KeyId(val epoch: Int, val fingerprint: String)
 /**
  * A pack that could not be opened yet, sealed with generation [epoch] (-1 when unknown). [failedKey]: the fingerprint of our
  * key of [epoch] under which the ciphertext did not open; the pack is retried only once the ring holds another key for it.
+ * [membershipHash]: set for an unknown author, the membership it was unknown in; retried only once membership changed (a
+ * token holder can plant a folder of its own, and it must not be downloaded on every run).
  */
-data class DeferredPack(val epoch: Int, val failedKey: String? = null)
+data class DeferredPack(val epoch: Int, val failedKey: String? = null, val membershipHash: String? = null)
 
 /**
  * Per-device cloud progress. [uploadedUpTo]: own seqs up to here are in packs on the Disk. [seen]: packs already handled,

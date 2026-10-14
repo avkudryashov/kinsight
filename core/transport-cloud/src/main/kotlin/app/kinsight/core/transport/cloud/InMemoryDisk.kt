@@ -2,6 +2,7 @@ package app.kinsight.core.transport.cloud
 
 import app.kinsight.core.crypto.Primitives
 import app.kinsight.core.crypto.toHex
+import java.security.MessageDigest
 import java.util.TreeMap
 import java.util.TreeSet
 
@@ -10,6 +11,8 @@ class InMemoryDisk : DiskApi {
     private val lock = Any()
     private val files = TreeMap<String, ByteArray>()
     private val dirs = TreeSet<String>().apply { add("app:") }
+    private val stamps = HashMap<String, Long>()
+    private var writes = 0L
     private val downloadLog = mutableListOf<String>()
 
     /** Test seam: after this many more successful uploads, every upload fails with an IOException. */
@@ -23,7 +26,12 @@ class InMemoryDisk : DiskApi {
         val subdirs = dirs.filter { it.startsWith(prefix) && '/' !in it.removePrefix(prefix) }
             .map { DiskItem(it.removePrefix(prefix), isDir = true, size = 0, sha256 = null) }
         val own = files.filterKeys { it.startsWith(prefix) && '/' !in it.removePrefix(prefix) }
-            .map { (p, b) -> DiskItem(p.removePrefix(prefix), isDir = false, size = b.size.toLong(), sha256 = Primitives.sha256(b).toHex()) }
+            .map { (p, b) ->
+                DiskItem(
+                    p.removePrefix(prefix), isDir = false, size = b.size.toLong(), sha256 = Primitives.sha256(b).toHex(),
+                    md5 = MessageDigest.getInstance("MD5").digest(b).toHex(), modified = "w${stamps[p]}",
+                )
+            }
         subdirs + own
     }
 
@@ -37,6 +45,7 @@ class InMemoryDisk : DiskApi {
         if (failUploadsAfter == 0) throw java.io.IOException("injected upload failure")
         if (parent(path) !in dirs) throw DiskException.Conflict("DiskPathDoesntExistsError")
         files[path] = bytes.copyOf()
+        stamps[path] = ++writes
         failUploadsAfter = failUploadsAfter?.minus(1)
     }
 
@@ -56,6 +65,7 @@ class InMemoryDisk : DiskApi {
 
     private fun removeTree(path: String) {
         files.keys.removeIf { it == path || it.startsWith("$path/") }
+        stamps.keys.removeIf { it == path || it.startsWith("$path/") }
         dirs.removeIf { it == path || it.startsWith("$path/") }
     }
 

@@ -1,5 +1,8 @@
 package app.kinsight.core.transport.cloud
 
+import kotlin.test.assertFalse
+import java.security.MessageDigest
+import app.kinsight.core.crypto.toHex
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.DeviceKeys
@@ -316,4 +319,86 @@ class CloudSyncTest {
     private class FullDisk(private val inner: DiskApi) : DiskApi by inner {
         override suspend fun upload(path: String, bytes: ByteArray) = throw DiskException.StorageFull()
     }
+
+    @Test
+    fun aResealedPackOfTheSameSizeIsANewVersionWithoutSha256() = runTest {
+        val (mom, kid) = family(DeviceRole.CHILD)
+        val md5Only = Md5OnlyDisk(disk)
+        kid.publish(kid.author.summary("2026-10-13", 1))
+        kid.sync(md5Only).run()
+        mom.sync(md5Only).run()
+        val dir = CloudPaths.deviceDir(kid.store.groupId, kid.id)
+        val before = disk.files(dir).values.single()
+        kid.sync(md5Only).run(forceCompaction = true) // the same range sealed again: same name, same size, new bytes
+        val after = disk.files(dir).values.single()
+        assertEquals(before.size, after.size)
+        assertFalse(before.contentEquals(after))
+        mom.sync(md5Only).run()
+        assertEquals(listOf("${kid.id.hex}/${CloudPaths.packName(1, 1)}/md5:${md5(after)}"), mom.cursor.cursor.seen.keys.toList())
+    }
+
+    @Test
+    fun aMismatchedPackIsNotDownloadedAgainInTheSameRun() = runTest {
+        val (mom, dad, kid) = family(DeviceRole.PARENT, DeviceRole.CHILD)
+        val grant = mom.author.grantAdminEntry(dad.id)
+        mom.publish(grant)
+        dad.store.storeMembership(listOf(grant))
+        // Grandma's folder must come before Dad's in the run: then a second round exists, the one that used to re-download.
+        val grandmaKeys = generateSequence { DeviceKeys.generate() }.first { it.deviceId < dad.id }
+        dad.publish(dad.author.addMember(grandmaKeys.sign.publicKey, grandmaKeys.dh.publicKey, "Grandma"))
+        dad.sync(disk).run()
+        val grandmaStore = InMemoryEntryStore(mom.store.groupId).also { it.storeMembership(dad.store.membershipEntries()) }
+        val grandma = Phone("grandma", grandmaKeys, EntryAuthor(mom.store.groupId, grandmaKeys, lastSeq = 0), grandmaStore, isChild = false, ring = InMemoryKeyRing(mapOf(0 to GEN0)))
+        grandma.publish(grandma.author.summary("2026-10-13", 2))
+        grandma.sync(disk).run()
+        kid.ring.put(0, ByteArray(32) { 9 }) // the kid seals with another key of generation 0
+        kid.publish(kid.author.summary("2026-10-13", 1))
+        kid.sync(disk).run()
+        mom.sync(disk).run()
+        val kidPack = "${CloudPaths.deviceDir(kid.store.groupId, kid.id)}/${CloudPaths.packName(1, 1)}"
+        assertEquals(1, disk.downloads.count { it == kidPack })
+        assertTrue(mom.store.liveEntries().any { it.author == grandma.id }, "the second round still ran")
+    }
+
+    @Test
+    fun aPlantedFolderIsNotDownloadedEveryRun() = runTest {
+        val (mom, _) = family(DeviceRole.CHILD)
+        plantStrangerPack(mom)
+        mom.sync(disk).run()
+        val before = disk.downloads.size
+        mom.sync(disk).run()
+        mom.sync(disk).run()
+        assertEquals(before, disk.downloads.size, "an unknown author is tried again only after membership changed")
+        mom.publish(mom.author.addMember(DeviceKeys.generate().sign.publicKey, DeviceKeys.generate().dh.publicKey, "Grandma"))
+        mom.sync(disk).run()
+        assertEquals(before + 1, disk.downloads.size, "membership changed: one more try")
+    }
+
+    @Test
+    fun aPlantedFolderDoesNotKeepAnOldKey() = runTest {
+        val (mom, _) = family(DeviceRole.CHILD)
+        plantStrangerPack(mom) // sealed with generation 0
+        mom.publish(GroupKey.rotate(mom.author, mom.membership()))
+        mom.sync(disk).run()
+        assertEquals(setOf(1), mom.ring.keys().keys)
+    }
+
+    /** A token holder that is no member writes a folder of its own, sealed with generation 0. */
+    private suspend fun plantStrangerPack(mom: Phone) {
+        val stranger = DeviceKeys.generate()
+        val g = mom.store.groupId
+        val entry = EntryAuthor(g, stranger, lastSeq = 0).summary("2026-10-13", 1)
+        val bytes = PackCodec.seal(stranger, g, listOf(entry), 1, 1, 0, GEN0, 1_000L)
+        val dir = CloudPaths.deviceDir(g, stranger.deviceId)
+        for (d in listOf(CloudPaths.APP_ROOT, CloudPaths.root(g), dir)) disk.mkdir(d)
+        disk.upload("$dir/${CloudPaths.packName(1, 1)}", bytes)
+    }
+
+    /** The listing as a Disk without sha256 reports it: md5 and modified only. */
+    private class Md5OnlyDisk(private val inner: DiskApi) : DiskApi by inner {
+        override suspend fun list(path: String): List<DiskItem> =
+            inner.list(path).map { DiskItem(it.name, it.isDir, it.size, sha256 = null, md5 = it.md5, modified = it.modified) }
+    }
+
+    private fun md5(b: ByteArray) = MessageDigest.getInstance("MD5").digest(b).toHex()
 }
