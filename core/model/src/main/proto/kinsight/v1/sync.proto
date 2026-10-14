@@ -4,6 +4,8 @@ package kinsight.v1;
 
 option java_package = "app.kinsight.core.model.proto";
 
+import "kinsight/v1/options.proto";
+
 message VectorItem {
   bytes author_id = 1;
   uint64 seq = 2;
@@ -60,7 +62,7 @@ message Reject {
 message CloudHandoff {
   uint64 storage_generation = 1;
   bytes storage_id = 2;
-  string access_token = 3;
+  string access_token = 3 [(kinsight.v1.redacted) = true];  // redacted: never in toString
   int64 expires_at_ms = 4;
 }
 

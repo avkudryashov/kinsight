@@ -4,8 +4,16 @@ import app.kinsight.core.model.Member
 import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.StorageOwnerState
 
-/** The shared storage access as one device hands it to another (spec §6 «Раздача»). Secret: never log [accessToken]. */
+/**
+ * The shared storage access as one device hands it to another (spec §6 «Раздача»). Secret: never log [accessToken].
+ * Always well formed: the constructor throws IllegalArgumentException otherwise; [of] is the non-throwing form for input
+ * from a peer or from storage.
+ */
 class HandedAccess(val storageGeneration: Long, val storageId: ByteArray, val accessToken: String, val expiresAtMs: Long) {
+    init {
+        require(wellFormed(storageGeneration, storageId, accessToken)) { "malformed handed access" }
+    }
+
     /** True for the storage [owner] names: same generation and storage id. */
     fun isFor(owner: StorageOwnerState?): Boolean =
         owner != null && owner.generation == storageGeneration && owner.storageId.toByteArray().contentEquals(storageId)
@@ -17,11 +25,14 @@ class HandedAccess(val storageGeneration: Long, val storageId: ByteArray, val ac
 
         /** Null unless well formed: generation at least 1, a 16-byte storage id, a token of 1..[MAX_TOKEN_CHARS] chars. */
         fun of(storageGeneration: Long, storageId: ByteArray, accessToken: String, expiresAtMs: Long): HandedAccess? =
-            if (storageGeneration >= 1 && storageId.size == 16 && accessToken.length in 1..MAX_TOKEN_CHARS) {
+            if (wellFormed(storageGeneration, storageId, accessToken)) {
                 HandedAccess(storageGeneration, storageId, accessToken, expiresAtMs)
             } else {
                 null
             }
+
+        private fun wellFormed(storageGeneration: Long, storageId: ByteArray, accessToken: String): Boolean =
+            storageGeneration >= 1 && storageId.size == 16 && accessToken.length in 1..MAX_TOKEN_CHARS
     }
 }
 
@@ -39,6 +50,8 @@ class WelcomeCloud(val keyEpoch: Int, val groupKey: ByteArray?, val access: Hand
  * once the peer is authenticated as an active member: [offer] gives what this device hands [peer] (only the storage owner
  * hands anything), [receive] gets what the peer handed, already well formed. The session itself does not check who the
  * sender is: what to trust (for example only access from the membership's StorageOwner) is the implementation's decision.
+ * An exception from either call (a local fault such as a vault write) is logged and contained: the session goes on
+ * without the hand-off, so a cloud-side problem never stops Bluetooth sync. Cancellation still propagates.
  */
 interface SessionHandoff {
     suspend fun offer(peer: Member, membership: MembershipState): HandedAccess?

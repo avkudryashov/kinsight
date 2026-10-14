@@ -1,12 +1,15 @@
 package app.kinsight.core.model
 
 import app.kinsight.core.model.proto.CloudAccess
+import app.kinsight.core.model.proto.CloudHandoff
+import app.kinsight.core.model.proto.PairWelcome
 import app.kinsight.core.model.proto.Location
 import app.kinsight.core.model.proto.SafeZone
 import app.kinsight.core.model.proto.StateEvent
 import okio.ByteString.Companion.toByteString
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 
 class WireV3Test {
@@ -34,5 +37,18 @@ class WireV3Test {
         val exit = author.create { it.copy(state_event = StateEvent(kind = StateEvent.Kind.ZONE_EXIT, from_ms = 1, zone_id = ByteArray(16).toByteString())) }
         assertEquals(EntryKind.STATE_EVENT, exit.kind)
         assertEquals(false, exit.isMembershipRelevant)
+    }
+
+    @Test
+    fun handedTokensAndKeysNeverShowInToString() {
+        val token = "y0_SECRET_TOKEN"
+        val key = ByteArray(32) { 0x5a }.toByteString()
+        val welcome = PairWelcome(key_epoch = 1, group_key = key, storage_id = ByteArray(16).toByteString(), access_token = token).toString()
+        val handoff = CloudHandoff(storage_generation = 1, storage_id = ByteArray(16).toByteString(), access_token = token).toString()
+        for (text in listOf(welcome, handoff)) {
+            assertFalse(token in text, text)
+            assertFalse(key.hex() in text, text)
+        }
+        assertFalse(key.hex() in welcome)
     }
 }

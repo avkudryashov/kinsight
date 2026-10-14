@@ -1,0 +1,12 @@
+syntax = "proto2";
+
+package kinsight.v1;
+
+option java_package = "app.kinsight.core.model.proto";
+
+import "google/protobuf/descriptor.proto";
+
+extend google.protobuf.FieldOptions {
+  // Wire prints a field marked redacted as "██" in the generated toString: secrets (tokens, keys) never reach a log.
+  optional bool redacted = 22300;
+}

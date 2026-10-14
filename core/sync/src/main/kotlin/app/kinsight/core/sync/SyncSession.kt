@@ -249,9 +249,10 @@ class SyncSession internal constructor(
         }
 
         // Spec §6 «Раздача» between paired devices (protocol 3): one CloudHandoff each way, empty when there is nothing.
-        // A protocol 2 peer never sees it. Who may hand what (only the storage owner) is the handoff's decision.
+        // A protocol 2 peer never sees it. Who may hand what (only the storage owner) is the handoff's decision. A local
+        // fault in the handoff is contained (logged without the token); a peer breaking the order still fails the session.
         if (agreed >= 3) {
-            val offer = handoff?.offer(peer, membership)
+            val offer = handoff?.let { h -> contained("offer to ${peer.id.hex}") { h.offer(peer, membership) } }
             send(
                 ch,
                 SyncMessage(
@@ -267,7 +268,7 @@ class SyncSession internal constructor(
             m.reject?.let { return@coroutineScope SessionResult.Rejected(it.reason, byPeer = true) }
             val got = m.cloud_handoff ?: throw ProtocolException("expected cloud handoff")
             HandedAccess.of(got.storage_generation, got.storage_id.toByteArray(), got.access_token, got.expires_at_ms)
-                ?.let { handoff?.receive(peer, membership, it) }
+                ?.let { access -> handoff?.let { h -> contained("receive from ${peer.id.hex}") { h.receive(peer, membership, access) } } }
         }
 
         val validator = EntryValidator(store.groupId, membership, policy)
@@ -422,6 +423,16 @@ class SyncSession internal constructor(
                 if (m.done != null) break
             }
         }
+    }
+
+    /** Runs a [SessionHandoff] call; a local exception is logged (type only, never the message: it might quote a token). */
+    private suspend fun <T> contained(what: String, call: suspend () -> T): T? = try {
+        call()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log("cloud handoff $what failed: ${e.javaClass.simpleName}")
+        null
     }
 
     private suspend fun sendData(

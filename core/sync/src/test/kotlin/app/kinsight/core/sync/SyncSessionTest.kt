@@ -4,8 +4,6 @@ import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
-import app.kinsight.core.model.Member
-import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.proto.AddMember
 import app.kinsight.core.model.proto.MembershipOp
 import app.kinsight.core.model.Membership
@@ -25,8 +23,10 @@ import okio.ByteString.Companion.toByteString
 import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
@@ -457,16 +457,6 @@ class SyncSessionTest {
         assertEquals(5L, b.store.versionVector()[b.keys.deviceId], "b must not hand out seqs 1..5 again")
     }
 
-    private class RecordingHandoff(private val give: HandedAccess?) : SessionHandoff {
-        val got = mutableListOf<HandedAccess>()
-
-        override suspend fun offer(peer: Member, membership: MembershipState): HandedAccess? = give
-
-        override suspend fun receive(peer: Member, membership: MembershipState, access: HandedAccess) {
-            got += access
-        }
-    }
-
     @Test
     fun theCloudHandoffGoesOverAfterAuthentication() = runBlocking {
         val (a, b) = buildGroup(2)
@@ -491,11 +481,35 @@ class SyncSessionTest {
     }
 
     @Test
-    fun aMalformedHandoffIsIgnored() = runBlocking {
+    fun aMalformedHandedAccessCannotBeBuilt() {
+        assertNull(HandedAccess.of(1, ByteArray(15), "AT", 5), "a storage id of 15 bytes")
+        assertNull(HandedAccess.of(0, ByteArray(16), "AT", 5), "generation 0")
+        assertNull(HandedAccess.of(1, ByteArray(16), "", 5), "no token")
+        assertNull(HandedAccess.of(1, ByteArray(16), "x".repeat(HandedAccess.MAX_TOKEN_CHARS + 1), 5), "token too long")
+        assertFailsWith<IllegalArgumentException> { HandedAccess(1, ByteArray(15), "AT", 5) }
+    }
+
+    @Test
+    fun aFailingHandoffConsumerDoesNotStopTheSync() = runBlocking {
         val (a, b) = buildGroup(2)
-        val ha = RecordingHandoff(HandedAccess(1, ByteArray(15), "AT", 5)) // a storage id of 15 bytes
+        val ea = a.author.summary("2026-10-09", 100)
+        a.publish(ea)
+        val ha = RecordingHandoff(HandedAccess(1, ByteArray(16) { 1 }, "AT", 5))
+        val hb = RecordingHandoff(null, failReceive = true)
+        val (ra, rb) = syncPair(a, b, handoffA = ha, handoffB = hb)
+        assertIs<SessionResult.Completed>(ra)
+        assertIs<SessionResult.Completed>(rb)
+        assertEquals(1, hb.calls, "the hand-off reached the consumer")
+        assertTrue(ea in b.store.liveEntries(), "the data still synced")
+    }
+
+    @Test
+    fun aFailingHandoffOfferSendsNothingAndTheSyncGoesOn() = runBlocking {
+        val (a, b) = buildGroup(2)
+        val ha = RecordingHandoff(null, failOffer = true)
         val hb = RecordingHandoff(null)
-        val (_, rb) = syncPair(a, b, handoffA = ha, handoffB = hb)
+        val (ra, rb) = syncPair(a, b, handoffA = ha, handoffB = hb)
+        assertIs<SessionResult.Completed>(ra)
         assertIs<SessionResult.Completed>(rb)
         assertTrue(hb.got.isEmpty())
     }

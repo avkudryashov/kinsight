@@ -4,6 +4,8 @@ package kinsight.v1;
 
 option java_package = "app.kinsight.core.model.proto";
 
+import "kinsight/v1/options.proto";
+
 // Pairing over its own Noise XX channel (spec §6.4). Guest -> admin.
 message PairRequest {
   bytes token = 1;            // 16 bytes from the QR code
@@ -25,10 +27,10 @@ message PairWelcome {
   // the storage of the membership's StorageOwner, set only when the admin is that owner (only the owner hands the token);
   // empty when the cloud is off or the admin is not the owner. The guest drops access from anyone else.
   uint32 key_epoch = 4;
-  bytes group_key = 5;
+  bytes group_key = 5 [(kinsight.v1.redacted) = true];
   uint64 storage_generation = 6;
   bytes storage_id = 7;
-  string access_token = 8;
+  string access_token = 8 [(kinsight.v1.redacted) = true];
   int64 access_expires_at_ms = 9;
 }
 

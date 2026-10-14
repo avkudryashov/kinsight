@@ -194,6 +194,78 @@ class SessionHardeningTest {
         }
     }
 
+    /**
+     * [a] plays a protocol 3 peer against [b]'s honest session holding [handoff]: Hello with the right hash, then its
+     * VectorAnnounce, then [afterAnnounce]; returns [b]'s result.
+     */
+    private suspend fun handoffPeer(a: Node, b: Node, handoff: SessionHandoff?, afterAnnounce: suspend (SecureChannel) -> Unit): SessionResult {
+        val (sa, sb) = MemoryPipe.pair()
+        val prologue = SecureChannel.prologue(b.store.groupId)
+        return coroutineScope {
+            val session = async { SyncSession(b.store, b.policy, idleTimeout = 5.seconds, handoff = handoff).run(SecureChannel.accept(sb, b.keys.dh, prologue)) }
+            val ch = SecureChannel.initiate(sa, a.keys.dh, prologue)
+            val hello = assertNotNull(ch.next().hello)
+            ch.put(SyncMessage(hello = Hello(protocol_version = PROTOCOL_VERSION, group_id = hello.group_id, membership_hash = hello.membership_hash, wants_foreign_entries = false)))
+            assertNotNull(ch.next().vector_announce)
+            ch.put(SyncMessage(vector_announce = VectorAnnounce(vector = a.store.versionVector().toProto())))
+            try {
+                afterAnnounce(ch)
+            } catch (e: IOException) {
+                // b hung up on a protocol violation
+            }
+            session.await()
+        }
+    }
+
+    /** Finishes as an honest peer that wants nothing: Done, wait for b's Done, bye. */
+    private suspend fun finish(ch: SecureChannel) {
+        ch.put(SyncMessage(done = Done()))
+        while (ch.next().done == null) Unit
+        ch.put(SyncMessage(done = Done()))
+    }
+
+    @Test
+    fun aPeerThatSkipsTheHandoffFailsTheSession() = runBlocking {
+        val (a, b) = buildGroup(2)
+        val result = handoffPeer(a, b, RecordingHandoff(null)) { ch -> finish(ch) }
+        assertIs<SessionResult.Failed>(result)
+        assertTrue(result.cause.message.orEmpty().contains("expected cloud handoff"), "${result.cause}")
+    }
+
+    @Test
+    fun aSecondHandoffFailsTheSession() = runBlocking {
+        val (a, b) = buildGroup(2)
+        val h = RecordingHandoff(null)
+        val one = CloudHandoff(storage_generation = 1, storage_id = ByteArray(16) { 1 }.toByteString(), access_token = "AT", expires_at_ms = 5)
+        val result = handoffPeer(a, b, h) { ch ->
+            ch.put(SyncMessage(cloud_handoff = one))
+            ch.put(SyncMessage(cloud_handoff = one))
+            finish(ch)
+        }
+        assertIs<SessionResult.Failed>(result)
+        assertTrue(result.cause.message.orEmpty().contains("unexpected message"), "${result.cause}")
+        assertEquals(listOf("AT"), h.got.map { it.accessToken }, "the first, in order, was taken")
+    }
+
+    @Test
+    fun malformedHandoffsAreDroppedAndTheSessionCompletes() = runBlocking {
+        val (a, b) = buildGroup(2)
+        val malformed = listOf(
+            CloudHandoff(storage_generation = 1, storage_id = ByteArray(15).toByteString(), access_token = "AT"),
+            CloudHandoff(storage_generation = 0, storage_id = ByteArray(16).toByteString(), access_token = "AT"),
+            CloudHandoff(storage_generation = 1, storage_id = ByteArray(16).toByteString(), access_token = "x".repeat(HandedAccess.MAX_TOKEN_CHARS + 1)),
+        )
+        for (m in malformed) {
+            val h = RecordingHandoff(null)
+            val result = handoffPeer(a, b, h) { ch ->
+                ch.put(SyncMessage(cloud_handoff = m))
+                finish(ch)
+            }
+            assertIs<SessionResult.Completed>(result)
+            assertTrue(h.got.isEmpty() && h.calls == 0)
+        }
+    }
+
     /** One session where [a] announces [ownSeen] as [b]'s own log, then both finish; [b]'s own vector afterwards. */
     private suspend fun announceOwn(a: Node, b: Node, ownSeen: Long): Long {
         val (sa, sb) = MemoryPipe.pair()

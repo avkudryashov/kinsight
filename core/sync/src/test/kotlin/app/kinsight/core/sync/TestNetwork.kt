@@ -4,6 +4,8 @@ import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
+import app.kinsight.core.model.Member
+import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.proto.AddMember
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.MembershipOp
@@ -99,4 +101,25 @@ suspend fun syncPair(
             .getOrElse { SessionResult.Failed(it) }
     }
     ra.await() to rb.await()
+}
+
+/** Hands [give]; records what it receives. [failOffer] / [failReceive]: the call throws, like a broken vault. */
+internal class RecordingHandoff(
+    private val give: HandedAccess?,
+    private val failOffer: Boolean = false,
+    private val failReceive: Boolean = false,
+) : SessionHandoff {
+    val got = mutableListOf<HandedAccess>()
+    var calls = 0
+
+    override suspend fun offer(peer: Member, membership: MembershipState): HandedAccess? {
+        if (failOffer) throw IllegalStateException("vault unavailable")
+        return give
+    }
+
+    override suspend fun receive(peer: Member, membership: MembershipState, access: HandedAccess) {
+        calls++
+        if (failReceive) throw IllegalStateException("vault unavailable")
+        got += access
+    }
 }

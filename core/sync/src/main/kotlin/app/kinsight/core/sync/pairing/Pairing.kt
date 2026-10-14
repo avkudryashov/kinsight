@@ -201,7 +201,7 @@ class PairingHost(
         var page = mutableListOf<ByteArray>()
         var size = 0
         // The first page also carries the discovery key and the cloud fields (a token of up to 4096 chars, so up to
-        // 16 KB of UTF-8): its entries get that much less room, which keeps every frame below SecureChannel.MAX_PLAINTEXT.
+        // 12 KB of UTF-8, a char being at most 3 bytes): its entries get that much less room, which keeps every frame below SecureChannel.MAX_PLAINTEXT.
         val firstExtra = w.discoveryKey.size + (w.cloud?.let { c ->
             (c.groupKey?.size ?: 0) + (c.access?.let { it.storageId.size + it.accessToken.encodeToByteArray().size } ?: 0)
         } ?: 0) + FIELD_OVERHEAD
