@@ -101,6 +101,7 @@ class GroupRepository(
     private val scope: CoroutineScope,
     private val sessions: Flow<SessionProgress>,
     private val forget: suspend () -> Unit,
+    private val runLock: Mutex = Mutex(),
     private val leaveTimeoutMs: Long = LEAVE_TIMEOUT_MS,
     private val random: (Int) -> ByteArray = Primitives::randomBytes,
     private val io: CoroutineDispatcher = Dispatchers.IO,
@@ -164,17 +165,20 @@ class GroupRepository(
     /**
      * RemoveMember with the removed device's contiguous seq as we know it (spec §4.5), and in the same batch the group key
      * rotation (spec §5, §7.4; the privacy policy promises the key changes whenever a phone is removed), cloud on or off.
-     * Throws without a group.
+     * Under the cloud [runLock] (never held by callers), so a cloud run's own rotation cannot slip in between the read and
+     * the append and win the epoch with a key sealed to the removed phone. Throws without a group.
      */
     suspend fun remove(id: DeviceId) {
         val group = checkNotNull(withContext(io) { groups.read() }) { "no group: cannot remove a member" }
         val store = RoomEntryStore(db, group.groupId)
-        val lastSeq = store.versionVector()[id]
-        val entries = store.membershipEntries()
-        signOwn("remove member") { author ->
-            val removal = author.removeMemberEntry(id, lastSeq)
-            val after = Membership.compute(group.groupId, entries + removal)
-            if (after != null && GroupKey.rotationNeeded(after)) listOf(removal, GroupKey.rotate(author, after)) else listOf(removal)
+        runLock.withLock {
+            val lastSeq = store.versionVector()[id]
+            val entries = store.membershipEntries()
+            signOwn("remove member") { author ->
+                val removal = author.removeMemberEntry(id, lastSeq)
+                val after = Membership.compute(group.groupId, entries + removal)
+                if (after != null && GroupKey.rotationNeeded(after)) listOf(removal, GroupKey.rotate(author, after)) else listOf(removal)
+            }
         }
         sync.start(fast = true)
     }

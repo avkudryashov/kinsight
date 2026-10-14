@@ -209,7 +209,7 @@ fun GroupScreen(
             is GroupAction.GrantAdmin -> stringResource(R.string.grp_grant_title, action.member.name) to stringResource(R.string.grp_grant_body)
             is GroupAction.Remove -> stringResource(R.string.grp_remove_title, action.member.name) to stringResource(R.string.grp_remove_body)
             GroupAction.Leave -> stringResource(R.string.grp_leave_title) to (
-                stringResource(R.string.grp_leave_body) + if (state.selfOwnsStorage) "\n\n" + stringResource(R.string.grp_leave_cloud_off) else ""
+                stringResource(R.string.grp_leave_body) + if (GroupRules.leaveTurnsCloudOff(state)) "\n\n" + stringResource(R.string.grp_leave_cloud_off) else ""
             )
         }
         val confirmLabel = stringResource(

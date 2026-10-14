@@ -91,6 +91,7 @@ class Graph internal constructor(app: Context) {
         scope = scope,
         sessions = SyncGraph.snapshot.map { SessionProgress(it.sync.finishedSessions, it.sync.syncing) },
         forget = { reset.resetIdentity(keepName = true) },
+        runLock = cloudSecrets.runLock,
     )
     val usage = UsageRepository(snapshots, prefs, appendOwn = { build -> pipeline.appendOwn(build = build) })
     val service = ServiceRepository(SyncGraph.snapshot, transport, { BlePermissions.missing(app) }, sync, usageAccess = { AppOpsUsageAccess(app).granted() })

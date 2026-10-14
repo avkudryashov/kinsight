@@ -258,4 +258,25 @@ class GroupScreenTest {
         rule.waitForIdle()
         rule.onNodeWithText("Sync through Yandex Disk turns off", substring = true).assertExists()
     }
+
+    @Test
+    fun anOwnerWithAnotherAdminParentIsNotToldTheCloudTurnsOff() {
+        // Spec §7.1: the role can go to Dad, so the leave is refused (OWNER_HANDOVER) instead.
+        show(mom, listOf(mom, dad.copy(isAdmin = true)), ownsStorage = true)
+        rule.onNodeWithTag("grp_list").performScrollToNode(hasTestTag("grp_leave"))
+        rule.onNodeWithTag("grp_leave").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Everyone in the group will be told", substring = true).assertExists()
+        rule.onNodeWithText("Sync through Yandex Disk turns off", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun aPhoneWithoutTheStorageIsNotToldTheCloudTurnsOff() {
+        show(mom, listOf(mom), ownsStorage = false)
+        rule.onNodeWithTag("grp_list").performScrollToNode(hasTestTag("grp_leave"))
+        rule.onNodeWithTag("grp_leave").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Everyone in the group will be told", substring = true).assertExists()
+        rule.onNodeWithText("Sync through Yandex Disk turns off", substring = true).assertDoesNotExist()
+    }
 }

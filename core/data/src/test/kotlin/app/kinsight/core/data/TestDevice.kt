@@ -155,6 +155,7 @@ class TestDevice(
         scope = scope,
         sessions = sessions,
         forget = { reset.resetIdentity(keepName = true) },
+        runLock = cloudSecrets.runLock,
         leaveTimeoutMs = leaveTimeoutMs,
     )
     val appendOwn: OwnAppend = { build -> pipeline.appendOwn(build = build) }
