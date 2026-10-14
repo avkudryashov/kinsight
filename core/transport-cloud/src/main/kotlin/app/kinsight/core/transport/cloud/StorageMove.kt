@@ -23,45 +23,66 @@ object StorageMove {
     }
 
     /**
-     * Copies every file of every device folder of [groupId] from [from] to [to], same names; `storage.id` and folders that
-     * are not device ids stay behind. A file already on [to] with the same size and sha256 is skipped, so a copy cut short
-     * resumes. Returns the number of files written.
+     * Copies every `*.kb` pack of every device folder of [groupId] from [from] to [to], same names; `storage.id`, other
+     * files and folders that are not device ids stay behind. A file already on [to] with the same size and sha256 is
+     * skipped, so a copy cut short resumes. Returns the number of files written. A Disk failure arrives as
+     * [StorageMoveException] naming the side: [Side.SOURCE] 401 = the old token was revoked, [Side.DESTINATION] 401 = the
+     * new token is bad.
      */
     suspend fun copy(from: DiskApi, to: DiskApi, groupId: GroupId): Int {
         val root = CloudPaths.root(groupId)
         val top = try {
-            from.list(root)
-        } catch (e: DiskException.NotFound) {
-            return 0
+            from.on(Side.SOURCE) { list(root) }
+        } catch (e: StorageMoveException) {
+            if (e.cause is DiskException.NotFound) return 0 else throw e
         }
         var copied = 0
+        var rootMade = false
         for (dir in top) {
             if (!dir.isDir || CloudPaths.parseDevice(dir.name) == null) continue
             val path = "$root/${dir.name}"
             val items = try {
-                from.list(path)
-            } catch (e: DiskException.NotFound) {
-                continue
+                from.on(Side.SOURCE) { list(path) }
+            } catch (e: StorageMoveException) {
+                if (e.cause is DiskException.NotFound) continue else throw e
             }
-            for (d in listOf(CloudPaths.APP_ROOT, root, path)) to.mkdir(d)
+            val packs = items.filter { !it.isDir && CloudPaths.parsePack(it.name) != null }
+            if (packs.isEmpty()) continue
+            if (!rootMade) {
+                to.on(Side.DESTINATION) { mkdir(CloudPaths.APP_ROOT) }
+                to.on(Side.DESTINATION) { mkdir(root) }
+                rootMade = true
+            }
+            to.on(Side.DESTINATION) { mkdir(path) }
             val there = try {
-                to.list(path)
-            } catch (e: DiskException.NotFound) {
-                emptyList()
+                to.on(Side.DESTINATION) { list(path) }
+            } catch (e: StorageMoveException) {
+                if (e.cause is DiskException.NotFound) emptyList() else throw e
             }.filter { !it.isDir }.associateBy { it.name }
-            for (i in items) {
-                if (i.isDir) continue
+            for (i in packs) {
                 val same = there[i.name]?.let { t -> t.size == i.size && t.sha256 != null && t.sha256 == i.sha256 } == true
                 if (same) continue
                 val bytes = try {
-                    from.download("$path/${i.name}")
-                } catch (e: DiskException.NotFound) {
-                    continue // compacted away meanwhile
+                    from.on(Side.SOURCE) { download("$path/${i.name}") }
+                } catch (e: StorageMoveException) {
+                    if (e.cause is DiskException.NotFound) continue else throw e // NotFound: compacted away meanwhile
                 }
-                to.upload("$path/${i.name}", bytes)
+                to.on(Side.DESTINATION) { upload("$path/${i.name}", bytes) }
                 copied++
             }
         }
         return copied
     }
+
+    private suspend fun <T> DiskApi.on(side: Side, block: suspend DiskApi.() -> T): T = try {
+        block()
+    } catch (e: java.io.IOException) {
+        throw StorageMoveException(side, e)
+    }
+
+    enum class Side { SOURCE, DESTINATION }
 }
+
+/** A Disk failure during [StorageMove.copy], with the Disk it came from; [cause] is what that Disk threw. */
+class StorageMoveException(val side: StorageMove.Side, override val cause: java.io.IOException) :
+    java.io.IOException("${side.name.lowercase()} disk: ${cause.message}", cause)
