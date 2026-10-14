@@ -381,8 +381,10 @@ class CloudSignIn(
         } catch (e: IOException) {
             return diskFailure(e)
         }
-        // After the Disk work, so a failed Disk signs nothing; the rotation keeps the new token from a departed phone.
-        rotatedIfNeeded(store, k, start, ring) ?: return CloudEnableResult.NOT_ADMIN
+        // After the Disk work, so a failed Disk signs nothing; the rotation keeps the new token from a departed phone. Read
+        // again: a Bluetooth session may have changed the members or the key during the copy.
+        val fresh = Membership.compute(group.groupId, store.membershipEntries()) ?: return CloudEnableResult.NOT_ADMIN
+        rotatedIfNeeded(store, k, fresh, ring) ?: return CloudEnableResult.NOT_ADMIN
         val generation = owner.generation + 1
         val claimed = OwnerRecords.claim(appendOwn, store, k, ring, storageId, generation, t.accessToken, t.expiresAtMs)
             ?: return CloudEnableResult.NOT_ADMIN
@@ -413,7 +415,7 @@ class CloudSignIn(
         val dir = CloudPaths.deviceDir(groupId, k.deviceId)
         try {
             val m = Membership.compute(groupId, store.membershipEntries())
-            val rotation = m?.effectiveEntries?.filter { it.body.membership_op?.rotate?.epoch == c.epoch && c.epoch != 0 }.orEmpty()
+            val rotation = if (c.epoch == 0) emptyList() else m?.effectiveEntries?.filter { it.body.membership_op?.rotate?.epoch == c.epoch }.orEmpty()
             val pack = PackCodec.seal(k, groupId, c.entries, from, to, c.epoch, c.groupKey, clock(), rotation)
             for (d in listOf(CloudPaths.APP_ROOT, CloudPaths.root(groupId), dir)) oldDisk.mkdir(d)
             oldDisk.upload("$dir/${CloudPaths.packName(from, to)}", pack)
@@ -431,7 +433,7 @@ class CloudSignIn(
         val m = Membership.compute(group.groupId, RoomEntryStore(db, group.groupId).membershipEntries()) ?: return false
         val owner = m.storageOwner ?: return false
         val target = m.active[to] ?: return false
-        if (owner.deviceId != self || to == self || !target.isAdmin || target.isChild) return false
+        if (owner.deviceId != self || self !in m.active || to == self || !target.isAdmin || target.isChild) return false
         return appendOwn { a -> listOf(a.storageHandoverEntry(to, owner.generation)) }
     }
 

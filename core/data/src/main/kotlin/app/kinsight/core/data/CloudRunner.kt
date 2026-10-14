@@ -158,18 +158,25 @@ class CloudRunner(
         } else {
             // R16: another device owns the storage now; a vault still saying owner loses that role (its token is retired).
             secrets.dropStaleOwner(group.groupId, membership, self)
-            // Spec §7: a handed token of an older generation is no longer used; a parent keeps it for the revoke (rulings
-            // Q13). A child never retires and keeps its old token until it read the «переезд» pack of the new storage.
-            if (!me.isChild) secrets.retireStale(group.groupId, membership, keep = true) else dropFollowed(store, group.groupId, membership, ring)
+            // Spec §7: a handed token of an older generation goes once the new storage's access opens here (rulings Q13);
+            // a parent keeps it for the revoke, a child never retires.
+            dropFollowed(store, group.groupId, membership, ring, keep = !me.isChild)
         }
+        // Spec §7.1 «переключаются при следующей синхронизации» (fix round 1): no access of the current generation opens
+        // yet (the new StorageOwner came over Bluetooth, the CloudAccess did not), so the older handed token still held
+        // reads its own storage, where the «переезд» pack (or the renewed CloudAccess, §7.4) waits.
         val access = secrets.access(store, membership, self, ring)
+        val previous = if (isOwner || access != null) null else olderHanded(group.groupId, owner.generation)
+        val accessToken = access?.accessToken ?: previous?.accessToken
             ?: return if (isOwner) {
                 // The owner lost its tokens (an unreadable vault): only a new sign-in brings them back.
                 record(now, CloudRun.UNAUTHORIZED, CloudProblem.UNAUTHORIZED)
             } else {
                 record(now, CloudRun.NO_ACCESS, CloudProblem.NO_ACCESS)
             }
-        token = access.accessToken
+        // The generation this run actually syncs with: the Heartbeat never claims a storage this phone has not reached.
+        val syncedGeneration = if (access != null) owner.generation else previous!!.storageGeneration
+        token = accessToken
         currentDisk = disk { token ?: throw DiskException.Unauthorized() }
         val policy = SyncPolicies.forDevice(membership, self, settings.current())
         val ownedStorage = if (isOwner) owner.storageId.toByteArray() else null
@@ -182,15 +189,17 @@ class CloudRunner(
             ).also { cached = key to it }
         val result = sync.run()
         observeOwner(store, membership, now)
-        if (me.isChild) Membership.compute(group.groupId, store.membershipEntries())?.let { dropFollowed(store, group.groupId, it, ring) }
-        if (result is CloudResult.Synced) afterSynced(store, group.groupId, k, ring, access.accessToken)
+        val after = Membership.compute(group.groupId, store.membershipEntries())
+        if (!isOwner && after != null) dropFollowed(store, group.groupId, after, ring, keep = !me.isChild)
+        // The old token's run revokes nothing: it is still in use and must not be dropped as such.
+        if (result is CloudResult.Synced && access != null && after != null) afterSynced(store, group.groupId, after, k, ring, access.accessToken)
         return when (result) {
             is CloudResult.Synced -> {
                 // Rulings Q18: the generation is recorded before the Heartbeat reads it, so a phone that only meets the
                 // cloud confirms the switch too.
                 // A Heartbeat that failed is tried again at the next synced run (it is idempotent by its mark).
-                if (state.current().syncedGeneration != owner.generation) heartbeatPending = true
-                record(now, CloudRun.SYNCED, null, synced = true, generation = owner.generation).also {
+                if (state.current().syncedGeneration != syncedGeneration) heartbeatPending = true
+                record(now, CloudRun.SYNCED, null, synced = true, generation = syncedGeneration).also {
                     if (heartbeatPending) heartbeatPending = !signHeartbeat()
                 }
             }
@@ -205,17 +214,20 @@ class CloudRunner(
     }
 
     /**
-     * Rulings Q13, Q19: a child drops its token of an older storage generation (never kept for a revoke) only once the
-     * new storage's access opens here: it read the «переезд» pack on the old Disk, or the owner's CloudAccess came over
-     * Bluetooth. Until then the old token stays.
+     * Rulings Q13, Q19: a handed token of an older storage generation leaves the vault only once the new storage's access
+     * opens here: this phone read the «переезд» pack (or the renewed CloudAccess) with it, or the owner's CloudAccess came
+     * over Bluetooth. Until then it stays and reads the old storage. A parent ([keep]) keeps it for the revoke.
      */
-    private suspend fun dropFollowed(store: RoomEntryStore, groupId: GroupId, m: MembershipState, ring: GroupKeyRing) {
-        if (CloudAccessView.current(store, m, ring.keys()) != null) secrets.retireStale(groupId, m, keep = false)
+    private suspend fun dropFollowed(store: RoomEntryStore, groupId: GroupId, m: MembershipState, ring: GroupKeyRing, keep: Boolean) {
+        if (CloudAccessView.current(store, m, ring.keys()) != null) secrets.retireStale(groupId, m, keep = keep)
     }
 
-    /** After a sync (its rotations are in the ring): the owner's access re-issued when it no longer opens; retired tokens revoked. */
-    private suspend fun afterSynced(store: RoomEntryStore, groupId: GroupId, k: DeviceKeys, ring: GroupKeyRing, inUse: String) {
-        val m = Membership.compute(groupId, store.membershipEntries()) ?: return
+    /** The handed token of an older storage generation of [groupId] still in the vault, or null. */
+    private suspend fun olderHanded(groupId: GroupId, generation: Long) =
+        secrets.tokens()?.takeIf { !it.owner && it.groupHex == groupId.hex && it.storageGeneration < generation }
+
+    /** After a sync (its rotations are in the ring, [m] read after it): the owner's access re-issued when it no longer opens; retired tokens revoked. */
+    private suspend fun afterSynced(store: RoomEntryStore, groupId: GroupId, m: MembershipState, k: DeviceKeys, ring: GroupKeyRing, inUse: String) {
         reissueIfUnreadable(store, m, k, ring)
         revokeRetired(groupId, store, m, k.deviceId, ring, inUse)
     }

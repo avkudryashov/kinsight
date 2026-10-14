@@ -61,7 +61,8 @@ internal fun LazyListScope.cloudSection(s: CloudStatus, nowMs: Long, onSignIn: (
                         cloudProblemText(s.problem)?.let {
                             Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("set_cloud_problem"))
                         }
-                        if (s.problem == CloudProblem.UNAUTHORIZED && s.selfIsOwner) {
+                        // Spec §7.4: the same sign-in renews an exposed token.
+                        if ((s.problem == CloudProblem.UNAUTHORIZED || s.problem == CloudProblem.RENEW_ACCESS) && s.selfIsOwner) {
                             OutlinedButton(onSignIn, Modifier.testTag("set_cloud_restore")) { Text(stringResource(R.string.set_cloud_sign_in)) }
                         }
                     }
