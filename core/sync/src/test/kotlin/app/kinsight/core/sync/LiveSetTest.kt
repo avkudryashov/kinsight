@@ -91,4 +91,10 @@ class LiveSetTest {
         assertFalse(store.isAccounted(keys.deviceId, 15))
         assertTrue(store.isAccounted(keys.deviceId, 20))
     }
+
+    @Test
+    fun aHeartbeatCarriesTheStorageGeneration() {
+        assertEquals(3L, LiveSet.heartbeat("1.0", PROTOCOL_VERSION, own = listOf(1, 2), currentHeartbeat = null, storageGeneration = 3).storage_generation)
+        assertEquals(0L, LiveSet.heartbeat("1.0", PROTOCOL_VERSION, own = listOf(1), currentHeartbeat = null).storage_generation)
+    }
 }

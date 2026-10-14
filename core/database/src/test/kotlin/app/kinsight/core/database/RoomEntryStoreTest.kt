@@ -1,5 +1,7 @@
 package app.kinsight.core.database
 
+import app.kinsight.core.model.storageHandoverEntry
+import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
@@ -229,5 +231,18 @@ class RoomEntryStoreTest {
         store.pruneHistory(summaryRetentionDays = 30, nowMs = now, self = keys.deviceId, zone = ZoneOffset.UTC)
 
         assertEquals(listOf(otherChat), store.catalog())
+    }
+
+    @Test
+    fun storageHandoversAreReadByKindAndTheNewestReplacesTheOlder() = runTest {
+        val store = open()
+        val dad = DeviceKeys.generate().deviceId
+        val first = author.storageHandoverEntry(dad, 1)
+        store.applyBatch(listOf(first))
+        assertEquals(listOf(first), store.storageHandovers())
+        val second = author.storageHandoverEntry(dad, 2)
+        store.applyBatch(listOf(second))
+        assertEquals(listOf(second), store.storageHandovers())
+        assertEquals(11, EntryKinds.code(EntryKind.STORAGE_HANDOVER))
     }
 }

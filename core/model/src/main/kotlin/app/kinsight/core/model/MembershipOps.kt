@@ -6,6 +6,7 @@ import app.kinsight.core.model.proto.MembershipOp
 import app.kinsight.core.model.proto.RemoveMember
 import app.kinsight.core.model.proto.SetAdmin
 import app.kinsight.core.model.proto.StateEvent
+import app.kinsight.core.model.proto.StorageHandover
 import app.kinsight.core.model.proto.StorageOwner
 import okio.ByteString.Companion.toByteString
 
@@ -47,4 +48,9 @@ fun EntryAuthor.storageOwnerEntry(owner: DeviceId, storageId: ByteArray, generat
             storage_owner = StorageOwner(owner.bytes().toByteString(), storageId.toByteString(), generation),
         ),
     )
+}
+
+/** StorageHandover (spec §7.1): the storage owner asks [to] to take the storage of [generation]. Not a membership op. */
+fun EntryAuthor.storageHandoverEntry(to: DeviceId, generation: Long): DecodedEntry = create {
+    it.copy(storage_handover = StorageHandover(to.bytes().toByteString(), generation))
 }

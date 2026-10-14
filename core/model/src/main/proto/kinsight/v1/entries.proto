@@ -33,6 +33,7 @@ message EntryBody {
     CloudAccess cloud_access = 17;    // protocol 3: storage access for the members, sealed per device
     Location location = 18;           // protocol 3: one fix of a child's position
     SafeZone safe_zone = 19;          // protocol 3: a parent's safe zone
+    StorageHandover storage_handover = 20;  // protocol 3: the storage owner asks a parent to take the storage (spec §7.1)
   }
 }
 
@@ -116,6 +117,9 @@ message Heartbeat {
   uint64 live_upto = 3;
   uint64 live_floor = 4;
   repeated uint64 live_deltas = 5;  // ascending seqs: the first as a delta from live_floor, then from the previous
+  // The storage generation (StorageOwner.generation) of this device's last successful cloud sync, 0 without the cloud.
+  // The phone that replaced a token revokes the old one once every active member reports a higher one (spec §7).
+  uint64 storage_generation = 6;
 }
 
 message CreateGroup {
@@ -186,6 +190,14 @@ message CloudAccess {
   uint32 key_epoch = 3;   // group key generation (0 = the key from pairing, then MembershipOp.rotate epochs)
   bytes nonce = 4;        // 12 bytes
   bytes ciphertext = 5;   // ChaCha20-Poly1305 under the access key of that generation
+}
+
+// Spec §7.1 «Владелец выбирает родителя»: the storage owner asks the parent [to_device_id] to take the storage of
+// [generation]. One live entry per author (supersede key <author>/handover). Only the current owner's entry for the
+// current generation naming an active admin parent counts; any other is ignored when reading.
+message StorageHandover {
+  bytes to_device_id = 1;
+  uint64 generation = 2;
 }
 
 // One fix of a child's position (spec §8). Inside a safe zone only zone_id is set (no coordinates leave the phone).

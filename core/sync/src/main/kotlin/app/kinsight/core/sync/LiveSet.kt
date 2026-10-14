@@ -38,15 +38,16 @@ class LiveSet(val floor: Long, val upTo: Long, val seqs: LongArray) {
         /**
          * The Heartbeat of an author whose own live seqs are [own] (ascending, as stored now) and whose current Heartbeat,
          * superseded by this one, has seq [currentHeartbeat]: that one is left out, it is dead once this one exists.
+         * [storageGeneration]: the storage generation of the last successful cloud sync (spec §7), 0 without the cloud.
          */
-        fun heartbeat(appVersion: String, protocolVersion: Int, own: List<Long>, currentHeartbeat: Long?): Heartbeat {
+        fun heartbeat(appVersion: String, protocolVersion: Int, own: List<Long>, currentHeartbeat: Long?, storageGeneration: Long = 0): Heartbeat {
             val upTo = own.lastOrNull() ?: 0L
             val live = own.filter { it != currentHeartbeat }
             val kept = live.takeLast(MAX_SEQS)
             val floor = if (kept.size < live.size) live[live.size - kept.size - 1] else 0L
             var prev = floor
             val deltas = kept.map { s -> (s - prev).also { prev = s } }
-            return Heartbeat(app_version = appVersion, protocol_version = protocolVersion, live_upto = upTo, live_floor = floor, live_deltas = deltas)
+            return Heartbeat(app_version = appVersion, protocol_version = protocolVersion, live_upto = upTo, live_floor = floor, live_deltas = deltas, storage_generation = storageGeneration)
         }
     }
 }

@@ -85,44 +85,47 @@ private class Fix(val author: String, val seq: Long, val kind: Int, val key: Str
  * now share a key: only the highest seq stays, the others are deleted as the store does on supersede.
  */
 val MIGRATION_3_4: Migration = object : Migration(3, 4) {
-    override fun migrate(connection: SQLiteConnection) {
-        val fixes = mutableListOf<Fix>()
-        connection.prepare(
-            "SELECT author, seq, kind, bytes FROM entries WHERE kind = ${EntryKinds.UNKNOWN} OR " +
-                "(kind = ${EntryKinds.STATE_EVENT} AND (event_kind IS NULL OR event_kind = 0))",
-        ).use { rows ->
-            while (rows.step()) {
-                val entry = runCatching { DecodedEntry.decode(rows.getBlob(3)) }.getOrNull() ?: continue
-                val c = EntryColumns.of(entry)
-                val unknown = rows.getLong(2).toInt() == EntryKinds.UNKNOWN
-                if (unknown && c.kind == EntryKinds.UNKNOWN) continue
-                fixes += Fix(rows.getText(0), rows.getLong(1), c.kind, if (unknown) entry.supersedeKey else null, c.eventKind, c.eventToMs)
-            }
+    override fun migrate(connection: SQLiteConnection) = redecodeUnknownEntries(connection)
+}
+
+/** The pass of [MIGRATION_3_4]; any later schema that adds an [EntryKinds] code to a released one runs it again. */
+internal fun redecodeUnknownEntries(connection: SQLiteConnection) {
+    val fixes = mutableListOf<Fix>()
+    connection.prepare(
+        "SELECT author, seq, kind, bytes FROM entries WHERE kind = ${EntryKinds.UNKNOWN} OR " +
+            "(kind = ${EntryKinds.STATE_EVENT} AND (event_kind IS NULL OR event_kind = 0))",
+    ).use { rows ->
+        while (rows.step()) {
+            val entry = runCatching { DecodedEntry.decode(rows.getBlob(3)) }.getOrNull() ?: continue
+            val c = EntryColumns.of(entry)
+            val unknown = rows.getLong(2).toInt() == EntryKinds.UNKNOWN
+            if (unknown && c.kind == EntryKinds.UNKNOWN) continue
+            fixes += Fix(rows.getText(0), rows.getLong(1), c.kind, if (unknown) entry.supersedeKey else null, c.eventKind, c.eventToMs)
         }
-        val newest = fixes.filter { it.key != null }.groupBy { it.key }.mapValues { (_, v) -> v.maxOf { it.seq } }
-        connection.prepare("DELETE FROM entries WHERE author = ? AND seq = ?").use { del ->
-            for (f in fixes) if (f.key != null && newest[f.key] != f.seq) {
-                del.bindText(1, f.author)
-                del.bindLong(2, f.seq)
-                del.step()
-                del.reset()
-            }
+    }
+    val newest = fixes.filter { it.key != null }.groupBy { it.key }.mapValues { (_, v) -> v.maxOf { it.seq } }
+    connection.prepare("DELETE FROM entries WHERE author = ? AND seq = ?").use { del ->
+        for (f in fixes) if (f.key != null && newest[f.key] != f.seq) {
+            del.bindText(1, f.author)
+            del.bindLong(2, f.seq)
+            del.step()
+            del.reset()
         }
-        connection.prepare(
-            "UPDATE entries SET kind = ?, supersede_key = COALESCE(?, supersede_key), event_kind = ?, event_to_ms = ? " +
-                "WHERE author = ? AND seq = ?",
-        ).use { st ->
-            for (f in fixes) {
-                if (f.key != null && newest[f.key] != f.seq) continue
-                st.bindLong(1, f.kind.toLong())
-                f.key?.let { st.bindText(2, it) } ?: st.bindNull(2)
-                f.eventKind?.let { st.bindLong(3, it.toLong()) } ?: st.bindNull(3)
-                f.eventToMs?.let { st.bindLong(4, it) } ?: st.bindNull(4)
-                st.bindText(5, f.author)
-                st.bindLong(6, f.seq)
-                st.step()
-                st.reset()
-            }
+    }
+    connection.prepare(
+        "UPDATE entries SET kind = ?, supersede_key = COALESCE(?, supersede_key), event_kind = ?, event_to_ms = ? " +
+            "WHERE author = ? AND seq = ?",
+    ).use { st ->
+        for (f in fixes) {
+            if (f.key != null && newest[f.key] != f.seq) continue
+            st.bindLong(1, f.kind.toLong())
+            f.key?.let { st.bindText(2, it) } ?: st.bindNull(2)
+            f.eventKind?.let { st.bindLong(3, it.toLong()) } ?: st.bindNull(3)
+            f.eventToMs?.let { st.bindLong(4, it) } ?: st.bindNull(4)
+            st.bindText(5, f.author)
+            st.bindLong(6, f.seq)
+            st.step()
+            st.reset()
         }
     }
 }
@@ -131,9 +134,13 @@ val MIGRATION_3_4: Migration = object : Migration(3, 4) {
 internal const val V5_CLOUD_CURSOR_TABLE =
     "CREATE TABLE IF NOT EXISTS `\${TABLE_NAME}` (`id` INTEGER NOT NULL, `state` BLOB NOT NULL, PRIMARY KEY(`id`))"
 
-/** Version 5 (cloud Y2): the cloud cursor table, nothing else changes. */
+/**
+ * Version 5 (cloud Y2): the cloud cursor table. Schema 5 has not shipped, so it also takes the kind pass for the code
+ * added after 0.8.3 (STORAGE_HANDOVER): a 0.8.3 build stores a handover it received as UNKNOWN (EntryKinds).
+ */
 val MIGRATION_4_5: Migration = object : Migration(4, 5) {
     override fun migrate(connection: SQLiteConnection) {
+        redecodeUnknownEntries(connection)
         connection.execSQL(V5_CLOUD_CURSOR_TABLE.replace("\${TABLE_NAME}", "cloud_cursor"))
     }
 }

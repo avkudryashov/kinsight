@@ -94,6 +94,9 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
     /** Every StateEvent, LEFT_GROUP included, ordered by author and seq. */
     suspend fun stateEvents(): List<DecodedEntry> = entryDao.bytesOfKind(EntryKinds.STATE_EVENT).map(DecodedEntry::decode)
 
+    /** The live StorageHandover entries (spec §7.1), one per author. */
+    suspend fun storageHandovers(): List<DecodedEntry> = entryDao.bytesOfKind(EntryKinds.STORAGE_HANDOVER).map(DecodedEntry::decode)
+
     override suspend fun prune(policy: SyncPolicy): Unit = db.write {
         for (bytes in entryDao.bytesWithUsageDate()) {
             val e = DecodedEntry.decode(bytes)

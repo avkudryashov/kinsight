@@ -9,6 +9,7 @@ import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.proto.AppCatalog
 import app.kinsight.core.model.proto.CloudAccess
+import app.kinsight.core.model.storageHandoverEntry
 import app.kinsight.core.model.proto.Heartbeat
 import app.kinsight.core.model.proto.Location
 import app.kinsight.core.model.proto.SafeZone
@@ -259,6 +260,25 @@ class KinsightMigrationTest {
         assertEquals(EntryKinds.STATE_EVENT, exit.kind)
         assertEquals(StateEvent.Kind.ZONE_EXIT.value, exit.eventKind)
         assertEquals(EntryKinds.USAGE_SUMMARY, dao.get(a, summary.seq)!!.kind)
+        db.close()
+    }
+
+    @Test
+    fun migratesV4GivingAStoredUnknownHandoverItsKind() = runTest {
+        val keys = DeviceKeys.generate()
+        val genesis = GroupGenesis.create(keys, "Mom")
+        val author = EntryAuthor(genesis.groupId, keys, lastSeq = 1)
+        val dad = DeviceKeys.generate().deviceId
+        val old = author.storageHandoverEntry(dad, 1)
+        val newer = author.storageHandoverEntry(dad, 2)
+        val v4 = File(dir, "v4h.db").absolutePath
+        // A 0.8.3 build could not decode the payload: kind 0, no supersede key.
+        ExportedSchema.create(v4, 4) { c -> for (e in listOf(old, newer)) insertV3(c, e, kind = EntryKinds.UNKNOWN, key = null) }
+        val db = KinsightDatabaseFactory.open(HostContext(), v4)
+        val a = keys.deviceId.hex
+        assertNull(db.entryDao().get(a, old.seq), "the older handover is superseded")
+        assertEquals(EntryKinds.STORAGE_HANDOVER, db.entryDao().get(a, newer.seq)!!.kind)
+        assertEquals("$a/handover", db.entryDao().get(a, newer.seq)!!.supersedeKey)
         db.close()
     }
 
