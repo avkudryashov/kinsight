@@ -151,6 +151,36 @@ class CloudRunnerTest {
         assertEquals(CloudProblem.NETWORK, mom.cloudState.current().problem)
     }
 
+    /** Final review Minor 2: a missing group key is nothing a sign-in fixes, so the owner is not asked to restore access. */
+    @Test
+    fun aMissingGroupKeyDoesNotAskTheOwnerToSignIn() = runBlocking<Unit> {
+        family()
+        mom.ownStorage()
+        mom.cloudSecrets.ring(mom.groups.read()!!).retain(emptySet())
+        assertEquals(CloudRun.NO_ACCESS, mom.runner(disk).run(CloudTrigger.NOW))
+        assertEquals(CloudProblem.NETWORK, mom.cloudState.current().problem, "quiet for the owner (CloudViews shows nothing)")
+        kid.learnsStorageFrom(mom)
+        kid.cloudSecrets.ring(kid.groups.read()!!).retain(emptySet())
+        assertEquals(CloudRun.NO_ACCESS, kid.runner(disk).run(CloudTrigger.NOW))
+        assertEquals(CloudProblem.NO_ACCESS, kid.cloudState.current().problem, "a member waits for the owner")
+    }
+
+    /** Final review Minor 5: the kept CloudSync reaches the Disk of the current run, so a switched Disk counts at once. */
+    @Test
+    fun aSwitchedDiskIsUsedFromTheNextRun() = runBlocking<Unit> {
+        family()
+        mom.ownStorage()
+        val other = InMemoryDisk()
+        var current: DiskApi = disk
+        val runner = mom.runner { _ -> current }
+        mom.ownSummary("2026-10-13", 1)
+        assertEquals(CloudRun.SYNCED, runner.run(CloudTrigger.NOW))
+        assertTrue(disk.files("app:").isNotEmpty())
+        current = other
+        assertEquals(CloudRun.SYNCED, runner.run(CloudTrigger.NOW))
+        assertTrue(other.files("app:").isNotEmpty(), "the second run went to the new Disk")
+    }
+
     @Test
     fun describeNeverShowsAToken() = runBlocking<Unit> {
         family()

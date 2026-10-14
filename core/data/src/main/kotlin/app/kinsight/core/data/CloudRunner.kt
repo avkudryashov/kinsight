@@ -30,8 +30,10 @@ enum class CloudRun { OFF, SKIPPED, SYNCED, NO_ACCESS, UNAUTHORIZED, STORAGE_FUL
 /**
  * One cloud run of this device (spec §9, §11): nothing without a storage owner; a child's periodic run only when its own
  * log moved or an hour passed; an admin first rotates the group key for a member without the newest one (Y1 review);
- * then CloudSync with this device's access. Every CloudSync it creates shares [runLock], one per process, and one
- * instance is kept per group, device and policy (Y1 review: one CloudSync per device). The outcome goes to [state].
+ * then CloudSync with this device's access. The whole run holds [runLock], one per process, so the CloudSync gets a lock
+ * of its own that is never contended. One instance is kept per group, device and policy (Y1 review: one CloudSync per
+ * device); it reaches the Disk of the current run ([disk] is asked again every run), so switching the Disk (the debug
+ * CLOUD_FAKE_DISK) takes effect at the next run. The outcome goes to [state].
  */
 class CloudRunner(
     private val db: KinsightDatabase,
@@ -55,6 +57,24 @@ class CloudRunner(
     /** The token of the current run; the Disk client asks for it on every request. */
     @Volatile
     private var token: String? = null
+
+    /** The Disk of the current run; the cached CloudSync reaches it through [runDisk]. */
+    @Volatile
+    private var currentDisk: DiskApi? = null
+
+    private val runDisk = object : DiskApi {
+        private fun d() = currentDisk ?: throw DiskException.Unauthorized()
+
+        override suspend fun list(path: String) = d().list(path)
+
+        override suspend fun mkdir(path: String) = d().mkdir(path)
+
+        override suspend fun upload(path: String, bytes: ByteArray) = d().upload(path, bytes)
+
+        override suspend fun download(path: String) = d().download(path)
+
+        override suspend fun delete(path: String) = d().delete(path)
+    }
 
     /**
      * True while this device is an active member of a group with a storage owner: the worker is scheduled only then.
@@ -105,18 +125,21 @@ class CloudRunner(
                 record(now, CloudRun.NO_ACCESS, CloudProblem.NO_ACCESS)
             }
         token = access.accessToken
+        currentDisk = disk { token ?: throw DiskException.Unauthorized() }
         val policy = SyncPolicies.forDevice(membership, self, settings.current())
         val key = Key(group.groupId, self, policy.showOthers, policy.detailRetentionDays, policy.summaryRetentionDays)
         val sync = cached?.takeIf { it.first == key }?.second
             ?: CloudSync(
-                store, k, policy, disk { token ?: throw DiskException.Unauthorized() }, ring, cursors, clock,
+                store, k, policy, runDisk, ring, cursors, clock,
                 log = { Log.i(TAG, it) }, running = Mutex(), // [runLock] is already held around the whole run
             ).also { cached = key to it }
         return when (sync.run()) {
             is CloudResult.Synced -> record(now, CloudRun.SYNCED, null, synced = true)
             CloudResult.Unauthorized -> record(now, CloudRun.UNAUTHORIZED, if (isOwner) CloudProblem.UNAUTHORIZED else CloudProblem.NO_ACCESS)
             CloudResult.StorageFull -> record(now, CloudRun.STORAGE_FULL, CloudProblem.STORAGE_FULL)
-            CloudResult.NoGroupKey -> record(now, CloudRun.NO_ACCESS, CloudProblem.NO_ACCESS)
+            // Rare (every rotation is sealed to the owner): a new sign-in cannot fix a missing key, so the owner is not
+            // asked for one; it waits like on a network problem (no message). Another device waits for the owner.
+            CloudResult.NoGroupKey -> record(now, CloudRun.NO_ACCESS, if (isOwner) CloudProblem.NETWORK else CloudProblem.NO_ACCESS)
             CloudResult.NotMember -> CloudRun.OFF
             is CloudResult.Retry -> record(now, CloudRun.RETRY, CloudProblem.NETWORK)
         }

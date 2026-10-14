@@ -36,9 +36,12 @@ object CloudGraph {
      */
     val runLock = Mutex()
 
-    /** Debug builds only (CLOUD_FAKE_DISK): an in-memory Disk instead of Yandex, for emulator runs. */
+    /**
+     * Debug builds only (CLOUD_FAKE_DISK): an in-memory Disk instead of Yandex, for emulator runs. Set only through
+     * CloudDebugDisk, which exists in the debug source set alone, so a release build has no way to switch it on.
+     */
     @Volatile
-    var fakeDisk: InMemoryDisk? = null
+    internal var fakeDisk: InMemoryDisk? = null
 
     fun disk(accessToken: suspend () -> String): DiskApi = fakeDisk ?: YandexDisk(accessToken)
 }

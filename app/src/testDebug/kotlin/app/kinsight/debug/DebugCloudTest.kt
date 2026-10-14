@@ -1,5 +1,6 @@
 package app.kinsight.debug
 
+import app.kinsight.core.data.CloudDebugDisk
 import app.kinsight.core.data.CloudGraph
 import app.kinsight.core.transport.cloud.InMemoryDisk
 import app.kinsight.core.transport.cloud.YandexDisk
@@ -12,7 +13,7 @@ import kotlin.test.assertSame
 class DebugCloudTest {
     @AfterTest
     fun cleanUp() {
-        CloudGraph.fakeDisk = null
+        CloudDebugDisk.set(false)
     }
 
     @Test
