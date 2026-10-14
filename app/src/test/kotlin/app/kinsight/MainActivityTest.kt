@@ -52,7 +52,6 @@ class MainActivityTest {
         @Suppress("DEPRECATION") // GET_PERMISSIONS: the flags overload needs API 33 and minSdk is 31
         val requested = app.packageManager.getPackageInfo(app.packageName, PackageManager.GET_PERMISSIONS).requestedPermissions.orEmpty().toSet()
         val forbidden = listOf(
-            "android.permission.INTERNET",
             "android.permission.QUERY_ALL_PACKAGES",
             "android.permission.ACCESS_FINE_LOCATION",
             "android.permission.ACCESS_COARSE_LOCATION",
@@ -64,6 +63,18 @@ class MainActivityTest {
         )
         assertEquals(emptyList<String>(), forbidden.filter { it in requested })
         assertEquals(true, "android.permission.BLUETOOTH_SCAN" in requested) // the check reads the merged manifest
+        // Spec §2: the cloud is an option of the same app, off by default; the permissions are in the manifest.
+        assertEquals(true, "android.permission.INTERNET" in requested)
+        assertEquals(true, "android.permission.ACCESS_NETWORK_STATE" in requested)
+    }
+
+    /** Spec §3, §14: the Android platform's yx<client_id> redirect opens the running app. */
+    @Test
+    fun theYandexRedirectOpensMainActivity() {
+        val link = Intent(Intent.ACTION_VIEW, Uri.parse("${BuildConfig.YANDEX_SCHEME}://authorize?code=1234567&state=s"))
+            .addCategory(Intent.CATEGORY_BROWSABLE)
+        val main = ComponentName(app, MainActivity::class.java)
+        assertEquals(main, app.packageManager.resolveActivity(link, 0)?.activityInfo?.let { ComponentName(it.packageName, it.name) })
     }
 
     /** A deep link must land in the running instance (onNewIntent), never in a second copy of the app. */

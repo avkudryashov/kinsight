@@ -7,6 +7,57 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ReleaseGatesTest {
+    private val fakeId = "0123456789abcdef0123456789abcdef"
+    private val fakeSecret = "fedcba9876543210fedcba9876543210"
+
+    @Test
+    fun aYandexClientFromLocalPropertiesPasses() {
+        val dir = Files.createTempDirectory("gates").toFile()
+        val local = File(dir, "local.properties").apply {
+            writeText("${ReleaseGates.YANDEX_CLIENT_ID_PROPERTY}=$fakeId\n${ReleaseGates.YANDEX_CLIENT_SECRET_PROPERTY}=$fakeSecret\n")
+        }
+        val c = ReleaseGates.yandexClient({ null }, local)
+        assertNull(ReleaseGates.yandexClientProblem(c))
+        assertEquals(fakeId, ReleaseGates.yandexClientId(c))
+        assertEquals(fakeSecret, ReleaseGates.yandexClientSecret(c))
+        assertEquals(ReleaseGates.YANDEX_CODE_PAGE, ReleaseGates.yandexRedirect(c))
+        assertEquals("yx$fakeId", ReleaseGates.yandexScheme(c))
+        assertEquals(false, fakeSecret in c.toString())
+        dir.deleteRecursively()
+    }
+
+    @Test
+    fun gradlePropertiesWinOverLocalProperties() {
+        val dir = Files.createTempDirectory("gates").toFile()
+        val local = File(dir, "local.properties").apply { writeText("${ReleaseGates.YANDEX_CLIENT_ID_PROPERTY}=${"a".repeat(32)}\n") }
+        val c = ReleaseGates.yandexClient({ if (it == ReleaseGates.YANDEX_CLIENT_ID_PROPERTY) fakeId else null }, local)
+        assertEquals(fakeId, c.clientId)
+        dir.deleteRecursively()
+    }
+
+    @Test
+    fun aMissingOrMalformedYandexClientFailsWithoutShowingTheSecret() {
+        val none = ReleaseGates.YandexClient(null, null, null)
+        val missing = assertNotNull(ReleaseGates.yandexClientProblem(none))
+        assertTrue(ReleaseGates.YANDEX_CLIENT_ID_PROPERTY in missing && "local.properties" in missing, missing)
+        assertNotNull(ReleaseGates.yandexClientProblem(ReleaseGates.YandexClient(fakeId, null, null)))
+        val badSecret = "has spaces \" and quotes"
+        val problem = assertNotNull(ReleaseGates.yandexClientProblem(ReleaseGates.YandexClient(fakeId, badSecret, null)))
+        assertTrue(badSecret !in problem, problem)
+        assertEquals("", ReleaseGates.yandexClientSecret(ReleaseGates.YandexClient(fakeId, badSecret, null)), "BuildConfig never gets it")
+        assertEquals("yxunset", ReleaseGates.yandexScheme(none))
+    }
+
+    @Test
+    fun onlyThisClientsAppRedirectIsTaken() {
+        val good = ReleaseGates.YandexClient(fakeId, fakeSecret, "yx$fakeId:///")
+        assertEquals("yx$fakeId:///", ReleaseGates.yandexRedirect(good))
+        assertNull(ReleaseGates.yandexClientProblem(good))
+        val other = ReleaseGates.YandexClient(fakeId, fakeSecret, "yx${"b".repeat(32)}:///")
+        assertEquals(ReleaseGates.YANDEX_CODE_PAGE, ReleaseGates.yandexRedirect(other))
+        assertNotNull(ReleaseGates.yandexClientProblem(other))
+    }
+
     @Test
     fun aHostedHttpsAddressPasses() {
         assertNull(ReleaseGates.privacyUrlProblem("https://kinsight.app/privacy"))

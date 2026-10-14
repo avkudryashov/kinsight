@@ -44,4 +44,62 @@ object ReleaseGates {
         }
         return env?.takeIf { it.isNotBlank() }?.trim()
     }
+
+    /** The Yandex OAuth app (spec §2, §3): local.properties keys, Gradle properties of the same names override. */
+    const val YANDEX_CLIENT_ID_PROPERTY = "kinsight.yandex.clientId"
+    const val YANDEX_CLIENT_SECRET_PROPERTY = "kinsight.yandex.clientSecret"
+
+    /** Set once the Android platform is registered with the release SHA-256 (spec §14): the yx<client_id>: redirect. */
+    const val YANDEX_REDIRECT_PROPERTY = "kinsight.yandex.redirectUri"
+
+    /** Spec §3: the redirect registered for the Web platform; the app takes the code by a paste field. */
+    const val YANDEX_CODE_PAGE = "https://oauth.yandex.ru/verification_code"
+
+    private val YANDEX_ID = Regex("^[0-9a-f]{32}$")
+    private val YANDEX_SECRET = Regex("^[0-9A-Za-z]{16,64}$")
+
+    /** [toString] never shows the secret. */
+    class YandexClient(val clientId: String?, val clientSecret: String?, val redirectUri: String?) {
+        override fun toString() = "YandexClient(clientId=$clientId, redirectUri=$redirectUri)"
+    }
+
+    /** Each value from the Gradle property, then local.properties (gitignored); never from the repository. */
+    fun yandexClient(gradleProperty: (String) -> String?, localProperties: java.io.File): YandexClient {
+        val local = java.util.Properties()
+        if (localProperties.exists()) localProperties.inputStream().use { local.load(it) }
+        fun value(name: String): String? =
+            (gradleProperty(name)?.takeIf { it.isNotBlank() } ?: local.getProperty(name)?.takeIf { it.isNotBlank() })?.trim()
+        return YandexClient(value(YANDEX_CLIENT_ID_PROPERTY), value(YANDEX_CLIENT_SECRET_PROPERTY), value(YANDEX_REDIRECT_PROPERTY))
+    }
+
+    /** Why a release cannot ship with [c], or null. The secret's value never appears in the text. */
+    fun yandexClientProblem(c: YandexClient): String? {
+        val hint = "set $YANDEX_CLIENT_ID_PROPERTY and $YANDEX_CLIENT_SECRET_PROPERTY in local.properties (never in git)"
+        val id = c.clientId
+        val secret = c.clientSecret
+        if (id.isNullOrBlank()) return "the Yandex client id is missing: $hint"
+        if (!YANDEX_ID.matches(id)) return "the Yandex client id is not 32 lowercase hex characters ($id): $hint"
+        if (secret.isNullOrBlank()) return "the Yandex client secret is missing: $hint"
+        if (!YANDEX_SECRET.matches(secret)) return "the Yandex client secret is malformed (its value is not shown): $hint"
+        if (c.redirectUri != null && yandexRedirect(c) != c.redirectUri) {
+            return "$YANDEX_REDIRECT_PROPERTY must be the yx$id: redirect the Yandex console shows for the Android platform (${c.redirectUri})"
+        }
+        return null
+    }
+
+    /** What BuildConfig gets: a well-formed value or "" (a build without the cloud). */
+    fun yandexClientId(c: YandexClient): String = c.clientId?.takeIf { YANDEX_ID.matches(it) }.orEmpty()
+
+    fun yandexClientSecret(c: YandexClient): String = c.clientSecret?.takeIf { YANDEX_SECRET.matches(it) }.orEmpty()
+
+    /** The manifest scheme of the sign-in redirect; "yxunset" in a build without a client (it never matches a link). */
+    fun yandexScheme(c: YandexClient): String = "yx" + yandexClientId(c).ifEmpty { "unset" }
+
+    /** The configured app redirect when it is this client's yx scheme without quotes or spaces, else the verification page. */
+    fun yandexRedirect(c: YandexClient): String {
+        val id = yandexClientId(c)
+        val r = c.redirectUri ?: return YANDEX_CODE_PAGE
+        val clean = r.none { it == '"' || it == '\\' || it.isWhitespace() }
+        return if (id.isNotEmpty() && clean && r.startsWith("yx$id:")) r else YANDEX_CODE_PAGE
+    }
 }

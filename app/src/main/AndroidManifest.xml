@@ -2,11 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Kinsight tells its users that nothing goes to the internet: no library may merge INTERNET in
-         (checkReleaseManifestRules forbids it too). -->
-    <uses-permission
-        android:name="android.permission.INTERNET"
-        tools:node="remove" />
+    <!-- Spec §2: the cloud is an option of this app, off by default; it reaches only the user's own Yandex Disk. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- Do NOT declare android:process on any component: select() takes an in-process lock plus a cross-process
          file lock, but the key stores (Keystore and the software file) are designed and tested for a single
@@ -47,6 +45,13 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="kinsight" android:host="pair" />
+            </intent-filter>
+            <!-- Yandex sign-in (spec §3, §14): the Android platform's yx<client_id> redirect, once it is registered. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="${yandexScheme}" />
             </intent-filter>
         </activity>
 

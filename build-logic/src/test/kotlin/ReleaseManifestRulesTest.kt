@@ -50,7 +50,6 @@ class ReleaseManifestRulesTest {
         val v = ReleaseManifestRules.violations(
             manifest(
                 permissions = """
-                    <uses-permission android:name="android.permission.INTERNET" />
                     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
                     <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
                     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -62,7 +61,13 @@ class ReleaseManifestRulesTest {
                 """,
             ),
         )
-        assertEquals(9, v.size, v.toString())
+        assertEquals(8, v.size, v.toString())
+    }
+
+    @Test
+    fun theNetworkIsAllowedForTheCloud() {
+        val v = ReleaseManifestRules.violations(manifest(permissions = """<uses-permission android:name="android.permission.INTERNET" />"""))
+        assertEquals(emptyList(), v)
     }
 
     @Test
