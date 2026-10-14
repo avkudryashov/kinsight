@@ -241,13 +241,85 @@ class CloudLifecycleTest {
         val runner = dad.runner(disks::disk, http)
         dad.cloudSecrets.runLock.lock() // the wipe holds the run lock across the group files and cloudState.clear()
         val note = async(start = CoroutineStart.UNDISPATCHED) { runner.noteOwnerHeard() }
-        delay(200)
+        delay(50)
         assertFalse(note.isCompleted, "waits for the wipe")
         dad.groups.delete()
         dad.cloudState.clear()
         dad.cloudSecrets.runLock.unlock()
         note.await()
         assertNull(dad.cloudState.current().ownerHeard)
+    }
+
+    /**
+     * Fix round 1, Important 1: a §7.3 transfer keeps token AT (same token_id); the new owner refreshes to AT2 at once.
+     * Mom retires AT with her old owner role, everyone reports generation 2, and still AT is never revoked: the phones
+     * that switched before the refresh use it.
+     */
+    @Test
+    fun aTokenTheNewOwnerKeptIsNeverRevoked() = runBlocking<Unit> {
+        family()
+        val g = mom.groups.read()!!
+        val storage = ByteArray(16) { 1 }
+        val tokenId = ByteArray(16) { 4 }
+        assertNotNull(OwnerRecords.claim(mom.appendOwn, mom.store(), mom.keys, mom.cloudSecrets.ring(g), storage, 1, "AT", mom.now + 20 * DAY, tokenId))
+        mom.cloudSecrets.saveOwner(g.groupId, 1, storage, TokenSet("AT", "RT", mom.now + 20 * DAY))
+        dad.store().storeMembership(mom.store().membershipEntries())
+        assertNotNull(OwnerRecords.claim(dad.appendOwn, dad.store(), dad.keys, dad.cloudSecrets.ring(g), storage, 2, "AT", dad.now + 20 * DAY, tokenId))
+        dad.cloudSecrets.saveOwner(g.groupId, 2, storage, TokenSet("AT", "RT", dad.now + 20 * DAY))
+        assertEquals(CloudRun.SYNCED, dad.runner(disks::disk, http).run(CloudTrigger.NOW))
+        assertEquals(1, refreshes(), "fewer than 30 days left: Dad refreshes at once")
+        dad.beat(2)
+        mom.store().storeMembership(dad.store().membershipEntries())
+        mom.store().applyBatch(dad.store().entriesAfter(dad.keys.deviceId, 0, 1000) + kid.beat(2))
+        assertTrue(OwnerLifecycle.allSwitched(membershipOf(mom), mom.store().heartbeats(), 1, mom.keys.deviceId))
+        assertEquals(CloudRun.SYNCED, mom.runner(disks::disk, http).run(CloudTrigger.NOW))
+        assertEquals(0, revokes())
+        assertTrue(mom.cloudSecrets.retired(g.groupId).isEmpty(), "dropped, not kept for a revoke")
+    }
+
+    /** Fix round 1, Important 2 (§7.2): the owner's phone is lost, never removed; after a week unheard Dad rotates for the kid. */
+    @Test
+    fun aLostOwnerPhoneLetsAnotherAdminRotateForADeparture() = runBlocking<Unit> {
+        family()
+        mom.ownStorage(token = "AT")
+        dad.learnsStorageFrom(mom)
+        check(kid.appendOwn { a -> listOf(a.leaveGroupEntry()) })
+        dad.store().storeMembership(kid.store().membershipEntries())
+        val runner = dad.runner(disks::disk, http)
+        runner.run(CloudTrigger.NOW)
+        assertNull(membershipOf(dad).discoveryRotation, "Mom was just heard here: Dad leaves it to her")
+        dad.now += 7 * DAY - 1
+        runner.run(CloudTrigger.NOW)
+        assertNull(membershipOf(dad).discoveryRotation, "not a full week yet")
+        dad.now += 1
+        runner.run(CloudTrigger.NOW)
+        val m = membershipOf(dad)
+        assertTrue(mom.keys.deviceId in m.active, "never removed")
+        val r = m.discoveryRotation!!
+        assertEquals(1, r.epoch)
+        assertFalse(r.keys.any { it.device_id == kid.keys.deviceId.bytes().toByteString() })
+    }
+
+    /** Fix round 1, Minor 3: a Heartbeat that failed after a new generation is tried again at the next synced run. */
+    @Test
+    fun aFailedHeartbeatIsTriedAgainAtTheNextSync() = runBlocking<Unit> {
+        family()
+        mom.ownStorage(token = "AT")
+        var calls = 0
+        val runner = mom.runner(disks::disk, http, afterSync = { if (++calls == 1) error("no Heartbeat") })
+        repeat(3) { assertEquals(CloudRun.SYNCED, runner.run(CloudTrigger.NOW)) }
+        assertEquals(2, calls)
+    }
+
+    /** Fix round 1, Minor 2: a refreshed token whose CloudAccess is missing goes out at the next synced run. */
+    @Test
+    fun aMissingAccessForTheVaultTokenIsIssuedAgain() = runBlocking<Unit> {
+        family()
+        mom.ownStorage(token = "AT")
+        val g = mom.groups.read()!!
+        mom.cloudSecrets.saveOwner(g.groupId, 1, ByteArray(16) { 1 }, TokenSet("AT2", "RT", mom.now + YEAR)) // as if the append failed
+        assertEquals(CloudRun.SYNCED, mom.runner(disks::disk, http).run(CloudTrigger.NOW))
+        assertEquals("AT2", CloudAccessView.current(mom.store(), membershipOf(mom), mom.cloudSecrets.ring(g).keys())!!.accessToken)
     }
 
     private companion object {
