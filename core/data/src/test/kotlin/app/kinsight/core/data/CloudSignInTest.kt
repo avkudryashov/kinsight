@@ -9,8 +9,14 @@ import app.kinsight.core.transport.cloud.CloudPaths
 import app.kinsight.core.transport.cloud.GroupKey
 import app.kinsight.core.transport.cloud.InMemoryDisk
 import app.kinsight.core.transport.cloud.Pkce
+import app.kinsight.core.transport.cloud.DiskApi
+import app.kinsight.core.transport.cloud.DiskItem
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import okio.ByteString.Companion.toByteString
+import java.io.IOException
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -46,6 +52,7 @@ class CloudSignInTest {
         assertEquals(1, enabled)
         assertEquals("1234567", http.forms.single()["code"])
         assertEquals(q["code_challenge"], Pkce.challenge(http.forms.single()["code_verifier"]!!))
+        assertNull(http.forms.single()["client_secret"], "spec §3: the code exchange goes without the secret")
         val g = mom.groups.read()!!
         val storageId = disk.files(CloudPaths.storageIdFile(g.groupId)).values.single()
         assertEquals(16, storageId.size)
@@ -151,6 +158,93 @@ class CloudSignInTest {
         assertTrue(disk.files("app:").isEmpty())
         assertEquals(CloudEnableResult.SIGN_IN_EXPIRED, s.finish("1234567"), "a refused code ends the sign-in")
         assertEquals(1, http.forms.size)
+    }
+
+    @Test
+    fun twoFinishesAtOnceExchangeTheCodeOnce() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val s = mom.signIn(http, { disk })
+        s.start("Pixel")
+        val gate = CompletableDeferred<Unit>().also { http.gate = it }
+        // The app link and a paste arrive together.
+        val first = async { s.finish("1234567") }
+        http.entered.await()
+        val second = async { s.finish("7654321") }
+        yield()
+        assertEquals(SignInState.Working, s.state.value)
+        gate.complete(Unit)
+        assertEquals(CloudEnableResult.ENABLED, first.await())
+        assertEquals(CloudEnableResult.ENABLED, second.await(), "the second one reports the winner's outcome")
+        assertEquals(SignInState.Done(CloudEnableResult.ENABLED), s.state.value)
+        assertEquals(listOf("1234567"), http.forms.map { it["code"] })
+        val g = mom.groups.read()!!
+        assertEquals(1, mom.store().membershipEntries().count { it.body.membership_op?.storage_owner != null }, "one storage")
+        assertEquals(1, disk.files(CloudPaths.storageIdFile(g.groupId)).size)
+    }
+
+    @Test
+    fun aSignInStartedDuringAFinishIsKept() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val s = mom.signIn(http, { disk })
+        s.start("Pixel")
+        val gate = CompletableDeferred<Unit>().also { http.gate = it }
+        val first = async { s.finish("1234567") }
+        http.entered.await()
+        val again = s.start("Pixel")!!
+        gate.complete(Unit)
+        assertEquals(CloudEnableResult.ENABLED, first.await())
+        assertEquals(SignInState.Waiting(again), s.state.value, "the newer sign-in still waits for its code")
+        http.accessToken = "AT2"
+        assertEquals(CloudEnableResult.RESTORED, s.finish("7654321"))
+        assertEquals("AT2", mom.cloudSecrets.tokens()!!.accessToken)
+    }
+
+    @Test
+    fun noAnswerFromTheTokenEndpointKeepsThePasteField() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val s = mom.signIn(http, { disk })
+        val url = s.start("Pixel")!!
+        http.unreachable = true
+        assertEquals(CloudEnableResult.NETWORK, s.finish("1234567"))
+        assertEquals(SignInState.Waiting(url, networkError = true), s.state.value)
+        // Spec §11: a 5xx is retried like no answer.
+        assertEquals(CloudEnableResult.NETWORK, s.finish("busy1234"))
+        assertEquals(SignInState.Waiting(url, networkError = true), s.state.value)
+        assertEquals(CloudEnableResult.ENABLED, s.finish("1234567"), "the same code, sent again")
+        assertEquals(SignInState.Done(CloudEnableResult.ENABLED), s.state.value)
+    }
+
+    @Test
+    fun aDiskFailureAfterTheExchangeEndsTheSignIn() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val s = mom.signIn(http, { FailingDisk(IOException("connection reset")) })
+        s.start("Pixel")
+        assertEquals(CloudEnableResult.NETWORK, s.finish("1234567"))
+        assertEquals(SignInState.Done(CloudEnableResult.NETWORK), s.state.value, "the code is spent: start again")
+        assertEquals(CloudEnableResult.SIGN_IN_EXPIRED, s.finish("1234567"))
+        assertEquals(1, http.forms.size)
+        val g = mom.groups.read()!!
+        assertNull(Membership.compute(g.groupId, mom.store().membershipEntries())!!.storageOwner)
+        assertNull(mom.cloudSecrets.tokens())
+    }
+
+    @Test
+    fun anUnexpectedFailureNeverLeavesTheSignInWorking() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val s = mom.signIn(http, { FailingDisk(IllegalStateException("boom")) })
+        s.start("Pixel")
+        assertEquals(CloudEnableResult.SIGN_IN_FAILED, s.finish("1234567"))
+        assertEquals(SignInState.Done(CloudEnableResult.SIGN_IN_FAILED), s.state.value)
+        assertNull(mom.cloudSecrets.tokens())
+    }
+
+    /** A Disk whose every call fails with [e]. */
+    private class FailingDisk(private val e: Exception) : DiskApi {
+        override suspend fun list(path: String): List<DiskItem> = throw e
+        override suspend fun mkdir(path: String) = throw e
+        override suspend fun upload(path: String, bytes: ByteArray) = throw e
+        override suspend fun download(path: String): ByteArray = throw e
+        override suspend fun delete(path: String) = throw e
     }
 
     @Test

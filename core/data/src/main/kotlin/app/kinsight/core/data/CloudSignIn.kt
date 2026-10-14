@@ -26,10 +26,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.net.URLDecoder
 import java.security.SecureRandom
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * The Yandex OAuth app of this build (BuildConfig, from local.properties; never in git). [redirectUri]: the verification
@@ -53,21 +56,27 @@ sealed interface SignInState {
 
     /**
      * The browser is open at [url]; the code comes back by the app link or the paste field. [rejected]: the last paste was
-     * not a code of this sign-in (no code, or a link answering another sign-in); the paste field stays for another try.
+     * not a code of this sign-in (no code, or a link answering another sign-in). [networkError]: the token endpoint could
+     * not be reached; the same code may be sent again. Either way the paste field stays for another try.
      */
-    data class Waiting(val url: String, val rejected: Boolean = false) : SignInState
+    data class Waiting(val url: String, val rejected: Boolean = false, val networkError: Boolean = false) : SignInState
 
     data object Working : SignInState
 
+    /**
+     * Terminal: the code was exchanged (or the sign-in expired). [CloudEnableResult.NETWORK] here means the Disk failed
+     * after the exchange: the code is spent, the user starts again (a network failure during the exchange stays [Waiting]).
+     */
     data class Done(val result: CloudEnableResult) : SignInState
 }
 
 /**
  * «Синхронизировать через Яндекс Диск» (spec §6 «Включение облака»): PKCE sign-in, then the storage. Only an active admin
  * parent; refused while a member's newest Heartbeat says protocol below 3. Turning on: the group key is rotated first when
- * a departed phone still holds it or a member lacks the newest one, `storage.id` is created, the tokens go to the vault,
- * then StorageOwner and CloudAccess are signed together. The owner signing in again (spec §11, 401) gets new tokens and a
- * new CloudAccess for the same storage. One sign-in at a time; a pending one lasts [PENDING_MS] and lives in memory only.
+ * a departed phone still holds it or a member lacks the newest one, `storage.id` is created, StorageOwner and CloudAccess
+ * are signed together, then the tokens go to the vault. The owner signing in again (spec §11, 401) gets new tokens and a
+ * new CloudAccess for the same storage. One sign-in at a time ([finish] is serialized); a pending one lasts [PENDING_MS]
+ * and lives in memory only.
  */
 class CloudSignIn(
     private val db: KinsightDatabase,
@@ -85,8 +94,9 @@ class CloudSignIn(
 ) {
     private class Pending(val verifier: String, val state: String, val url: String, val atMs: Long)
 
-    @Volatile
-    private var pending: Pending? = null
+    /** Claimed (set to null) by a finish before its exchange, so a [start] meanwhile installs a new one that stays. */
+    private val pending = AtomicReference<Pending?>(null)
+    private val finishing = Mutex()
 
     private val _state = MutableStateFlow<SignInState>(SignInState.Idle)
     val state: StateFlow<SignInState> = _state.asStateFlow()
@@ -116,7 +126,7 @@ class CloudSignIn(
         val verifier = Pkce.verifier(random)
         val st = Pkce.state(random)
         val url = oauth(c).authorizeUrl(Pkce.challenge(verifier), c.redirectUri, keys().deviceId.hex, deviceName, st)
-        pending = Pending(verifier, st, url, clock())
+        pending.set(Pending(verifier, st, url, clock()))
         _state.value = SignInState.Waiting(url)
         return url
     }
@@ -124,40 +134,83 @@ class CloudSignIn(
     /**
      * [input]: the pasted code (spaces allowed) or the app link the browser opened. Input that holds no code of this
      * sign-in returns [CloudEnableResult.SIGN_IN_FAILED] but keeps [state] at [SignInState.Waiting] (rejected), so the
-     * user can paste again; only the token exchange (or an expired sign-in) ends it.
+     * user can paste again; a token endpoint out of reach returns [CloudEnableResult.NETWORK] and keeps it too. Only the
+     * exchange's answer (or an expired sign-in) ends it. A finish arriving while another runs (the app link and a paste)
+     * changes nothing: it waits for that one and returns its outcome.
      */
     suspend fun finish(input: String): CloudEnableResult {
-        val p = pending?.takeIf { clock() - it.atMs in 0..PENDING_MS }
-            ?: return done(CloudEnableResult.SIGN_IN_EXPIRED).also { pending = null }
+        if (!finishing.tryLock()) {
+            finishing.withLock { }
+            return outcome()
+        }
+        try {
+            return finishLocked(input)
+        } finally {
+            finishing.unlock()
+        }
+    }
+
+    private suspend fun finishLocked(input: String): CloudEnableResult {
+        val p = pending.get()
+        if (p == null || clock() - p.atMs !in 0..PENDING_MS) {
+            pending.compareAndSet(p, null)
+            return settle(CloudEnableResult.SIGN_IN_EXPIRED)
+        }
         val code = codeOf(input, p.state)
         if (code == null) {
             _state.value = SignInState.Waiting(p.url, rejected = true)
             return CloudEnableResult.SIGN_IN_FAILED
         }
+        // A start() since we read it installed a newer sign-in: this input answered the old one.
+        if (!pending.compareAndSet(p, null)) return CloudEnableResult.SIGN_IN_EXPIRED
         _state.value = SignInState.Working
         val tokens = try {
             oauth(config()).exchange(code, p.verifier)
         } catch (e: CancellationException) {
+            reopen(p, networkError = false)
             throw e
         } catch (e: OAuthException) {
+            // Spec §11: 5xx and 429 are retried, like no answer at all.
+            if (e.error == "http_429" || e.error.startsWith("http_5")) return reopen(p, networkError = true)
             Log.w(TAG, "sign-in refused: ${e.error}")
-            pending = null
-            return done(CloudEnableResult.SIGN_IN_FAILED)
+            return settle(CloudEnableResult.SIGN_IN_FAILED)
         } catch (e: IOException) {
-            return done(CloudEnableResult.NETWORK)
+            return reopen(p, networkError = true)
         }
-        pending = null
-        val result = enable(tokens)
+        val result = try {
+            enable(tokens)
+        } catch (e: CancellationException) {
+            settle(CloudEnableResult.SIGN_IN_FAILED)
+            throw e
+        } catch (e: Exception) {
+            // The keystore or anything unexpected: never leave the screen at Working. The code is spent; start again.
+            Log.w(TAG, "turning the cloud on failed: ${e.javaClass.simpleName}")
+            CloudEnableResult.SIGN_IN_FAILED
+        }
         if (result == CloudEnableResult.ENABLED || result == CloudEnableResult.RESTORED) onEnabled()
-        return done(result)
+        return settle(result)
     }
 
     fun dismiss() {
         _state.value = SignInState.Idle
     }
 
-    private fun done(r: CloudEnableResult): CloudEnableResult {
-        _state.value = SignInState.Done(r)
+    /** What a finish that waited for another reports: that one's outcome. */
+    private fun outcome(): CloudEnableResult = when (val s = _state.value) {
+        is SignInState.Done -> s.result
+        is SignInState.Waiting -> if (s.networkError) CloudEnableResult.NETWORK else CloudEnableResult.SIGN_IN_FAILED
+        SignInState.Idle, SignInState.Working -> CloudEnableResult.SIGN_IN_FAILED
+    }
+
+    /** Puts the claimed sign-in back for another try, unless a newer one was started meanwhile. */
+    private fun reopen(p: Pending, networkError: Boolean): CloudEnableResult {
+        if (pending.compareAndSet(null, p)) _state.value = SignInState.Waiting(p.url, networkError = networkError)
+        return CloudEnableResult.NETWORK
+    }
+
+    /** Terminal outcome; a sign-in started meanwhile keeps its own Waiting state. */
+    private fun settle(r: CloudEnableResult): CloudEnableResult {
+        if (pending.get() == null) _state.value = SignInState.Done(r)
         return r
     }
 
@@ -182,7 +235,8 @@ class CloudSignIn(
         if (oldAppInGroup(store, m, self)) return CloudEnableResult.OLD_APP_IN_GROUP
         if (GroupKey.rotationNeeded(m) || GroupKey.membersWithoutKey(m).isNotEmpty()) {
             val before = m
-            appendOwn { a -> listOf(GroupKey.rotate(a, before)) }
+            // Not rotated: sealing now would hand the storage to a key a departed phone holds.
+            if (!appendOwn { a -> listOf(GroupKey.rotate(a, before)) }) return CloudEnableResult.NOT_ADMIN
             m = Membership.compute(group.groupId, store.membershipEntries()) ?: return CloudEnableResult.NOT_ADMIN
             GroupKey.open(k, m)?.let { (epoch, key) -> ring.put(epoch, key) }
         }
@@ -200,7 +254,6 @@ class CloudSignIn(
         } catch (e: IOException) {
             return CloudEnableResult.NETWORK
         }
-        secrets.saveOwner(group.groupId, 1, storageId, t)
         val (epoch, key) = writeKey(m, ring)
         val entries = store.membershipEntries()
         val signed = appendOwn { a ->
@@ -208,7 +261,11 @@ class CloudSignIn(
             val withOwner = Membership.compute(group.groupId, entries + ownerEntry)!!
             listOf(ownerEntry, CloudAccessView.issue(a, withOwner, epoch, key, t.accessToken, t.expiresAtMs))
         }
-        return if (signed) CloudEnableResult.ENABLED else CloudEnableResult.NOT_ADMIN
+        if (!signed) return CloudEnableResult.NOT_ADMIN
+        // After the signed StorageOwner, so the vault never claims a storage no record names. Should this write fail, the
+        // owner without tokens is asked to sign in again (spec §11), which restores them for this same storage.
+        secrets.saveOwner(group.groupId, 1, storageId, t)
+        return CloudEnableResult.ENABLED
     }
 
     /** The generation CloudSync seals with: the group's newest when held, else the newest held. */
