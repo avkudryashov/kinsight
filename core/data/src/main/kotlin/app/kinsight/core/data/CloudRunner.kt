@@ -153,7 +153,7 @@ class CloudRunner(
             secrets.dropStaleOwner(group.groupId, membership, self)
             // Spec §7: a handed token of an older generation is no longer used; a parent keeps it for the revoke (rulings
             // Q13). A child never retires and keeps its old token until it read the «переезд» pack of the new storage.
-            if (!me.isChild) secrets.retireStale(group.groupId, membership, keep = true)
+            if (!me.isChild) secrets.retireStale(group.groupId, membership, keep = true) else dropFollowed(store, group.groupId, membership, ring)
         }
         val access = secrets.access(store, membership, self, ring)
             ?: return if (isOwner) {
@@ -175,6 +175,7 @@ class CloudRunner(
             ).also { cached = key to it }
         val result = sync.run()
         observeOwner(store, membership, now)
+        if (me.isChild) Membership.compute(group.groupId, store.membershipEntries())?.let { dropFollowed(store, group.groupId, it, ring) }
         if (result is CloudResult.Synced) afterSynced(store, group.groupId, k, ring, access.accessToken)
         return when (result) {
             is CloudResult.Synced -> {
@@ -191,6 +192,15 @@ class CloudRunner(
             CloudResult.NotMember -> CloudRun.OFF
             is CloudResult.Retry -> record(now, CloudRun.RETRY, CloudProblem.NETWORK)
         }
+    }
+
+    /**
+     * Rulings Q13, Q19: a child drops its token of an older storage generation (never kept for a revoke) only once the
+     * new storage's access opens here: it read the «переезд» pack on the old Disk, or the owner's CloudAccess came over
+     * Bluetooth. Until then the old token stays.
+     */
+    private suspend fun dropFollowed(store: RoomEntryStore, groupId: GroupId, m: MembershipState, ring: GroupKeyRing) {
+        if (CloudAccessView.current(store, m, ring.keys()) != null) secrets.retireStale(groupId, m, keep = false)
     }
 
     /** After a sync (its rotations are in the ring): the owner's access re-issued when it no longer opens; retired tokens revoked. */

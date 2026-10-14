@@ -20,8 +20,10 @@ import java.io.File
 /**
  * What the last cloud run ran into (spec §11). [UNAUTHORIZED]: the owner must sign in again; [NO_ACCESS]: a member has no
  * working token and waits for the owner; [STORAGE_FULL]: the owner's Disk is full; [NETWORK]: retried, nothing to show.
+ * [RENEW_ACCESS]: a phone that knew the token left or was removed: the owner signs in for a new one (spec §7.4); computed
+ * from the log, never recorded.
  */
-enum class CloudProblem { UNAUTHORIZED, NO_ACCESS, STORAGE_FULL, NETWORK }
+enum class CloudProblem { UNAUTHORIZED, NO_ACCESS, STORAGE_FULL, NETWORK, RENEW_ACCESS }
 
 /**
  * [syncedGeneration]: the storage generation of the last successful sync (the Heartbeat reports it, spec §7);

@@ -50,7 +50,7 @@ class FakeOAuthHttp(var accessToken: String = "AT1") : Http() {
 val TEST_CLOUD = CloudConfig("c".repeat(32), "s".repeat(32), CloudConfig.CODE_PAGE)
 
 fun TestDevice.signIn(http: FakeOAuthHttp, disk: (suspend () -> String) -> DiskApi, onEnabled: () -> Unit = {}) = CloudSignIn(
-    db, groups, keyProvider, appendOwn, cloudSecrets,
+    db, groups, keyProvider, appendOwn, cloudSecrets, cloudState,
     config = { TEST_CLOUD },
     disk = disk,
     oauth = { c -> YandexOAuth(c.clientId, c.clientSecret, http = http, clock = { now }) },

@@ -56,6 +56,8 @@ sealed interface GroupSnapshot {
         val peerSeen: Map<DeviceId, Long>,
         /** Live CategoryOverride entries (stage 5c), every author's latest per package; read through [CategoryOverrides]. */
         val categoryOverrides: List<DecodedEntry> = emptyList(),
+        /** Live StorageHandover entries (spec §7.1), read through OwnerLifecycle. */
+        val handovers: List<DecodedEntry> = emptyList(),
     ) : GroupSnapshot {
         val removed: Boolean get() = self !in membership.active
     }
@@ -166,6 +168,7 @@ class Snapshots(
             heartbeats = store.heartbeats(),
             peerSeen = peerSeen,
             categoryOverrides = store.categoryOverrides(),
+            handovers = store.storageHandovers(),
         )
     }
 

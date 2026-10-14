@@ -6,18 +6,23 @@ import app.kinsight.core.database.KinsightDatabase
 import app.kinsight.core.database.RoomEntryStore
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.DeviceKeys
+import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.MembershipState
-import app.kinsight.core.model.storageOwnerEntry
+import app.kinsight.core.model.storageHandoverEntry
+import app.kinsight.core.transport.ble.GroupConfig
 import app.kinsight.core.transport.ble.GroupStore
-import app.kinsight.core.transport.cloud.CloudAccessView
 import app.kinsight.core.transport.cloud.CloudPaths
 import app.kinsight.core.transport.cloud.DiskApi
 import app.kinsight.core.transport.cloud.DiskException
 import app.kinsight.core.transport.cloud.GroupKey
 import app.kinsight.core.transport.cloud.GroupKeyRing
 import app.kinsight.core.transport.cloud.OAuthException
+import app.kinsight.core.transport.cloud.OwnerLifecycle
+import app.kinsight.core.transport.cloud.PackCodec
 import app.kinsight.core.transport.cloud.Pkce
+import app.kinsight.core.transport.cloud.StorageMove
+import app.kinsight.core.transport.cloud.StorageMoveException
 import app.kinsight.core.transport.cloud.TokenSet
 import app.kinsight.core.transport.cloud.YandexOAuth
 import kotlinx.coroutines.CancellationException
@@ -49,7 +54,13 @@ data class CloudConfig(val clientId: String, val clientSecret: String, val redir
     }
 }
 
-enum class CloudEnableResult { ENABLED, RESTORED, NOT_CONFIGURED, NOT_ADMIN, ALREADY_ON, OLD_APP_IN_GROUP, SIGN_IN_EXPIRED, SIGN_IN_FAILED, NETWORK, STORAGE_FULL }
+enum class CloudEnableResult {
+    ENABLED, RESTORED, NOT_CONFIGURED, NOT_ADMIN, ALREADY_ON, OLD_APP_IN_GROUP, SIGN_IN_EXPIRED, SIGN_IN_FAILED, NETWORK, STORAGE_FULL,
+    TAKEN_OVER, NOT_ALLOWED,
+}
+
+/** [ENABLE]: turn the cloud on, or the owner restores or renews its access; [TAKE_OVER]: take the storage (spec §7.1 to §7.3). */
+enum class SignInMode { ENABLE, TAKE_OVER }
 
 sealed interface SignInState {
     data object Idle : SignInState
@@ -76,7 +87,9 @@ sealed interface SignInState {
  * a departed phone still holds it or a member lacks the newest one, `storage.id` is created, StorageOwner and CloudAccess
  * are signed together, then the tokens go to the vault. The owner signing in again (spec §11, 401) gets new tokens and a
  * new CloudAccess for the same storage. One sign-in at a time ([finish] is serialized); a pending one lasts [PENDING_MS]
- * and lives in memory only.
+ * and lives in memory only. A parent asked by the owner, or one that finds the owner gone, takes the storage
+ * ([SignInMode.TAKE_OVER]); the owner whose token a departed phone knew renews it (spec §7). Every sign-in brings a fresh
+ * token, whose age starts then in [cloudState] (rulings Q19).
  */
 class CloudSignIn(
     private val db: KinsightDatabase,
@@ -84,6 +97,7 @@ class CloudSignIn(
     private val keys: suspend () -> DeviceKeys,
     private val appendOwn: OwnAppend,
     private val secrets: CloudSecrets,
+    private val cloudState: CloudStateStore,
     private val config: () -> CloudConfig,
     private val disk: (accessToken: suspend () -> String) -> DiskApi,
     private val oauth: (CloudConfig) -> YandexOAuth = { YandexOAuth(it.clientId, it.clientSecret) },
@@ -92,7 +106,7 @@ class CloudSignIn(
     private val random: SecureRandom = SecureRandom(),
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) {
-    private class Pending(val verifier: String, val state: String, val url: String, val atMs: Long)
+    private class Pending(val verifier: String, val state: String, val url: String, val atMs: Long, val mode: SignInMode)
 
     /** Claimed (set to null) by a finish before its exchange, so a [start] meanwhile installs a new one that stays. */
     private val pending = AtomicReference<Pending?>(null)
@@ -104,8 +118,8 @@ class CloudSignIn(
     private val _state = MutableStateFlow<SignInState>(SignInState.Idle)
     val state: StateFlow<SignInState> = _state.asStateFlow()
 
-    /** Null when this device may sign in now, else why not. */
-    suspend fun precheck(): CloudEnableResult? {
+    /** Null when this device may sign in now for [mode], else why not. */
+    suspend fun precheck(mode: SignInMode = SignInMode.ENABLE): CloudEnableResult? {
         if (!config().configured) return CloudEnableResult.NOT_CONFIGURED
         val group = withContext(io) { groups.read() } ?: return CloudEnableResult.NOT_ADMIN
         val self = keys().deviceId
@@ -113,15 +127,26 @@ class CloudSignIn(
         val m = Membership.compute(group.groupId, store.membershipEntries()) ?: return CloudEnableResult.NOT_ADMIN
         val me = m.active[self]
         if (me == null || !me.isAdmin || me.isChild) return CloudEnableResult.NOT_ADMIN
+        if (mode == SignInMode.TAKE_OVER) return if (mayTakeOver(store, m, self)) null else CloudEnableResult.NOT_ALLOWED
         val owner = m.storageOwner
         if (owner != null && owner.deviceId != self) return CloudEnableResult.ALREADY_ON
         if (owner == null && oldAppInGroup(store, m, self)) return CloudEnableResult.OLD_APP_IN_GROUP
         return null
     }
 
+    /**
+     * Spec §7.1, §7.2: asked by the owner, or the owner is gone or this phone has not seen its log grow for a week (rulings
+     * Q14, Q17: this phone's own clock, never the owner's stamps).
+     */
+    private suspend fun mayTakeOver(store: RoomEntryStore, m: MembershipState, self: DeviceId): Boolean {
+        val owner = m.storageOwner ?: return false
+        val heard = cloudState.current().ownerHeardFrom(owner.deviceId)
+        return OwnerLifecycle.canTakeOver(m, self, store.storageHandovers(), heard, clock())
+    }
+
     /** The authorize address to open in the browser, or null (then [state] says why). */
-    suspend fun start(deviceName: String): String? {
-        precheck()?.let {
+    suspend fun start(deviceName: String, mode: SignInMode = SignInMode.ENABLE): String? {
+        precheck(mode)?.let {
             _state.value = SignInState.Done(it)
             return null
         }
@@ -130,7 +155,7 @@ class CloudSignIn(
         val st = Pkce.state(random)
         val url = oauth(c).authorizeUrl(Pkce.challenge(verifier), c.redirectUri, keys().deviceId.hex, deviceName, st)
         synchronized(stateLock) {
-            pending.set(Pending(verifier, st, url, clock()))
+            pending.set(Pending(verifier, st, url, clock(), mode))
             _state.value = SignInState.Waiting(url)
         }
         return url
@@ -185,7 +210,7 @@ class CloudSignIn(
             return reopen(p, networkError = true)
         }
         val result = try {
-            enable(tokens)
+            enable(tokens, p.mode)
         } catch (e: CancellationException) {
             settle(CloudEnableResult.SIGN_IN_FAILED)
             throw e
@@ -194,7 +219,7 @@ class CloudSignIn(
             Log.w(TAG, "turning the cloud on failed: ${e.javaClass.simpleName}")
             CloudEnableResult.SIGN_IN_FAILED
         }
-        if (result == CloudEnableResult.ENABLED || result == CloudEnableResult.RESTORED) onEnabled()
+        if (result in SIGNED_IN) onEnabled()
         return settle(result)
     }
 
@@ -231,7 +256,24 @@ class CloudSignIn(
      * token; a wipe (LocalReset holds the lock) either ends before (then there is no group) or waits for this, so no old
      * group's tokens stay behind. The lock is not reentrant: nothing holding it may call [finish].
      */
-    private suspend fun enable(t: TokenSet): CloudEnableResult = secrets.runLock.withLock { enableLocked(t) }
+    private suspend fun enable(t: TokenSet, mode: SignInMode): CloudEnableResult = secrets.runLock.withLock {
+        val result = if (mode == SignInMode.TAKE_OVER) takeOverLocked(t) else enableLocked(t)
+        if (result in SIGNED_IN) freshToken()
+        result
+    }
+
+    /** Rulings Q19: a sign-in brings a fresh token; its age (the refresh after 30 days) starts now. */
+    private suspend fun freshToken() {
+        try {
+            val now = clock()
+            cloudState.markRefreshCheck(now, tokenSinceMs = now)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Only a hint: the weekly check starts the age itself when it finds none.
+            Log.w(TAG, "token age not recorded: ${e.javaClass.simpleName}")
+        }
+    }
 
     private suspend fun enableLocked(t: TokenSet): CloudEnableResult {
         val group = withContext(io) { groups.read() } ?: return CloudEnableResult.NOT_ADMIN
@@ -245,20 +287,15 @@ class CloudSignIn(
         val owner = m.storageOwner
         if (owner != null) {
             if (owner.deviceId != self) return CloudEnableResult.ALREADY_ON
+            // Spec §7.4: a phone that knew the token left or was removed: a new generation with the new token.
+            if (OwnerLifecycle.tokenExposed(m)) return renewLocked(group, store, k, m, ring, t)
             // Spec §11, 401 at the owner: new tokens and a new CloudAccess for the same storage.
             secrets.saveOwner(group.groupId, owner.generation, owner.storageId.toByteArray(), t)
-            val (epoch, key) = writeKey(m, ring)
-            val signed = appendOwn { a -> listOf(CloudAccessView.issue(a, m, epoch, key, t.accessToken, t.expiresAtMs)) }
+            val signed = OwnerRecords.issue(appendOwn, k, m, ring, t.accessToken, t.expiresAtMs)
             return if (signed) CloudEnableResult.RESTORED else CloudEnableResult.NOT_ADMIN
         }
         if (oldAppInGroup(store, m, self)) return CloudEnableResult.OLD_APP_IN_GROUP
-        if (GroupKey.rotationNeeded(m) || GroupKey.membersWithoutKey(m).isNotEmpty()) {
-            val before = m
-            // Not rotated: sealing now would hand the storage to a key a departed phone holds.
-            if (!appendOwn { a -> listOf(GroupKey.rotate(a, before)) }) return CloudEnableResult.NOT_ADMIN
-            m = Membership.compute(group.groupId, store.membershipEntries()) ?: return CloudEnableResult.NOT_ADMIN
-            GroupKey.open(k, m)?.let { (epoch, key) -> ring.put(epoch, key) }
-        }
+        m = rotatedIfNeeded(store, k, m, ring) ?: return CloudEnableResult.NOT_ADMIN
         val storageId = Primitives.randomBytes(16, random)
         val d = disk { t.accessToken }
         try {
@@ -266,33 +303,136 @@ class CloudSignIn(
             d.upload(CloudPaths.storageIdFile(group.groupId), storageId)
         } catch (e: CancellationException) {
             throw e
-        } catch (e: DiskException.StorageFull) {
-            return CloudEnableResult.STORAGE_FULL
-        } catch (e: DiskException.Unauthorized) {
-            return CloudEnableResult.SIGN_IN_FAILED
         } catch (e: IOException) {
-            return CloudEnableResult.NETWORK
+            return diskFailure(e)
         }
-        val (epoch, key) = writeKey(m, ring)
-        val entries = store.membershipEntries()
-        val signed = appendOwn { a ->
-            val ownerEntry = a.storageOwnerEntry(self, storageId, 1)
-            val withOwner = Membership.compute(group.groupId, entries + ownerEntry)!!
-            listOf(ownerEntry, CloudAccessView.issue(a, withOwner, epoch, key, t.accessToken, t.expiresAtMs))
-        }
-        if (!signed) return CloudEnableResult.NOT_ADMIN
+        // Rulings Q3, Q15: the op names a fresh token id and every departure this phone knows of.
+        if (OwnerRecords.claim(appendOwn, store, k, ring, storageId, 1, t.accessToken, t.expiresAtMs) == null) return CloudEnableResult.NOT_ADMIN
         // After the signed StorageOwner, so the vault never claims a storage no record names. Should this write fail, the
         // owner without tokens is asked to sign in again (spec §11), which restores them for this same storage.
         secrets.saveOwner(group.groupId, 1, storageId, t)
         return CloudEnableResult.ENABLED
     }
 
-    /** The generation CloudSync seals with: the group's newest when held, else the newest held. */
-    private suspend fun writeKey(m: MembershipState, ring: GroupKeyRing): Pair<Int, ByteArray> {
-        val held = ring.keys()
-        val current = GroupKey.currentEpoch(m)
-        val epoch = if (current in held) current else held.keys.max()
-        return epoch to held.getValue(epoch)
+    /** Rotates first when a departed phone holds the group key or a member lacks it; the membership after, null when not signed. */
+    private suspend fun rotatedIfNeeded(store: RoomEntryStore, k: DeviceKeys, m: MembershipState, ring: GroupKeyRing): MembershipState? {
+        if (!GroupKey.rotationNeeded(m) && GroupKey.membersWithoutKey(m).isEmpty()) return m
+        // Not rotated: sealing now would hand the storage to a key a departed phone holds.
+        if (!appendOwn { a -> listOf(GroupKey.rotate(a, m)) }) return null
+        val after = Membership.compute(store.groupId, store.membershipEntries()) ?: return null
+        GroupKey.open(k, after)?.let { (epoch, key) -> ring.put(epoch, key) }
+        return after
+    }
+
+    /**
+     * Spec §7.4: rotation first, then StorageOwner(generation + 1, the same storage) naming a fresh token and every known
+     * departure (rulings Q3), and CloudAccess with the new token; the old token is retired for the revoke.
+     */
+    private suspend fun renewLocked(group: GroupConfig, store: RoomEntryStore, k: DeviceKeys, start: MembershipState, ring: GroupKeyRing, t: TokenSet): CloudEnableResult {
+        val m = rotatedIfNeeded(store, k, start, ring) ?: return CloudEnableResult.NOT_ADMIN
+        val owner = m.storageOwner ?: return CloudEnableResult.NOT_ADMIN
+        val storageId = owner.storageId.toByteArray()
+        val generation = owner.generation + 1
+        val old = secrets.tokens()?.takeIf { it.owner && it.groupHex == group.groupId.hex }
+        OwnerRecords.claim(appendOwn, store, k, ring, storageId, generation, t.accessToken, t.expiresAtMs) ?: return CloudEnableResult.NOT_ADMIN
+        old?.takeIf { it.accessToken != t.accessToken }?.let { secrets.retire(group.groupId, it.storageGeneration, it.accessToken) }
+        secrets.saveOwner(group.groupId, generation, storageId, t)
+        return CloudEnableResult.RESTORED
+    }
+
+    /**
+     * Spec §7.1 steps 2 to 4, §7.2, §7.3: this parent takes the storage. Its own Disk holding the same storage.id means the
+     * same storage (the same Yandex account): only the role moves, the id stays. Otherwise the family folder is copied there
+     * with the shared token (a 401 from the old Disk means it was revoked: the new storage fills from the phones' own
+     * copies, spec §7.2), a fresh storage.id is written (rulings Q5), StorageOwner(generation + 1) and CloudAccess are
+     * signed, the shared token is retired, and the «переезд» goes into the old storage. A failure of the new Disk signs
+     * nothing (rulings Q2): the old storage stays in force.
+     */
+    private suspend fun takeOverLocked(t: TokenSet): CloudEnableResult {
+        val group = withContext(io) { groups.read() } ?: return CloudEnableResult.NOT_ADMIN
+        val k = keys()
+        val self = k.deviceId
+        val store = RoomEntryStore(db, group.groupId)
+        val start = Membership.compute(group.groupId, store.membershipEntries()) ?: return CloudEnableResult.NOT_ADMIN
+        if (!mayTakeOver(store, start, self)) return CloudEnableResult.NOT_ALLOWED
+        val ring = secrets.ring(group)
+        val owner = start.storageOwner ?: return CloudEnableResult.NOT_ALLOWED
+        val old = secrets.access(store, start, self, ring)
+        val newDisk = disk { t.accessToken }
+        val oldDisk = old?.let { a -> disk { a.accessToken } }
+        val current = owner.storageId.toByteArray()
+        var storageId = current
+        try {
+            val same = StorageMove.storageIdOf(newDisk, group.groupId)?.contentEquals(current) == true
+            if (!same) {
+                storageId = Primitives.randomBytes(16, random)
+                if (oldDisk != null) {
+                    try {
+                        StorageMove.copy(oldDisk, newDisk, group.groupId)
+                    } catch (e: StorageMoveException) {
+                        if (e.side != StorageMove.Side.SOURCE || e.cause !is DiskException.Unauthorized) throw e
+                        Log.i(TAG, "the old storage is out of reach: the new one fills from the phones' own copies")
+                    }
+                }
+                StorageMove.writeStorageId(newDisk, group.groupId, storageId)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: IOException) {
+            return diskFailure(e)
+        }
+        // After the Disk work, so a failed Disk signs nothing; the rotation keeps the new token from a departed phone.
+        rotatedIfNeeded(store, k, start, ring) ?: return CloudEnableResult.NOT_ADMIN
+        val generation = owner.generation + 1
+        val claimed = OwnerRecords.claim(appendOwn, store, k, ring, storageId, generation, t.accessToken, t.expiresAtMs)
+            ?: return CloudEnableResult.NOT_ADMIN
+        old?.takeIf { it.accessToken != t.accessToken }?.let { secrets.retire(group.groupId, it.generation, it.accessToken) }
+        secrets.saveOwner(group.groupId, generation, storageId, t)
+        if (!storageId.contentEquals(current) && oldDisk != null) leaveMoveRecord(oldDisk, store, k, claimed)
+        return CloudEnableResult.TAKEN_OVER
+    }
+
+    /** A Disk failure while setting the storage up; a [StorageMoveException] stands for the Disk failure it carries. */
+    private fun diskFailure(e: IOException): CloudEnableResult = when ((e as? StorageMoveException)?.cause ?: e) {
+        is DiskException.StorageFull -> CloudEnableResult.STORAGE_FULL
+        is DiskException.Unauthorized -> CloudEnableResult.SIGN_IN_FAILED
+        else -> CloudEnableResult.NETWORK
+    }
+
+    /**
+     * Spec §7.1 «кладёт в старое хранилище запись «переезд»»: the new StorageOwner and CloudAccess, sealed with the group
+     * key, in this phone's folder of the old storage, so phones still on it switch at their next run. The rotation op of
+     * that key generation travels in clear next to it (rulings Q11), so a phone that has not heard of a rotation signed
+     * for the take-over opens it. Best effort: a phone that misses it gets the new token over Bluetooth from the new owner
+     * (spec §6).
+     */
+    private suspend fun leaveMoveRecord(oldDisk: DiskApi, store: RoomEntryStore, k: DeviceKeys, c: Claimed) {
+        val groupId: GroupId = store.groupId
+        val from = c.entries.first().seq
+        val to = c.entries.last().seq
+        val dir = CloudPaths.deviceDir(groupId, k.deviceId)
+        try {
+            val m = Membership.compute(groupId, store.membershipEntries())
+            val rotation = m?.effectiveEntries?.filter { it.body.membership_op?.rotate?.epoch == c.epoch && c.epoch != 0 }.orEmpty()
+            val pack = PackCodec.seal(k, groupId, c.entries, from, to, c.epoch, c.groupKey, clock(), rotation)
+            for (d in listOf(CloudPaths.APP_ROOT, CloudPaths.root(groupId), dir)) oldDisk.mkdir(d)
+            oldDisk.upload("$dir/${CloudPaths.packName(from, to)}", pack)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: IOException) {
+            Log.w(TAG, "the move record did not reach the old storage: ${e.javaClass.simpleName}")
+        }
+    }
+
+    /** Spec §7.1 «Владелец выбирает родителя»: the owner asks [to], an active admin parent, to take the storage. */
+    suspend fun requestHandover(to: DeviceId): Boolean {
+        val group = withContext(io) { groups.read() } ?: return false
+        val self = keys().deviceId
+        val m = Membership.compute(group.groupId, RoomEntryStore(db, group.groupId).membershipEntries()) ?: return false
+        val owner = m.storageOwner ?: return false
+        val target = m.active[to] ?: return false
+        if (owner.deviceId != self || to == self || !target.isAdmin || target.isChild) return false
+        return appendOwn { a -> listOf(a.storageHandoverEntry(to, owner.generation)) }
     }
 
     /** A member whose newest Heartbeat says protocol below 3 could not take the cloud entries. No Heartbeat: no refusal. */
@@ -305,6 +445,9 @@ class CloudSignIn(
         /** A sign-in left open longer than this must start again. */
         const val PENDING_MS = 10L * 60 * 1000
         private const val MIN_CLOUD_PROTOCOL = 3
+
+        /** The outcomes that leave this phone with a fresh owner token. */
+        private val SIGNED_IN = setOf(CloudEnableResult.ENABLED, CloudEnableResult.RESTORED, CloudEnableResult.TAKEN_OVER)
         private const val TAG = "KinsightCloud"
         private val BARE_CODE = Regex("^[0-9A-Za-z]{4,64}$")
 

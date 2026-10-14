@@ -57,7 +57,10 @@ class CloudSignInTest {
         val storageId = disk.files(CloudPaths.storageIdFile(g.groupId)).values.single()
         assertEquals(16, storageId.size)
         val m = Membership.compute(g.groupId, mom.store().membershipEntries())!!
-        assertEquals(StorageOwnerState(mom.keys.deviceId, storageId.toByteString(), 1), m.storageOwner)
+        val owner = m.storageOwner!!
+        assertEquals(StorageOwnerState(mom.keys.deviceId, storageId.toByteString(), 1), StorageOwnerState(owner.deviceId, owner.storageId, owner.generation))
+        assertEquals(16, owner.tokenId.size, "rulings Q15: a fresh sign-in names a new token")
+        assertTrue(owner.departed.isEmpty(), "nobody departed")
         val t = mom.cloudSecrets.tokens()!!
         assertTrue(t.owner)
         assertEquals("AT1", t.accessToken)

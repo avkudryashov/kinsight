@@ -146,7 +146,7 @@ private fun cloudLastSync(last: Long?, nowMs: Long): String = when {
 /** Spec §11. Network trouble is retried quietly: the last sync time says enough. */
 @Composable
 private fun cloudProblemText(p: CloudProblem?): String? = when (p) {
-    CloudProblem.UNAUTHORIZED -> stringResource(R.string.set_cloud_restore)
+    CloudProblem.UNAUTHORIZED, CloudProblem.RENEW_ACCESS -> stringResource(R.string.set_cloud_restore)
     CloudProblem.NO_ACCESS -> stringResource(R.string.set_cloud_wait)
     CloudProblem.STORAGE_FULL -> stringResource(R.string.set_cloud_full)
     CloudProblem.NETWORK, null -> null
@@ -155,12 +155,12 @@ private fun cloudProblemText(p: CloudProblem?): String? = when (p) {
 @Composable
 private fun enableResultText(r: CloudEnableResult): String = stringResource(
     when (r) {
-        CloudEnableResult.ENABLED, CloudEnableResult.RESTORED -> R.string.set_cloud_on_done
+        CloudEnableResult.ENABLED, CloudEnableResult.RESTORED, CloudEnableResult.TAKEN_OVER -> R.string.set_cloud_on_done
         CloudEnableResult.OLD_APP_IN_GROUP -> R.string.set_cloud_err_old_app
         CloudEnableResult.SIGN_IN_FAILED -> R.string.set_cloud_err_sign_in
         CloudEnableResult.NETWORK -> R.string.set_cloud_err_network
         CloudEnableResult.SIGN_IN_EXPIRED -> R.string.set_cloud_err_expired
         CloudEnableResult.STORAGE_FULL -> R.string.set_cloud_full
-        CloudEnableResult.NOT_CONFIGURED, CloudEnableResult.NOT_ADMIN, CloudEnableResult.ALREADY_ON -> R.string.set_cloud_err_other
+        CloudEnableResult.NOT_CONFIGURED, CloudEnableResult.NOT_ADMIN, CloudEnableResult.ALREADY_ON, CloudEnableResult.NOT_ALLOWED -> R.string.set_cloud_err_other
     },
 )

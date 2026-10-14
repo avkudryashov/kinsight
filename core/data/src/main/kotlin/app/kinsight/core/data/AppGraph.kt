@@ -105,7 +105,7 @@ class Graph internal constructor(app: Context) {
         config = { CloudGraph.config }, afterSync = { SyncGraph.emitHeartbeatIfDue(app) },
     )
     val cloudSignIn = CloudSignIn(
-        db, groups, keys, ownAppend, cloudSecrets,
+        db, groups, keys, ownAppend, cloudSecrets, cloudState,
         config = { CloudGraph.config },
         disk = CloudGraph::disk,
         onEnabled = { CloudWork.runSoon(app) },

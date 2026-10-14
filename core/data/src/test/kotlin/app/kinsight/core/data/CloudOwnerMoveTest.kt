@@ -1,0 +1,269 @@
+package app.kinsight.core.data
+
+import app.kinsight.core.model.EntryKind
+import app.kinsight.core.model.GroupId
+import app.kinsight.core.model.Membership
+import app.kinsight.core.model.proto.Heartbeat
+import app.kinsight.core.transport.cloud.CloudAccessView
+import app.kinsight.core.transport.cloud.CloudPaths
+import app.kinsight.core.transport.cloud.DiskApi
+import app.kinsight.core.transport.cloud.DiskException
+import app.kinsight.core.transport.cloud.InMemoryDisk
+import app.kinsight.core.transport.cloud.OwnerLifecycle
+import app.kinsight.core.transport.cloud.StorageMove
+import kotlinx.coroutines.runBlocking
+import okio.ByteString.Companion.toByteString
+import kotlin.test.AfterTest
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+class CloudOwnerMoveTest {
+    private val mom = TestDevice()
+    private val dad = TestDevice()
+    private val kid = TestDevice()
+    private val momDisk = InMemoryDisk()
+    private val dadDisk = InMemoryDisk()
+    private val http = FakeOAuthHttp(accessToken = "DAD1")
+    private val disks = AccountDisks(mapOf("AT" to momDisk, "DAD1" to dadDisk))
+
+    @AfterTest
+    fun cleanUp() {
+        mom.close()
+        dad.close()
+        kid.close()
+    }
+
+    private suspend fun membershipOf(d: TestDevice) = Membership.compute(d.groups.read()!!.groupId, d.store().membershipEntries())!!
+
+    /** Mom owns the storage on her Disk (storage id 1s); Dad (admin) and the kid hold her token. */
+    private suspend fun family() {
+        mom.group.createGroup("Mom")
+        dad.joinAsAdminOf(mom)
+        kid.joinGroupOf(mom)
+        mom.ownStorage(token = "AT")
+        StorageMove.writeStorageId(momDisk, mom.groups.read()!!.groupId, ByteArray(16) { 1 })
+        dad.learnsStorageFrom(mom)
+        kid.learnsStorageFrom(mom)
+    }
+
+    /** What Dad's phone gets from Mom's over Bluetooth or the Disk: her membership and her handover request. */
+    private suspend fun dadHearsFromMom() {
+        dad.store().storeMembership(mom.store().membershipEntries())
+        dad.store().applyBatch(mom.store().liveEntries().filter { it.kind == EntryKind.STORAGE_HANDOVER })
+    }
+
+    /** Mom's whole log reaches Dad (a Bluetooth session): Dad accounts her seqs, so his RemoveMember keeps her ops. */
+    private suspend fun dadHoldsMomsLog() {
+        dad.store().applyBatch(mom.store().entriesAfter(mom.keys.deviceId, 0, 10_000))
+    }
+
+    /** Dad removes Mom's lost phone (spec §7.2) after holding her log; her StorageOwner stays in force, departed. */
+    private suspend fun dadRemovesMom() {
+        dadHoldsMomsLog()
+        dad.group.remove(mom.keys.deviceId)
+        val m = membershipOf(dad)
+        assertTrue(mom.keys.deviceId in m.departed, "Mom departed")
+        assertEquals(mom.keys.deviceId, m.storageOwner!!.deviceId, "her storage is still in force")
+    }
+
+    private suspend fun takeOver(d: TestDevice, accounts: AccountDisks = disks): CloudEnableResult {
+        val s = d.signIn(http, accounts::disk)
+        assertNotNull(s.start("Pixel", SignInMode.TAKE_OVER), "${s.state.value}")
+        return s.finish("1234567")
+    }
+
+    /** Every file under the group's root with its Disk write stamp. */
+    private suspend fun stamps(disk: InMemoryDisk, g: GroupId): Map<String, String?> {
+        val root = CloudPaths.root(g)
+        val out = mutableMapOf<String, String?>()
+        for (i in disk.list(root)) {
+            if (i.isDir) disk.list("$root/${i.name}").forEach { f -> out["${i.name}/${f.name}"] = f.modified } else out[i.name] = i.modified
+        }
+        return out
+    }
+
+    @Test
+    fun aChildOnTheOldDiskFollowsTheMove() = runBlocking<Unit> {
+        family()
+        val g = mom.groups.read()!!.groupId
+        val day = kid.ownSummary("2026-10-13", 60_000)
+        assertEquals(CloudRun.SYNCED, kid.runner(disks::disk).run(CloudTrigger.NOW))
+        assertEquals(CloudRun.SYNCED, mom.runner(disks::disk).run(CloudTrigger.NOW))
+        assertTrue(mom.signIn(http, disks::disk).requestHandover(dad.keys.deviceId))
+        dadHearsFromMom()
+        assertEquals(CloudEnableResult.TAKEN_OVER, takeOver(dad))
+        val owner = membershipOf(dad).storageOwner!!
+        assertEquals(dad.keys.deviceId to 2L, owner.deviceId to owner.generation)
+        assertEquals(16, owner.tokenId.size, "a fresh sign-in names a new token")
+        assertContentEquals(owner.storageId.toByteArray(), StorageMove.storageIdOf(dadDisk, g))
+        assertFalse(owner.storageId.toByteArray().contentEquals(ByteArray(16) { 1 }), "another Disk: a new storage id")
+        assertContentEquals(ByteArray(16) { 1 }, StorageMove.storageIdOf(momDisk, g), "the old storage keeps its id")
+        assertTrue(dadDisk.files(CloudPaths.deviceDir(g, kid.keys.deviceId)).isNotEmpty(), "the kid's packs were copied")
+        assertEquals(listOf("AT"), dad.cloudSecrets.retired(g).map { it.accessToken })
+        assertEquals(dad.now, dad.cloudState.current().tokenSinceMs, "a new token starts its age")
+        // The kid has not heard of the move: its next run reads the «переезд» from Mom's Disk, the one after goes to Dad's.
+        assertEquals(CloudRun.SYNCED, kid.runner(disks::disk).run(CloudTrigger.NOW))
+        assertEquals(dad.keys.deviceId, membershipOf(kid).storageOwner!!.deviceId)
+        assertNull(kid.cloudSecrets.tokens(), "the old token goes once the move was read")
+        assertTrue(kid.cloudSecrets.retired(g).isEmpty(), "a child never keeps a token for the revoke")
+        val later = kid.ownSummary("2026-10-14", 30_000)
+        assertEquals(CloudRun.SYNCED, kid.runner(disks::disk).run(CloudTrigger.NOW))
+        assertEquals(CloudRun.SYNCED, dad.runner(disks::disk).run(CloudTrigger.NOW))
+        val atDad = dad.store().liveEntries()
+        assertTrue(day in atDad && later in atDad)
+    }
+
+    @Test
+    fun aKidFollowsTheRemovedOwnersStorageWhileItsTokenStillWorks() = runBlocking<Unit> {
+        family()
+        val g = mom.groups.read()!!.groupId
+        dadRemovesMom()
+        assertEquals(CloudEnableResult.TAKEN_OVER, takeOver(dad)) // "AT" still opens Mom's Disk
+        val m = membershipOf(dad)
+        val access = dad.store().liveEntries()
+            .filter { it.author == dad.keys.deviceId && it.kind == EntryKind.CLOUD_ACCESS }.maxBy { it.seq }
+        assertEquals(1, access.body.cloud_access!!.key_epoch, "sealed with the key Mom never got")
+        assertFalse(m.discoveryRotation!!.keys.any { it.device_id == mom.keys.deviceId.bytes().toByteString() })
+        // The kid knows nothing of the removal, the rotation or the move; the «переезд» pack carries the rotation op.
+        assertEquals(CloudRun.SYNCED, kid.runner(disks::disk).run(CloudTrigger.NOW))
+        assertEquals(dad.keys.deviceId to 2L, membershipOf(kid).storageOwner!!.let { it.deviceId to it.generation })
+        val day = kid.ownSummary("2026-10-14", 30_000)
+        assertEquals(CloudRun.SYNCED, kid.runner(disks::disk).run(CloudTrigger.NOW))
+        assertTrue(dadDisk.files(CloudPaths.deviceDir(g, kid.keys.deviceId)).isNotEmpty(), "the kid uploads to Dad's Disk now")
+        assertEquals(CloudRun.SYNCED, dad.runner(disks::disk).run(CloudTrigger.NOW))
+        assertTrue(day in dad.store().liveEntries())
+    }
+
+    @Test
+    fun aTakeOverWithADeadOldTokenRebuildsFromLocalCopies() = runBlocking<Unit> {
+        family()
+        val g = mom.groups.read()!!.groupId
+        dadRemovesMom() // Mom's phone is gone (spec §7.2)
+        val revoked = AccountDisks(mapOf("DAD1" to dadDisk)) // the shared token "AT" opens nothing any more
+        assertEquals(CloudEnableResult.TAKEN_OVER, takeOver(dad, revoked))
+        val owner = membershipOf(dad).storageOwner!!
+        assertEquals(dad.keys.deviceId, owner.deviceId)
+        assertContentEquals(owner.storageId.toByteArray(), StorageMove.storageIdOf(dadDisk, g))
+        assertEquals(CloudRun.SYNCED, dad.runner(revoked::disk).run(CloudTrigger.NOW))
+        assertTrue(dadDisk.files(CloudPaths.deviceDir(g, dad.keys.deviceId)).isNotEmpty(), "Dad's own log, from his phone")
+    }
+
+    @Test
+    fun aNewDiskThatFailsSignsNothing() = runBlocking<Unit> {
+        family()
+        val g = mom.groups.read()!!.groupId
+        assertEquals(CloudRun.SYNCED, kid.runner(disks::disk).run(CloudTrigger.NOW))
+        assertTrue(mom.signIn(http, disks::disk).requestHandover(dad.keys.deviceId))
+        dadHearsFromMom()
+        val full = object : DiskApi by dadDisk {
+            override suspend fun upload(path: String, bytes: ByteArray) = throw DiskException.StorageFull()
+        }
+        val before = dad.store().liveEntries().size
+        assertEquals(CloudEnableResult.STORAGE_FULL, takeOver(dad, AccountDisks(mapOf("AT" to momDisk, "DAD1" to full))))
+        val owner = membershipOf(dad).storageOwner!!
+        assertEquals(mom.keys.deviceId to 1L, owner.deviceId to owner.generation)
+        assertEquals(before, dad.store().liveEntries().size, "nothing signed")
+        assertTrue(dad.cloudSecrets.retired(g).isEmpty())
+        assertEquals("AT", dad.cloudSecrets.tokens()!!.accessToken, "the old storage's token stays in use")
+    }
+
+    @Test
+    fun aMatchingStorageIdOnlyMovesTheRole() = runBlocking<Unit> {
+        family()
+        val g = mom.groups.read()!!.groupId
+        kid.ownSummary("2026-10-13", 60_000)
+        assertEquals(CloudRun.SYNCED, mom.runner(disks::disk).run(CloudTrigger.NOW))
+        assertEquals(CloudRun.SYNCED, kid.runner(disks::disk).run(CloudTrigger.NOW))
+        assertEquals(CloudRun.SYNCED, dad.runner(disks::disk).run(CloudTrigger.NOW))
+        dadRemovesMom() // the lost phone, removed by the second parent (spec §7.3, §7.4)
+        val sameAccount = AccountDisks(mapOf("AT" to momDisk, "DAD1" to momDisk)) // the new phone signs in to the same account
+        val before = stamps(momDisk, g)
+        val reads = momDisk.downloads.size
+        assertTrue(before.keys.any { it.startsWith(kid.keys.deviceId.hex) }, "the storage holds the family's packs")
+        assertEquals(CloudEnableResult.TAKEN_OVER, takeOver(dad, sameAccount))
+        val owner = membershipOf(dad).storageOwner!!
+        assertEquals(dad.keys.deviceId to 2L, owner.deviceId to owner.generation)
+        assertContentEquals(ByteArray(16) { 1 }, owner.storageId.toByteArray())
+        assertContentEquals(ByteArray(16) { 1 }, StorageMove.storageIdOf(momDisk, g))
+        assertEquals(before, stamps(momDisk, g), "nothing copied or rewritten, no move record: the same storage")
+        assertEquals(listOf(CloudPaths.storageIdFile(g)), momDisk.downloads.drop(reads).distinct(), "only storage.id was read")
+        assertEquals(listOf("AT"), dad.cloudSecrets.retired(g).map { it.accessToken }, "the lost phone's token goes once all switched")
+    }
+
+    @Test
+    fun withoutARequestOrAMissingOwnerNobodyTakesOver() = runBlocking<Unit> {
+        family()
+        val s = dad.signIn(http, disks::disk)
+        assertNull(s.start("Pixel", SignInMode.TAKE_OVER))
+        assertEquals(SignInState.Done(CloudEnableResult.NOT_ALLOWED), s.state.value)
+        assertFalse(dad.signIn(http, disks::disk).requestHandover(kid.keys.deviceId), "only the owner asks")
+        assertFalse(mom.signIn(http, disks::disk).requestHandover(kid.keys.deviceId), "never a child")
+    }
+
+    @Test
+    fun aRemovalAsksTheOwnerForANewTokenAndTheSignInRenewsIt() = runBlocking<Unit> {
+        family()
+        val g = mom.groups.read()!!
+        mom.group.remove(kid.keys.deviceId)
+        assertEquals(CloudProblem.RENEW_ACCESS, CloudViews.status(mom.snapshots.load(emptyMap()), CloudState(), available = true).problem)
+        val renew = FakeOAuthHttp(accessToken = "AT2")
+        val s = mom.signIn(renew, AccountDisks(mapOf("AT" to momDisk, "AT2" to momDisk))::disk)
+        assertNotNull(s.start("Pixel"))
+        assertEquals(CloudEnableResult.RESTORED, s.finish("1234567"))
+        val m = membershipOf(mom)
+        assertEquals(2L, m.storageOwner!!.generation)
+        assertContentEquals(ByteArray(16) { 1 }, m.storageOwner!!.storageId.toByteArray())
+        assertTrue(kid.keys.deviceId in m.storageOwner!!.departed, "the new token's record names the removal")
+        assertEquals("AT2", CloudAccessView.current(mom.store(), m, mom.cloudSecrets.ring(g).keys())!!.accessToken)
+        val newest = mom.store().liveEntries().filter { it.author == mom.keys.deviceId && it.kind == EntryKind.CLOUD_ACCESS }.maxBy { it.seq }
+        assertEquals(1, newest.body.cloud_access!!.key_epoch, "sealed with the key the removed phone never got")
+        assertFalse(m.discoveryRotation!!.keys.any { it.device_id == kid.keys.deviceId.bytes().toByteString() })
+        assertEquals(listOf("AT"), mom.cloudSecrets.retired(g.groupId).map { it.accessToken })
+        assertEquals(mom.now, mom.cloudState.current().tokenSinceMs)
+        assertNull(CloudViews.status(mom.snapshots.load(emptyMap()), CloudState(), available = true).problem)
+    }
+
+    @Test
+    fun theOwnersRequestShowsOnTheChosenParentsPhone() = runBlocking<Unit> {
+        family()
+        assertTrue(mom.signIn(http, disks::disk).requestHandover(dad.keys.deviceId))
+        dadHearsFromMom()
+        val atDad = CloudViews.status(dad.snapshots.load(emptyMap()), CloudState(), available = true)
+        assertEquals("Mom", atDad.handoverFrom)
+        assertTrue(atDad.canTakeOver)
+        val atMom = CloudViews.status(mom.snapshots.load(emptyMap()), CloudState(), available = true)
+        assertEquals("Dad", atMom.handoverPendingTo)
+        assertEquals(listOf("Dad"), atMom.handoverTargets.map { it.name })
+        assertTrue(atMom.handoverNeeded)
+    }
+
+    @Test
+    fun aSilentOwnerIsUnavailableAfterAWeekOfThisPhonesTime() = runBlocking<Unit> {
+        family()
+        // Mom's clock lags three weeks: her stamp decides nothing, only when this phone saw her log grow (rulings Q14).
+        val stamp = mom.now - 21L * 24 * 60 * 60 * 1000
+        check(mom.appendOwn { a -> listOf(a.create { it.copy(heartbeat = Heartbeat(app_version = "t", protocol_version = 3), created_at_ms = stamp) }) })
+        dadHoldsMomsLog()
+        kid.store().applyBatch(mom.store().heartbeats())
+        val heard = dad.now
+        dad.runner(disks::disk).noteOwnerHeard()
+        kid.runner(disks::disk).noteOwnerHeard()
+        val atDad = dad.cloudState.current()
+        assertEquals(heard, atDad.ownerHeardFrom(mom.keys.deviceId))
+        val week = OwnerLifecycle.UNAVAILABLE_AFTER_MS
+        assertFalse(CloudViews.status(dad.snapshots.load(emptyMap()), atDad, true, nowMs = heard + week - 1).ownerUnavailable)
+        val later = CloudViews.status(dad.snapshots.load(emptyMap()), atDad, true, nowMs = heard + week + 1)
+        assertTrue(later.ownerUnavailable && later.canTakeOver)
+        assertFalse(CloudViews.status(kid.snapshots.load(emptyMap()), kid.cloudState.current(), true, nowMs = heard + week + 1).canTakeOver, "never a child")
+        // The same rule decides the sign-in: Dad may take over once a week passed on his clock.
+        val s = dad.signIn(http, disks::disk)
+        assertNull(s.start("Pixel", SignInMode.TAKE_OVER))
+        dad.now = heard + week + 1
+        assertNotNull(dad.signIn(http, disks::disk).start("Pixel", SignInMode.TAKE_OVER))
+    }
+}
