@@ -17,14 +17,19 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.unit.Density
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import app.kinsight.core.data.CloudEnableResult
+import app.kinsight.core.data.CloudProblem
+import app.kinsight.core.data.CloudStatus
 import app.kinsight.core.data.GroupState
 import app.kinsight.core.data.MemberView
 import app.kinsight.core.data.Prefs
 import app.kinsight.core.data.Role
 import app.kinsight.core.data.ServiceStatus
 import app.kinsight.core.data.Sharing
+import app.kinsight.core.data.SignInState
 import app.kinsight.core.data.SummaryMode
 import app.kinsight.core.designsystem.theme.KinsightTheme
 import app.kinsight.core.model.DeviceId
@@ -65,6 +70,9 @@ class SettingsScreenTest {
         onPrivacyPolicy: () -> Unit = {},
         onTransparency: () -> Unit = {},
         nowMs: Long = NOW,
+        onCloudSignIn: () -> Unit = {},
+        onCloudCode: (String) -> Unit = {},
+        onCloudDismiss: () -> Unit = {},
     ) = rule.setContent {
         KinsightTheme(dynamicColor = false) {
             SettingsScreen(
@@ -72,6 +80,7 @@ class SettingsScreenTest {
                 onStopSync = { calls += "stop" }, onStartSync = { calls += "start" },
                 onRetention = onRetention, onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {},
                 onResetIdentity = onReset, onSyncNow = { calls += "syncNow" }, onPrivacyPolicy = onPrivacyPolicy, nowMs = nowMs,
+                onCloudSignIn = onCloudSignIn, onCloudCode = onCloudCode, onCloudDismiss = onCloudDismiss,
             )
         }
     }
@@ -432,6 +441,187 @@ class SettingsScreenTest {
         rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_advanced"))
         rule.onNodeWithText("Дополнительно").assertExists()
         rule.onNodeWithText("Этот телефон").assertExists()
+    }
+
+
+    private fun ownerUi(problem: CloudProblem? = null) = SettingsUi(
+        GroupState.Ready(group, parent, listOf(parent, kid.copy(isSelf = false))), UsageSettings(), Prefs(), running,
+        cloud = CloudStatus(available = true, on = true, ownerName = "Mom", selfIsOwner = true, lastSyncMs = NOW - 5 * 60_000, problem = problem),
+    )
+
+    private fun scrollToCloud() = rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_cloud"))
+
+    @Test
+    fun aParentTurnsTheCloudOnWithTheSwitch() {
+        var signIns = 0
+        show(
+            SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running, cloud = CloudStatus(available = true, canEnable = true)),
+            onCloudSignIn = { signIns++ },
+        )
+        scrollToCloud()
+        rule.onNodeWithText("Sync through Yandex Disk").assertExists()
+        rule.onNodeWithText("The developer stores nothing", substring = true).assertExists()
+        rule.onNodeWithTag("set_cloud_switch").performClick()
+        assertEquals(1, signIns)
+    }
+
+    @Test
+    fun theOwnerIsAskedToRestoreAccess() {
+        var signIns = 0
+        show(ownerUi(CloudProblem.UNAUTHORIZED), onCloudSignIn = { signIns++ })
+        scrollToCloud()
+        rule.onNodeWithText("Restore access to the Disk", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("Storage: your Yandex Disk", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("Last cloud sync: 5 minutes ago", useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag("set_cloud_switch").assertIsNotEnabled()
+        rule.onNodeWithTag("set_cloud_restore").performClick()
+        assertEquals(1, signIns)
+    }
+
+    @Test
+    fun aChildSeesTheCloudWithoutASwitch() {
+        show(
+            SettingsUi(
+                GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), Prefs(), running,
+                cloud = CloudStatus(available = true, on = true, ownerName = "Mom", isChild = true, problem = CloudProblem.NO_ACCESS),
+            ),
+        )
+        scrollToCloud()
+        rule.onNodeWithText("No access to the cloud, waiting for the owner", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("Storage: Yandex Disk of Mom", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("No cloud sync yet", useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag("set_cloud_switch").assertDoesNotExist()
+        rule.onNodeWithTag("set_cloud_restore").assertDoesNotExist()
+    }
+
+    @Test
+    fun aParentWhoCannotTurnItOnSeesNoCloudRow() {
+        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running, cloud = CloudStatus(available = true)))
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_reset"))
+        rule.onNodeWithTag("set_cloud").assertDoesNotExist()
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun theSpecWordsInRussian() {
+        show(ownerUi(CloudProblem.UNAUTHORIZED))
+        scrollToCloud()
+        rule.onNodeWithText("Синхронизировать через Яндекс Диск", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("Восстановите доступ к Диску", useUnmergedTree = true).assertExists()
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun aMemberWaitsForTheOwnerInRussian() {
+        show(
+            SettingsUi(
+                GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), Prefs(), running,
+                cloud = CloudStatus(available = true, on = true, ownerName = "Mom", isChild = true, problem = CloudProblem.NO_ACCESS),
+            ),
+        )
+        scrollToCloud()
+        rule.onNodeWithText("Нет доступа к облаку, ждём владельца", useUnmergedTree = true).assertExists()
+    }
+
+    @Test
+    fun aFullDiskIsShownToTheOwner() {
+        show(ownerUi(CloudProblem.STORAGE_FULL))
+        scrollToCloud()
+        rule.onNodeWithTag("set_cloud_problem", useUnmergedTree = true).assertTextEquals("Your Yandex Disk is full. Free up space so the sync can go on.")
+    }
+
+    @Test
+    fun aNetworkProblemIsQuiet() {
+        show(ownerUi(CloudProblem.NETWORK))
+        scrollToCloud()
+        rule.onNodeWithTag("set_cloud_problem", useUnmergedTree = true).assertDoesNotExist()
+        rule.onNodeWithTag("set_cloud_restore").assertDoesNotExist()
+    }
+
+    @Test
+    fun thePastedCodeGoesToTheSignIn() {
+        val codes = mutableListOf<String>()
+        show(ownerUi().copy(signIn = SignInState.Waiting("https://oauth.yandex.ru/authorize?x=1")), onCloudCode = { codes += it })
+        rule.onNodeWithText("Confirm the access in the browser", substring = true).assertExists()
+        rule.onNodeWithTag("set_cloud_done").assertIsNotEnabled()
+        rule.onNodeWithTag("set_cloud_code").performTextInput("1234567")
+        rule.onNodeWithTag("set_cloud_done").performClick()
+        assertEquals(listOf("1234567"), codes)
+    }
+
+    @Test
+    fun aRejectedPasteKeepsTheFieldWithAnError() {
+        val codes = mutableListOf<String>()
+        show(ownerUi().copy(signIn = SignInState.Waiting("https://oauth.yandex.ru/authorize?x=1", rejected = true)), onCloudCode = { codes += it })
+        rule.onNodeWithTag("set_cloud_code_error", useUnmergedTree = true).assertTextEquals("Could not sign in to Yandex. Try again.")
+        rule.onNodeWithTag("set_cloud_code").performTextInput("7654321")
+        rule.onNodeWithTag("set_cloud_done").performClick()
+        assertEquals(listOf("7654321"), codes)
+    }
+
+    @Test
+    fun anUnreachableTokenEndpointAsksToTryAgain() {
+        show(ownerUi().copy(signIn = SignInState.Waiting("https://oauth.yandex.ru/authorize?x=1", networkError = true)))
+        rule.onNodeWithTag("set_cloud_code_error", useUnmergedTree = true).assertTextEquals("No connection to Yandex Disk. Try again.")
+        rule.onNodeWithTag("set_cloud_code").assertExists()
+    }
+
+    @Test
+    fun cancelClosesTheDialog() {
+        var dismissed = 0
+        show(ownerUi().copy(signIn = SignInState.Waiting("https://oauth.yandex.ru/authorize?x=1")), onCloudDismiss = { dismissed++ })
+        rule.onNodeWithTag("set_cloud_cancel").performClick()
+        assertEquals(1, dismissed)
+    }
+
+    @Test
+    fun theCloudTurnedOnSaysSo() {
+        var dismissed = 0
+        show(ownerUi().copy(signIn = SignInState.Done(CloudEnableResult.ENABLED)), onCloudDismiss = { dismissed++ })
+        rule.onNodeWithTag("set_cloud_result", useUnmergedTree = true).assertTextEquals("Sync through Yandex Disk is on.")
+        rule.onNodeWithTag("set_cloud_retry").assertDoesNotExist()
+        rule.onNodeWithTag("set_cloud_ok").performClick()
+        assertEquals(1, dismissed)
+    }
+
+    @Test
+    fun aDiskFailureAfterTheExchangeStartsAgain() {
+        var signIns = 0
+        var dismissed = 0
+        show(
+            ownerUi().copy(signIn = SignInState.Done(CloudEnableResult.NETWORK)),
+            onCloudSignIn = { signIns++ }, onCloudDismiss = { dismissed++ },
+        )
+        rule.onNodeWithTag("set_cloud_result", useUnmergedTree = true).assertTextEquals("No connection to Yandex Disk. Try again.")
+        rule.onNodeWithTag("set_cloud_code").assertDoesNotExist()
+        rule.onNodeWithTag("set_cloud_retry").performClick()
+        assertEquals(1, signIns)
+        rule.onNodeWithTag("set_cloud_cancel").performClick()
+        assertEquals(1, dismissed)
+    }
+
+    @Test
+    fun anOldPhoneInTheFamilyIsNotRetried() {
+        show(ownerUi().copy(signIn = SignInState.Done(CloudEnableResult.OLD_APP_IN_GROUP)))
+        rule.onNodeWithTag("set_cloud_result", useUnmergedTree = true)
+            .assertTextEquals("Update Kinsight on every phone of the family, then turn the cloud on.")
+        rule.onNodeWithTag("set_cloud_retry").assertDoesNotExist()
+        rule.onNodeWithTag("set_cloud_ok").assertExists()
+    }
+
+    @Test
+    fun whileConnectingThereIsNoButton() {
+        show(ownerUi().copy(signIn = SignInState.Working))
+        rule.onNodeWithText("Connecting…").assertExists()
+        rule.onNodeWithTag("set_cloud_done").assertDoesNotExist()
+        rule.onNodeWithTag("set_cloud_ok").assertDoesNotExist()
+    }
+
+    @Test
+    fun withoutAYandexClientThereIsNoCloudRow() {
+        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running, cloud = CloudStatus(available = false)))
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_reset"))
+        rule.onNodeWithTag("set_cloud").assertDoesNotExist()
     }
 
     @Test

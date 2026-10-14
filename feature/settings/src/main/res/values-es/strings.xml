@@ -76,7 +76,7 @@
     <string name="tr_parent_own">Este teléfono no comparte su propio tiempo de pantalla con nadie.</string>
     <string name="tr_parent_sync">Guarda los datos de los menores y los sincroniza con los demás adultos: %1$s.</string>
     <string name="tr_parent_keep">En este teléfono: historial detallado %1$s, totales diarios %2$s.</string>
-    <string name="tr_no_internet">Los datos solo circulan entre los teléfonos de tu familia por Bluetooth. Nada va a internet, a servidores ni a nosotros.</string>
+    <string name="tr_no_internet">Los datos circulan entre los teléfonos de tu familia por Bluetooth. Kinsight solo se conecta a internet para la sincronización a través del Yandex Disk de un adulto de la familia, si este la activó. El desarrollador no guarda nada.</string>
     <string name="rec_key_title">No se pueden usar las claves de este teléfono</string>
     <string name="rec_key_body">Kinsight nunca crea claves nuevas sin avisar. Para continuar, desconecta este teléfono y vuelve a emparejarlo. Detalles: %1$s</string>
     <string name="rec_removed_title">Este teléfono ya no está en el grupo</string>
@@ -100,4 +100,27 @@
     <string name="set_advanced_body">Historial guardado en este teléfono, diagnóstico y desconexión del teléfono</string>
     <string name="set_expanded">Desplegado</string>
     <string name="set_collapsed">Contraído</string>
+    <!-- Sync through Yandex Disk (spec §6, §11) -->
+    <string name="set_cloud">Sincronizar con Yandex Disk</string>
+    <string name="set_cloud_off_body">Desactivado. Si lo activas, los datos de la familia también viajarán por tu Yandex Disk. El desarrollador no guarda nada.</string>
+    <string name="set_cloud_owner_self">Almacenamiento: tu Yandex Disk</string>
+    <string name="set_cloud_owner">Almacenamiento: Yandex Disk de %1$s</string>
+    <string name="set_cloud_last_sync">Última sincronización por el Disco: %1$s</string>
+    <string name="set_cloud_last_sync_now">Última sincronización por el Disco: ahora mismo</string>
+    <string name="set_cloud_never">Aún no hay sincronización por el Disco</string>
+    <string name="set_cloud_restore">Restablece el acceso al Disco</string>
+    <string name="set_cloud_wait">Sin acceso a la nube, esperando al propietario</string>
+    <string name="set_cloud_full">Tu Yandex Disk está lleno. Libera espacio para que la sincronización continúe.</string>
+    <string name="set_cloud_sign_in">Iniciar sesión en Yandex</string>
+    <string name="set_cloud_dialog_body">Confirma el acceso en el navegador. Si muestra un código, pégalo aquí.</string>
+    <string name="set_cloud_code">Código</string>
+    <string name="set_cloud_done">Listo</string>
+    <string name="set_cloud_cancel">Cancelar</string>
+    <string name="set_cloud_working">Conectando…</string>
+    <string name="set_cloud_on_done">La sincronización con Yandex Disk está activada.</string>
+    <string name="set_cloud_err_old_app">Actualiza Kinsight en todos los teléfonos de la familia y luego activa la nube.</string>
+    <string name="set_cloud_err_sign_in">No se pudo iniciar sesión en Yandex. Inténtalo de nuevo.</string>
+    <string name="set_cloud_err_network">Sin conexión con Yandex Disk. Inténtalo de nuevo.</string>
+    <string name="set_cloud_err_expired">El inicio de sesión tardó demasiado. Empieza de nuevo.</string>
+    <string name="set_cloud_err_other">No se pudo activar la nube.</string>
 </resources>

@@ -4,11 +4,13 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import app.kinsight.core.data.CloudStatus
 import app.kinsight.core.data.GroupState
 import app.kinsight.core.data.Prefs
 import app.kinsight.core.data.ResetKind
 import app.kinsight.core.data.ResetStatus
 import app.kinsight.core.data.ServiceStatus
+import app.kinsight.core.data.SignInState
 import app.kinsight.core.data.SummaryMode
 import app.kinsight.core.transport.ble.ServiceState
 import app.kinsight.core.usage.UsageSettings
@@ -80,6 +82,24 @@ class SettingsViewModelTest {
         override fun clearResetFailure() {
             calls += "clearResetFailure"
             resetStatus.value = ResetStatus.Idle
+        }
+
+        val cloudFlow = MutableStateFlow(CloudStatus())
+        override val cloud: Flow<CloudStatus> = cloudFlow
+        val signInFlow = MutableStateFlow<SignInState>(SignInState.Idle)
+        override val signIn: Flow<SignInState> = signInFlow
+
+        override suspend fun startCloudSignIn(): String? {
+            calls += "startCloudSignIn"
+            return "https://oauth.yandex.ru/authorize?t=1"
+        }
+
+        override suspend fun finishCloudSignIn(input: String) {
+            calls += "finishCloudSignIn:$input"
+        }
+
+        override fun dismissCloudSignIn() {
+            calls += "dismissCloudSignIn"
         }
     }
 
@@ -161,5 +181,25 @@ class SettingsViewModelTest {
         vm.setSummaryMode(SummaryMode.WEEKLY)
         assertNull(vm.error.value)
         assertEquals(listOf("retention:30/90", "sharing:false", "noContact:6", "summary:WEEKLY"), actions.calls)
+    }
+
+    @Test
+    fun theCloudReachesTheUiAndTheSignInGoesThrough() = runTest {
+        actions.cloudFlow.value = CloudStatus(available = true, canEnable = true)
+        val vm = SettingsViewModel(actions)
+        backgroundScope.launch { vm.ui.collect {} }
+        advanceUntilIdle()
+        assertTrue(vm.ui.value.cloud.canEnable)
+        var opened: String? = null
+        vm.startCloudSignIn { opened = it }
+        advanceUntilIdle()
+        assertEquals("https://oauth.yandex.ru/authorize?t=1", opened)
+        actions.signInFlow.value = SignInState.Waiting("https://oauth.yandex.ru/authorize?t=1")
+        advanceUntilIdle()
+        assertEquals(SignInState.Waiting("https://oauth.yandex.ru/authorize?t=1"), vm.ui.value.signIn)
+        vm.finishCloudSignIn("1234567")
+        advanceUntilIdle()
+        vm.dismissCloudSignIn()
+        assertEquals(listOf("startCloudSignIn", "finishCloudSignIn:1234567", "dismissCloudSignIn"), actions.calls)
     }
 }

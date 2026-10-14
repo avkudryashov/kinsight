@@ -3,6 +3,8 @@ package app.kinsight.feature.settings
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.kinsight.core.data.CloudRepository
+import app.kinsight.core.data.CloudStatus
 import app.kinsight.core.data.GroupRepository
 import app.kinsight.core.data.GroupState
 import app.kinsight.core.data.LocalReset
@@ -13,6 +15,7 @@ import app.kinsight.core.data.ServiceRepository
 import app.kinsight.core.data.ServiceStatus
 import app.kinsight.core.data.SettingsRepository
 import app.kinsight.core.data.Sharing
+import app.kinsight.core.data.SignInState
 import app.kinsight.core.data.SummaryMode
 import app.kinsight.core.data.UsageRepository
 import app.kinsight.core.usage.UsageSettings
@@ -43,6 +46,10 @@ data class SettingsUi(
     val resetting: Boolean = false,
     /** This child's signed sharing state (DashboardState.selfUsage); null while the snapshot has none (U1). */
     val ownSharing: Sharing? = null,
+    /** The cloud row (spec §6, §11); not shown while [CloudStatus.available] is false. */
+    val cloud: CloudStatus = CloudStatus(),
+    /** The sign-in dialog: shown unless [SignInState.Idle]. */
+    val signIn: SignInState = SignInState.Idle,
 )
 
 /** What the settings screen needs from core/data; a seam for tests. */
@@ -81,6 +88,17 @@ internal interface SettingsActions {
     fun launchReset()
 
     fun clearResetFailure()
+
+    val cloud: Flow<CloudStatus> get() = flowOf(CloudStatus())
+
+    val signIn: Flow<SignInState> get() = flowOf(SignInState.Idle)
+
+    /** The address for the browser, or null (the sign-in state then says why). */
+    suspend fun startCloudSignIn(): String? = null
+
+    suspend fun finishCloudSignIn(input: String) = Unit
+
+    fun dismissCloudSignIn() = Unit
 }
 
 private class RepositoryActions(
@@ -89,6 +107,7 @@ private class RepositoryActions(
     private val serviceRepo: ServiceRepository,
     private val reset: LocalReset,
     usageRepo: UsageRepository,
+    private val cloudRepo: CloudRepository,
 ) : SettingsActions {
     override val group = group.state
     override val usage = settings.usageSettings
@@ -121,6 +140,16 @@ private class RepositoryActions(
     }
 
     override fun clearResetFailure() = reset.clearFailure()
+
+    override val cloud = cloudRepo.status
+    override val signIn: Flow<SignInState> = cloudRepo.signInState
+
+    override suspend fun startCloudSignIn(): String? = cloudRepo.startSignIn()
+
+    override suspend fun finishCloudSignIn(input: String) = cloudRepo.finishSignIn(input)
+
+    /** Closes the dialog only: a pending sign-in stays, so an app link arriving later still completes it. */
+    override fun dismissCloudSignIn() = cloudRepo.dismissSignIn()
 }
 
 /**
@@ -129,8 +158,14 @@ private class RepositoryActions(
  * app-wide, so leaving the screen mid-wipe neither cancels it nor loses its failure. Every failure is shown.
  */
 class SettingsViewModel internal constructor(private val actions: SettingsActions) : ViewModel() {
-    constructor(group: GroupRepository, settings: SettingsRepository, service: ServiceRepository, reset: LocalReset, usage: UsageRepository) :
-        this(RepositoryActions(group, settings, service, reset, usage))
+    constructor(
+        group: GroupRepository,
+        settings: SettingsRepository,
+        service: ServiceRepository,
+        reset: LocalReset,
+        usage: UsageRepository,
+        cloud: CloudRepository,
+    ) : this(RepositoryActions(group, settings, service, reset, usage, cloud))
 
     private val _error = MutableStateFlow<SettingsError?>(null)
 
@@ -145,9 +180,11 @@ class SettingsViewModel internal constructor(private val actions: SettingsAction
         actions.ownSharing,
     ) { g, u, p, s, own -> SettingsUi(g, u, p, s, ownSharing = own) }
 
-    val ui: StateFlow<SettingsUi> = combine(data, _error, actions.resetStatus) { d, e, r ->
+    private val cloudPart = combine(actions.cloud, actions.signIn) { c, s -> c to s }
+
+    val ui: StateFlow<SettingsUi> = combine(data, _error, actions.resetStatus, cloudPart) { d, e, r, (cloud, signIn) ->
         val resetFailed = r is ResetStatus.Failed && r.kind == ResetKind.NEW_IDENTITY
-        d.copy(error = e ?: SettingsError.RESET.takeIf { resetFailed }, resetting = r is ResetStatus.Running)
+        d.copy(error = e ?: SettingsError.RESET.takeIf { resetFailed }, resetting = r is ResetStatus.Running, cloud = cloud, signIn = signIn)
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUi())
 
@@ -183,6 +220,35 @@ class SettingsViewModel internal constructor(private val actions: SettingsAction
         _error.value = null
         actions.launchReset()
     }
+
+    /** The switch or «Войти в Яндекс»: [open] gets the address for the browser (a plain ACTION_VIEW, no Custom Tabs library). */
+    fun startCloudSignIn(open: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                actions.startCloudSignIn()?.let(open)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "cloud sign-in failed to start", e)
+            }
+        }
+    }
+
+    /** The pasted code; the result shows in the dialog (SignInState.Done, or Waiting with an error to paste again). */
+    fun finishCloudSignIn(code: String) {
+        viewModelScope.launch {
+            try {
+                actions.finishCloudSignIn(code)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "cloud sign-in failed to finish: ${e.javaClass.simpleName}")
+            }
+        }
+    }
+
+    /** Closes the dialog; a pending sign-in stays, so the app link still completes it (CloudSignIn.dismiss). */
+    fun dismissCloudSignIn() = actions.dismissCloudSignIn()
 
     private fun attempt(onFailure: SettingsError, what: String, block: suspend () -> Unit) {
         _error.value = null

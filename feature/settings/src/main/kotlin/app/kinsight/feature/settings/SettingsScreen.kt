@@ -70,6 +70,7 @@ import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.GroupState
 import app.kinsight.core.data.Role
 import app.kinsight.core.data.ServiceStatus
+import app.kinsight.core.data.SignInState
 import app.kinsight.core.data.SummaryMode
 import app.kinsight.core.data.UsageReadModel
 import app.kinsight.core.designsystem.openPrivacyPolicy
@@ -87,7 +88,7 @@ fun SettingsRoute(appVersion: String, onConsent: () -> Unit, onTransparency: () 
     val context = LocalContext.current
     val vm: SettingsViewModel = viewModel {
         val g = AppGraph.get(context)
-        SettingsViewModel(g.group, g.settingsRepository, g.service, g.reset, g.usage)
+        SettingsViewModel(g.group, g.settingsRepository, g.service, g.reset, g.usage, g.cloudRepository)
     }
     val ui by vm.ui.collectAsStateWithLifecycle()
     // Back from Android's usage access screen: the row goes away at once, not on the next 30 s tick (U1).
@@ -103,6 +104,9 @@ fun SettingsRoute(appVersion: String, onConsent: () -> Unit, onTransparency: () 
         ui, appVersion, vm::setSharing, onConsent, onTransparency, vm::stopSync, vm::startSync, vm::setRetention,
         vm::setSummaryMode, vm::setNoContactHours, onBattery, onDiagnostics, vm::resetIdentity, vm::dismissError,
         onSyncNow = vm::syncNow, onPrivacyPolicy = { openPrivacyPolicy(context) }, nowMs = now,
+        onCloudSignIn = { vm.startCloudSignIn { url -> context.open(Intent(Intent.ACTION_VIEW, url.toUri())) } },
+        onCloudCode = vm::finishCloudSignIn,
+        onCloudDismiss = vm::dismissCloudSignIn,
     )
 }
 
@@ -134,6 +138,9 @@ fun SettingsScreen(
     onSyncNow: () -> Unit = {},
     onPrivacyPolicy: () -> Unit = {},
     nowMs: Long = System.currentTimeMillis(), // the route passes a 30 s tick
+    onCloudSignIn: () -> Unit = {},
+    onCloudCode: (String) -> Unit = {},
+    onCloudDismiss: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val ready = ui.group as? GroupState.Ready
@@ -226,6 +233,7 @@ fun SettingsScreen(
                 if (role == Role.PARENT) Text(stringResource(R.string.set_not_shared), style = MaterialTheme.typography.bodyMedium)
             }
         }
+        cloudSection(ui.cloud, nowMs, onCloudSignIn)
         ready?.let { r ->
             item {
                 ListItem(
@@ -348,6 +356,7 @@ fun SettingsScreen(
         }
         null -> Unit
     }
+    if (ui.signIn !is SignInState.Idle) CloudSignInDialog(ui.signIn, onCloudCode, onCloudSignIn, onCloudDismiss)
 }
 
 @Composable

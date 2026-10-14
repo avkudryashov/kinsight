@@ -76,7 +76,7 @@
     <string name="tr_parent_own">This phone does not share its own screen time with anyone.</string>
     <string name="tr_parent_sync">It keeps your children\'s data and syncs it with the other parents: %1$s.</string>
     <string name="tr_parent_keep">On this phone: detailed history %1$s, daily totals %2$s.</string>
-    <string name="tr_no_internet">Data moves only between your family\'s phones over Bluetooth. Nothing goes to the internet, to servers or to us.</string>
+    <string name="tr_no_internet">Data moves between your family\'s phones over Bluetooth. Kinsight goes online only to sync through a parent\'s Yandex Disk, if a parent turned that on. The developer stores nothing.</string>
     <string name="rec_key_title">This phone\'s keys cannot be used</string>
     <string name="rec_key_body">Kinsight never makes new keys silently. To continue, disconnect this phone and pair it again. Details: %1$s</string>
     <string name="rec_removed_title">This phone is no longer in the group</string>
@@ -100,4 +100,27 @@
     <string name="set_advanced_body">History kept on this phone, diagnostics, disconnecting this phone</string>
     <string name="set_expanded">Expanded</string>
     <string name="set_collapsed">Collapsed</string>
+    <!-- Sync through Yandex Disk (spec §6, §11) -->
+    <string name="set_cloud">Sync through Yandex Disk</string>
+    <string name="set_cloud_off_body">Off. When on, your family\'s data also travels through your Yandex Disk. The developer stores nothing.</string>
+    <string name="set_cloud_owner_self">Storage: your Yandex Disk</string>
+    <string name="set_cloud_owner">Storage: Yandex Disk of %1$s</string>
+    <string name="set_cloud_last_sync">Last cloud sync: %1$s</string>
+    <string name="set_cloud_last_sync_now">Last cloud sync: just now</string>
+    <string name="set_cloud_never">No cloud sync yet</string>
+    <string name="set_cloud_restore">Restore access to the Disk</string>
+    <string name="set_cloud_wait">No access to the cloud, waiting for the owner</string>
+    <string name="set_cloud_full">Your Yandex Disk is full. Free up space so the sync can go on.</string>
+    <string name="set_cloud_sign_in">Sign in to Yandex</string>
+    <string name="set_cloud_dialog_body">Confirm the access in the browser. If it shows a code, paste it here.</string>
+    <string name="set_cloud_code">Code</string>
+    <string name="set_cloud_done">Done</string>
+    <string name="set_cloud_cancel">Cancel</string>
+    <string name="set_cloud_working">Connecting…</string>
+    <string name="set_cloud_on_done">Sync through Yandex Disk is on.</string>
+    <string name="set_cloud_err_old_app">Update Kinsight on every phone of the family, then turn the cloud on.</string>
+    <string name="set_cloud_err_sign_in">Could not sign in to Yandex. Try again.</string>
+    <string name="set_cloud_err_network">No connection to Yandex Disk. Try again.</string>
+    <string name="set_cloud_err_expired">The sign-in took too long. Start again.</string>
+    <string name="set_cloud_err_other">The cloud could not be turned on.</string>
 </resources>
