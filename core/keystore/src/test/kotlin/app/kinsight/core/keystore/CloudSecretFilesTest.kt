@@ -21,6 +21,8 @@ class CloudSecretFilesTest {
     private val keyFile = File(dir, GroupKeyFile.FILE_NAME)
     private val groupKeys = GroupKeyFile(keyFile, wrap)
     private val group = "dd".repeat(16)
+    private val retiredFile = File(dir, RetiredTokenFile.FILE_NAME)
+    private val retired = RetiredTokenFile(retiredFile, wrap)
 
     @AfterTest
     fun cleanUp() {
@@ -148,5 +150,18 @@ class CloudSecretFilesTest {
         val a = CloudFiles.vault(vaultFile) { wrap }
         assertTrue(a === CloudFiles.vault(File(dir, "./" + CloudTokenVault.FILE_NAME)) { wrap })
         assertTrue(CloudFiles.groupKeys(keyFile) { wrap } === CloudFiles.groupKeys(keyFile) { wrap })
+    }
+
+    @Test
+    fun retiredTokensSurviveARestartSealedAndCapped() {
+        assertEquals(emptyList(), retired.read())
+        val many = (1..10).map { RetiredToken(group, it.toLong(), "RETIRED-TOKEN-$it") }
+        retired.write(many)
+        val back = RetiredTokenFile(retiredFile, wrap).read()
+        assertEquals((3..10).map { "RETIRED-TOKEN-$it" }, back.map { it.accessToken }, "the newest ${RetiredTokenFile.MAX}")
+        assertFalse("RETIRED-TOKEN" in retiredFile.readBytes().decodeToString(throwOnInvalidSequence = false))
+        assertFalse("RETIRED-TOKEN" in back.first().toString())
+        retired.write(emptyList())
+        assertFalse(retiredFile.exists())
     }
 }

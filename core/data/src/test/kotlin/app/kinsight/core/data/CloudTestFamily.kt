@@ -4,6 +4,7 @@ import app.kinsight.core.database.RoomEntryStore
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.addMember
+import app.kinsight.core.model.grantAdminEntry
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.storageOwnerEntry
 import app.kinsight.core.sync.HandedAccess
@@ -25,6 +26,13 @@ suspend fun TestDevice.joinGroupOf(admin: TestDevice, role: DeviceRole = DeviceR
     RoomEntryStore(db, g.groupId).applyBatch(m.effectiveEntries.toList())
     cloudSecrets.adopt(g.groupId, g.discoveryKey, null)
     groups.write(GroupConfig(g.groupId, g.discoveryKey))
+}
+
+/** A second parent with admin rights, as the owner grants them: Dad in the owner tests. */
+suspend fun TestDevice.joinAsAdminOf(admin: TestDevice, name: String = "Dad") {
+    joinGroupOf(admin, role = DeviceRole.PARENT, name = name)
+    check(admin.pipeline.appendOwn { a -> listOf(a.grantAdminEntry(keys.deviceId)) })
+    store().storeMembership(admin.store().membershipEntries())
 }
 
 /** What CloudSignIn leaves on the owner after turning the cloud on, without the sign-in. */

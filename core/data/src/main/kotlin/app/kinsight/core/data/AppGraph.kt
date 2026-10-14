@@ -45,6 +45,7 @@ class Graph internal constructor(app: Context) {
     val cloudSecrets = CloudSecrets(
         CloudFiles.vault(app),
         CloudFiles.groupKeys(app),
+        CloudFiles.retired(app),
         onAccess = { CloudWork.runSoon(app) },
         runLock = CloudGraph.runLock,
     )

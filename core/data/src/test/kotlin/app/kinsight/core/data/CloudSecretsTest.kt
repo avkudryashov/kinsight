@@ -2,10 +2,12 @@ package app.kinsight.core.data
 
 import app.kinsight.core.keystore.CloudTokenVault
 import app.kinsight.core.keystore.GroupKeyFile
+import app.kinsight.core.keystore.RetiredTokenFile
 import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.proto.DeviceRole
+import app.kinsight.core.model.storageOwnerEntry
 import app.kinsight.core.sync.HandedAccess
 import app.kinsight.core.sync.WelcomeCloud
 import app.kinsight.core.transport.ble.GroupConfig
@@ -135,5 +137,66 @@ class CloudSecretsTest {
         assertNull(d.cloudSecrets.tokens())
         assertFalse(File(d.dir, CloudTokenVault.FILE_NAME).exists())
         assertFalse(File(d.dir, GroupKeyFile.FILE_NAME).exists())
+    }
+
+    @Test
+    fun aReplacedOwnerKeepsItsTokenForTheRevoke() = runBlocking<Unit> {
+        val dad = TestDevice()
+        try {
+            mom.group.createGroup("Mom")
+            dad.joinAsAdminOf(mom)
+            mom.ownStorage(token = "AT")
+            val g = mom.groups.read()!!
+            check(mom.pipeline.appendOwn { a -> listOf(a.storageOwnerEntry(dad.keys.deviceId, ByteArray(16) { 2 }, 2)) })
+            val m = Membership.compute(g.groupId, mom.store().membershipEntries())!!
+            assertTrue(mom.cloudSecrets.dropStaleOwner(g.groupId, m, mom.keys.deviceId))
+            assertNull(mom.cloudSecrets.tokens())
+            assertEquals(listOf(1L to "AT"), mom.cloudSecrets.retired(g.groupId).map { it.generation to it.accessToken })
+        } finally {
+            dad.close()
+        }
+    }
+
+    @Test
+    fun aParentRetiresAReplacedHandedTokenAndAChildDropsIt() = runBlocking<Unit> {
+        val dad = TestDevice()
+        val kid = TestDevice()
+        try {
+            mom.group.createGroup("Mom")
+            dad.joinAsAdminOf(mom)
+            kid.joinGroupOf(mom)
+            mom.ownStorage(token = "AT")
+            dad.learnsStorageFrom(mom)
+            kid.learnsStorageFrom(mom)
+            check(mom.pipeline.appendOwn { a -> listOf(a.storageOwnerEntry(mom.keys.deviceId, ByteArray(16) { 1 }, 2)) })
+            for (d in listOf(dad, kid)) d.store().storeMembership(mom.store().membershipEntries())
+            val g = mom.groups.read()!!
+            val m = Membership.compute(g.groupId, mom.store().membershipEntries())!!
+            assertTrue(dad.cloudSecrets.retireStale(g.groupId, m, keep = true))
+            assertTrue(kid.cloudSecrets.retireStale(g.groupId, m, keep = false))
+            assertNull(dad.cloudSecrets.tokens())
+            assertNull(kid.cloudSecrets.tokens())
+            assertEquals(listOf("AT"), dad.cloudSecrets.retired(g.groupId).map { it.accessToken })
+            assertTrue(kid.cloudSecrets.retired(g.groupId).isEmpty())
+            assertFalse(dad.cloudSecrets.retireStale(g.groupId, m, keep = true), "nothing stale any more")
+        } finally {
+            dad.close()
+            kid.close()
+        }
+    }
+
+    @Test
+    fun forgetDropsTheRetiredTokens() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val g = mom.groups.read()!!
+        mom.cloudSecrets.retire(g.groupId, 1, "AT")
+        mom.cloudSecrets.retire(g.groupId, 1, "AT")
+        assertEquals(1, mom.cloudSecrets.retired(g.groupId).size, "kept once")
+        mom.cloudSecrets.dropRetired("AT")
+        assertTrue(mom.cloudSecrets.retired(g.groupId).isEmpty())
+        mom.cloudSecrets.retire(g.groupId, 1, "AT")
+        mom.cloudSecrets.forget()
+        assertTrue(mom.cloudSecrets.retired(g.groupId).isEmpty())
+        assertFalse(File(mom.dir, RetiredTokenFile.FILE_NAME).exists())
     }
 }

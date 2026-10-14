@@ -5,6 +5,8 @@ import app.kinsight.core.keystore.CloudTokenVault
 import app.kinsight.core.keystore.CloudTokens
 import app.kinsight.core.keystore.GroupKeyFile
 import app.kinsight.core.keystore.KeyStorageException
+import app.kinsight.core.keystore.RetiredToken
+import app.kinsight.core.keystore.RetiredTokenFile
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.MembershipState
@@ -24,21 +26,23 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * This device's cloud secrets (spec §5, §6 «Хранение»): the token vault and the group key ring, both sealed files of
- * core/keystore. Wiped with the group (LocalReset). [onAccess] runs after a handed token was stored (the app schedules
- * the cloud worker then; at a join the group file does not exist yet, so the pairing's onJoined schedules it). [runLock]: the process-wide cloud run lock (R15): the CloudRunner holds it for a whole run,
+ * This device's cloud secrets (spec §5, §6 «Хранение»): the token vault, the group key ring and the tokens it no longer
+ * uses but must still revoke (spec §7), all sealed files of core/keystore. Wiped with the group (LocalReset).
+ * [onAccess] runs after a handed token was stored (the app schedules the cloud worker then; at a join the group file does not exist yet, so the pairing's onJoined schedules it). [runLock]: the process-wide cloud run lock (R15): the CloudRunner holds it for a whole run,
  * LocalReset for a whole wipe and CloudSignIn while it turns the cloud on, so neither a run nor a sign-in can write the old
  * group's key or tokens back after the wipe.
  */
 class CloudSecrets(
     private val vault: CloudTokenVault,
     private val keyFile: GroupKeyFile,
+    private val retiredFile: RetiredTokenFile,
     private val onAccess: () -> Unit = {},
     val runLock: Mutex = Mutex(),
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val vaultLock = Mutex()
     private val ringLock = Mutex()
+    private val retiredLock = Mutex()
 
     /** The persisted ring of [group]: generation 0 = the discovery key whenever the file holds nothing for this group. */
     fun ring(group: GroupConfig): GroupKeyRing = FileKeyRing(group)
@@ -131,6 +135,7 @@ class CloudSecrets(
     suspend fun forget() {
         vaultLock.withLock { withContext(io) { vault.delete() } }
         ringLock.withLock { withContext(io) { keyFile.delete() } }
+        retiredLock.withLock { withContext(io) { retiredFile.delete() } }
     }
 
     /**
@@ -138,15 +143,56 @@ class CloudSecrets(
      * parents turned the cloud on at once and the other one won, or a later hand-over): the owner role and the refresh
      * token go, so handed tokens are accepted again. The whole vault goes: its access token belongs to the owner role (a
      * storage this device created) and, kept as a member's, could outrank the real owner's handed token. True when
-     * dropped.
+     * dropped. Its access token is retired first: it is revoked once every phone switched (spec §7.1).
      */
     suspend fun dropStaleOwner(groupId: GroupId, membership: MembershipState, self: DeviceId): Boolean = vaultLock.withLock {
         val owner = membership.storageOwner ?: return@withLock false
         if (owner.deviceId == self) return@withLock false
-        tokens()?.takeIf { it.owner && it.groupHex == groupId.hex } ?: return@withLock false
+        val held = tokens()?.takeIf { it.owner && it.groupHex == groupId.hex } ?: return@withLock false
+        // Kept for the revoke (roadmap: the old token must be revoked, never just lost with the vault).
+        retire(groupId, held.storageGeneration, held.accessToken)
         withContext(io) { vault.delete() }
         Log.i(TAG, "another device owns the storage: dropping the owner role")
         true
+    }
+
+    /** Keeps [accessToken] of storage generation [generation] until it is revoked, once every phone switched (spec §7.1, §7.4). */
+    suspend fun retire(groupId: GroupId, generation: Long, accessToken: String): Unit = retiredLock.withLock {
+        withContext(io) {
+            val held = readRetired()
+            if (held.none { it.accessToken == accessToken }) retiredFile.write(held + RetiredToken(groupId.hex, generation, accessToken))
+        }
+    }
+
+    /** The retired tokens of [groupId], oldest first. */
+    suspend fun retired(groupId: GroupId): List<RetiredToken> = retiredLock.withLock {
+        withContext(io) { readRetired().filter { it.groupHex == groupId.hex } }
+    }
+
+    /** Revoked, or still in use (spec §7.3 keeps the token): no longer kept. */
+    suspend fun dropRetired(accessToken: String): Unit = retiredLock.withLock {
+        withContext(io) { retiredFile.write(readRetired().filter { it.accessToken != accessToken }) }
+    }
+
+    /**
+     * A handed token of an older storage generation than the StorageOwner record names is no longer used (spec §7: every
+     * generation change replaces the token): it leaves the vault, and a parent ([keep]) keeps it for the revoke. True when
+     * the vault changed.
+     */
+    suspend fun retireStale(groupId: GroupId, membership: MembershipState, keep: Boolean): Boolean = vaultLock.withLock {
+        val owner = membership.storageOwner ?: return@withLock false
+        val held = tokens()?.takeIf { !it.owner && it.groupHex == groupId.hex && it.storageGeneration < owner.generation }
+            ?: return@withLock false
+        if (keep) retire(groupId, held.storageGeneration, held.accessToken)
+        withContext(io) { vault.delete() }
+        true
+    }
+
+    private fun readRetired(): List<RetiredToken> = try {
+        retiredFile.read()
+    } catch (e: KeyStorageException) {
+        Log.w(TAG, "retired tokens unreadable", e)
+        emptyList()
     }
 
     private inner class FileKeyRing(private val group: GroupConfig) : GroupKeyRing {

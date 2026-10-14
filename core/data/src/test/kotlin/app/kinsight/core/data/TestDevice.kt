@@ -8,6 +8,7 @@ import app.kinsight.core.database.RoomUsageQueue
 import app.kinsight.core.keystore.AesGcmWrap
 import app.kinsight.core.keystore.CloudTokenVault
 import app.kinsight.core.keystore.GroupKeyFile
+import app.kinsight.core.keystore.RetiredTokenFile
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.Membership
 import app.kinsight.core.transport.ble.GroupStore
@@ -113,12 +114,13 @@ class TestDevice(
         },
     )
     val snapshots = Snapshots(db, groups, keyProvider, transport, scope = scope)
-    // A JVM AES key stands in for the Keystore wrap key; one wrap for both files, like CloudFiles.wrap.
+    // A JVM AES key stands in for the Keystore wrap key; one wrap for all the files, like CloudFiles.wrap.
     private val cloudAes = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
     private val cloudWrap = AesGcmWrap { cloudAes }
     val cloudSecrets = CloudSecrets(
         CloudTokenVault(File(dir, CloudTokenVault.FILE_NAME), cloudWrap),
         GroupKeyFile(File(dir, GroupKeyFile.FILE_NAME), cloudWrap),
+        RetiredTokenFile(File(dir, RetiredTokenFile.FILE_NAME), cloudWrap),
     )
     val cloudState = CloudStateStore.create(File(dir, "c.preferences_pb"), scope)
     val identityResets: MutableList<Boolean> = Collections.synchronizedList(mutableListOf()) // was the database empty when the identity went

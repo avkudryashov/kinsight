@@ -13,16 +13,22 @@ import java.util.concurrent.ConcurrentHashMap
 object CloudFiles {
     private val vaults = ConcurrentHashMap<String, CloudTokenVault>()
     private val keyFiles = ConcurrentHashMap<String, GroupKeyFile>()
+    private val retiredFiles = ConcurrentHashMap<String, RetiredTokenFile>()
 
     fun vault(context: Context): CloudTokenVault = vault(File(context.noBackupFilesDir, CloudTokenVault.FILE_NAME)) { wrap(context) }
 
     fun groupKeys(context: Context): GroupKeyFile = groupKeys(File(context.noBackupFilesDir, GroupKeyFile.FILE_NAME)) { wrap(context) }
+
+    fun retired(context: Context): RetiredTokenFile = retired(File(context.noBackupFilesDir, RetiredTokenFile.FILE_NAME)) { wrap(context) }
 
     internal fun vault(file: File, wrap: () -> KeyWrap): CloudTokenVault =
         vaults.computeIfAbsent(file.canonicalPath) { CloudTokenVault(file, wrap()) }
 
     internal fun groupKeys(file: File, wrap: () -> KeyWrap): GroupKeyFile =
         keyFiles.computeIfAbsent(file.canonicalPath) { GroupKeyFile(file, wrap()) }
+
+    internal fun retired(file: File, wrap: () -> KeyWrap): RetiredTokenFile =
+        retiredFiles.computeIfAbsent(file.canonicalPath) { RetiredTokenFile(file, wrap()) }
 
     private val keyLock = Any()
 
