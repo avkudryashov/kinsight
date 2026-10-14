@@ -18,6 +18,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicLong
 
 sealed interface CloudResult {
     data class Synced(val uploadedPacks: Int, val received: Int) : CloudResult
@@ -64,6 +65,9 @@ class CloudSync(
     /** Set by [upload] when the Disk refused a pack for lack of space. */
     private var storageFull = false
 
+    /** The version key of this run for a listing without any version (see [versionOf]); new for every exchange. */
+    private var runVersion = ""
+
     private fun keyUpdates(epoch: Int): List<DecodedEntry> =
         listOfNotNull(rotationEntry?.takeIf { it.body.membership_op!!.rotate!!.epoch == epoch })
 
@@ -89,6 +93,8 @@ class CloudSync(
     private suspend fun exchange(forceCompaction: Boolean): CloudResult {
         val membership = Membership.compute(groupId, store.membershipEntries())
         if (membership == null || self !in membership.active) return CloudResult.NotMember
+        // The counter, not the clock alone: two runs at one clock reading (a fixed test clock) must not share the key.
+        runVersion = "run:${clock()}:${RUNS.incrementAndGet()}"
         absorbRotation(membership)
         val epoch = writeEpoch(membership) ?: return CloudResult.NoGroupKey
         var cursor = cursors.load()
@@ -506,7 +512,7 @@ class CloudSync(
      * by its size.
      */
     private fun versionOf(i: DiskItem): String =
-        i.sha256 ?: i.md5?.let { "md5:$it" } ?: i.modified?.let { "mod:$it" } ?: "run:${clock()}"
+        i.sha256 ?: i.md5?.let { "md5:$it" } ?: i.modified?.let { "mod:$it" } ?: runVersion
 
     private fun membershipHash(m: MembershipState): String = Membership.hash(groupId, m.effectiveEntries).copyOf(8).toHex()
 
@@ -532,5 +538,8 @@ class CloudSync(
 
         /** Daily compaction merges the newest own packs below this size; bigger ones stay as they are. */
         const val SMALL_PACK_BYTES = 256 shl 10
+
+        /** Runs of this process, for [runVersion]: every instance's run gets its own. */
+        private val RUNS = AtomicLong()
     }
 }

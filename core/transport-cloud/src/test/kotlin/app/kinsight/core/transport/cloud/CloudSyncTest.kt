@@ -25,6 +25,7 @@ import kotlinx.coroutines.yield
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class CloudSyncTest {
@@ -393,6 +394,28 @@ class CloudSyncTest {
         val dir = CloudPaths.deviceDir(g, stranger.deviceId)
         for (d in listOf(CloudPaths.APP_ROOT, CloudPaths.root(g), dir)) disk.mkdir(d)
         disk.upload("$dir/${CloudPaths.packName(1, 1)}", bytes)
+    }
+
+    /** Parked from Task 1: without any version from the Disk, every run gets its own key, even under a fixed clock. */
+    @Test
+    fun aPackWithoutAnyVersionIsReadAgainOnEveryRun() = runTest {
+        val (mom, kid) = family(DeviceRole.CHILD)
+        val bare = BareDisk(disk)
+        kid.publish(kid.author.summary("2026-10-13", 1))
+        kid.sync(bare).run()
+        mom.sync(bare).run()
+        val first = mom.cursor.cursor.seen.keys.toList()
+        mom.sync(bare).run()
+        val second = mom.cursor.cursor.seen.keys.toList()
+        assertEquals(1, first.size)
+        assertEquals(1, second.size)
+        assertNotEquals(first, second, "the same clock must not make the second run trust the first one's read")
+    }
+
+    /** A listing with no sha256, md5 or modified time (never seen from Yandex). */
+    private class BareDisk(private val inner: DiskApi) : DiskApi by inner {
+        override suspend fun list(path: String): List<DiskItem> =
+            inner.list(path).map { DiskItem(it.name, it.isDir, it.size, sha256 = null, md5 = null, modified = null) }
     }
 
     /** The listing as a Disk without sha256 reports it: md5 and modified only. */
