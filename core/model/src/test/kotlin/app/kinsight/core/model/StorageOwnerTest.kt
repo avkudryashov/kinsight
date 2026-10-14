@@ -83,9 +83,19 @@ class StorageOwnerTest {
             )
         }
         val departed = state(op).storageOwner!!.departed
-        assertEquals(MembershipLimits.MAX_OWNER_DEPARTED - 1, departed.size, "the first 64 read, the 15-byte one dropped")
+        assertEquals(MembershipLimits.MAX_OWNER_DEPARTED - 1, departed.size, "the first 256 read, the 15-byte one dropped")
         assertFailsWith<IllegalArgumentException> {
-            mom.storageOwnerEntry(momKeys.deviceId, storage, 1, departed = List(MembershipLimits.MAX_OWNER_DEPARTED + 1) { kidKeys.deviceId })
+            mom.storageOwnerEntry(momKeys.deviceId, storage, 1, departed = List(MembershipLimits.MAX_OWNER_DEPARTED + 1) { i -> DeviceId.fromBytes(ByteArray(16) { i.toByte() }.also { it[0] = (i shr 8).toByte() }) })
         }
+    }
+
+    @Test
+    fun theWriterListsEachDepartedIdOnceAndUpTo256() {
+        assertEquals(256, MembershipLimits.MAX_OWNER_DEPARTED, "rulings Q16")
+        val many = List(MembershipLimits.MAX_OWNER_DEPARTED) { i -> DeviceId.fromBytes(ByteArray(16) { i.toByte() }.also { it[0] = (i shr 8).toByte() }) }
+        val full = mom.storageOwnerEntry(momKeys.deviceId, storage, 1, ByteArray(16) { 7 }, many)
+        assertEquals(many.toSet(), state(full).storageOwner!!.departed, "a full list fits in one membership op")
+        val repeated = mom.storageOwnerEntry(momKeys.deviceId, storage, 1, departed = List(MembershipLimits.MAX_OWNER_DEPARTED + 1) { kidKeys.deviceId })
+        assertEquals(listOf(kidKeys.deviceId.bytes().toByteString()), repeated.body.membership_op!!.storage_owner!!.departed)
     }
 }
