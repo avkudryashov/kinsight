@@ -10,6 +10,7 @@ import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
+import app.kinsight.core.model.Membership
 import app.kinsight.core.model.grantAdminEntry
 import app.kinsight.core.model.leaveGroupEntry
 import app.kinsight.core.model.removeMemberEntry
@@ -22,6 +23,9 @@ import app.kinsight.core.transport.ble.ServiceSnapshot
 import app.kinsight.core.transport.ble.ServiceState
 import app.kinsight.core.transport.ble.SyncProblem
 import app.kinsight.core.transport.ble.TransportStateStore
+import app.kinsight.core.transport.cloud.GroupKey
+import app.kinsight.core.transport.cloud.OwnerLeaveBlock
+import app.kinsight.core.transport.cloud.OwnerLifecycle
 import app.kinsight.core.usage.PublishTarget
 import app.kinsight.core.usage.SettingsStore
 import app.kinsight.core.usage.UsagePipeline
@@ -67,6 +71,12 @@ enum class LeaveError {
 
     /** The only admin while others remain: grant admin to another parent first (spec §9.5). */
     SOLE_ADMIN,
+
+    /** Spec §7.1: this phone holds the family's storage and another parent could take it: hand it over first. */
+    OWNER_HANDOVER,
+
+    /** Spec §7.1: the storage moved off this phone's Disk and not every phone switched yet (its old token is revoked then). */
+    CLOUD_SWITCHING,
 
     /** LEFT_GROUP could not be signed or stored; nothing was wiped. */
     NOT_SIGNED,
@@ -151,11 +161,21 @@ class GroupRepository(
         sync.start(fast = true)
     }
 
-    /** RemoveMember with the removed device's contiguous seq as we know it (spec §4.5). Throws without a group. */
+    /**
+     * RemoveMember with the removed device's contiguous seq as we know it (spec §4.5), and in the same batch the group key
+     * rotation (spec §5, §7.4; the privacy policy promises the key changes whenever a phone is removed), cloud on or off.
+     * Throws without a group.
+     */
     suspend fun remove(id: DeviceId) {
         val group = checkNotNull(withContext(io) { groups.read() }) { "no group: cannot remove a member" }
-        val lastSeq = RoomEntryStore(db, group.groupId).versionVector()[id]
-        signOwn("remove member") { author -> listOf(author.removeMemberEntry(id, lastSeq)) }
+        val store = RoomEntryStore(db, group.groupId)
+        val lastSeq = store.versionVector()[id]
+        val entries = store.membershipEntries()
+        signOwn("remove member") { author ->
+            val removal = author.removeMemberEntry(id, lastSeq)
+            val after = Membership.compute(group.groupId, entries + removal)
+            if (after != null && GroupKey.rotationNeeded(after)) listOf(removal, GroupKey.rotate(author, after)) else listOf(removal)
+        }
         sync.start(fast = true)
     }
 
@@ -183,7 +203,8 @@ class GroupRepository(
 
     /**
      * The «Leave group» button (spec §9.5), on the app scope:
-     * 1. refuse ([leaveError]) without a group or for the sole admin of others ([SnapshotViews.canLeave]);
+     * 1. refuse ([leaveError]) without a group, for the sole admin of others ([SnapshotViews.canLeave]), for the storage
+     *    owner while another parent could take it, and for a former owner whose storage is still moving (spec §7.1);
      * 2. sign LEFT_GROUP and start a fast sync; a failure here wipes nothing ([LeaveError.NOT_SIGNED]);
      * 3. right after the commit, take the session baseline and wait (bounded by [leaveTimeoutMs]) for a session that
      *    began after it: one more finished session, two if one was running at the commit. The family gets LEFT_GROUP
@@ -250,7 +271,11 @@ class GroupRepository(
         return when {
             ready == null || ready.removed -> LeaveError.NO_GROUP
             !SnapshotViews.canLeave(ready) -> LeaveError.SOLE_ADMIN
-            else -> null
+            else -> when (OwnerLifecycle.leaveBlock(ready.membership, ready.self, ready.heartbeats)) {
+                OwnerLeaveBlock.HANDOVER_NEEDED -> LeaveError.OWNER_HANDOVER
+                OwnerLeaveBlock.SWITCHING -> LeaveError.CLOUD_SWITCHING
+                null -> null
+            }
         }
     }
 

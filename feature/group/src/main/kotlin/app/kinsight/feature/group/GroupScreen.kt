@@ -117,6 +117,8 @@ internal fun GroupError.messageRes(): Int = when (this) {
         LeaveError.SOLE_ADMIN -> R.string.grp_err_leave_sole_admin
         LeaveError.NOT_SIGNED -> R.string.grp_err_leave_not_signed
         LeaveError.WIPE_FAILED -> R.string.grp_err_leave_wipe_failed
+        LeaveError.OWNER_HANDOVER -> R.string.grp_err_leave_owner_handover
+        LeaveError.CLOUD_SWITCHING -> R.string.grp_err_leave_cloud_switching
     }
     GroupError.GrantFailed -> R.string.grp_err_grant
     GroupError.RemoveFailed -> R.string.grp_err_remove
@@ -206,7 +208,9 @@ fun GroupScreen(
         val (title, body) = when (action) {
             is GroupAction.GrantAdmin -> stringResource(R.string.grp_grant_title, action.member.name) to stringResource(R.string.grp_grant_body)
             is GroupAction.Remove -> stringResource(R.string.grp_remove_title, action.member.name) to stringResource(R.string.grp_remove_body)
-            GroupAction.Leave -> stringResource(R.string.grp_leave_title) to stringResource(R.string.grp_leave_body)
+            GroupAction.Leave -> stringResource(R.string.grp_leave_title) to (
+                stringResource(R.string.grp_leave_body) + if (state.selfOwnsStorage) "\n\n" + stringResource(R.string.grp_leave_cloud_off) else ""
+            )
         }
         val confirmLabel = stringResource(
             when (action) {

@@ -93,4 +93,7 @@
         <item quantity="many">Истекает в течение %d минут</item>
         <item quantity="other">Истекает в течение %d минуты</item>
     </plurals>
+    <string name="grp_err_leave_owner_handover">Выход отклонён: семейное хранилище на вашем Яндекс Диске. Сначала передайте его другому родителю в Настройках, затем выходите.</string>
+    <string name="grp_err_leave_cloud_switching">Хранилище переезжает на другой Диск. Выйти можно, когда все телефоны переключатся на него.</string>
+    <string name="grp_leave_cloud_off">Синхронизация через Яндекс Диск отключится. Данные останутся на телефонах, Bluetooth продолжит работать.</string>
 </resources>

@@ -91,4 +91,7 @@
         <item quantity="one">Caduca en %d minuto o menos</item>
         <item quantity="other">Caduca en %d minutos o menos</item>
     </plurals>
+    <string name="grp_err_leave_owner_handover">No se ha permitido la salida: el almacenamiento de la familia está en tu Yandex Disk. Primero pásalo a otro adulto en Ajustes y luego sal.</string>
+    <string name="grp_err_leave_cloud_switching">El almacenamiento se está mudando a otro Disk. Podrás salir cuando todos los teléfonos se hayan cambiado a él.</string>
+    <string name="grp_leave_cloud_off">La sincronización con Yandex Disk se desactivará. Los datos se quedan en los teléfonos y Bluetooth sigue funcionando.</string>
 </resources>

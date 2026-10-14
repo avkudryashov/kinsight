@@ -48,13 +48,14 @@ class GroupScreenTest {
         members: List<MemberView>,
         nowMs: Long = 0,
         leaving: Boolean = false,
+        ownsStorage: Boolean = false,
         onGrantAdmin: (DeviceId) -> Unit = {},
         onRemove: (DeviceId) -> Unit = {},
         onLeave: () -> Unit = {},
     ) = rule.setContent {
         KinsightTheme(dynamicColor = false) {
             GroupScreen(
-                GroupState.Ready(group, self, members),
+                GroupState.Ready(group, self, members, selfOwnsStorage = ownsStorage),
                 nowMs = nowMs,
                 leaving = leaving,
                 onInvite = {},
@@ -247,5 +248,14 @@ class GroupScreenTest {
         assertEquals(errors.size, texts.toSet().size)
         assertTrue(texts.all { it.isNotBlank() })
         assertTrue(texts.all { t -> t.any { it in 'а'..'я' } == russian })
+    }
+
+    @Test
+    fun anOwnerAloneIsToldTheCloudTurnsOff() {
+        show(mom, listOf(mom), ownsStorage = true)
+        rule.onNodeWithTag("grp_list").performScrollToNode(hasTestTag("grp_leave"))
+        rule.onNodeWithTag("grp_leave").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Sync through Yandex Disk turns off", substring = true).assertExists()
     }
 }

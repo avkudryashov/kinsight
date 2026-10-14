@@ -91,4 +91,7 @@
         <item quantity="one">Expires within %d minute</item>
         <item quantity="other">Expires within %d minutes</item>
     </plurals>
+    <string name="grp_err_leave_owner_handover">Leaving was refused: the family\'s storage is on your Yandex Disk. Hand it to another parent in Settings first, then leave.</string>
+    <string name="grp_err_leave_cloud_switching">The storage is moving to another Disk. You can leave once every phone has switched to it.</string>
+    <string name="grp_leave_cloud_off">Sync through Yandex Disk turns off. The data stays on the phones, and Bluetooth goes on working.</string>
 </resources>

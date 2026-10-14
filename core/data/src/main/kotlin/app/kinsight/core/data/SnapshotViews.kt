@@ -27,8 +27,11 @@ sealed interface GroupState {
      */
     data object Leaving : GroupState
 
-    /** [members]: active members, this device first, then parents, then children, each by name. */
-    data class Ready(val groupId: GroupId, val self: MemberView, val members: List<MemberView>) : GroupState
+    /**
+     * [members]: active members, this device first, then parents, then children, each by name. [selfOwnsStorage]: the
+     * family's cloud storage is on this phone's Disk (spec §7.1: leaving turns the cloud off when nobody can take it).
+     */
+    data class Ready(val groupId: GroupId, val self: MemberView, val members: List<MemberView>, val selfOwnsStorage: Boolean = false) : GroupState
 }
 
 /** [selfUsage] for a child (its own card), [children] for a parent; [parents]: who sees this device's data. */
@@ -47,7 +50,7 @@ object SnapshotViews {
         GroupSnapshot.NoGroup -> GroupState.NoGroup
         is GroupSnapshot.Ready -> if (s.removed) GroupState.Removed else {
             val members = members(s, nowMs)
-            GroupState.Ready(s.groupId, members.first { it.isSelf }, members)
+            GroupState.Ready(s.groupId, members.first { it.isSelf }, members, selfOwnsStorage = s.membership.storageOwner?.deviceId == s.self)
         }
     }
 
