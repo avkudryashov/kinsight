@@ -18,5 +18,6 @@ dependencies {
     api(project(":core:transport-cloud"))
     api(libs.coroutines.core)
     api(libs.datastore.preferences)
+    implementation(libs.work.runtime)
     testImplementation(project(":core:testing"))
 }

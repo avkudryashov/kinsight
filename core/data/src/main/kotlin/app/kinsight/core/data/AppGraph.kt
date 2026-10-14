@@ -39,14 +39,22 @@ class Graph internal constructor(app: Context) {
     val sync: SyncControl = ServiceSyncControl(app)
     val snapshots = Snapshots(db, groups, keys, transport, scope = scope)
 
-    /** The one CloudSecrets of the process (R15); its runLock is the one every cloud run must take. */
-    val cloudSecrets = CloudSecrets(CloudFiles.vault(app), CloudFiles.groupKeys(app))
+    private val ownAppend: OwnAppend = { build -> pipeline.appendOwn(build = build) }
+
+    /** The one CloudSecrets of the process (R15); its runLock (CloudGraph.runLock) is the one every cloud run must take. */
+    val cloudSecrets = CloudSecrets(
+        CloudFiles.vault(app),
+        CloudFiles.groupKeys(app),
+        onAccess = { CloudWork.runSoon(app) },
+        runLock = CloudGraph.runLock,
+    )
     val cloudState = CloudStateStore.create(app.preferencesDataStoreFile(CloudStateStore.NAME), CoroutineScope(Dispatchers.IO + SupervisorJob()))
     val reset = LocalReset(
         db = db,
         pipeline = pipeline,
         forgetGroupFiles = {
             SyncGraph.forgetGroup(app)
+            CloudWork.cancel(app)
             cloudSecrets.forget()
             cloudState.clear()
         },
@@ -86,4 +94,17 @@ class Graph internal constructor(app: Context) {
     val service = ServiceRepository(SyncGraph.snapshot, transport, { BlePermissions.missing(app) }, sync, usageAccess = { AppOpsUsageAccess(app).granted() })
     val pruner = Pruner(db, groups, settings, keys)
     val settingsRepository = SettingsRepository(settings, prefs, pipeline, pruner::prune)
+
+    /** The one CloudRunner of the process (R15): the worker and the debug hooks run it; it shares the wipe's lock (R14). */
+    val cloud = CloudRunner(
+        db, groups, keys, settings, cloudSecrets, cloudState, ownAppend,
+        disk = CloudGraph::disk, runLock = cloudSecrets.runLock,
+    )
+    val cloudSignIn = CloudSignIn(
+        db, groups, keys, ownAppend, cloudSecrets,
+        config = { CloudGraph.config },
+        disk = CloudGraph::disk,
+        onEnabled = { CloudWork.runSoon(app) },
+    )
+    val cloudRepository = CloudRepository(snapshots, cloudState, cloudSignIn, prefs, config = { CloudGraph.config })
 }

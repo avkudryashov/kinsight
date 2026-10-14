@@ -3,7 +3,10 @@ package app.kinsight
 import android.app.Application
 import android.util.Log
 import app.kinsight.core.data.AppGraph
+import app.kinsight.core.data.CloudConfig
+import app.kinsight.core.data.CloudGraph
 import app.kinsight.core.data.CloudSessionHandoff
+import app.kinsight.core.data.CloudWork
 import app.kinsight.core.data.IntegrityFastSync
 import app.kinsight.core.data.ResetStatus
 import app.kinsight.core.transport.ble.BlePermissions
@@ -22,7 +25,7 @@ import kotlinx.coroutines.launch
 /**
  * Wiring at process start: the publish target and the role/consent gate (SyncGraph.install), fast mode for own
  * integrity events (IntegrityFastSync.install), the hourly usage
- * collection, the integrity alerts, and the checks only a fresh process can make: the «share» switch reconciled with
+ * collection, the integrity alerts, the cloud job while the cloud is on (spec §9), and the checks only a fresh process can make: the «share» switch reconciled with
  * the last signed SHARING_* (spec §7), an identity reset cut short (finished first), a join interrupted after the welcome finished, force stops since the last
  * start (with or without a group: the baseline), a revoked «Nearby devices», and the one-time move of a parent's local
  * category overrides into the shared log (stage 5c). Each check runs on its own, so one
@@ -31,13 +34,18 @@ import kotlinx.coroutines.launch
 open class KinsightApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        CloudGraph.config = CloudConfig(BuildConfig.YANDEX_CLIENT_ID, BuildConfig.YANDEX_CLIENT_SECRET, BuildConfig.YANDEX_REDIRECT_URI)
         SyncGraph.install(this)
         SyncGraph.cloudHandoff = { ctx, group, store, keys -> CloudSessionHandoff(AppGraph.get(ctx).cloudSecrets, group, store, keys.deviceId) }
         IntegrityFastSync.install(this)
         UsageWork.schedule(this)
+        CloudWork.keepScheduled(this)
         AlertsWork.schedule(this)
         KinsightWidget.links = WidgetLinks(open = MainActivity::open, openDevice = MainActivity::openDevice)
-        SyncGraph.onSessionFinished = { AlertsWork.runSoon(it) }
+        SyncGraph.onSessionFinished = {
+            AlertsWork.runSoon(it)
+            CloudWork.keepScheduled(it)
+        }
         SyncGraph.onboardingDone = { AppGraph.get(it).prefs.current().onboardingDone }
         UsageAccessWatcher.register(this)
         val app = this

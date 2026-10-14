@@ -42,7 +42,8 @@ class CloudRunner(
     private val state: CloudStateStore,
     private val appendOwn: OwnAppend,
     private val disk: (accessToken: suspend () -> String) -> DiskApi,
-    private val runLock: Mutex,
+    /** The process-wide run lock (CloudSecrets.runLock), shared with the local wipe (R14, R15). */
+    val runLock: Mutex,
     private val clock: () -> Long = System::currentTimeMillis,
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) {

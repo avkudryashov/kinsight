@@ -60,7 +60,7 @@ class LocalReset(
     private val snapshots: Snapshots,
     private val marker: ResetMarker,
     /** The process-wide cloud run lock (CloudSecrets.runLock), held across the group files and the data wipe. */
-    private val runLock: Mutex = Mutex(),
+    val runLock: Mutex = Mutex(),
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) {
