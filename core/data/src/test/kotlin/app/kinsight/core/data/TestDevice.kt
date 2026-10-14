@@ -5,6 +5,9 @@ import android.content.ContextWrapper
 import app.kinsight.core.database.KinsightDatabaseFactory
 import app.kinsight.core.database.RoomEntryStore
 import app.kinsight.core.database.RoomUsageQueue
+import app.kinsight.core.keystore.AesGcmWrap
+import app.kinsight.core.keystore.CloudTokenVault
+import app.kinsight.core.keystore.GroupKeyFile
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.Membership
 import app.kinsight.core.transport.ble.GroupStore
@@ -33,6 +36,7 @@ import java.io.File
 import java.nio.file.Files
 import java.time.ZoneId
 import java.util.Collections
+import javax.crypto.KeyGenerator
 
 /** Just enough Context for Room on the JVM: database names are absolute paths. */
 class HostContext : ContextWrapper(null) {
@@ -109,6 +113,14 @@ class TestDevice(
         },
     )
     val snapshots = Snapshots(db, groups, keyProvider, transport, scope = scope)
+    // A JVM AES key stands in for the Keystore wrap key; one wrap for both files, like CloudFiles.wrap.
+    private val cloudAes = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
+    private val cloudWrap = AesGcmWrap { cloudAes }
+    val cloudSecrets = CloudSecrets(
+        CloudTokenVault(File(dir, CloudTokenVault.FILE_NAME), cloudWrap),
+        GroupKeyFile(File(dir, GroupKeyFile.FILE_NAME), cloudWrap),
+    )
+    val cloudState = CloudStateStore.create(File(dir, "c.preferences_pb"), scope)
     val identityResets: MutableList<Boolean> = Collections.synchronizedList(mutableListOf()) // was the database empty when the identity went
     var identityWipeFails: Exception? = null
     var afterKeyWipeFails: Exception? = null // a crash right after the keys went, before the data
