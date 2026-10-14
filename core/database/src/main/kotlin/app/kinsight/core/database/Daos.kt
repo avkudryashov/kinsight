@@ -245,4 +245,17 @@ interface WipeDao {
 
     @Query("DELETE FROM catalog_state")
     suspend fun catalogState()
+
+    @Query("DELETE FROM cloud_cursor")
+    suspend fun cloudCursor()
+}
+
+@Dao
+interface CloudCursorDao {
+    @Query("SELECT state FROM cloud_cursor WHERE id = 0")
+    suspend fun state(): ByteArray?
+
+    /** REPLACE: the row has one key and every column is supplied. */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun set(row: CloudCursorRow)
 }

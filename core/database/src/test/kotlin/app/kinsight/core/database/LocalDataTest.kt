@@ -105,7 +105,7 @@ class LocalDataTest {
 
     @Test
     fun wipedTablesAreEveryTableOfTheSchema() {
-        val json = File("schemas/app.kinsight.core.database.KinsightDatabase/3.json").readText()
+        val json = File("schemas/app.kinsight.core.database.KinsightDatabase/5.json").readText()
         val tables = Regex("\"tableName\": \"([a-z_]+)\"").findAll(json).map { it.groupValues[1] }.toSet()
         assertEquals(tables, WIPED_TABLES.toSet())
     }
@@ -126,6 +126,7 @@ class LocalDataTest {
         queue.setLastUsagePublishMs(1)
         queue.setCatalogHash("a.app", "x")
         db.vectorDao().addAbove(AboveRow(keys.deviceId.hex, 9))
+        db.cloudCursorDao().set(CloudCursorRow(state = byteArrayOf(1)))
         for (table in WIPED_TABLES) assertTrue(count(table) > 0, "$table empty before wipe")
         db.wipeAll()
         for (table in WIPED_TABLES) assertEquals(0L, count(table), table)

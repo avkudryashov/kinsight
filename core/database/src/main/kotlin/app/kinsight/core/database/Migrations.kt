@@ -126,3 +126,14 @@ val MIGRATION_3_4: Migration = object : Migration(3, 4) {
         }
     }
 }
+
+/** Room's createSql for schema 5's cloud cursor (pinned against 5.json by KinsightMigrationTest). */
+internal const val V5_CLOUD_CURSOR_TABLE =
+    "CREATE TABLE IF NOT EXISTS `\${TABLE_NAME}` (`id` INTEGER NOT NULL, `state` BLOB NOT NULL, PRIMARY KEY(`id`))"
+
+/** Version 5 (cloud Y2): the cloud cursor table, nothing else changes. */
+val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+    override fun migrate(connection: SQLiteConnection) {
+        connection.execSQL(V5_CLOUD_CURSOR_TABLE.replace("\${TABLE_NAME}", "cloud_cursor"))
+    }
+}

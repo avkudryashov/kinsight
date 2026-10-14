@@ -16,6 +16,8 @@ import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.sync.categoryOverride
 import app.kinsight.core.sync.detail
 import app.kinsight.core.sync.summary
+import app.kinsight.core.transport.cloud.CloudCursor
+import app.kinsight.core.transport.cloud.KeyId
 import kotlinx.coroutines.test.runTest
 import okio.ByteString.Companion.decodeHex
 import okio.ByteString.Companion.toByteString
@@ -182,6 +184,38 @@ class KinsightMigrationTest {
         } finally {
             KinsightDatabaseFactory.resetShared()
         }
+    }
+
+    @Test
+    fun migrationSqlMatchesExportedV5Schema() {
+        val json = schemaJson(5)
+        assertTrue(json.contains("\"tableName\": \"cloud_cursor\""), "5.json has no cloud_cursor")
+        assertTrue(json.contains(V5_CLOUD_CURSOR_TABLE), "5.json lacks: $V5_CLOUD_CURSOR_TABLE")
+        assertTrue(json.contains(V3_ENTRIES_TABLE), "5.json lacks: $V3_ENTRIES_TABLE")
+    }
+
+    @Test
+    fun migratesV4KeepingEntriesAndAddingTheCloudCursor() = runTest {
+        val keys = DeviceKeys.generate()
+        val genesis = GroupGenesis.create(keys, "Mom")
+        val v4 = File(dir, "v4.db").absolutePath
+        ExportedSchema.create(v4, 4) { c -> insertV3(c, genesis.entry, kind = EntryKinds.MEMBERSHIP_OP) }
+        val db = KinsightDatabaseFactory.open(HostContext(), v4)
+        assertTrue(db.entryDao().get(keys.deviceId.hex, genesis.entry.seq) != null)
+        val cursors = RoomCloudCursorStore(db)
+        assertEquals(CloudCursor(), cursors.load())
+        val c = CloudCursor(uploadedUpTo = 7, seen = mapOf("a/b/c" to 1), ownPacks = mapOf("n" to KeyId(1, "ff")))
+        cursors.save(c)
+        assertEquals(c, cursors.load())
+        db.close()
+    }
+
+    @Test
+    fun anUnreadableCursorRowReadsAsAFreshCursor() = runTest {
+        val db = KinsightDatabaseFactory.open(HostContext(), File(dir, "c.db").absolutePath)
+        db.cloudCursorDao().set(CloudCursorRow(state = byteArrayOf(42)))
+        assertEquals(CloudCursor(), RoomCloudCursorStore(db).load())
+        db.close()
     }
 
     @Test

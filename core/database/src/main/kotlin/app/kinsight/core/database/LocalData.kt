@@ -3,10 +3,10 @@ package app.kinsight.core.database
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-/** Every table of schema 3, in WipeDao order; LocalDataTest pins it against the exported schema. */
+/** Every table of schema 5, in WipeDao order; LocalDataTest pins it against the exported schema. */
 val WIPED_TABLES: List<String> = listOf(
     "entries", "vector_contig", "vector_above", "pending_usage", "pending_hours", "pending_days", "pending_events",
-    "collector_state", "publish_state", "author_state", "catalog_state",
+    "collector_state", "publish_state", "author_state", "catalog_state", "cloud_cursor",
 )
 
 /**
@@ -26,6 +26,7 @@ suspend fun KinsightDatabase.wipeAll(): Unit = write {
         publishState()
         authorState()
         catalogState()
+        cloudCursor()
     }
 }
 

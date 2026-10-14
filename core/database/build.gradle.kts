@@ -14,5 +14,6 @@ android {
 dependencies {
     api(libs.room.runtime)
     api(project(":core:sync"))
+    api(project(":core:transport-cloud"))
     testImplementation(project(":core:testing"))
 }
