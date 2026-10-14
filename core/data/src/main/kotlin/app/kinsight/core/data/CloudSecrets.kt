@@ -28,8 +28,9 @@ import kotlinx.coroutines.withContext
 /**
  * This device's cloud secrets (spec §5, §6 «Хранение»): the token vault, the group key ring and the tokens it no longer
  * uses but must still revoke (spec §7), all sealed files of core/keystore. Wiped with the group (LocalReset).
- * [onAccess] runs after a handed token was stored (the app schedules the cloud worker then; at a join the group file does not exist yet, so the pairing's onJoined schedules it). [runLock]: the process-wide cloud run lock (R15): the CloudRunner holds it for a whole run,
- * LocalReset for a whole wipe and CloudSignIn while it turns the cloud on, so neither a run nor a sign-in can write the old
+ * [onAccess] runs after a handed token was stored (the app schedules the cloud worker then; at a join the group file does
+ * not exist yet, so the pairing's onJoined schedules it). [runLock]: the process-wide cloud run lock (R15): the CloudRunner
+ * holds it for a whole run, LocalReset for a whole wipe and CloudSignIn while it turns the cloud on, so neither a run nor a sign-in can write the old
  * group's key or tokens back after the wipe.
  */
 class CloudSecrets(
@@ -57,17 +58,21 @@ class CloudSecrets(
         }
     }
 
-    /** The owner's tokens after a sign-in (spec §6: the refresh token stays on the owner's phone). */
+    /**
+     * The owner's tokens after a sign-in (spec §6: the refresh token stays on the owner's phone). The owner is a parent: an
+     * access token of the group it replaces is retired first, for the revoke.
+     */
     suspend fun saveOwner(groupId: GroupId, generation: Long, storageId: ByteArray, t: TokenSet): Unit = vaultLock.withLock {
+        retireReplaced(groupId, tokens(), t.accessToken)
         withContext(io) { vault.write(CloudTokens(groupId.hex, owner = true, generation, storageId, t.accessToken, t.refreshToken, t.expiresAtMs)) }
     }
 
     /**
      * A token handed at pairing or over Bluetooth. Never replaces the owner's own tokens of the group (whatever storage
      * generation it names), a token of a newer storage generation, nor a newer token (a later expiry) of the same one.
-     * True when stored.
+     * True when stored. On a parent ([keep]) the token it replaces is retired first, for the revoke; a child just replaces it.
      */
-    suspend fun saveHanded(groupId: GroupId, a: HandedAccess): Boolean = vaultLock.withLock {
+    suspend fun saveHanded(groupId: GroupId, a: HandedAccess, keep: Boolean): Boolean = vaultLock.withLock {
         val held = tokens()
         if (held != null && held.groupHex == groupId.hex) {
             if (held.owner) return@withLock false
@@ -76,6 +81,7 @@ class CloudSecrets(
                 return@withLock false
             }
         }
+        if (keep) retireReplaced(groupId, held, a.accessToken)
         withContext(io) { vault.write(CloudTokens(groupId.hex, owner = false, a.storageGeneration, a.storageId, a.accessToken, null, a.expiresAtMs)) }
         onAccess()
         true
@@ -125,7 +131,8 @@ class CloudSecrets(
         }
         ringLock.withLock { withContext(io) { keyFile.write(GroupKeyFile.Contents(groupId.hex, keys)) } }
         vaultLock.withLock { withContext(io) { vault.delete() } }
-        cloud?.access?.let { saveHanded(groupId, it) }
+        // The vault is empty here: nothing to retire.
+        cloud?.access?.let { saveHanded(groupId, it, keep = false) }
     }
 
     /**
@@ -159,19 +166,32 @@ class CloudSecrets(
     /** Keeps [accessToken] of storage generation [generation] until it is revoked, once every phone switched (spec §7.1, §7.4). */
     suspend fun retire(groupId: GroupId, generation: Long, accessToken: String): Unit = retiredLock.withLock {
         withContext(io) {
-            val held = readRetired()
-            if (held.none { it.accessToken == accessToken }) retiredFile.write(held + RetiredToken(groupId.hex, generation, accessToken))
+            val held = readRetired() ?: emptyList()
+            if (held.none { it.accessToken == accessToken }) {
+                val next = held + RetiredToken(groupId.hex, generation, accessToken)
+                val evicted = next.size - RetiredTokenFile.MAX
+                if (evicted > 0) Log.w(TAG, "retired tokens over ${RetiredTokenFile.MAX}: the oldest $evicted dropped unrevoked")
+                retiredFile.write(next)
+            }
         }
     }
 
     /** The retired tokens of [groupId], oldest first. */
     suspend fun retired(groupId: GroupId): List<RetiredToken> = retiredLock.withLock {
-        withContext(io) { readRetired().filter { it.groupHex == groupId.hex } }
+        withContext(io) { readRetired().orEmpty().filter { it.groupHex == groupId.hex } }
     }
 
-    /** Revoked, or still in use (spec §7.3 keeps the token): no longer kept. */
+    /** Revoked, or still in use (spec §7.3 keeps the token): no longer kept. An unreadable list stays as it is (logged). */
     suspend fun dropRetired(accessToken: String): Unit = retiredLock.withLock {
-        withContext(io) { retiredFile.write(readRetired().filter { it.accessToken != accessToken }) }
+        withContext(io) {
+            val held = readRetired() ?: return@withContext
+            if (held.any { it.accessToken == accessToken }) retiredFile.write(held.filter { it.accessToken != accessToken })
+        }
+    }
+
+    /** A different access token of [groupId] in [held] is about to be overwritten: kept for the revoke. */
+    private suspend fun retireReplaced(groupId: GroupId, held: CloudTokens?, next: String) {
+        if (held != null && held.groupHex == groupId.hex && held.accessToken != next) retire(groupId, held.storageGeneration, held.accessToken)
     }
 
     /**
@@ -188,11 +208,12 @@ class CloudSecrets(
         true
     }
 
-    private fun readRetired(): List<RetiredToken> = try {
+    /** Null when the file is unreadable (logged). */
+    private fun readRetired(): List<RetiredToken>? = try {
         retiredFile.read()
     } catch (e: KeyStorageException) {
         Log.w(TAG, "retired tokens unreadable", e)
-        emptyList()
+        null
     }
 
     private inner class FileKeyRing(private val group: GroupConfig) : GroupKeyRing {

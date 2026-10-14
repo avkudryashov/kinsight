@@ -2,6 +2,7 @@ package app.kinsight.core.data
 
 import app.kinsight.core.keystore.CloudTokenVault
 import app.kinsight.core.keystore.GroupKeyFile
+import app.kinsight.core.keystore.KeyStorageException
 import app.kinsight.core.keystore.RetiredTokenFile
 import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.GroupId
@@ -11,12 +12,14 @@ import app.kinsight.core.model.storageOwnerEntry
 import app.kinsight.core.sync.HandedAccess
 import app.kinsight.core.sync.WelcomeCloud
 import app.kinsight.core.transport.ble.GroupConfig
+import app.kinsight.core.transport.cloud.TokenSet
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -58,12 +61,12 @@ class CloudSecretsTest {
     fun aHandedTokenNeverReplacesTheOwnersTokens() = runBlocking<Unit> {
         d.group.createGroup("Mom")
         d.ownStorage(token = "OWN")
-        assertFalse(d.cloudSecrets.saveHanded(d.groups.read()!!.groupId, HandedAccess(1, ByteArray(16) { 1 }, "OTHER", Long.MAX_VALUE)))
+        assertFalse(d.cloudSecrets.saveHanded(d.groups.read()!!.groupId, HandedAccess(1, ByteArray(16) { 1 }, "OTHER", Long.MAX_VALUE), keep = true))
         val t = d.cloudSecrets.tokens()!!
         assertEquals("OWN", t.accessToken)
         assertTrue(t.owner)
         assertFalse(
-            d.cloudSecrets.saveHanded(d.groups.read()!!.groupId, HandedAccess(2, ByteArray(16) { 2 }, "NEXT", Long.MAX_VALUE)),
+            d.cloudSecrets.saveHanded(d.groups.read()!!.groupId, HandedAccess(2, ByteArray(16) { 2 }, "NEXT", Long.MAX_VALUE), keep = true),
             "not even for another storage generation",
         )
         assertEquals("OWN", d.cloudSecrets.tokens()!!.accessToken)
@@ -81,9 +84,9 @@ class CloudSecretsTest {
         suspend fun token() = d.cloudSecrets.access(d.store(), Membership.compute(g.groupId, d.store().membershipEntries())!!, d.keys.deviceId, d.cloudSecrets.ring(g))!!.accessToken
         assertEquals("OLD", token())
         val storageId = ByteArray(16) { 1 }
-        assertTrue(d.cloudSecrets.saveHanded(g.groupId, HandedAccess(1, storageId, "NEW", 2_000)))
+        assertTrue(d.cloudSecrets.saveHanded(g.groupId, HandedAccess(1, storageId, "NEW", 2_000), keep = false))
         assertEquals("NEW", token(), "a later sign-in expires later")
-        assertFalse(d.cloudSecrets.saveHanded(g.groupId, HandedAccess(1, storageId, "OLDER", 500)), "an older token never replaces a newer one")
+        assertFalse(d.cloudSecrets.saveHanded(g.groupId, HandedAccess(1, storageId, "OLDER", 500), keep = false), "an older token never replaces a newer one")
         assertEquals("NEW", token())
     }
 
@@ -198,5 +201,78 @@ class CloudSecretsTest {
         mom.cloudSecrets.forget()
         assertTrue(mom.cloudSecrets.retired(g.groupId).isEmpty())
         assertFalse(File(mom.dir, RetiredTokenFile.FILE_NAME).exists())
+    }
+
+    @Test
+    fun aParentRetiresTheHandedTokenItReplacesAndAChildDoesNot() = runBlocking<Unit> {
+        val dad = TestDevice()
+        val kid = TestDevice()
+        try {
+            mom.group.createGroup("Mom")
+            dad.joinAsAdminOf(mom)
+            kid.joinGroupOf(mom)
+            mom.ownStorage(token = "AT", expiresAtMs = 1_000)
+            dad.learnsStorageFrom(mom, token = "AT", expiresAtMs = 1_000)
+            kid.learnsStorageFrom(mom, token = "AT", expiresAtMs = 1_000)
+            val g = mom.groups.read()!!
+            val storageId = ByteArray(16) { 1 }
+            assertFalse(dad.cloudSecrets.saveHanded(g.groupId, HandedAccess(1, storageId, "AT", 1_000), keep = true))
+            assertTrue(dad.cloudSecrets.retired(g.groupId).isEmpty(), "the same token is not replaced")
+            assertTrue(dad.cloudSecrets.saveHanded(g.groupId, HandedAccess(2, storageId, "AT2", 2_000), keep = true))
+            assertTrue(kid.cloudSecrets.saveHanded(g.groupId, HandedAccess(2, storageId, "AT2", 2_000), keep = false))
+            assertEquals("AT2", dad.cloudSecrets.tokens()!!.accessToken)
+            assertEquals(listOf(1L to "AT"), dad.cloudSecrets.retired(g.groupId).map { it.generation to it.accessToken })
+            assertEquals("AT2", kid.cloudSecrets.tokens()!!.accessToken)
+            assertTrue(kid.cloudSecrets.retired(g.groupId).isEmpty())
+        } finally {
+            dad.close()
+            kid.close()
+        }
+    }
+
+    @Test
+    fun anOwnerRetiresTheTokenANewSignInReplaces() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        mom.ownStorage(token = "AT")
+        val g = mom.groups.read()!!
+        mom.cloudSecrets.saveOwner(g.groupId, 1, ByteArray(16) { 1 }, TokenSet("AT", "RT2", Long.MAX_VALUE))
+        assertTrue(mom.cloudSecrets.retired(g.groupId).isEmpty(), "the same token is not replaced")
+        mom.cloudSecrets.saveOwner(g.groupId, 1, ByteArray(16) { 1 }, TokenSet("AT2", "RT3", Long.MAX_VALUE))
+        assertEquals("AT2", mom.cloudSecrets.tokens()!!.accessToken)
+        assertEquals(listOf(1L to "AT"), mom.cloudSecrets.retired(g.groupId).map { it.generation to it.accessToken })
+    }
+
+    @Test
+    fun aFailedRetireKeepsTheVault() = runBlocking<Unit> {
+        val dad = TestDevice()
+        try {
+            mom.group.createGroup("Mom")
+            dad.joinAsAdminOf(mom)
+            mom.ownStorage(token = "AT")
+            val g = mom.groups.read()!!
+            check(mom.pipeline.appendOwn { a -> listOf(a.storageOwnerEntry(dad.keys.deviceId, ByteArray(16) { 2 }, 2)) })
+            val m = Membership.compute(g.groupId, mom.store().membershipEntries())!!
+            // A non-empty directory where the retired file goes: the write fails.
+            File(File(mom.dir, RetiredTokenFile.FILE_NAME).apply { mkdirs() }, "x").writeText("x")
+            assertFailsWith<KeyStorageException> { mom.cloudSecrets.dropStaleOwner(g.groupId, m, mom.keys.deviceId) }
+            val t = mom.cloudSecrets.tokens()!!
+            assertTrue(t.owner)
+            assertEquals("AT", t.accessToken)
+        } finally {
+            dad.close()
+        }
+    }
+
+    @Test
+    fun anUnreadableRetiredListIsNotWipedByADrop() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val g = mom.groups.read()!!
+        mom.cloudSecrets.retire(g.groupId, 1, "AT")
+        val f = File(mom.dir, RetiredTokenFile.FILE_NAME)
+        val bytes = f.readBytes()
+        f.writeBytes(bytes.copyOf(bytes.size - 1)) // a torn seal: unreadable
+        mom.cloudSecrets.dropRetired("OTHER")
+        assertTrue(f.exists(), "kept for a later read")
+        assertContentEquals(bytes.copyOf(bytes.size - 1), f.readBytes())
     }
 }

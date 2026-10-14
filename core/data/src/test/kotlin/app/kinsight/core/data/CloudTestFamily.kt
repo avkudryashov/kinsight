@@ -60,7 +60,8 @@ suspend fun TestDevice.learnsStorageFrom(owner: TestDevice, token: String = "AT"
     store().storeMembership(owner.store().membershipEntries())
     val g = groups.read()!!
     val m = Membership.compute(g.groupId, store().membershipEntries())!!
-    cloudSecrets.saveHanded(g.groupId, HandedAccess(1, m.storageOwner!!.storageId.toByteArray(), token, expiresAtMs))
+    val parent = m.active[keys.deviceId]?.isChild == false
+    cloudSecrets.saveHanded(g.groupId, HandedAccess(1, m.storageOwner!!.storageId.toByteArray(), token, expiresAtMs), keep = parent)
 }
 
 suspend fun TestDevice.ownSummary(date: String, totalMs: Long): DecodedEntry {

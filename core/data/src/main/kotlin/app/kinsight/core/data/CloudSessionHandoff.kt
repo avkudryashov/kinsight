@@ -36,6 +36,7 @@ class CloudSessionHandoff(
         val owner = membership.storageOwner ?: return
         if (owner.deviceId == self || peer.id != owner.deviceId || peer.isChild || !access.isFor(owner)) return
         secrets.dropStaleOwner(group.groupId, membership, self)
-        secrets.saveHanded(group.groupId, access)
+        // A parent keeps the token it replaces for the revoke (spec §7); a child just replaces it.
+        secrets.saveHanded(group.groupId, access, keep = membership.active[self]?.isChild == false)
     }
 }
