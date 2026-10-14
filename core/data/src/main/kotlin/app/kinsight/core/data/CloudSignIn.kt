@@ -98,6 +98,9 @@ class CloudSignIn(
     private val pending = AtomicReference<Pending?>(null)
     private val finishing = Mutex()
 
+    /** [pending] and [state] change together under it, so a terminal outcome never hides a sign-in started meanwhile. */
+    private val stateLock = Any()
+
     private val _state = MutableStateFlow<SignInState>(SignInState.Idle)
     val state: StateFlow<SignInState> = _state.asStateFlow()
 
@@ -126,8 +129,10 @@ class CloudSignIn(
         val verifier = Pkce.verifier(random)
         val st = Pkce.state(random)
         val url = oauth(c).authorizeUrl(Pkce.challenge(verifier), c.redirectUri, keys().deviceId.hex, deviceName, st)
-        pending.set(Pending(verifier, st, url, clock()))
-        _state.value = SignInState.Waiting(url)
+        synchronized(stateLock) {
+            pending.set(Pending(verifier, st, url, clock()))
+            _state.value = SignInState.Waiting(url)
+        }
         return url
     }
 
@@ -158,12 +163,14 @@ class CloudSignIn(
         }
         val code = codeOf(input, p.state)
         if (code == null) {
-            _state.value = SignInState.Waiting(p.url, rejected = true)
+            synchronized(stateLock) { if (pending.get() === p) _state.value = SignInState.Waiting(p.url, rejected = true) }
             return CloudEnableResult.SIGN_IN_FAILED
         }
         // A start() since we read it installed a newer sign-in: this input answered the old one.
-        if (!pending.compareAndSet(p, null)) return CloudEnableResult.SIGN_IN_EXPIRED
-        _state.value = SignInState.Working
+        val claimed = synchronized(stateLock) {
+            pending.compareAndSet(p, null).also { if (it) _state.value = SignInState.Working }
+        }
+        if (!claimed) return CloudEnableResult.SIGN_IN_EXPIRED
         val tokens = try {
             oauth(config()).exchange(code, p.verifier)
         } catch (e: CancellationException) {
@@ -204,17 +211,29 @@ class CloudSignIn(
 
     /** Puts the claimed sign-in back for another try, unless a newer one was started meanwhile. */
     private fun reopen(p: Pending, networkError: Boolean): CloudEnableResult {
-        if (pending.compareAndSet(null, p)) _state.value = SignInState.Waiting(p.url, networkError = networkError)
+        synchronized(stateLock) {
+            if (pending.compareAndSet(null, p)) _state.value = SignInState.Waiting(p.url, networkError = networkError)
+        }
         return CloudEnableResult.NETWORK
     }
 
     /** Terminal outcome; a sign-in started meanwhile keeps its own Waiting state. */
     private fun settle(r: CloudEnableResult): CloudEnableResult {
-        if (pending.get() == null) _state.value = SignInState.Done(r)
+        synchronized(stateLock) {
+            if (pending.get() == null) _state.value = SignInState.Done(r)
+        }
         return r
     }
 
-    private suspend fun enable(t: TokenSet): CloudEnableResult {
+    /**
+     * Under the process-wide cloud run lock (CloudSecrets.runLock; lock order: runLock, then the pipeline lock, as in
+     * CloudRunner and LocalReset). A run in flight ends first, so the run after [onEnabled] is the one that sees the new
+     * token; a wipe (LocalReset holds the lock) either ends before (then there is no group) or waits for this, so no old
+     * group's tokens stay behind. The lock is not reentrant: nothing holding it may call [finish].
+     */
+    private suspend fun enable(t: TokenSet): CloudEnableResult = secrets.runLock.withLock { enableLocked(t) }
+
+    private suspend fun enableLocked(t: TokenSet): CloudEnableResult {
         val group = withContext(io) { groups.read() } ?: return CloudEnableResult.NOT_ADMIN
         val k = keys()
         val self = k.deviceId

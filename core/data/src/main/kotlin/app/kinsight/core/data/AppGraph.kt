@@ -107,5 +107,5 @@ class Graph internal constructor(app: Context) {
         disk = CloudGraph::disk,
         onEnabled = { CloudWork.runSoon(app) },
     )
-    val cloudRepository = CloudRepository(snapshots, cloudState, cloudSignIn, prefs, config = { CloudGraph.config })
+    val cloudRepository = CloudRepository(snapshots, cloudState, cloudSignIn, prefs, config = { CloudGraph.config }, scope = scope)
 }

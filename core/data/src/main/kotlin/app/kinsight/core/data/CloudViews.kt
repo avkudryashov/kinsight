@@ -1,8 +1,13 @@
 package app.kinsight.core.data
 
+import android.util.Log
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 
 /**
  * The cloud as the settings screen shows it. [available]: this build has a Yandex client. [problem]: what this device's
@@ -52,6 +57,8 @@ class CloudRepository(
     private val signIn: CloudSignIn,
     private val prefs: AppPrefs,
     private val config: () -> CloudConfig,
+    /** The app scope (AppGraph.scope): a finish outlives the screen, like the app link's. */
+    private val scope: CoroutineScope,
 ) {
     val status: Flow<CloudStatus> = combine(snapshots.snapshots, state.state) { s, st -> CloudViews.status(s, st, config().configured) }
 
@@ -60,13 +67,24 @@ class CloudRepository(
     /** The address to open in the browser, or null when this device may not sign in now ([signInState] says why). */
     suspend fun startSignIn(): String? = signIn.start(prefs.current().deviceName ?: DEFAULT_DEVICE_NAME)
 
-    suspend fun finishSignIn(input: String) {
-        signIn.finish(input)
+    /**
+     * The pasted code, finished on the app scope like the app link (MainActivity): leaving the screen while the Disk is
+     * set up must not cancel a turn-on whose code is already spent. The outcome shows in [signInState].
+     */
+    fun finishSignIn(input: String): Job = scope.launch {
+        try {
+            signIn.finish(input)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "cloud sign-in failed to finish: ${e.javaClass.simpleName}")
+        }
     }
 
     fun dismissSignIn() = signIn.dismiss()
 
     private companion object {
         const val DEFAULT_DEVICE_NAME = "Kinsight"
+        const val TAG = "KinsightCloud"
     }
 }

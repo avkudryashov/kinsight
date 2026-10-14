@@ -96,7 +96,8 @@ internal interface SettingsActions {
     /** The address for the browser, or null (the sign-in state then says why). */
     suspend fun startCloudSignIn(): String? = null
 
-    suspend fun finishCloudSignIn(input: String) = Unit
+    /** Finishes on the app scope (CloudRepository.finishSignIn): leaving the screen does not cancel it. */
+    fun finishCloudSignIn(input: String) = Unit
 
     fun dismissCloudSignIn() = Unit
 }
@@ -146,7 +147,9 @@ private class RepositoryActions(
 
     override suspend fun startCloudSignIn(): String? = cloudRepo.startSignIn()
 
-    override suspend fun finishCloudSignIn(input: String) = cloudRepo.finishSignIn(input)
+    override fun finishCloudSignIn(input: String) {
+        cloudRepo.finishSignIn(input)
+    }
 
     /** Closes the dialog only: a pending sign-in stays, so an app link arriving later still completes it. */
     override fun dismissCloudSignIn() = cloudRepo.dismissSignIn()
@@ -234,18 +237,11 @@ class SettingsViewModel internal constructor(private val actions: SettingsAction
         }
     }
 
-    /** The pasted code; the result shows in the dialog (SignInState.Done, or Waiting with an error to paste again). */
-    fun finishCloudSignIn(code: String) {
-        viewModelScope.launch {
-            try {
-                actions.finishCloudSignIn(code)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "cloud sign-in failed to finish: ${e.javaClass.simpleName}")
-            }
-        }
-    }
+    /**
+     * The pasted code, finished on the app scope (not viewModelScope, final review Minor 1); the result shows in the
+     * dialog (SignInState.Done, or Waiting with an error to paste again).
+     */
+    fun finishCloudSignIn(code: String) = actions.finishCloudSignIn(code)
 
     /** Closes the dialog; a pending sign-in stays, so the app link still completes it (CloudSignIn.dismiss). */
     fun dismissCloudSignIn() = actions.dismissCloudSignIn()

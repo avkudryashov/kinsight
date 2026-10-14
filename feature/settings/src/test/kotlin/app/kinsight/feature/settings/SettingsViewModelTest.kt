@@ -94,7 +94,7 @@ class SettingsViewModelTest {
             return "https://oauth.yandex.ru/authorize?t=1"
         }
 
-        override suspend fun finishCloudSignIn(input: String) {
+        override fun finishCloudSignIn(input: String) {
             calls += "finishCloudSignIn:$input"
         }
 
