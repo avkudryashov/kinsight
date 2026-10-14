@@ -101,6 +101,8 @@ class Graph internal constructor(app: Context) {
     val cloud = CloudRunner(
         db, groups, keys, settings, cloudSecrets, cloudState, ownAppend,
         disk = CloudGraph::disk, runLock = cloudSecrets.runLock,
+        // The run holds runLock; the Heartbeat takes the transport state lock and the pipeline lock after it (lock order).
+        config = { CloudGraph.config }, afterSync = { SyncGraph.emitHeartbeatIfDue(app) },
     )
     val cloudSignIn = CloudSignIn(
         db, groups, keys, ownAppend, cloudSecrets,

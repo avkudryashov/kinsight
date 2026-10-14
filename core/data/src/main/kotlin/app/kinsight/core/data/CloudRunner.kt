@@ -1,6 +1,7 @@
 package app.kinsight.core.data
 
 import android.util.Log
+import app.kinsight.core.crypto.toHex
 import app.kinsight.core.database.KinsightDatabase
 import app.kinsight.core.database.RoomCloudCursorStore
 import app.kinsight.core.database.RoomEntryStore
@@ -11,17 +12,25 @@ import app.kinsight.core.model.Membership
 import app.kinsight.core.model.MembershipState
 import app.kinsight.core.transport.ble.GroupStore
 import app.kinsight.core.transport.ble.SyncPolicies
+import app.kinsight.core.transport.cloud.CloudAccessView
 import app.kinsight.core.transport.cloud.CloudResult
 import app.kinsight.core.transport.cloud.CloudSync
 import app.kinsight.core.transport.cloud.DiskApi
 import app.kinsight.core.transport.cloud.DiskException
 import app.kinsight.core.transport.cloud.GroupKey
+import app.kinsight.core.transport.cloud.GroupKeyRing
+import app.kinsight.core.transport.cloud.OAuthException
+import app.kinsight.core.transport.cloud.OwnerLifecycle
+import app.kinsight.core.transport.cloud.TokenSet
+import app.kinsight.core.transport.cloud.YandexOAuth
 import app.kinsight.core.usage.SettingsStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.IOException
 
 /** [PERIODIC]: the worker's schedule (a child may skip); [NOW]: the app was opened, a hand-off arrived, a debug hook. */
 enum class CloudTrigger { PERIODIC, NOW }
@@ -34,7 +43,8 @@ enum class CloudRun { OFF, SKIPPED, SYNCED, NO_ACCESS, UNAUTHORIZED, STORAGE_FUL
  * then CloudSync with this device's access. The whole run holds [runLock], one per process, so the CloudSync gets a lock
  * of its own that is never contended. One instance is kept per group, device and policy (Y1 review: one CloudSync per
  * device); it reaches the Disk of the current run ([disk] is asked again every run), so switching the Disk (the debug
- * CLOUD_FAKE_DISK) takes effect at the next run. The outcome goes to [state].
+ * CLOUD_FAKE_DISK) takes effect at the next run. The outcome goes to [state]. The owner also refreshes its token weekly,
+ * re-issues an access that no longer opens, and any parent revokes retired tokens once every phone switched (spec §6, §7).
  */
 class CloudRunner(
     private val db: KinsightDatabase,
@@ -49,8 +59,20 @@ class CloudRunner(
     val runLock: Mutex,
     private val clock: () -> Long = System::currentTimeMillis,
     private val io: CoroutineDispatcher = Dispatchers.IO,
+    /** The build's Yandex client: the owner's refresh and the revoke of retired tokens need its secret (spec §2, §6). */
+    private val config: () -> CloudConfig = { CloudConfig.NONE },
+    private val oauth: (CloudConfig) -> YandexOAuth = { YandexOAuth(it.clientId, it.clientSecret) },
+    /** After the first sync with a storage generation: the app signs a Heartbeat saying so (spec §7 «подтвердили»). */
+    private val afterSync: suspend () -> Unit = {},
 ) {
-    private data class Key(val groupId: GroupId, val self: DeviceId, val showOthers: Boolean, val detailDays: Long, val summaryDays: Long)
+    private data class Key(
+        val groupId: GroupId,
+        val self: DeviceId,
+        val showOthers: Boolean,
+        val detailDays: Long,
+        val summaryDays: Long,
+        val ownedStorage: String?,
+    )
 
     @Volatile
     private var cached: Pair<Key, CloudSync>? = null
@@ -99,7 +121,7 @@ class CloudRunner(
         val k = keys()
         val self = k.deviceId
         val store = RoomEntryStore(db, group.groupId)
-        val membership = Membership.compute(group.groupId, store.membershipEntries()) ?: return CloudRun.OFF
+        var membership = Membership.compute(group.groupId, store.membershipEntries()) ?: return CloudRun.OFF
         val me = membership.active[self] ?: return CloudRun.OFF
         val owner = membership.storageOwner ?: return CloudRun.OFF
         val now = clock()
@@ -110,14 +132,29 @@ class CloudRunner(
             val last = state.current().lastRunMs
             if (!moved && last != null && now - last in 0 until CHILD_IDLE_MS) return CloudRun.SKIPPED
         }
-        if (me.isAdmin && GroupKey.membersWithoutKey(membership).isNotEmpty()) {
-            Log.i(TAG, "a member lacks the newest group key: rotating again")
-            appendOwn { author -> listOf(GroupKey.rotate(author, membership)) }
+        val isOwner = owner.deviceId == self
+        if (me.isAdmin) {
+            // Spec §5, §7.4: the key changes when a phone leaves or is removed. The owner rotates; another admin only while
+            // the owner is gone, so two admins rarely rotate at once (KeyConflict settles it when they do). A member
+            // without the newest generation is rotated for by any admin (Y1 review).
+            val departedHoldsKey = GroupKey.rotationNeeded(membership) && (isOwner || owner.deviceId !in membership.active)
+            if (departedHoldsKey || GroupKey.membersWithoutKey(membership).isNotEmpty()) {
+                Log.i(TAG, "rotating the group key")
+                appendOwn { author -> listOf(GroupKey.rotate(author, membership)) }
+                // Rulings Q8: what follows (a refreshed token above all) is sealed under the rotation just signed.
+                membership = Membership.compute(group.groupId, store.membershipEntries()) ?: return CloudRun.OFF
+            }
         }
         val ring = secrets.ring(group)
-        val isOwner = owner.deviceId == self
-        // R16: another device owns the storage now; a vault still saying owner loses that role and its refresh token.
-        if (!isOwner) secrets.dropStaleOwner(group.groupId, membership, self)
+        if (isOwner) {
+            refreshIfDue(group.groupId, membership, k, ring, now)
+        } else {
+            // R16: another device owns the storage now; a vault still saying owner loses that role (its token is retired).
+            secrets.dropStaleOwner(group.groupId, membership, self)
+            // Spec §7: a handed token of an older generation is no longer used; a parent keeps it for the revoke (rulings
+            // Q13). A child never retires and keeps its old token until it read the «переезд» pack of the new storage.
+            if (!me.isChild) secrets.retireStale(group.groupId, membership, keep = true)
+        }
         val access = secrets.access(store, membership, self, ring)
             ?: return if (isOwner) {
                 // The owner lost its tokens (an unreadable vault): only a new sign-in brings them back.
@@ -128,16 +165,24 @@ class CloudRunner(
         token = access.accessToken
         currentDisk = disk { token ?: throw DiskException.Unauthorized() }
         val policy = SyncPolicies.forDevice(membership, self, settings.current())
-        val key = Key(group.groupId, self, policy.showOthers, policy.detailRetentionDays, policy.summaryRetentionDays)
+        val ownedStorage = if (isOwner) owner.storageId.toByteArray() else null
+        val key = Key(group.groupId, self, policy.showOthers, policy.detailRetentionDays, policy.summaryRetentionDays, ownedStorage?.toHex())
         val sync = cached?.takeIf { it.first == key }?.second
             ?: CloudSync(
                 store, k, policy, runDisk, ring, cursors, clock,
                 log = { Log.i(TAG, it) }, running = Mutex(), // [runLock] is already held around the whole run
+                ownedStorageId = ownedStorage,
             ).also { cached = key to it }
         val result = sync.run()
         observeOwner(store, membership, now)
+        if (result is CloudResult.Synced) afterSynced(store, group.groupId, k, ring, access.accessToken)
         return when (result) {
-            is CloudResult.Synced -> record(now, CloudRun.SYNCED, null, synced = true)
+            is CloudResult.Synced -> {
+                // Rulings Q18: the generation is recorded before the Heartbeat reads it, so a phone that only meets the
+                // cloud confirms the switch too.
+                val first = state.current().syncedGeneration != owner.generation
+                record(now, CloudRun.SYNCED, null, synced = true, generation = owner.generation).also { if (first) signHeartbeat() }
+            }
             CloudResult.Unauthorized -> record(now, CloudRun.UNAUTHORIZED, if (isOwner) CloudProblem.UNAUTHORIZED else CloudProblem.NO_ACCESS)
             CloudResult.StorageFull -> record(now, CloudRun.STORAGE_FULL, CloudProblem.STORAGE_FULL)
             // Rare (every rotation is sealed to the owner): a new sign-in cannot fix a missing key, so the owner is not
@@ -148,14 +193,111 @@ class CloudRunner(
         }
     }
 
+    /** After a sync (its rotations are in the ring): the owner's access re-issued when it no longer opens; retired tokens revoked. */
+    private suspend fun afterSynced(store: RoomEntryStore, groupId: GroupId, k: DeviceKeys, ring: GroupKeyRing, inUse: String) {
+        val m = Membership.compute(groupId, store.membershipEntries()) ?: return
+        reissueIfUnreadable(store, m, k, ring)
+        revokeRetired(groupId, store, m, k.deviceId, inUse)
+    }
+
+    /**
+     * Y1 review: two admins rotated at once and the other key won, so the CloudAccess this owner sealed with its own key
+     * opens for nobody. Issued again under the generation it seals with now.
+     */
+    private suspend fun reissueIfUnreadable(store: RoomEntryStore, m: MembershipState, k: DeviceKeys, ring: GroupKeyRing) {
+        val owner = m.storageOwner ?: return
+        if (owner.deviceId != k.deviceId || CloudAccessView.current(store, m, ring.keys()) != null) return
+        val held = secrets.tokens()?.takeIf { it.owner && it.groupHex == store.groupId.hex && it.storageGeneration == owner.generation } ?: return
+        Log.i(TAG, "our CloudAccess does not open under the group key that won: issuing it again")
+        OwnerRecords.issue(appendOwn, k, m, ring, held.accessToken, held.expiresAtMs)
+    }
+
+    /**
+     * Spec §6 «Продление», rulings Q9: once a week the owner checks its token and refreshes it with the client secret when
+     * it was last refreshed (or first checked here) [REFRESH_AGE_MS] ago or fewer than [REFRESH_BEFORE_MS] are left. A new
+     * access token goes out as a CloudAccess («новый доступ»), sealed under [m], the membership after this run's rotation
+     * (rulings Q8). A refused refresh is logged: the Disk's 401 asks the owner to sign in (spec §11). No answer: tried
+     * again at the next run.
+     */
+    private suspend fun refreshIfDue(groupId: GroupId, m: MembershipState, k: DeviceKeys, ring: GroupKeyRing, now: Long) {
+        val s = state.current()
+        val last = s.refreshCheckMs
+        if (last != null && now - last in 0 until REFRESH_CHECK_MS) return
+        val c = config()
+        val held = secrets.tokens()?.takeIf { it.owner && it.groupHex == groupId.hex } ?: return
+        val refresh = held.refreshToken
+        if (!c.configured || refresh == null) return
+        // A first check (or a clock set back past the last refresh) starts the token's age now.
+        val since = s.tokenSinceMs?.takeIf { it <= now }
+        val old = since != null && now - since >= REFRESH_AGE_MS
+        if (held.expiresAtMs - now >= REFRESH_BEFORE_MS && !old) {
+            state.markRefreshCheck(now, tokenSinceMs = if (since == null) now else null)
+            return
+        }
+        val t = try {
+            oauth(c).refresh(refresh)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: OAuthException) {
+            if (e.retryable) return
+            Log.w(TAG, "token refresh refused: ${e.error}")
+            state.markRefreshCheck(now)
+            return
+        } catch (e: IOException) {
+            return
+        }
+        secrets.saveOwner(groupId, held.storageGeneration, held.storageId, TokenSet(t.accessToken, t.refreshToken ?: refresh, t.expiresAtMs))
+        if (t.accessToken != held.accessToken) OwnerRecords.issue(appendOwn, k, m, ring, t.accessToken, t.expiresAtMs)
+        state.markRefreshCheck(now, tokenSinceMs = now)
+    }
+
+    /**
+     * Spec §7.1, §7.4: a retired token is revoked once every other active member's newest Heartbeat reports a later storage
+     * generation. One still in use (spec §7.3 keeps the token) is dropped without a revoke. An answer of any kind ends it
+     * (a token Yandex no longer knows is dead anyway); no answer: the next run tries again.
+     */
+    private suspend fun revokeRetired(groupId: GroupId, store: RoomEntryStore, m: MembershipState, self: DeviceId, inUse: String) {
+        val retired = secrets.retired(groupId)
+        if (retired.isEmpty()) return
+        val c = config()
+        val beats = store.heartbeats()
+        for (r in retired) {
+            if (r.accessToken == inUse) {
+                secrets.dropRetired(r.accessToken)
+                continue
+            }
+            if (!c.configured || !OwnerLifecycle.allSwitched(m, beats, r.generation, self)) continue
+            try {
+                val revoked = oauth(c).revoke(r.accessToken)
+                Log.i(TAG, "retired token of generation ${r.generation}: revoked=$revoked")
+                secrets.dropRetired(r.accessToken)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                Log.w(TAG, "revoke failed, retried at the next run: ${e.javaClass.simpleName}")
+            }
+        }
+    }
+
+    private suspend fun signHeartbeat() {
+        try {
+            afterSync()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "no Heartbeat after a new storage generation: ${e.javaClass.simpleName}")
+        }
+    }
+
     /**
      * Rulings Q14: notes the storage owner's newest seq here, heard on this device's clock when it grew. After every
-     * cloud run and every Bluetooth session (the app's session hook); DataStore and Room reads only, no [runLock].
+     * cloud run and every Bluetooth session (the app's session hook). Rulings Q18: under [runLock] (never called while
+     * holding it), so a note queued behind a wipe finds no group and writes nothing back after the cleared cloud state.
      */
-    suspend fun noteOwnerHeard() {
-        val group = withContext(io) { groups.read() } ?: return
+    suspend fun noteOwnerHeard(): Unit = runLock.withLock {
+        val group = withContext(io) { groups.read() } ?: return@withLock
         val store = RoomEntryStore(db, group.groupId)
-        val membership = Membership.compute(group.groupId, store.membershipEntries()) ?: return
+        val membership = Membership.compute(group.groupId, store.membershipEntries()) ?: return@withLock
         observeOwner(store, membership, clock())
     }
 
@@ -180,14 +322,23 @@ class CloudRunner(
             "uploadedUpTo=${RoomCloudCursorStore(db).load().uploadedUpTo} lastSyncMs=${s.lastSyncMs} problem=${s.problem}"
     }
 
-    private suspend fun record(now: Long, run: CloudRun, problem: CloudProblem?, synced: Boolean = false): CloudRun {
-        state.record(now, synced, problem)
+    private suspend fun record(now: Long, run: CloudRun, problem: CloudProblem?, synced: Boolean = false, generation: Long? = null): CloudRun {
+        state.record(now, synced, problem, generation)
         return run
     }
 
     companion object {
         /** Spec §9: without anything new a child uploads once an hour. */
         const val CHILD_IDLE_MS = 60L * 60 * 1000
+
+        /** Spec §6: the owner checks its token weekly. */
+        const val REFRESH_CHECK_MS = 7L * 24 * 60 * 60 * 1000
+
+        /** And refreshes it when fewer than 30 days are left (roadmap Y3). */
+        const val REFRESH_BEFORE_MS = 30L * 24 * 60 * 60 * 1000
+
+        /** Or when it was last refreshed 30 days ago (rulings Q9, spec §6 «раз в неделю-месяц»). */
+        const val REFRESH_AGE_MS = 30L * 24 * 60 * 60 * 1000
         private const val TAG = "KinsightCloud"
     }
 }

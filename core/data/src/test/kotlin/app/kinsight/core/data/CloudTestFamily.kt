@@ -5,6 +5,7 @@ import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.addMember
 import app.kinsight.core.model.grantAdminEntry
+import app.kinsight.core.model.proto.Heartbeat
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.storageOwnerEntry
 import app.kinsight.core.sync.HandedAccess
@@ -15,6 +16,7 @@ import app.kinsight.core.transport.cloud.DiskApi
 import app.kinsight.core.transport.cloud.DiskException
 import app.kinsight.core.transport.cloud.DiskItem
 import app.kinsight.core.transport.cloud.TokenSet
+import app.kinsight.core.transport.cloud.YandexOAuth
 
 private const val YEAR_MS = 365L * 24 * 60 * 60 * 1000
 
@@ -94,3 +96,33 @@ class TokenDisk(private val inner: DiskApi, private val token: suspend () -> Str
 }
 
 fun tokenDisk(inner: DiskApi, accepted: () -> Set<String>): (suspend () -> String) -> DiskApi = { t -> TokenDisk(inner, t, accepted) }
+
+/** The runner with this build's test Yandex client: refresh and revoke go to [http]. */
+fun TestDevice.runner(disk: (suspend () -> String) -> DiskApi, http: FakeOAuthHttp, afterSync: suspend () -> Unit = {}): CloudRunner = CloudRunner(
+    db, groups, keyProvider, settings, cloudSecrets, cloudState, appendOwn, disk, cloudSecrets.runLock, clock = { now },
+    config = { TEST_CLOUD }, oauth = { c -> YandexOAuth(c.clientId, c.clientSecret, http = http, clock = { now }) }, afterSync = afterSync,
+)
+
+/** This phone's Heartbeat saying it syncs with [storageGeneration] (spec §7), signed into its own log. */
+suspend fun TestDevice.beat(storageGeneration: Long): DecodedEntry {
+    var e: DecodedEntry? = null
+    check(pipeline.appendOwn { a -> listOf(a.create { it.copy(heartbeat = Heartbeat(app_version = "test", protocol_version = 3, storage_generation = storageGeneration)) }.also { e = it }) })
+    return e!!
+}
+
+/** Yandex with several accounts: each token opens its own Disk; any other token gets 401. */
+class AccountDisks(private val byToken: Map<String, DiskApi>) {
+    fun disk(token: suspend () -> String): DiskApi = object : DiskApi {
+        private suspend fun d() = byToken[token()] ?: throw DiskException.Unauthorized()
+
+        override suspend fun list(path: String): List<DiskItem> = d().list(path)
+
+        override suspend fun mkdir(path: String) = d().mkdir(path)
+
+        override suspend fun upload(path: String, bytes: ByteArray) = d().upload(path, bytes)
+
+        override suspend fun download(path: String): ByteArray = d().download(path)
+
+        override suspend fun delete(path: String) = d().delete(path)
+    }
+}

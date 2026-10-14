@@ -25,8 +25,9 @@ enum class CloudProblem { UNAUTHORIZED, NO_ACCESS, STORAGE_FULL, NETWORK }
 
 /**
  * [syncedGeneration]: the storage generation of the last successful sync (the Heartbeat reports it, spec §7);
- * [refreshCheckMs]: the owner's last token check (spec §6 «Продление», weekly); [ownerHeard]: when this device last saw
- * the storage owner's log grow, on its own clock (rulings Q14, for «Владелец недоступен»).
+ * [refreshCheckMs]: the owner's last token check (spec §6 «Продление», weekly); [tokenSinceMs]: when the owner's token
+ * was last refreshed, or first checked here (rulings Q9: refreshed at 30 days of age); [ownerHeard]: when this device
+ * last saw the storage owner's log grow, on its own clock (rulings Q14, for «Владелец недоступен»).
  */
 data class CloudState(
     val lastRunMs: Long? = null,
@@ -35,6 +36,7 @@ data class CloudState(
     val syncedGeneration: Long? = null,
     val refreshCheckMs: Long? = null,
     val ownerHeard: OwnerHeard? = null,
+    val tokenSinceMs: Long? = null,
 ) {
     /** This device's time of the last sighting of the tracked owner (rulings Q14), or null when none is tracked. */
     val ownerHeardAtMs: Long? get() = ownerHeard?.heardAtMs
@@ -53,6 +55,7 @@ class CloudStateStore(private val store: DataStore<Preferences>) {
             p[SYNCED_GENERATION],
             p[REFRESH_CHECK],
             ownerHeard(p),
+            p[TOKEN_SINCE],
         )
     }
 
@@ -69,8 +72,12 @@ class CloudStateStore(private val store: DataStore<Preferences>) {
         }
     }
 
-    suspend fun markRefreshCheck(nowMs: Long) {
-        store.edit { it[REFRESH_CHECK] = nowMs }
+    /** The owner checked its token at [nowMs]; [tokenSinceMs], when given, starts the token's age (a refresh, or a first check). */
+    suspend fun markRefreshCheck(nowMs: Long, tokenSinceMs: Long? = null) {
+        store.edit { p ->
+            p[REFRESH_CHECK] = nowMs
+            tokenSinceMs?.let { p[TOKEN_SINCE] = it }
+        }
     }
 
     /**
@@ -108,6 +115,7 @@ class CloudStateStore(private val store: DataStore<Preferences>) {
         private val OWNER_ID = stringPreferencesKey("owner_heard_id")
         private val OWNER_SEQ = longPreferencesKey("owner_heard_seq")
         private val OWNER_HEARD = longPreferencesKey("owner_heard_ms")
+        private val TOKEN_SINCE = longPreferencesKey("token_since_ms")
 
         /** [file] must end with ".preferences_pb". */
         fun create(file: File, scope: CoroutineScope): CloudStateStore = CloudStateStore(

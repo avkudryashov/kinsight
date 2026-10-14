@@ -49,7 +49,7 @@ object CloudGraph {
 /**
  * Spec §9 schedules: one periodic job every 15 minutes with a network (a child's runs skip when nothing is new, see
  * CloudRunner), a run now when the app opens or a token arrives. Scheduled only while the group has a storage owner.
- * Network trouble, 5xx and 429 retry with exponential backoff (spec §11).
+ * Network trouble, 5xx and 429 retry with exponential backoff (spec §11), and so does an unexpected failure (rulings Q1).
  */
 object CloudWork {
     const val PERIODIC = "kinsight-cloud-periodic"
@@ -115,6 +115,20 @@ object CloudWork {
     fun resultOf(run: CloudRun): ListenableWorker.Result =
         if (run == CloudRun.RETRY) ListenableWorker.Result.retry() else ListenableWorker.Result.success()
 
+    /**
+     * The worker's result of [run]. Rulings Q1: an unexpected failure is retried, never a failure(), so a run queued with
+     * APPEND_OR_REPLACE behind this one (a token arrived) is not dropped with it.
+     */
+    suspend fun outcome(run: suspend () -> CloudRun): ListenableWorker.Result = try {
+        resultOf(run())
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        // Class name only: a Disk or OAuth failure message is never trusted not to carry a token.
+        Log.w(TAG, "cloud run failed: ${e.javaClass.simpleName}")
+        ListenableWorker.Result.retry()
+    }
+
     /** The returned job lets a test wait for the check; callers do not need it. */
     private fun whenOn(context: Context, block: () -> Unit): Job {
         val app = context.applicationContext
@@ -135,17 +149,11 @@ object CloudWork {
 class CloudWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val trigger = inputData.getString(CloudWork.KEY_TRIGGER)?.let { n -> CloudTrigger.entries.firstOrNull { it.name == n } } ?: CloudTrigger.PERIODIC
-        return try {
+        return CloudWork.outcome {
             val run = AppGraph.get(applicationContext).cloud.run(trigger)
             Log.i(TAG, "cloud run $trigger: $run")
             if (run == CloudRun.OFF) CloudWork.cancel(applicationContext)
-            CloudWork.resultOf(run)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            // Class name only: a Disk or OAuth failure message is never trusted not to carry a token.
-            Log.w(TAG, "cloud run failed: ${e.javaClass.simpleName}")
-            Result.failure()
+            run
         }
     }
 

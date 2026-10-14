@@ -12,10 +12,11 @@ import java.net.URLDecoder
 /**
  * The Yandex token endpoint: a code starting with "bad" is refused (invalid_grant), one starting with "busy" gets a 503
  * without an error field, one starting with "down" a 503 with the OAuth error temporarily_unavailable, anything else gets [accessToken] for a year. [unreachable]: the next request fails with no answer.
- * [gate]: a request waits for it after [entered] completes (a slow endpoint).
+ * [gate]: a request waits for it after [entered] completes (a slow endpoint). [urls]: every request; /revoke_token answers 200.
  */
 class FakeOAuthHttp(var accessToken: String = "AT1") : Http() {
     val forms = mutableListOf<Map<String, String>>()
+    val urls = mutableListOf<String>()
     var unreachable = false
     var gate: CompletableDeferred<Unit>? = null
     val entered = CompletableDeferred<Unit>()
@@ -27,11 +28,13 @@ class FakeOAuthHttp(var accessToken: String = "AT1") : Http() {
         }
         entered.complete(Unit)
         gate?.await()
+        urls += url
         val form = body!!.decodeToString().split('&').associate {
             val (k, v) = it.split('=', limit = 2)
             URLDecoder.decode(k, "UTF-8") to URLDecoder.decode(v, "UTF-8")
         }
         forms += form
+        if (url.endsWith("/revoke_token")) return HttpResponse(200, "{}".encodeToByteArray(), emptyMap())
         return if (form["code"]?.startsWith("bad") == true) {
             HttpResponse(400, """{"error":"invalid_grant"}""".encodeToByteArray(), emptyMap())
         } else if (form["code"]?.startsWith("down") == true) {
