@@ -24,8 +24,22 @@ object CloudFiles {
     internal fun groupKeys(file: File, wrap: () -> KeyWrap): GroupKeyFile =
         keyFiles.computeIfAbsent(file.canonicalPath) { GroupKeyFile(file, wrap()) }
 
-    private fun wrap(context: Context): KeyWrap {
-        val app = context.applicationContext
-        return AesGcmWrap { keystoreAesKey(app, DeviceKeyProvider.WRAP_ALIAS) }
+    private val keyLock = Any()
+
+    @Volatile
+    private var sharedWrap: KeyWrap? = null
+
+    /**
+     * The one wrap over the Keystore key DeviceKeyProvider.WRAP_ALIAS for all cloud secret files. Memoised, and the
+     * create-if-missing key lookup is serialised, so the alias is never generated from two places at once.
+     */
+    fun wrap(context: Context): KeyWrap {
+        sharedWrap?.let { return it }
+        return synchronized(keyLock) {
+            sharedWrap ?: run {
+                val app = context.applicationContext
+                AesGcmWrap { synchronized(keyLock) { keystoreAesKey(app, DeviceKeyProvider.WRAP_ALIAS) } }.also { sharedWrap = it }
+            }
+        }
     }
 }
