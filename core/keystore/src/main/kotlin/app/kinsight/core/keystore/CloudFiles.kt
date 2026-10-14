@@ -30,15 +30,16 @@ object CloudFiles {
     private var sharedWrap: KeyWrap? = null
 
     /**
-     * The one wrap over the Keystore key DeviceKeyProvider.WRAP_ALIAS for all cloud secret files. Memoised, and the
-     * create-if-missing key lookup is serialised, so the alias is never generated from two places at once.
+     * The one wrap over the Keystore key DeviceKeyProvider.WRAP_ALIAS for all cloud secret files. Memoised; the
+     * create-if-missing key lookup is serialised inside keystoreAesKey, the same lock the identity's software backend
+     * takes, so the alias is never generated from two places at once.
      */
     fun wrap(context: Context): KeyWrap {
         sharedWrap?.let { return it }
         return synchronized(keyLock) {
             sharedWrap ?: run {
                 val app = context.applicationContext
-                AesGcmWrap { synchronized(keyLock) { keystoreAesKey(app, DeviceKeyProvider.WRAP_ALIAS) } }.also { sharedWrap = it }
+                AesGcmWrap { keystoreAesKey(app, DeviceKeyProvider.WRAP_ALIAS) }.also { sharedWrap = it }
             }
         }
     }
