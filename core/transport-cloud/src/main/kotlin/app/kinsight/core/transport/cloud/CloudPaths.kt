@@ -7,12 +7,13 @@ import java.util.Locale
 /** Storage layout (spec §5): app:/Kinsight/<group>/storage.id and app:/Kinsight/<group>/<device>/<from>-<to>.kb */
 object CloudPaths {
     const val APP_ROOT = "app:/Kinsight"
+    const val STORAGE_ID = "storage.id"
     private val PACK = Regex("""^(\d{20})-(\d{20})\.kb$""")
     private val HEX_ID = Regex("^[0-9a-f]{32}$")
 
     fun root(g: GroupId) = "$APP_ROOT/${g.hex}"
     fun deviceDir(g: GroupId, d: DeviceId) = "${root(g)}/${d.hex}"
-    fun storageIdFile(g: GroupId) = "${root(g)}/storage.id"
+    fun storageIdFile(g: GroupId) = "${root(g)}/$STORAGE_ID"
 
     /** Zero padded, so names sort by range. */
     fun packName(from: Long, to: Long) = String.format(Locale.ROOT, "%020d-%020d.kb", from, to)

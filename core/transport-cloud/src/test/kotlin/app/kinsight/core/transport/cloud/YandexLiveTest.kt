@@ -34,4 +34,25 @@ class YandexLiveTest {
             disk.delete(CloudPaths.root(mom.store.groupId))
         }
     }
+
+    /**
+     * Spec §14 «Выдаёт ли refresh_token новый access-токен ближе к истечению срока»: refreshes the test account's grant and
+     * prints, without any token, whether Yandex returned another access token. Needs kinsight.yandex.testRefreshToken,
+     * kinsight.yandex.clientId and kinsight.yandex.clientSecret in local.properties. Yandex answers with a new refresh
+     * token: the stored one may stop working, in which case the user takes a new one for the next run.
+     */
+    @Test
+    fun aRefreshAnswersWithAnAccessToken() = runTest(timeout = 1.minutes) {
+        val refresh = System.getenv("KINSIGHT_YANDEX_TEST_REFRESH")
+        val clientId = System.getenv("KINSIGHT_YANDEX_CLIENT_ID")
+        val secret = System.getenv("KINSIGHT_YANDEX_CLIENT_SECRET")
+        assumeTrue(
+            System.getenv("KINSIGHT_LIVE_YANDEX") == "true" && !refresh.isNullOrBlank() && !clientId.isNullOrBlank() && !secret.isNullOrBlank(),
+            "live refresh test is opt in",
+        )
+        val t = YandexOAuth(clientId!!, secret!!).refresh(refresh!!)
+        assertTrue(t.accessToken.isNotEmpty())
+        val days = (t.expiresAtMs - System.currentTimeMillis()) / (24L * 60 * 60 * 1000)
+        println("live refresh: access token changed=${token != null && t.accessToken != token}, refresh token changed=${t.refreshToken != refresh}, days left=$days")
+    }
 }
