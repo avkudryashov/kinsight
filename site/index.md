@@ -1,6 +1,6 @@
 # Kinsight
 
-Family screen time, phone to phone. A child's phone shares its screen time with the parents' phones over Bluetooth, with the child's consent on the child's phone. No servers, no accounts, the app never connects to the internet.
+Family screen time, phone to phone. A child's phone shares its screen time with the parents' phones over Bluetooth, with the child's consent on the child's phone. No servers of ours and no Kinsight accounts: the app goes online only to sync through your Yandex Disk, if you turned that on, and the developer stores nothing.
 
 ## Download (Android 12+)
 

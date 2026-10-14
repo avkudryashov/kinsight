@@ -2,7 +2,7 @@
 
 **Kinsight: Family Screen Time** (Android package `app.kinsight`)
 
-Effective date: 2026-10-11
+Effective date: 2026-10-14
 
 This Privacy Policy explains what information the Kinsight app reads, where it goes, how it is protected, how long it is kept and how it can be deleted. Kinsight is a parental control app: on a child's phone it counts screen time and shares it with the parents in the family group. It is published on Google Play under the developer name shown on the app's store page.
 
@@ -14,9 +14,9 @@ Contact for any privacy question or request: kav2k13@gmail.com
 
 ## 2. Summary
 
-- Kinsight never connects to the internet. The app has no servers, no accounts, no advertising, no analytics and no crash reporting, and contains no third-party code that sends data anywhere.
+- Kinsight goes online only to sync through your Yandex Disk, if you turned that on; it is off by default. We, the developer, run no servers and store nothing. The app has no Kinsight accounts, no advertising, no analytics and no crash reporting, and contains no third-party code that sends data anywhere.
 - We, the developer, never receive any data from the app. We cannot see your family's screen time.
-- On a phone set up as a child's phone, and only after the child agrees on that phone, Kinsight sends screen time statistics over Bluetooth to the phones of the parents in the same family group.
+- On a phone set up as a child's phone, and only after the child agrees on that phone, Kinsight sends screen time statistics over Bluetooth to the phones of the parents in the same family group, and, if a parent turned on the sync through Yandex Disk, also through that parent's Yandex Disk, encrypted.
 - A parent's phone does not send its own screen time to anyone.
 - While sharing is on, the child's phone always shows a notification. The child can pause or stop sharing at any time, and the parents see that.
 
@@ -35,6 +35,7 @@ Kinsight reads only what it needs to count screen time and to exchange it inside
 - Identifiers and cryptographic keys created by the app on that phone: a random device identifier, a group identifier and public keys. These are not linked to your Google account, phone number, IMEI, advertising ID or any other hardware identifier.
 - Group membership records: who joined or left, who is an admin, and short "still here" signals that tell the group when a phone was last in contact.
 - On parents' phones only: limit notification rules and app category changes made by parents. Category changes are shared with the other parents; limit rules stay on the phone where they were set.
+- Only if a parent turned on the sync through Yandex Disk: the access to the Kinsight folder on that parent's Yandex Disk (an access token), which the phones of the group receive from that parent's phone over the encrypted pairing or Bluetooth connection, and, on that parent's phone only, the token that renews it. Kinsight never sees the parent's Yandex password.
 
 **Camera:** when a phone joins a group, Kinsight uses the camera to scan the invitation QR code. The images are processed on the phone only to read the code, and are neither saved nor sent anywhere.
 
@@ -42,19 +43,21 @@ Kinsight reads only what it needs to count screen time and to exchange it inside
 
 ## 4. Who receives the information
 
-Information leaves a phone only over Bluetooth, and only to the other phones of the same family group that were paired with it by scanning a QR code.
+Information leaves a phone only for the other phones of the same family group that were paired with it by scanning a QR code: over Bluetooth, and, if a parent turned on the sync through Yandex Disk, as encrypted files in the Kinsight folder on that parent's Yandex Disk.
 
 - **A child's phone** sends its screen time, app list, events, name and keys to the phones of all parents in the group, including parents who join the group later. The current list of parents is shown on the child's phone in Settings, on the screen "Who sees my data".
 - **A parent's phone** keeps the children's data and passes it on to the other parents of the group, so that all parents see the same picture. A parent's phone sends only its own name, keys, membership records and "still here" signals; it never sends its own screen time.
 - **A child's phone does not receive** the data of other phones in the group, except the list of group members.
+- **Yandex** stores the encrypted files on the Disk of the parent who turned the sync on, under that parent's own Yandex account and the terms between that parent and Yandex. The files are sealed with the group's key, which Yandex does not have: Yandex sees only folder names (random identifiers), file sizes and times.
 
-Nobody else receives the information: not us, not Google, not advertisers, not any other company. We do not sell, rent or share data with third parties, because we never have it.
+Apart from those encrypted files, nobody else receives the information: not us, not Google, not advertisers, not any other company. We do not sell, rent or share data with third parties, because we never have it.
 
 The app is distributed through app stores (RuStore, Google Play) and as an APK file from our website. Information that a store collects when installing and updating is governed by that store's own privacy policy, not by this one. Kinsight does not send any data to the stores.
 
 ## 5. How the information is protected
 
-- **The app never connects to the internet.** It does not request the Internet permission.
+- **Internet only for the Disk.** Kinsight goes online only to sync through the Yandex Disk of a parent, if that parent turned it on; it is off by default. It then connects only to Yandex (to sign in and to the Disk), and its access reaches only its own folder on that Disk, not the parent's other files.
+- **Encrypted on the Disk.** Files on the Disk are sealed with the group's key, which only the phones of the group have; the key changes whenever a phone is removed from the group. The access to the Disk is kept on the phone encrypted with a key from the Android Keystore and is never sent to us.
 - **Encrypted transfer.** Phones talk to each other only over an encrypted Bluetooth connection (the Noise protocol, pattern XX, with X25519, ChaCha20-Poly1305 and SHA-256). Before any data is exchanged, each phone checks that the other phone is a member of the group.
 - **Signed data.** Each record is signed by the phone that created it (Ed25519), so a phone that passes data on cannot change it unnoticed.
 - **Keys stay on the phone.** Private keys are created on the phone and kept in the Android Keystore whenever the phone supports it; otherwise they are stored encrypted with a key from the Android Keystore. We never have these keys.
@@ -72,8 +75,9 @@ The app is distributed through app stores (RuStore, Google Play) and as an APK f
 | Foreground service, connected device | To keep the Bluetooth exchange available in the background while the permanent notification is shown |
 | Camera | To scan the invitation QR code when joining a group. Images are not saved or sent |
 | Start at boot | To resume counting and the exchange after the phone restarts |
+| Internet, view network connections (`INTERNET`, `ACCESS_NETWORK_STATE`) | Only for the sync through Yandex Disk, if a parent turned it on: to sign in to Yandex, to read and write the Kinsight folder on that Disk, and to sync only when a network is available. While the sync is off, Kinsight does not go online |
 
-Some Android libraries used by the app also add the permissions "view network connections" and "prevent phone from sleeping". Kinsight uses them only for scheduling background work on the phone; they do not give it internet access.
+Some Android libraries used by the app also add the permission "prevent phone from sleeping". Kinsight uses it only for scheduling background work on the phone.
 
 ## 7. How long the information is kept
 
@@ -90,6 +94,7 @@ Older records are deleted automatically and are no longer accepted from other ph
 - **Disconnect this phone** (Settings, Advanced, Disconnect this phone and pair again): everything on this phone is deleted, including the history, the keys and the settings.
 - **Uninstall the app** or clear its storage in Android settings: everything Kinsight stored on this phone is deleted.
 - **An admin can remove a phone** from the group; after that the group no longer accepts new data from it.
+- **Files on the Yandex Disk:** the parent whose Disk holds them can delete the Kinsight folder on that Disk at any time. Without the group's key the files cannot be read.
 
 **Important:** copies that have already reached other family phones are stored on those phones. Deleting data on one phone does not erase these copies right away; they are deleted by each phone's own retention setting (by default after 90 days for details and 1 year for daily totals), or immediately when that phone leaves the group, is reset or Kinsight is uninstalled there. Because we never receive the data, we cannot delete it for you, but you can write to us at kav2k13@gmail.com and we will explain how to remove it from each phone.
 
@@ -108,7 +113,7 @@ Kinsight is intended for parents and is listed in app stores for adults. A paren
 
 Only phones set up as a child's phone share screen time. Kinsight must not be used to watch an adult, even with that adult's agreement.
 
-We do not collect any data from children, or from anyone else: the child's data goes only to the parents' phones in the family group. Kinsight shows no ads, has no in-app purchases and does not use the advertising ID, location or hardware identifiers.
+We do not collect any data from children, or from anyone else: the child's data goes only to the parents' phones in the family group, and, if a parent turned on the sync through Yandex Disk, encrypted through that parent's Disk. Kinsight shows no ads, has no in-app purchases and does not use the advertising ID, location or hardware identifiers.
 
 The parent who installs Kinsight on a child's phone is responsible for doing so lawfully, and for involving the child as appropriate for the child's age.
 
@@ -118,7 +123,7 @@ Because Kinsight shares a child's screen time with the parents, it is declared t
 
 ## 12. Your rights
 
-You have rights under the EU General Data Protection Regulation (GDPR), including the rights of access, correction, deletion, restriction, objection and portability. The data created by Kinsight stays on your family's phones, and you exercise these rights directly in the app (see sections 8 and 9). We do not hold any of your data, so there is nothing for us to access, correct or delete on our side. You can contact us at kav2k13@gmail.com with any question, and you can lodge a complaint with a data protection authority; in Spain this is the Agencia Española de Protección de Datos (www.aepd.es).
+You have rights under the EU General Data Protection Regulation (GDPR), including the rights of access, correction, deletion, restriction, objection and portability. The data created by Kinsight stays on your family's phones and, encrypted, on the Yandex Disk of a parent if the sync through it is on, and you exercise these rights directly in the app (see sections 8 and 9). We do not hold any of your data, so there is nothing for us to access, correct or delete on our side. You can contact us at kav2k13@gmail.com with any question, and you can lodge a complaint with a data protection authority; in Spain this is the Agencia Española de Protección de Datos (www.aepd.es).
 
 If you write to us by e-mail, we use your address and your message only to answer you, and we delete the correspondence when it is no longer needed to answer you.
 

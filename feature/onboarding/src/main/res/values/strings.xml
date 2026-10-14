@@ -16,12 +16,12 @@
     <string name="onb_name_error">Use 1 to 64 characters, without invisible or control characters.</string>
     <string name="onb_parent_title">What this phone does</string>
     <string name="onb_parent_body">This phone shows the screen time of the children in your family group. It does not share its own screen time with anyone.</string>
-    <string name="onb_parent_privacy">Data moves only between your family\'s phones over Bluetooth. Nothing goes to the internet, to servers or to us.</string>
+    <string name="onb_parent_privacy">Data moves between your family\'s phones over Bluetooth. Kinsight goes online only to sync through your Yandex Disk, if you turn that on. The developer stores nothing.</string>
     <string name="onb_consent_title">What your family will see</string>
     <string name="onb_consent_body">Kinsight counts how much time this phone spends in each app, how often it is unlocked and at what hours it is used. Kinsight sends this over Bluetooth to the phones of every parent in your family group (currently %1$s) and parents who join later. They will see this time for today and past days. Counting happens in the background, even when Kinsight is closed.</string>
     <string name="onb_consent_body_group">Kinsight counts how much time this phone spends in each app, how often it is unlocked and at what hours it is used. Kinsight sends this over Bluetooth to the phones of every parent in your family group, including parents who join later. They will see this time for today and past days. Counting happens in the background, even when Kinsight is closed.</string>
     <string name="onb_consent_backlog">When you agree, the first sending also includes up to the last 7 days of screen time that this phone has already recorded.</string>
-    <string name="onb_consent_privacy">Nothing goes to the internet, to servers or to us. A Kinsight notification is always shown on this phone. If you hide it, sharing pauses until you turn the notification back on: your family sees that it is hidden, and the time counted meanwhile is sent once it is shown again.</string>
+    <string name="onb_consent_privacy">Kinsight goes online only to sync through a parent\'s Yandex Disk, if a parent turned that on; the developer stores nothing. A Kinsight notification is always shown on this phone. If you hide it, sharing pauses until you turn the notification back on: your family sees that it is hidden, and the time counted meanwhile is sent once it is shown again.</string>
     <string name="onb_privacy_policy">Privacy policy</string>
     <string name="onb_consent_pause">You can pause sharing in two taps. Your family will see the pause, and the time during the pause will be sent once you resume. Sharing cannot be hidden, only openly stopped.</string>
     <string name="onb_consent_protect">Google Play Protect may tell you that a parental control app is installed. This is expected.</string>

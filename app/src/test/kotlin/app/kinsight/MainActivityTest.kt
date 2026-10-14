@@ -46,7 +46,7 @@ class MainActivityTest {
         assertEquals("child_monitoring", meta.getString("isMonitoringTool"))
     }
 
-    /** Play policy (research §1.4, §2) and the in-app promise «nothing goes to the internet», libraries included. */
+    /** Play policy (research §1.4, §2), libraries included; the internet only for the Yandex Disk sync (spec §2, §15). */
     @Test
     fun theMergedManifestAsksForNothingForbidden() {
         @Suppress("DEPRECATION") // GET_PERMISSIONS: the flags overload needs API 33 and minSdk is 31
