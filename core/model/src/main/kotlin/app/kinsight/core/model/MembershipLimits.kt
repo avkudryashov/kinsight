@@ -10,6 +10,9 @@ object MembershipLimits {
     const val MAX_NAME_CODE_POINTS = 64
     const val MAX_NAME_BYTES = 256
 
+    /** Most departed ids one StorageOwner op lists (spec §7.4); extra ids are ignored when reading. */
+    const val MAX_OWNER_DEPARTED = 64
+
     /** Largest valid Lamport value; anything ≥ 2^62 (or ≥ 2^63 as uint64, read as negative) is invalid. */
     const val MAX_LAMPORT = (1L shl 62) - 1
 

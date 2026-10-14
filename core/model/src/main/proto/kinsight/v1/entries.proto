@@ -178,6 +178,12 @@ message StorageOwner {
   bytes device_id = 1;
   bytes storage_id = 2;  // 16 random bytes, also the content of app:/Kinsight/<groupId>/storage.id
   uint64 generation = 3; // 1 for the first storage, +1 on every move to another Disk
+  // 16 random bytes, new on every fresh sign-in; copied unchanged when the same token goes on (spec §7.3 QR transfer).
+  // Empty in ops written before Y3: such an op counts as its own token.
+  bytes token_id = 4;
+  // Device ids of the departed members (RemoveMember or LEFT_GROUP) the signer knew of when the token was issued,
+  // at most 64; copied unchanged with the token. A departure missing here may know the token (spec §7.4).
+  repeated bytes departed = 5;
 }
 
 // «Новый доступ» (spec §6, §7.4): the storage owner's access token for the members, one live entry per author

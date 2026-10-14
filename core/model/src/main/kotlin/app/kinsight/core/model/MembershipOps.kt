@@ -41,13 +41,32 @@ fun EntryAuthor.leaveGroupEntry(): DecodedEntry = create {
     it.copy(state_event = StateEvent(kind = StateEvent.Kind.LEFT_GROUP))
 }
 
-/** StorageOwner: [owner]'s Disk holds the group's cloud storage [storageId] from [generation] on (spec §4). */
-fun EntryAuthor.storageOwnerEntry(owner: DeviceId, storageId: ByteArray, generation: Long): DecodedEntry = create {
-    it.copy(
-        membership_op = MembershipOp(
-            storage_owner = StorageOwner(owner.bytes().toByteString(), storageId.toByteString(), generation),
-        ),
-    )
+/**
+ * StorageOwner: [owner]'s Disk holds the group's cloud storage [storageId] from [generation] on (spec §4). [tokenId]
+ * names the access token (fresh on a new sign-in, copied when the same token goes on); [departed] are the departed
+ * members the signer knew of when that token was issued (at most [MembershipLimits.MAX_OWNER_DEPARTED]).
+ */
+fun EntryAuthor.storageOwnerEntry(
+    owner: DeviceId,
+    storageId: ByteArray,
+    generation: Long,
+    tokenId: ByteArray = ByteArray(0),
+    departed: Collection<DeviceId> = emptyList(),
+): DecodedEntry {
+    require(departed.size <= MembershipLimits.MAX_OWNER_DEPARTED) { "over ${MembershipLimits.MAX_OWNER_DEPARTED} departed ids" }
+    return create {
+        it.copy(
+            membership_op = MembershipOp(
+                storage_owner = StorageOwner(
+                    owner.bytes().toByteString(),
+                    storageId.toByteString(),
+                    generation,
+                    tokenId.toByteString(),
+                    departed.map { d -> d.bytes().toByteString() },
+                ),
+            ),
+        )
+    }
 }
 
 /** StorageHandover (spec §7.1): the storage owner asks [to] to take the storage of [generation]. Not a membership op. */

@@ -35,7 +35,9 @@ class OwnerLifecycleTest {
     )
     private val s1 = ByteArray(16) { 1 }
     private val s2 = ByteArray(16) { 2 }
-    private val mom1 = mom.storageOwnerEntry(momKeys.deviceId, s1, 1) // Lamport 5, after the four base ops
+    private val t1 = ByteArray(16) { 11 }
+    private val t2 = ByteArray(16) { 12 }
+    private val mom1 = mom.storageOwnerEntry(momKeys.deviceId, s1, 1, t1) // Lamport 5, after the four base ops
 
     /** An author of [keys] whose next entry has Lamport [lamport] (and seq [seq]). */
     private fun at(keys: DeviceKeys, lamport: Long, seq: Long = 100) = EntryAuthor(gid, keys, lastSeq = seq - 1, lastLamport = lamport - 1)
@@ -49,15 +51,30 @@ class OwnerLifecycleTest {
     fun aDepartureAfterTheOwnerRecordExposesTheTokenUntilTheRenewal() {
         val kidLeaves = at(kidKeys, 50).leaveGroupEntry()
         assertTrue(OwnerLifecycle.tokenExposed(state(kidLeaves)))
-        val renewal = at(momKeys, 60).storageOwnerEntry(momKeys.deviceId, s1, 2)
+        val renewal = at(momKeys, 60).storageOwnerEntry(momKeys.deviceId, s1, 2, t2, listOf(kidKeys.deviceId))
         assertFalse(OwnerLifecycle.tokenExposed(state(kidLeaves, renewal)))
     }
 
     @Test
-    fun aDepartureBeforeTheOwnerRecordExposesNothing() {
+    fun aDepartureTheSignerKnewOfExposesNothing() {
+        val kidLeaves = at(kidKeys, 4).leaveGroupEntry()
+        val owner = at(momKeys, 20, seq = 5).storageOwnerEntry(momKeys.deviceId, s1, 1, t1, listOf(kidKeys.deviceId))
+        assertFalse(OwnerLifecycle.tokenExposed(Membership.compute(gid, base + kidLeaves + owner)!!))
+    }
+
+    @Test
+    fun aLeaverWithALowLamportIsStillExposed() {
         val kidLeaves = at(kidKeys, 4).leaveGroupEntry() // replays after the kid's AddMember (3), before mom1 (5)
-        val m = Membership.compute(gid, base + kidLeaves + mom1)!!
-        assertFalse(OwnerLifecycle.tokenExposed(m))
+        assertTrue(OwnerLifecycle.tokenExposed(Membership.compute(gid, base + kidLeaves + mom1)!!), "the order is not evidence (Q3)")
+    }
+
+    @Test
+    fun aConcurrentRemovalReplayingBeforeTheOwnerRecordIsStillExposed() {
+        val dadRemovesKid = at(dadKeys, 10).removeMemberEntry(kidKeys.deviceId, 0)
+        val owner = at(momKeys, 20, seq = 5).storageOwnerEntry(momKeys.deviceId, s1, 1, t1)
+        val m = Membership.compute(gid, base + dadRemovesKid + owner)!!
+        assertTrue(kidKeys.deviceId in m.departed)
+        assertTrue(OwnerLifecycle.tokenExposed(m), "Mom did not know of the removal when she handed the token out")
     }
 
     @Test
@@ -67,12 +84,39 @@ class OwnerLifecycleTest {
     }
 
     @Test
+    fun aTransferKeepingTheTokenKeepsAnEarlierExposure() {
+        val kidLeaves = at(kidKeys, 50).leaveGroupEntry()
+        val sameToken = at(dadKeys, 60).storageOwnerEntry(dadKeys.deviceId, s1, 2, t1)
+        assertTrue(OwnerLifecycle.tokenExposed(state(kidLeaves, sameToken)), "review I2: the same token goes on")
+        val claimsToKnow = at(dadKeys, 60).storageOwnerEntry(dadKeys.deviceId, s1, 2, t1, listOf(kidKeys.deviceId))
+        assertTrue(OwnerLifecycle.tokenExposed(state(kidLeaves, claimsToKnow)), "the op that issued the token decides")
+    }
+
+    @Test
     fun aPhoneThatHandedItsRoleByQrAndLeftExposesNothing() {
-        val dadTakesSameDisk = at(dadKeys, 30).storageOwnerEntry(dadKeys.deviceId, s1, 2)
+        val dadTakesSameToken = at(dadKeys, 30).storageOwnerEntry(dadKeys.deviceId, s1, 2, t1)
         val momLeaves = at(momKeys, 40, seq = 50).leaveGroupEntry()
-        assertFalse(OwnerLifecycle.tokenExposed(state(dadTakesSameDisk, momLeaves)), "spec §7.3: 0 taps")
-        val dadMovesToHisDisk = at(dadKeys, 30).storageOwnerEntry(dadKeys.deviceId, s2, 2)
+        assertFalse(OwnerLifecycle.tokenExposed(state(dadTakesSameToken, momLeaves)), "spec §7.3: 0 taps")
+        val dadRemovesMom = at(dadKeys, 40).removeMemberEntry(momKeys.deviceId, mom1.seq)
+        assertTrue(OwnerLifecycle.tokenExposed(state(dadTakesSameToken, dadRemovesMom)), "Q6: a removal renews (spec §7.4)")
+        val dadSignsInOnTheSameDisk = at(dadKeys, 30).storageOwnerEntry(dadKeys.deviceId, s1, 2, t2)
+        assertTrue(OwnerLifecycle.tokenExposed(state(dadSignsInOnTheSameDisk, momLeaves)), "Mom could read Dad's new token")
+        val dadMovesToHisDisk = at(dadKeys, 30).storageOwnerEntry(dadKeys.deviceId, s2, 2, t2)
         assertTrue(OwnerLifecycle.tokenExposed(state(dadMovesToHisDisk, momLeaves)), "spec §7.1 then §7.4: Mom knew Dad's token")
+    }
+
+    @Test
+    fun theQrExceptionNeedsTheTransferSignedByThePreviousOwner() {
+        // Dad, not Mom, added the new phone: nothing says Mom handed her role to it.
+        val phoneKeys = DeviceKeys.generate()
+        val dad = at(dadKeys, 20)
+        val addPhone = dad.addMember(phoneKeys.sign.publicKey, phoneKeys.dh.publicKey, "Phone", DeviceRole.PARENT)
+        val grant = dad.grantAdminEntry(phoneKeys.deviceId)
+        val phoneTakes = at(phoneKeys, 30, seq = 1).storageOwnerEntry(phoneKeys.deviceId, s1, 2, t1)
+        val momLeaves = at(momKeys, 40, seq = 50).leaveGroupEntry()
+        val m = state(addPhone, grant, phoneTakes, momLeaves)
+        assertEquals(phoneKeys.deviceId, m.storageOwner!!.deviceId)
+        assertTrue(OwnerLifecycle.tokenExposed(m))
     }
 
     @Test
@@ -93,6 +137,27 @@ class OwnerLifecycleTest {
         assertFalse(OwnerLifecycle.ownerUnavailable(state(), null, now), "never heard of: no claim")
         val removed = at(dadKeys, 40).removeMemberEntry(momKeys.deviceId, mom1.seq) // keeps her ops up to mom1
         assertTrue(OwnerLifecycle.ownerUnavailable(state(removed), now, now))
+    }
+
+    @Test
+    fun anOwnerStampInTheFutureCountsAsNow() {
+        val now = 100L * 24 * 60 * 60 * 1000
+        val day = 24L * 60 * 60 * 1000
+        assertFalse(OwnerLifecycle.ownerUnavailable(state(), now + 30 * day, now), "Q4: never a negative silence")
+        val stamped = now + 2 * day
+        assertFalse(OwnerLifecycle.ownerUnavailable(state(), stamped, now + 6 * day))
+        assertTrue(OwnerLifecycle.ownerUnavailable(state(), stamped, now + 10 * day), "silent a week past its stamp")
+    }
+
+    @Test
+    fun aLaggingClockDecidesOnTheReadersTime() {
+        val now = 100L * 24 * 60 * 60 * 1000
+        val day = 24L * 60 * 60 * 1000
+        // The owner's clock runs 3 days behind and it was heard just now: still available.
+        assertFalse(OwnerLifecycle.ownerUnavailable(state(), now - 3 * day, now))
+        // The reader's clock runs behind the owner's: the stamp is clamped to the reader's now.
+        assertFalse(OwnerLifecycle.ownerUnavailable(state(), now + day, now - 5 * day))
+        assertTrue(OwnerLifecycle.ownerUnavailable(state(), now - 9 * day, now), "a week past the clamp on the reader's clock")
     }
 
     @Test

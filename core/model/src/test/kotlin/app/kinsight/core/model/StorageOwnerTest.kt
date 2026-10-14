@@ -1,8 +1,13 @@
 package app.kinsight.core.model
 
 import app.kinsight.core.model.proto.DeviceRole
+import app.kinsight.core.model.proto.MembershipOp
+import app.kinsight.core.model.proto.StorageOwner
+import okio.ByteString
+import okio.ByteString.Companion.toByteString
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 class StorageOwnerTest {
@@ -53,5 +58,34 @@ class StorageOwnerTest {
     @Test
     fun badStorageIdIsVoid() {
         assertNull(state(mom.storageOwnerEntry(momKeys.deviceId, ByteArray(15), 1)).storageOwner)
+    }
+
+    @Test
+    fun theTokenIdAndTheDepartedTheSignerKnewGoIntoTheState() {
+        val token = ByteArray(16) { 7 }
+        val owner = state(mom.storageOwnerEntry(momKeys.deviceId, storage, 1, token, listOf(kidKeys.deviceId))).storageOwner!!
+        assertEquals(token.toByteString(), owner.tokenId)
+        assertEquals(setOf(kidKeys.deviceId), owner.departed)
+        val legacy = state(mom.storageOwnerEntry(momKeys.deviceId, storage, 1)).storageOwner!!
+        assertEquals(ByteString.EMPTY, legacy.tokenId, "an op written before Y3")
+        assertEquals(emptySet(), legacy.departed)
+    }
+
+    @Test
+    fun malformedDepartedIdsAreDroppedAndTheListIsCapped() {
+        val ids = List(MembershipLimits.MAX_OWNER_DEPARTED) { i -> ByteArray(16) { i.toByte() }.toByteString() } +
+            kidKeys.deviceId.bytes().toByteString()
+        val op = mom.create {
+            it.copy(
+                membership_op = MembershipOp(
+                    storage_owner = StorageOwner(momKeys.deviceId.bytes().toByteString(), storage.toByteString(), 1, departed = listOf(ByteArray(15).toByteString()) + ids),
+                ),
+            )
+        }
+        val departed = state(op).storageOwner!!.departed
+        assertEquals(MembershipLimits.MAX_OWNER_DEPARTED - 1, departed.size, "the first 64 read, the 15-byte one dropped")
+        assertFailsWith<IllegalArgumentException> {
+            mom.storageOwnerEntry(momKeys.deviceId, storage, 1, departed = List(MembershipLimits.MAX_OWNER_DEPARTED + 1) { kidKeys.deviceId })
+        }
     }
 }

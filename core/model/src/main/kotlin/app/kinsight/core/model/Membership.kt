@@ -4,6 +4,7 @@ import app.kinsight.core.crypto.Primitives
 import app.kinsight.core.crypto.toHex
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.RotateDiscoveryKey
+import app.kinsight.core.model.proto.StorageOwner
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
 
@@ -21,8 +22,27 @@ data class Member(
 
 data class Departed(val member: Member, val lastSeq: Long)
 
-/** The current cloud storage owner (spec §4): an active admin parent when set, but it may have left since. */
-data class StorageOwnerState(val deviceId: DeviceId, val storageId: ByteString, val generation: Long)
+/**
+ * The current cloud storage owner (spec §4): an active admin parent when set, but it may have left since. The fields
+ * are the StorageOwner op in force. [tokenId] is empty for ops written before Y3; [departed] are the departed members its
+ * signer listed (spec §7.4), capped at [MembershipLimits.MAX_OWNER_DEPARTED], malformed ids dropped.
+ */
+data class StorageOwnerState(
+    val deviceId: DeviceId,
+    val storageId: ByteString,
+    val generation: Long,
+    val tokenId: ByteString = ByteString.EMPTY,
+    val departed: Set<DeviceId> = emptySet(),
+) {
+    companion object {
+        /** The state of [so], whose device id the caller decoded to [owner]. */
+        fun of(owner: DeviceId, so: StorageOwner): StorageOwnerState {
+            val departed = so.departed.take(MembershipLimits.MAX_OWNER_DEPARTED).filter { it.size == 16 }
+                .map { DeviceId.fromBytes(it.toByteArray()) }.toSet()
+            return StorageOwnerState(owner, so.storage_id, so.generation, so.token_id, departed)
+        }
+    }
+}
 
 data class MembershipState(
     val groupId: GroupId,
@@ -276,7 +296,7 @@ object Membership {
                     ) {
                         false
                     } else {
-                        owner = StorageOwnerState(id, so.storage_id, so.generation)
+                        owner = StorageOwnerState.of(id, so)
                         true
                     }
                 }

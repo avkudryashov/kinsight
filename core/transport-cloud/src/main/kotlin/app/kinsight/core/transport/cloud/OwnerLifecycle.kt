@@ -13,7 +13,8 @@ enum class OwnerLeaveBlock { HANDOVER_NEEDED, SWITCHING }
 
 /**
  * The storage owner's lifecycle as the signed log states it (spec §7). Pure: callers pass the membership and the
- * StorageHandover and Heartbeat entries they hold. Order between ops is Membership's replay order (Lamport, author, seq).
+ * StorageHandover and Heartbeat entries they hold. Whether the token is exposed is causal (the departures the signer of
+ * the token knew of), never the replay order of ops: a leaver picks its own Lamport value.
  */
 object OwnerLifecycle {
     /** Spec §7.2 «Владелец недоступен»: nothing heard from the owner for this long (or it departed). */
@@ -23,11 +24,16 @@ object OwnerLifecycle {
         m.effectiveEntries.filter { it.body.membership_op?.storage_owner != null }
             .sortedBy { it.body.membership_op!!.storage_owner!!.generation }
 
+    /** The effective StorageOwner ops with their states, by generation (Membership keeps them strictly increasing). */
+    private fun ownerStates(m: MembershipState): List<Pair<DecodedEntry, StorageOwnerState>> = ownerOps(m).map { e ->
+        val so = e.body.membership_op!!.storage_owner!!
+        e to StorageOwnerState.of(DeviceId.fromBytes(so.device_id.toByteArray()), so)
+    }
+
     /** The StorageOwner in force right before the current one, or null. */
     fun previousOwner(m: MembershipState): StorageOwnerState? {
         val current = m.storageOwner ?: return null
-        val so = ownerOps(m).map { it.body.membership_op!!.storage_owner!! }.lastOrNull { it.generation < current.generation } ?: return null
-        return StorageOwnerState(DeviceId.fromBytes(so.device_id.toByteArray()), so.storage_id, so.generation)
+        return ownerStates(m).map { it.second }.lastOrNull { it.generation < current.generation }
     }
 
     /** Spec §7.1: the parent the current owner asked to take the current storage, or null. */
@@ -45,11 +51,15 @@ object OwnerLifecycle {
     fun lastHeard(owner: DeviceId, entries: List<DecodedEntry>): Long? =
         entries.filter { it.author == owner }.maxOfOrNull { it.body.created_at_ms }
 
-    /** Spec §7.2: the owner departed, or nothing was heard from it for [UNAVAILABLE_AFTER_MS]. Never heard of: available. */
+    /**
+     * Spec §7.2: the owner departed, or nothing was heard from it for [UNAVAILABLE_AFTER_MS] on the reader's clock [nowMs].
+     * Never heard of: available. [ownerLastHeardMs] is the owner's own stamp (the entry store keeps no receive time), so
+     * a stamp ahead of [nowMs] counts as now (rulings Q4).
+     */
     fun ownerUnavailable(m: MembershipState, ownerLastHeardMs: Long?, nowMs: Long): Boolean {
         val owner = m.storageOwner ?: return false
         if (owner.deviceId !in m.active) return true
-        return ownerLastHeardMs != null && nowMs - ownerLastHeardMs > UNAVAILABLE_AFTER_MS
+        return ownerLastHeardMs != null && nowMs - minOf(ownerLastHeardMs, nowMs) > UNAVAILABLE_AFTER_MS
     }
 
     /** An active admin parent other than the owner, asked by the owner (§7.1) or with the owner unavailable (§7.2, §7.3). */
@@ -61,20 +71,36 @@ object OwnerLifecycle {
     }
 
     /**
-     * Spec §7.4: a departed device may know the token of the current generation: its departure (LEFT_GROUP or a RemoveMember
-     * naming it) replays after the StorageOwner op in force. The owner then gets a new token. Not exposing (§7.3, 0 taps):
-     * the previous owner leaving with LEFT_GROUP after its role moved to another phone on the same storage.
+     * Spec §7.4, rulings Q3: the token in use may be known to a departed device. The op that issued the token (the op in
+     * force, or for the same non-empty token_id the first op that carried it) lists the departures its signer knew of;
+     * any other departed member counts as exposed, whatever its replay position, so an unseen or concurrent departure
+     * errs on the safe side. The owner then gets a new token. Not exposing (§7.3, 0 taps): the previous owner of the same
+     * token and storage leaving with LEFT_GROUP after a transfer it signed (it added the new owner or signed its op).
      */
     fun tokenExposed(m: MembershipState): Boolean {
         val owner = m.storageOwner ?: return false
-        val current = ownerOps(m).lastOrNull { it.body.membership_op!!.storage_owner!!.generation == owner.generation } ?: return false
-        val previous = previousOwner(m)
-        return m.departed.keys.any { d ->
-            departures(m, d).any { e ->
-                val handedOver = previous != null && d == previous.deviceId && e.body.state_event != null && previous.storageId == owner.storageId
-                after(e, current) && !handedOver
-            }
+        val ops = ownerStates(m)
+        val current = ops.indexOfLast { it.second.generation == owner.generation }
+        if (current < 0) return false
+        var issuer = current
+        if (owner.tokenId.size > 0) while (issuer > 0 && ops[issuer - 1].second.tokenId == owner.tokenId) issuer--
+        val known = ops[issuer].second.departed
+        return m.departed.keys.any { d -> d !in known && !handedOverAndLeft(m, ops, issuer, current, d) }
+    }
+
+    /** §7.3: [d] owned this token on this storage, signed its transfer to the next owner, then left by itself. */
+    private fun handedOverAndLeft(m: MembershipState, ops: List<Pair<DecodedEntry, StorageOwnerState>>, issuer: Int, current: Int, d: DeviceId): Boolean {
+        val gone = departures(m, d)
+        if (gone.none { it.author == d && it.body.state_event?.kind == StateEvent.Kind.LEFT_GROUP }) return false
+        if (gone.any { it.body.membership_op?.remove != null }) return false
+        return (issuer + 1..current).any { j ->
+            val (prev, next) = ops[j - 1].second to ops[j]
+            prev.deviceId == d && prev.storageId == next.second.storageId && (next.first.author == d || added(m, next.second.deviceId, by = d))
         }
+    }
+
+    private fun added(m: MembershipState, id: DeviceId, by: DeviceId): Boolean = m.effectiveEntries.any { e ->
+        e.author == by && e.body.membership_op?.add?.sign_public_key?.let { pk -> pk.size == 32 && DeviceId.fromSignPublicKey(pk.toByteArray()) == id } == true
     }
 
     /** True when every active member but [self] reports, in its newest Heartbeat, a storage generation above [generation]. */
@@ -102,7 +128,4 @@ object OwnerLifecycle {
         (e.author == d && e.body.state_event?.kind == StateEvent.Kind.LEFT_GROUP) ||
             e.body.membership_op?.remove?.device_id?.let { it.size == 16 && DeviceId.fromBytes(it.toByteArray()) == d } == true
     }
-
-    private fun after(a: DecodedEntry, b: DecodedEntry): Boolean =
-        compareValuesBy(a, b, { it.lamport }, { it.author.hex }, { it.seq }) > 0
 }
