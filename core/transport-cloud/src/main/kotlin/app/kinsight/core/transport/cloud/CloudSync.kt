@@ -12,6 +12,7 @@ import app.kinsight.core.sync.EntryStore
 import app.kinsight.core.sync.EntryValidator
 import app.kinsight.core.sync.LiveSet
 import app.kinsight.core.sync.SyncPolicy
+import app.kinsight.core.sync.SyncSession
 import app.kinsight.core.sync.Verdict
 import app.kinsight.core.sync.accountLiveSet
 import kotlinx.coroutines.CancellationException
@@ -53,6 +54,11 @@ class CloudSync(
      * for the whole process, so two instances over the same cursor store never run at once either (Y1 review).
      */
     private val running: Mutex = Mutex(),
+    /**
+     * The storage owner's storage id (spec §11 «storage.id пересоздаёт владелец»): when the root listing lacks
+     * `storage.id`, the run writes it again. Null on every other device: only the owner writes it.
+     */
+    private val ownedStorageId: ByteArray? = null,
 ) {
     private val self = keys.deviceId
     private val groupId = store.groupId
@@ -99,6 +105,7 @@ class CloudSync(
         val epoch = writeEpoch(membership) ?: return CloudResult.NoGroupKey
         var cursor = cursors.load()
         val listing = listAll()
+        cursor = liftOwn(listing[self].orEmpty(), membership, cursor)
         // Spec §11: our folder lost what we uploaded (deleted in the Disk UI, or a new storage): upload everything again.
         // Checked by the names we wrote, not by the ranges listed: a renamed file must not stand in for a lost one.
         val ownNames = listing[self].orEmpty().map { it.name }.toSet()
@@ -144,7 +151,14 @@ class CloudSync(
         val top = try {
             disk.list(root)
         } catch (e: DiskException.NotFound) {
+            ownedStorageId?.let { StorageMove.writeStorageId(disk, groupId, it) }
             return emptyMap()
+        }
+        ownedStorageId?.let { id ->
+            if (top.none { !it.isDir && it.name == CloudPaths.STORAGE_ID && it.size == id.size.toLong() }) {
+                log("storage.id is missing: writing it again")
+                StorageMove.writeStorageId(disk, groupId, id)
+            }
         }
         val out = HashMap<DeviceId, List<PackItem>>()
         for (dir in top) {
@@ -217,6 +231,50 @@ class CloudSync(
         }
         out += (start..upTo) to current
         return out
+    }
+
+    /**
+     * A-4 (Y1 review): our database lost entries while our keys survived, and our own folder holds packs above what we
+     * hold. Each one is checked (our signature, the range in its name): one we can open gives its entries back to the
+     * store; one sealed with a key we lack still proves the range is ours. Those seqs are accounted, so they are never
+     * signed again, and they count as uploaded, so no compaction re-seals the range from an emptied log. Bounded like
+     * Bluetooth: a jump above SyncSession.MAX_OWN_SEQ_JUMP is ignored.
+     */
+    private suspend fun liftOwn(own: List<PackItem>, start: MembershipState, cursor: CloudCursor): CloudCursor {
+        val held = store.versionVector()[self]
+        val above = own.filter { it.range.last > held }.sortedBy { it.range.first }
+        if (above.isEmpty()) return cursor
+        val top = above.maxOf { it.range.last }
+        if (top - held > SyncSession.MAX_OWN_SEQ_JUMP) {
+            log("ignored own packs up to $top (held $held)")
+            return cursor
+        }
+        var membership = start
+        var lifted = held
+        var ownPacks = cursor.ownPacks
+        val dir = CloudPaths.deviceDir(groupId, self)
+        for (p in above) {
+            val bytes = try {
+                disk.download("$dir/${p.name}")
+            } catch (e: DiskException.NotFound) {
+                continue
+            }
+            val keys = ring.keys()
+            when (val outcome = PackCodec.open(bytes, keys, groupId, self, membership, expected = p.range)) {
+                is PackOutcome.Opened -> {
+                    membership = ingest(outcome.pack, membership).first
+                    lifted = maxOf(lifted, outcome.pack.to)
+                    ownPacks = ownPacks + (p.name to KeyId(outcome.pack.epoch, GroupKey.fingerprint(keys.getValue(outcome.pack.epoch))))
+                }
+                // The signature is checked before the key: the range is ours even when we cannot read it.
+                is PackOutcome.KeyUnknown, is PackOutcome.KeyMismatch -> lifted = maxOf(lifted, p.range.last)
+                is PackOutcome.UnknownAuthor, is PackOutcome.Rejected -> log("own folder: ${p.name} is not ours, ignored")
+            }
+        }
+        if (lifted <= held) return cursor
+        store.completeAuthor(self, lifted)
+        log("own log found on the Disk up to $lifted, held $held: those seqs are not reused (A-4)")
+        return cursor.copy(uploadedUpTo = maxOf(cursor.uploadedUpTo, lifted), ownPacks = ownPacks).also { cursors.save(it) }
     }
 
     private suspend fun uploadPack(name: String, bytes: ByteArray) {
