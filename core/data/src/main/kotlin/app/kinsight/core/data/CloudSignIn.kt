@@ -9,6 +9,7 @@ import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.MembershipState
+import app.kinsight.core.model.StorageOwnerState
 import app.kinsight.core.model.storageHandoverEntry
 import app.kinsight.core.transport.ble.GroupConfig
 import app.kinsight.core.transport.ble.GroupStore
@@ -287,6 +288,19 @@ class CloudSignIn(
         val owner = m.storageOwner
         if (owner != null) {
             if (owner.deviceId != self) return CloudEnableResult.ALREADY_ON
+            // Spec §7.3: the storage.id on the new token's Disk decides. Missing or another one: another Yandex account, so
+            // the storage moves there as in a take-over; never a new storage written under the old generation.
+            val same = try {
+                StorageMove.storageIdOf(disk { t.accessToken }, group.groupId)?.contentEquals(owner.storageId.toByteArray()) == true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                return diskFailure(e)
+            }
+            if (!same) {
+                val held = secrets.tokens()?.takeIf { it.owner && it.groupHex == group.groupId.hex }
+                return moveLocked(group, store, k, ring, owner, t, held?.storageGeneration, held?.accessToken, CloudEnableResult.RESTORED)
+            }
             // Spec §7.4: a phone that knew the token left or was removed: a new generation with the new token.
             if (OwnerLifecycle.tokenExposed(m)) return renewLocked(group, store, k, m, ring, t)
             // Spec §11, 401 at the owner: new tokens and a new CloudAccess for the same storage.
@@ -340,14 +354,7 @@ class CloudSignIn(
         return CloudEnableResult.RESTORED
     }
 
-    /**
-     * Spec §7.1 steps 2 to 4, §7.2, §7.3: this parent takes the storage. Its own Disk holding the same storage.id means the
-     * same storage (the same Yandex account): only the role moves, the id stays. Otherwise the family folder is copied there
-     * with the shared token (a 401 from the old Disk means it was revoked: the new storage fills from the phones' own
-     * copies, spec §7.2), a fresh storage.id is written (rulings Q5), StorageOwner(generation + 1) and CloudAccess are
-     * signed, the shared token is retired, and the «переезд» goes into the old storage. A failure of the new Disk signs
-     * nothing (rulings Q2): the old storage stays in force.
-     */
+    /** Spec §7.1 to §7.3: this parent, asked or finding the owner gone, takes the storage with the token it was handed. */
     private suspend fun takeOverLocked(t: TokenSet): CloudEnableResult {
         val group = withContext(io) { groups.read() } ?: return CloudEnableResult.NOT_ADMIN
         val k = keys()
@@ -358,8 +365,29 @@ class CloudSignIn(
         val ring = secrets.ring(group)
         val owner = start.storageOwner ?: return CloudEnableResult.NOT_ALLOWED
         val old = secrets.access(store, start, self, ring)
+        return moveLocked(group, store, k, ring, owner, t, old?.generation, old?.accessToken, CloudEnableResult.TAKEN_OVER)
+    }
+
+    /**
+     * This phone becomes the owner of the storage on [t]'s Disk (spec §7.1 to §7.3). The same storage.id there: only the
+     * role moves, the id stays. Otherwise the family folder is copied there with [oldToken] (a 401 from the old Disk means
+     * it was revoked: the new storage fills from the phones' own copies, spec §7.2), a fresh storage.id is written (rulings
+     * Q5), StorageOwner(generation + 1) and CloudAccess are signed, [oldToken] is retired, and the «переезд» goes into the
+     * old storage. A failure of the new Disk signs nothing (rulings Q2): the old storage stays in force.
+     */
+    private suspend fun moveLocked(
+        group: GroupConfig,
+        store: RoomEntryStore,
+        k: DeviceKeys,
+        ring: GroupKeyRing,
+        owner: StorageOwnerState,
+        t: TokenSet,
+        oldGeneration: Long?,
+        oldToken: String?,
+        result: CloudEnableResult,
+    ): CloudEnableResult {
         val newDisk = disk { t.accessToken }
-        val oldDisk = old?.let { a -> disk { a.accessToken } }
+        val oldDisk = oldToken?.let { a -> disk { a } }
         val current = owner.storageId.toByteArray()
         var storageId = current
         try {
@@ -388,10 +416,10 @@ class CloudSignIn(
         val generation = owner.generation + 1
         val claimed = OwnerRecords.claim(appendOwn, store, k, ring, storageId, generation, t.accessToken, t.expiresAtMs)
             ?: return CloudEnableResult.NOT_ADMIN
-        old?.takeIf { it.accessToken != t.accessToken }?.let { secrets.retire(group.groupId, it.generation, it.accessToken) }
+        if (oldToken != null && oldGeneration != null && oldToken != t.accessToken) secrets.retire(group.groupId, oldGeneration, oldToken)
         secrets.saveOwner(group.groupId, generation, storageId, t)
         if (!storageId.contentEquals(current) && oldDisk != null) leaveMoveRecord(oldDisk, store, k, claimed)
-        return CloudEnableResult.TAKEN_OVER
+        return result
     }
 
     /** A Disk failure while setting the storage up; a [StorageMoveException] stands for the Disk failure it carries. */

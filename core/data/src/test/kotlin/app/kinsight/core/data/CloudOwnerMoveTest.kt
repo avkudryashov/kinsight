@@ -261,6 +261,51 @@ class CloudOwnerMoveTest {
     }
 
     @Test
+    fun aRestoreIntoAnotherAccountMovesTheStorage() = runBlocking<Unit> {
+        family()
+        val g = mom.groups.read()!!.groupId
+        val first = kid.ownSummary("2026-10-13", 60_000)
+        assertEquals(CloudRun.SYNCED, kid.runner(disks::disk).run(CloudTrigger.NOW))
+        val otherDisk = InMemoryDisk()
+        val accounts = AccountDisks(mapOf("AT" to momDisk, "M2" to otherDisk))
+        val s = mom.signIn(FakeOAuthHttp(accessToken = "M2"), accounts::disk)
+        assertNotNull(s.start("Pixel"))
+        assertEquals(CloudEnableResult.RESTORED, s.finish("1234567"))
+        val owner = membershipOf(mom).storageOwner!!
+        assertEquals(mom.keys.deviceId to 2L, owner.deviceId to owner.generation)
+        assertFalse(owner.storageId.toByteArray().contentEquals(ByteArray(16) { 1 }), "another account: a new storage id")
+        assertContentEquals(owner.storageId.toByteArray(), StorageMove.storageIdOf(otherDisk, g))
+        assertTrue(otherDisk.files(CloudPaths.deviceDir(g, kid.keys.deviceId)).isNotEmpty(), "the kid's packs were copied")
+        assertTrue(momDisk.files(CloudPaths.deviceDir(g, mom.keys.deviceId)).isNotEmpty(), "the «переезд» waits on the old Disk")
+        assertEquals(listOf("AT"), mom.cloudSecrets.retired(g).map { it.accessToken })
+        // The kid follows: the move from the old Disk, then the new one.
+        assertEquals(CloudRun.SYNCED, kid.runner(accounts::disk).run(CloudTrigger.NOW))
+        assertEquals(2L, membershipOf(kid).storageOwner!!.generation)
+        val day = kid.ownSummary("2026-10-14", 30_000)
+        assertEquals(CloudRun.SYNCED, kid.runner(accounts::disk).run(CloudTrigger.NOW))
+        assertEquals(CloudRun.SYNCED, mom.runner(accounts::disk).run(CloudTrigger.NOW))
+        assertTrue(first in mom.store().liveEntries() && day in mom.store().liveEntries())
+    }
+
+    @Test
+    fun aRestoreIntoTheSameAccountCopiesNothing() = runBlocking<Unit> {
+        family()
+        val g = mom.groups.read()!!.groupId
+        assertEquals(CloudRun.SYNCED, kid.runner(disks::disk).run(CloudTrigger.NOW))
+        assertEquals(CloudRun.SYNCED, mom.runner(disks::disk).run(CloudTrigger.NOW))
+        val same = AccountDisks(mapOf("AT" to momDisk, "AT2" to momDisk))
+        val before = stamps(momDisk, g)
+        val s = mom.signIn(FakeOAuthHttp(accessToken = "AT2"), same::disk)
+        assertNotNull(s.start("Pixel"))
+        assertEquals(CloudEnableResult.RESTORED, s.finish("1234567"))
+        val owner = membershipOf(mom).storageOwner!!
+        assertEquals(1L, owner.generation, "the same storage, a new CloudAccess only")
+        assertContentEquals(ByteArray(16) { 1 }, owner.storageId.toByteArray())
+        assertEquals(before, stamps(momDisk, g), "nothing copied or rewritten")
+        assertEquals("AT2", CloudAccessView.current(mom.store(), membershipOf(mom), mom.cloudSecrets.ring(mom.groups.read()!!).keys())!!.accessToken)
+    }
+
+    @Test
     fun withoutARequestOrAMissingOwnerNobodyTakesOver() = runBlocking<Unit> {
         family()
         val s = dad.signIn(http, disks::disk)
