@@ -7,11 +7,14 @@ import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.addMember
 import app.kinsight.core.model.proto.DeviceRole
+import app.kinsight.core.model.proto.PackFile
+import app.kinsight.core.model.proto.PackHeader
 import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.model.removeMemberEntry
 import app.kinsight.core.sync.pairing.Invite
 import app.kinsight.core.transport.ble.PairingRadioException
 import app.kinsight.core.transport.ble.RadioProblem
+import app.kinsight.core.transport.cloud.CloudPaths
 import app.kinsight.core.transport.cloud.GroupKey
 import app.kinsight.core.transport.cloud.InMemoryDisk
 import kotlinx.coroutines.CoroutineScope
@@ -127,6 +130,39 @@ class PairingCoordinatorTest {
         val g = kid.groups.read()!!
         assertEquals(setOf(0), kid.cloudSecrets.ring(g).keys().keys)
         assertNotNull(Membership.compute(g.groupId, kid.store().membershipEntries())!!.storageOwner)
+    }
+
+    /**
+     * Final review Minor 6, end to end over one InMemoryDisk: the real sign-in turns the cloud on with a rotation to
+     * generation 1 (a departed phone held generation 0), the real welcome hands a kid that key and the owner's token, the
+     * kid's runner uploads sealed with generation 1, and Mom reads the kid's entry from the Disk.
+     */
+    @Test
+    fun theCloudTurnedOnWithARotationReachesAKidPairedAfterIt() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        kid2.joinGroupOf(mom)
+        mom.group.remove(kid2.keys.deviceId)
+        val disk = InMemoryDisk()
+        val signIn = mom.signIn(FakeOAuthHttp(), { disk })
+        signIn.start("Pixel")
+        assertEquals(CloudEnableResult.ENABLED, signIn.finish("1234567"))
+        val g = mom.groups.read()!!
+        assertEquals(1, GroupKey.currentEpoch(Membership.compute(g.groupId, mom.store().membershipEntries())!!))
+        val (invite, qr) = openInvite()
+        val join = kidPairing.join(scope, qr, "Kid", consent = true)
+        invite.state.awaitFirst { it is InviteState.Confirm }
+        invite.confirm()
+        assertEquals(JoinState.Joined, join.state.awaitFirst { it is JoinState.Joined || it is JoinState.Failed })
+        assertEquals(setOf(0, 1), kid.cloudSecrets.ring(kid.groups.read()!!).keys().keys)
+        assertEquals("AT1", kid.cloudSecrets.tokens()!!.accessToken)
+        val day = kid.ownSummary("2026-10-13", 60_000)
+        assertEquals(CloudRun.SYNCED, kid.runner(disk).run(CloudTrigger.NOW))
+        val pack = disk.files(CloudPaths.deviceDir(g.groupId, kid.keys.deviceId)).values.single()
+        assertEquals(1, PackHeader.ADAPTER.decode(PackFile.ADAPTER.decode(pack).header_).key_epoch, "sealed with generation 1")
+        assertEquals(CloudRun.SYNCED, mom.runner(disk).run(CloudTrigger.NOW))
+        assertTrue(day in mom.store().liveEntries())
+        assertNull(mom.cloudState.current().problem)
+        assertNull(kid.cloudState.current().problem)
     }
 
     /** Review Minor 3: the welcome token is stored before the group file, so the cloud is scheduled once the join is done. */
