@@ -31,8 +31,8 @@ object CloudGraph {
     var config: CloudConfig = CloudConfig.NONE
 
     /**
-     * The one cloud run lock of the process (R15): CloudSecrets is built with it, and the runner and the local wipe take
-     * it from there, so a run never writes an old group's keys back after a wipe (R14).
+     * The one cloud run lock of the process (R15): CloudSecrets is built with it, and the runner, the sign-in and the
+     * local wipe take it from there, so neither a run nor a sign-in writes an old group's keys back after a wipe (R14).
      */
     val runLock = Mutex()
 

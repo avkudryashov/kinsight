@@ -26,8 +26,9 @@ import kotlinx.coroutines.withContext
 /**
  * This device's cloud secrets (spec §5, §6 «Хранение»): the token vault and the group key ring, both sealed files of
  * core/keystore. Wiped with the group (LocalReset). [onAccess] runs after a handed token was stored (the app schedules
- * the cloud worker then; at a join the group file does not exist yet, so the pairing's onJoined schedules it). [runLock]: the process-wide cloud run lock (R15): the CloudRunner holds it for a whole run and
- * LocalReset for a whole wipe, so a run cannot write the old group's key back after the wipe.
+ * the cloud worker then; at a join the group file does not exist yet, so the pairing's onJoined schedules it). [runLock]: the process-wide cloud run lock (R15): the CloudRunner holds it for a whole run,
+ * LocalReset for a whole wipe and CloudSignIn while it turns the cloud on, so neither a run nor a sign-in can write the old
+ * group's key or tokens back after the wipe.
  */
 class CloudSecrets(
     private val vault: CloudTokenVault,
