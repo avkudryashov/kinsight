@@ -339,7 +339,21 @@ class PairingTest {
     fun aGroupKeyOfAGenerationTheMembershipDoesNotHaveIsDropped() = runTest {
         val (_, g) = pair({ host().serve(it, welcomeWithCloud(WelcomeCloud(1, ByteArray(32) { 5 }, null), emptyList())) }, { guest().join(it) })
         val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
-        assertNull(joined.cloud, "generation 1 does not exist in this membership")
+        assertEquals(0, joined.cloud!!.keyEpoch, "generation 1 does not exist in this membership")
+        assertNull(joined.cloud!!.groupKey)
+    }
+
+    /** Final review Minor 3: an owner without the newest generation still hands its token; only the key is dropped. */
+    @Test
+    fun theOwnersAccessStaysWhenItsKeyIsNotTheNewest() = runTest {
+        val storageId = ByteArray(16) { 3 }
+        val owner = admin.storageOwnerEntry(adminKeys.deviceId, storageId, 1)
+        val cloud = WelcomeCloud(1, ByteArray(32) { 5 }, HandedAccess(1, storageId, "AT", 99))
+        val (_, g) = pair({ host().serve(it, welcomeWithCloud(cloud, listOf(owner.bytes))) }, { guest().join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertEquals("AT", joined.cloud!!.access!!.accessToken)
+        assertEquals(0, joined.cloud!!.keyEpoch)
+        assertNull(joined.cloud!!.groupKey)
     }
 
     @Test

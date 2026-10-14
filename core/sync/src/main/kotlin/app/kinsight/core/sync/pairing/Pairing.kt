@@ -308,21 +308,18 @@ class PairingGuest(
     }
 
     /**
-     * The cloud part of the welcome, or null when it does not fit this membership. The admin hands its newest generation:
-     * a generation the membership does not have is dropped, never trusted. Access is kept only when it names the
-     * membership's storage and the inviting admin is that storage's owner (only the owner hands the token). Joining does
-     * not depend on it (the device then waits for the access over Bluetooth).
+     * The cloud part of the welcome. The admin hands its newest generation: a generation that is not the membership's
+     * newest is dropped, never trusted, and the joiner starts from generation 0 (the admin's next run rotates for it).
+     * Access is kept only when it names the membership's storage and the inviting admin is that storage's owner (only the
+     * owner hands the token), whether or not the key was kept. Joining does not depend on it (the device then waits for
+     * the access over Bluetooth).
      */
-    private fun cloudOf(first: PairWelcome, state: MembershipState): WelcomeCloud? {
+    private fun cloudOf(first: PairWelcome, state: MembershipState): WelcomeCloud {
         val epoch = first.key_epoch
         val key = first.group_key.toByteArray()
-        val groupKey = when {
-            epoch == 0 && key.isEmpty() -> null
-            epoch > 0 && epoch == (state.discoveryRotation?.epoch ?: 0) && key.size == 32 -> key
-            else -> return null
-        }
+        val groupKey = key.takeIf { epoch > 0 && epoch == (state.discoveryRotation?.epoch ?: 0) && key.size == 32 }
         val access = HandedAccess.of(first.storage_generation, first.storage_id.toByteArray(), first.access_token, first.access_expires_at_ms)
             ?.takeIf { it.isFor(state.storageOwner) && state.storageOwner?.deviceId == invite.adminId }
-        return WelcomeCloud(epoch, groupKey, access)
+        return WelcomeCloud(if (groupKey == null) 0 else epoch, groupKey, access)
     }
 }
