@@ -12,7 +12,9 @@ import java.io.IOException
  * "KGK1" + sealed (group hex, then epoch and 32-byte key per generation). Blocking file and Keystore I/O.
  */
 class GroupKeyFile(file: File, wrap: KeyWrap) {
-    class Contents(val groupHex: String, val keys: Map<Int, ByteArray>) {
+    class Contents(val groupHex: String, keys: Map<Int, ByteArray>) {
+        val keys: Map<Int, ByteArray> = keys.mapValues { it.value.copyOf() }
+
         init {
             require(keys.values.all { it.size == 32 }) { "group keys must be 32 bytes" }
         }
@@ -31,7 +33,7 @@ class GroupKeyFile(file: File, wrap: KeyWrap) {
     @Synchronized
     fun delete() = sealed.delete()
 
-    private fun encode(c: Contents): ByteArray {
+    private fun encode(c: Contents): ByteArray = try {
         val out = ByteArrayOutputStream()
         DataOutputStream(out).use { o ->
             o.writeUTF(c.groupHex)
@@ -41,7 +43,9 @@ class GroupKeyFile(file: File, wrap: KeyWrap) {
                 o.write(key)
             }
         }
-        return out.toByteArray()
+        out.toByteArray()
+    } catch (e: IOException) {
+        throw KeyStorageException("group keys cannot be encoded", e)
     }
 
     private fun decode(b: ByteArray): Contents = try {
@@ -49,7 +53,14 @@ class GroupKeyFile(file: File, wrap: KeyWrap) {
             val group = i.readUTF()
             val n = i.readInt()
             if (n !in 0..MAX_GENERATIONS) throw IOException("bad generation count $n")
-            Contents(group, (0 until n).associate { i.readInt() to ByteArray(32).also { k -> i.readFully(k) } })
+            val keys = LinkedHashMap<Int, ByteArray>()
+            repeat(n) {
+                val epoch = i.readInt()
+                if (epoch < 0 || epoch in keys) throw IOException("bad epoch")
+                keys[epoch] = ByteArray(32).also { k -> i.readFully(k) }
+            }
+            if (i.available() != 0) throw IOException("trailing bytes")
+            Contents(group, keys)
         }
     } catch (e: IOException) {
         throw KeyStorageException("group keys are malformed", e)

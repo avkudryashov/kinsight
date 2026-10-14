@@ -33,6 +33,9 @@ internal class SealedFile(private val file: File, private val wrap: KeyWrap, pri
 
     fun delete() {
         if (file.exists() && !file.delete()) throw KeyStorageException("cannot delete ${file.name}")
-        staleTempFiles(file).forEach { it.delete() }
+        val stale = staleTempFiles(file)
+        val survivors = stale.filterNot { it.delete() }
+        if (survivors.isNotEmpty()) throw KeyStorageException("cannot delete a stale temp of ${file.name}")
+        if (stale.isNotEmpty() || !file.exists()) file.absoluteFile.parentFile?.let(::syncDirectory)
     }
 }

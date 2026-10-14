@@ -16,11 +16,13 @@ class CloudTokens(
     val groupHex: String,
     val owner: Boolean,
     val storageGeneration: Long,
-    val storageId: ByteArray,
+    storageId: ByteArray,
     val accessToken: String,
     val refreshToken: String?,
     val expiresAtMs: Long,
 ) {
+    val storageId: ByteArray = storageId.copyOf()
+
     init {
         require(storageId.size == 16) { "storage id must be 16 bytes" }
         require(owner || refreshToken == null) { "only the storage owner keeps a refresh token" }
@@ -42,7 +44,7 @@ class CloudTokenVault(file: File, wrap: KeyWrap) {
     @Synchronized
     fun delete() = sealed.delete()
 
-    private fun encode(t: CloudTokens): ByteArray {
+    private fun encode(t: CloudTokens): ByteArray = try {
         val out = ByteArrayOutputStream()
         DataOutputStream(out).use { o ->
             o.writeUTF(t.groupHex)
@@ -54,7 +56,9 @@ class CloudTokenVault(file: File, wrap: KeyWrap) {
             t.refreshToken?.let { o.writeUTF(it) }
             o.writeLong(t.expiresAtMs)
         }
-        return out.toByteArray()
+        out.toByteArray()
+    } catch (e: IOException) {
+        throw KeyStorageException("cloud tokens cannot be encoded", e)
     }
 
     private fun decode(b: ByteArray): CloudTokens = try {
@@ -65,7 +69,9 @@ class CloudTokenVault(file: File, wrap: KeyWrap) {
             val storageId = ByteArray(16).also { i.readFully(it) }
             val access = i.readUTF()
             val refresh = if (i.readBoolean()) i.readUTF() else null
-            CloudTokens(group, owner, generation, storageId, access, refresh, i.readLong())
+            val expiresAt = i.readLong()
+            if (i.available() != 0) throw IOException("trailing bytes")
+            CloudTokens(group, owner, generation, storageId, access, refresh, expiresAt)
         }
     } catch (e: IOException) {
         throw KeyStorageException("cloud tokens are malformed", e)

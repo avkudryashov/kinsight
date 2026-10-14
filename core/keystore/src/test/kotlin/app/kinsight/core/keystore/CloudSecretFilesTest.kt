@@ -92,4 +92,61 @@ class CloudSecretFilesTest {
     fun aGroupKeyOfTheWrongSizeIsRefused() {
         assertFailsWith<IllegalArgumentException> { GroupKeyFile.Contents(group, mapOf(0 to ByteArray(31))) }
     }
+
+    @Test
+    fun aTamperedGroupKeyFileIsAKeyStorageError() {
+        groupKeys.write(GroupKeyFile.Contents(group, mapOf(0 to ByteArray(32) { 1 })))
+        val bytes = keyFile.readBytes()
+        bytes[bytes.size - 1] = (bytes[bytes.size - 1].toInt() xor 1).toByte()
+        keyFile.writeBytes(bytes)
+        assertFailsWith<KeyStorageException> { groupKeys.read() }
+    }
+
+    @Test
+    fun aBlobOfOneFileIsRefusedAsTheOther() {
+        vault.write(owner())
+        groupKeys.write(GroupKeyFile.Contents(group, mapOf(0 to ByteArray(32) { 1 })))
+        val vaultBytes = vaultFile.readBytes()
+        val keyBytes = keyFile.readBytes()
+        // swap the bodies behind the magic: the header is then right for the reader but the AAD binding must refuse it
+        vaultFile.writeBytes("KCT1".encodeToByteArray() + keyBytes.copyOfRange(4, keyBytes.size))
+        keyFile.writeBytes("KGK1".encodeToByteArray() + vaultBytes.copyOfRange(4, vaultBytes.size))
+        assertFailsWith<KeyStorageException> { vault.read() }
+        assertFailsWith<KeyStorageException> { groupKeys.read() }
+        keyFile.writeBytes(vaultBytes)
+        assertFailsWith<KeyStorageException> { groupKeys.read() }
+    }
+
+    @Test
+    fun deleteAlsoRemovesAStaleTempFile() {
+        vault.write(owner())
+        val stale = File(dir, CloudTokenVault.FILE_NAME + "123.tmp").apply { writeBytes(byteArrayOf(1)) }
+        vault.delete()
+        assertFalse(stale.exists())
+        assertTrue(dir.listFiles().orEmpty().isEmpty())
+    }
+
+    @Test
+    fun anOversizedTokenIsAKeyStorageError() {
+        assertFailsWith<KeyStorageException> { vault.write(owner(access = "x".repeat(70_000))) }
+    }
+
+    @Test
+    fun heldValuesAreCopies() {
+        val id = ByteArray(16) { 7 }
+        val t = CloudTokens(group, true, 1, id, "a", "r", 1)
+        id[0] = 0
+        assertEquals(7, t.storageId[0].toInt())
+        val key = ByteArray(32) { 1 }
+        val c = GroupKeyFile.Contents(group, mapOf(0 to key))
+        key[0] = 0
+        assertEquals(1, c.keys.getValue(0)[0].toInt())
+    }
+
+    @Test
+    fun cloudFilesHandOutOneInstancePerFile() {
+        val a = CloudFiles.vault(vaultFile) { wrap }
+        assertTrue(a === CloudFiles.vault(File(dir, "./" + CloudTokenVault.FILE_NAME)) { wrap })
+        assertTrue(CloudFiles.groupKeys(keyFile) { wrap } === CloudFiles.groupKeys(keyFile) { wrap })
+    }
 }
