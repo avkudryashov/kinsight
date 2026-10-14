@@ -73,4 +73,23 @@ object GroupKey {
 
     private fun aad(groupId: GroupId, epoch: Int, device: DeviceId): ByteArray =
         groupId.bytes() + ByteBuffer.allocate(4).putInt(epoch).array() + device.bytes()
+
+    /**
+     * Active members the newest rotation was not sealed to although their AddMember carries a lower Lamport value than the
+     * rotation op: its author cannot have seen the rotation, so the member got an older generation at pairing and never
+     * gets this one (Y1 review). Turning the cloud on, and any admin's cloud run, rotates again while this is not empty. A
+     * member added after the rotation got the newest generation in its welcome and is not listed.
+     */
+    fun membersWithoutKey(membership: MembershipState): Set<DeviceId> {
+        val r = membership.discoveryRotation ?: return emptySet()
+        val op = membership.effectiveEntries.firstOrNull { it.body.membership_op?.rotate == r } ?: return emptySet()
+        val holders = r.keys.map { it.device_id }.toSet()
+        val addedAt = membership.effectiveEntries.mapNotNull { e ->
+            val pk = e.body.membership_op?.add?.sign_public_key ?: return@mapNotNull null
+            DeviceId.fromSignPublicKey(pk.toByteArray()) to e.lamport
+        }.toMap()
+        return membership.active.keys.filter { id ->
+            id.bytes().toByteString() !in holders && (addedAt[id] ?: 0L) < op.lamport
+        }.toSet()
+    }
 }

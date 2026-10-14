@@ -1,5 +1,6 @@
 package app.kinsight.core.transport.cloud
 
+import kotlinx.coroutines.sync.Mutex
 import kotlin.test.assertFalse
 import java.security.MessageDigest
 import app.kinsight.core.crypto.toHex
@@ -401,4 +402,23 @@ class CloudSyncTest {
     }
 
     private fun md5(b: ByteArray) = MessageDigest.getInstance("MD5").digest(b).toHex()
+
+    @Test
+    fun instancesSharingTheProcessLockDoNotOverlap() = runTest {
+        val (_, kid) = family(DeviceRole.CHILD)
+        kid.publish(kid.author.summary("2026-10-13", 1))
+        val gated = GatedDisk(disk)
+        val lock = Mutex()
+        fun instance() = CloudSync(
+            kid.store, kid.keys, SyncPolicy(kid.id, showOthers = false, today = { TODAY }), gated, kid.ring, kid.cursor, { 1_000L },
+            running = lock,
+        )
+        val a = launch { instance().run() }
+        val b = launch { instance().run() }
+        yield()
+        gated.gate.complete(Unit)
+        a.join()
+        b.join()
+        assertEquals(1, gated.maxInside)
+    }
 }

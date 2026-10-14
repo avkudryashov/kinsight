@@ -10,6 +10,7 @@ import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.proto.CloudAccess
 import app.kinsight.core.model.proto.CloudGrant
+import app.kinsight.core.sync.EntryStore
 import okio.ByteString.Companion.toByteString
 import java.io.IOException
 import java.nio.ByteBuffer
@@ -76,6 +77,25 @@ object CloudAccessView {
         }
         return StorageAccess(owner.deviceId, storageId, owner.generation, grant.access_token, grant.expires_at_ms)
     }
+
+    /**
+     * [current] over the owner's log only, paged: the app never decodes the whole database for it (on Room every live
+     * entry would be decoded). Null as [current].
+     */
+    suspend fun current(store: EntryStore, membership: MembershipState, ring: Map<Int, ByteArray>): StorageAccess? {
+        val owner = membership.storageOwner ?: return null
+        var newest: DecodedEntry? = null
+        var after = 0L
+        while (true) {
+            val page = store.entriesAfter(owner.deviceId, after, PAGE)
+            if (page.isEmpty()) break
+            page.lastOrNull { it.kind == EntryKind.CLOUD_ACCESS }?.let { newest = it }
+            after = page.last().seq
+        }
+        return current(membership, listOfNotNull(newest), ring)
+    }
+
+    private const val PAGE = 500
 
     private fun aad(groupId: GroupId, generation: Long, storageId: ByteArray, keyEpoch: Int): ByteArray =
         groupId.bytes() + ByteBuffer.allocate(12).putLong(generation).putInt(keyEpoch).array() + storageId

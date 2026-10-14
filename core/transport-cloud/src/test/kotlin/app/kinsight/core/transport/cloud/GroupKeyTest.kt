@@ -1,5 +1,6 @@
 package app.kinsight.core.transport.cloud
 
+import app.kinsight.core.model.grantAdminEntry
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
@@ -68,5 +69,28 @@ class GroupKeyTest {
         ring.put(1, ByteArray(32) { 1 })
         ring.retain(setOf(1))
         assertEquals(setOf(1), ring.keys().keys)
+    }
+
+    @Test
+    fun aMemberAddedBeforeTheRotationWasSeenHasNoKey() {
+        val grant = mom.grantAdminEntry(dadKeys.deviceId)
+        val withGrant = base + grant
+        // Dad adds Grandpa having seen the grant but not Mom's rotation, which carries a higher Lamport value.
+        val dadAfterGrant = EntryAuthor(genesis.groupId, dadKeys, lastSeq = 0, lastLamport = grant.lamport)
+        val grandpaKeys = DeviceKeys.generate()
+        val addGrandpa = dadAfterGrant.addMember(grandpaKeys.sign.publicKey, grandpaKeys.dh.publicKey, "Grandpa")
+        val momLater = EntryAuthor(genesis.groupId, momKeys, lastSeq = mom.lastSeq, lastLamport = addGrandpa.lamport + 5)
+        val rotation = GroupKey.rotate(momLater, Membership.compute(genesis.groupId, withGrant)!!)
+        val state = Membership.compute(genesis.groupId, withGrant + addGrandpa + rotation)!!
+        assertEquals(setOf(grandpaKeys.deviceId), GroupKey.membersWithoutKey(state))
+        // A member added after the rotation got the newest generation in its welcome.
+        val newKid = DeviceKeys.generate()
+        val later = Membership.compute(genesis.groupId, withGrant + addGrandpa + rotation + momLater.addMember(newKid.sign.publicKey, newKid.dh.publicKey, "Kid2", DeviceRole.CHILD))!!
+        assertEquals(setOf(grandpaKeys.deviceId), GroupKey.membersWithoutKey(later))
+    }
+
+    @Test
+    fun withoutARotationNobodyLacksTheKey() {
+        assertTrue(GroupKey.membersWithoutKey(Membership.compute(genesis.groupId, base)!!).isEmpty())
     }
 }

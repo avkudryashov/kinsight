@@ -1,5 +1,6 @@
 package app.kinsight.core.transport.cloud
 
+import kotlinx.coroutines.test.runTest
 import app.kinsight.core.crypto.Primitives
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
@@ -142,5 +143,15 @@ class CloudAccessViewTest {
         val nonce = ByteArray(12) { 1 }
         val sealed = Primitives.chachaSeal(GroupKey.accessKey(gen0), nonce, aad, ByteArray(64) { 0xFF.toByte() })
         assertNull(malformed { it.copy(nonce = nonce.toByteString(), ciphertext = sealed.toByteString()) })
+    }
+
+    @Test
+    fun currentIsReadFromTheOwnersLogOnly() = runTest {
+        val (mom, kid) = family(DeviceRole.CHILD)
+        mom.publish(mom.author.storageOwnerEntry(mom.id, ByteArray(16) { 1 }, 1))
+        mom.publish(CloudAccessView.issue(mom.author, mom.membership(), 0, GEN0, "OLD", 9))
+        mom.publish(CloudAccessView.issue(mom.author, mom.membership(), 0, GEN0, "NEW", 9))
+        assertEquals("NEW", CloudAccessView.current(mom.store, mom.membership(), mapOf(0 to GEN0))!!.accessToken)
+        assertNull(CloudAccessView.current(kid.store, kid.membership(), mapOf(0 to GEN0)), "the kid knows no owner yet")
     }
 }

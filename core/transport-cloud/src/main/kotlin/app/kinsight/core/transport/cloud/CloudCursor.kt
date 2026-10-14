@@ -1,5 +1,11 @@
 package app.kinsight.core.transport.cloud
 
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
+import java.io.IOException
+
 /** A key generation and the [GroupKey.fingerprint] of the key: two admins rotating at once give one generation two keys. */
 data class KeyId(val epoch: Int, val fingerprint: String)
 
@@ -40,4 +46,63 @@ class InMemoryCursorStore(var cursor: CloudCursor = CloudCursor()) : CloudCursor
     override suspend fun save(cursor: CloudCursor) {
         this.cursor = cursor
     }
+}
+
+/**
+ * The cursor at rest (Y2: one Room row). Version byte, then the fields in declaration order, maps as a count and their
+ * entries. [decode] throws IOException for anything it did not write, including a cut or longer buffer.
+ */
+object CloudCursorCodec {
+    private const val VERSION = 1
+    private const val MAX_ITEMS = 1_000_000
+
+    fun encode(c: CloudCursor): ByteArray {
+        val bytes = ByteArrayOutputStream()
+        DataOutputStream(bytes).use { o ->
+            o.writeByte(VERSION)
+            o.writeLong(c.uploadedUpTo)
+            o.writeLong(c.lastCompactionMs)
+            o.writeInt(c.seen.size)
+            for ((k, v) in c.seen) {
+                o.writeUTF(k)
+                o.writeInt(v)
+            }
+            o.writeInt(c.ownPacks.size)
+            for ((k, v) in c.ownPacks) {
+                o.writeUTF(k)
+                o.writeInt(v.epoch)
+                o.writeUTF(v.fingerprint)
+            }
+            o.writeInt(c.deferred.size)
+            for ((k, v) in c.deferred) {
+                o.writeUTF(k)
+                o.writeInt(v.epoch)
+                o.writeOptional(v.failedKey)
+                o.writeOptional(v.membershipHash)
+            }
+        }
+        return bytes.toByteArray()
+    }
+
+    fun decode(bytes: ByteArray): CloudCursor {
+        val input = ByteArrayInputStream(bytes)
+        val i = DataInputStream(input)
+        if (i.readUnsignedByte() != VERSION) throw IOException("unknown cloud cursor version")
+        val uploaded = i.readLong()
+        val compaction = i.readLong()
+        val seen = (0 until i.count()).associate { i.readUTF() to i.readInt() }
+        val own = (0 until i.count()).associate { i.readUTF() to KeyId(i.readInt(), i.readUTF()) }
+        val deferred = (0 until i.count()).associate { i.readUTF() to DeferredPack(i.readInt(), i.readOptional(), i.readOptional()) }
+        if (input.available() != 0) throw IOException("trailing bytes in cloud cursor")
+        return CloudCursor(uploaded, seen, compaction, own, deferred)
+    }
+
+    private fun DataInputStream.count(): Int = readInt().also { if (it !in 0..MAX_ITEMS) throw IOException("bad count $it") }
+
+    private fun DataOutputStream.writeOptional(s: String?) {
+        writeBoolean(s != null)
+        if (s != null) writeUTF(s)
+    }
+
+    private fun DataInputStream.readOptional(): String? = if (readBoolean()) readUTF() else null
 }

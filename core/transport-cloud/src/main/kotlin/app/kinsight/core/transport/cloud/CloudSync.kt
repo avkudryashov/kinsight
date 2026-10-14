@@ -47,6 +47,11 @@ class CloudSync(
     private val log: (String) -> Unit = {},
     private val maxPackEntries: Int = MAX_PACK_ENTRIES,
     private val smallPackBytes: Int = SMALL_PACK_BYTES,
+    /**
+     * Runs never overlap: [rotationEntry], [storageFull] and the cursor belong to one run at a time. The app passes one lock
+     * for the whole process, so two instances over the same cursor store never run at once either (Y1 review).
+     */
+    private val running: Mutex = Mutex(),
 ) {
     private val self = keys.deviceId
     private val groupId = store.groupId
@@ -61,9 +66,6 @@ class CloudSync(
 
     private fun keyUpdates(epoch: Int): List<DecodedEntry> =
         listOfNotNull(rotationEntry?.takeIf { it.body.membership_op!!.rotate!!.epoch == epoch })
-
-    /** Runs never overlap: [rotationEntry], [storageFull] and the cursor belong to one run at a time. */
-    private val running = Mutex()
 
     suspend fun run(forceCompaction: Boolean = false): CloudResult = running.withLock { guardedRun(forceCompaction) }
 
