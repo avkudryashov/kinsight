@@ -1,6 +1,7 @@
 package app.kinsight.core.data
 
 import app.kinsight.core.model.proto.DeviceRole
+import app.kinsight.core.model.proto.Heartbeat
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.removeMemberEntry
 import app.kinsight.core.model.storageOwnerEntry
@@ -53,6 +54,47 @@ class CloudRunnerTest {
         assertTrue(mom.runner(disk).isOn())
         assertNotNull(mom.cloudState.current().lastSyncMs)
         assertNull(mom.cloudState.current().problem)
+    }
+
+    private suspend fun TestDevice.beat(): app.kinsight.core.model.DecodedEntry {
+        var e: app.kinsight.core.model.DecodedEntry? = null
+        check(pipeline.appendOwn { a -> listOf(a.create { it.copy(heartbeat = Heartbeat(app_version = "t", protocol_version = 3)) }.also { e = it }) })
+        return e!!
+    }
+
+    /**
+     * Rulings Q14: the owner is heard on this device's clock when its log grows here, by the cloud or a Bluetooth session.
+     * An admin parent observes (only it may take the storage over, spec §7.2); a child keeps no others' entries.
+     */
+    @Test
+    fun theOwnerIsHeardWhenItsLogGrowsHere() = runBlocking<Unit> {
+        val day = 24L * 60 * 60 * 1000
+        val dad = TestDevice()
+        try {
+            mom.group.createGroup("Mom")
+            dad.joinAsAdminOf(mom)
+            mom.ownStorage()
+            dad.learnsStorageFrom(mom)
+            val momId = mom.keys.deviceId
+            assertEquals(CloudRun.SYNCED, mom.runner(disk).run(CloudTrigger.NOW))
+            val first = dad.now
+            assertEquals(CloudRun.SYNCED, dad.runner(disk).run(CloudTrigger.NOW))
+            assertEquals(first, dad.cloudState.current().ownerHeardFrom(momId), "first tracked: the week starts now")
+            dad.now += day
+            assertEquals(CloudRun.SYNCED, dad.runner(disk).run(CloudTrigger.NOW))
+            assertEquals(first, dad.cloudState.current().ownerHeardFrom(momId), "nothing new from the owner")
+            mom.now += 30 * day // the owner's clock runs far ahead: its stamps decide nothing
+            mom.beat()
+            assertEquals(CloudRun.SYNCED, mom.runner(disk).run(CloudTrigger.NOW))
+            assertEquals(CloudRun.SYNCED, dad.runner(disk).run(CloudTrigger.NOW))
+            assertEquals(dad.now, dad.cloudState.current().ownerHeardFrom(momId), "heard by the cloud run")
+            dad.now += day
+            dad.store().applyBatch(listOf(mom.beat())) // what a Bluetooth session applies
+            dad.runner(disk).noteOwnerHeard()
+            assertEquals(dad.now, dad.cloudState.current().ownerHeardFrom(momId), "heard after the session")
+        } finally {
+            dad.close()
+        }
     }
 
     /** Review Minor 5: a removed device is not on, so it never schedules runs that only cancel themselves. */

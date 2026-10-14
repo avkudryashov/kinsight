@@ -37,6 +37,7 @@ open class KinsightApplication : Application() {
         CloudGraph.config = CloudConfig(BuildConfig.YANDEX_CLIENT_ID, BuildConfig.YANDEX_CLIENT_SECRET, BuildConfig.YANDEX_REDIRECT_URI)
         SyncGraph.install(this)
         SyncGraph.cloudHandoff = { ctx, group, store, keys -> CloudSessionHandoff(AppGraph.get(ctx).cloudSecrets, group, store, keys.deviceId) }
+        SyncGraph.cloudGeneration = { AppGraph.get(it).cloudState.current().syncedGeneration ?: 0L }
         IntegrityFastSync.install(this)
         UsageWork.schedule(this)
         CloudWork.keepScheduled(this)
@@ -45,6 +46,9 @@ open class KinsightApplication : Application() {
         SyncGraph.onSessionFinished = {
             AlertsWork.runSoon(it)
             CloudWork.keepScheduled(it)
+            // Rulings Q14: the session may have brought the storage owner's new entries.
+            val graph = AppGraph.get(it)
+            graph.scope.launch { attempt("owner heard") { graph.cloud.noteOwnerHeard() } }
         }
         SyncGraph.onboardingDone = { AppGraph.get(it).prefs.current().onboardingDone }
         UsageAccessWatcher.register(this)

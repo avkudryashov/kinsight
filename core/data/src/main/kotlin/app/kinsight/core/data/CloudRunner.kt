@@ -8,6 +8,7 @@ import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.Membership
+import app.kinsight.core.model.MembershipState
 import app.kinsight.core.transport.ble.GroupStore
 import app.kinsight.core.transport.ble.SyncPolicies
 import app.kinsight.core.transport.cloud.CloudResult
@@ -133,7 +134,9 @@ class CloudRunner(
                 store, k, policy, runDisk, ring, cursors, clock,
                 log = { Log.i(TAG, it) }, running = Mutex(), // [runLock] is already held around the whole run
             ).also { cached = key to it }
-        return when (sync.run()) {
+        val result = sync.run()
+        observeOwner(store, membership, now)
+        return when (result) {
             is CloudResult.Synced -> record(now, CloudRun.SYNCED, null, synced = true)
             CloudResult.Unauthorized -> record(now, CloudRun.UNAUTHORIZED, if (isOwner) CloudProblem.UNAUTHORIZED else CloudProblem.NO_ACCESS)
             CloudResult.StorageFull -> record(now, CloudRun.STORAGE_FULL, CloudProblem.STORAGE_FULL)
@@ -143,6 +146,22 @@ class CloudRunner(
             CloudResult.NotMember -> CloudRun.OFF
             is CloudResult.Retry -> record(now, CloudRun.RETRY, CloudProblem.NETWORK)
         }
+    }
+
+    /**
+     * Rulings Q14: notes the storage owner's newest seq here, heard on this device's clock when it grew. After every
+     * cloud run and every Bluetooth session (the app's session hook); DataStore and Room reads only, no [runLock].
+     */
+    suspend fun noteOwnerHeard() {
+        val group = withContext(io) { groups.read() } ?: return
+        val store = RoomEntryStore(db, group.groupId)
+        val membership = Membership.compute(group.groupId, store.membershipEntries()) ?: return
+        observeOwner(store, membership, clock())
+    }
+
+    private suspend fun observeOwner(store: RoomEntryStore, membership: MembershipState, nowMs: Long) {
+        val owner = membership.storageOwner ?: return
+        state.observeOwner(owner.deviceId, store.versionVector()[owner.deviceId], nowMs)
     }
 
     /** One line for the debug hook CLOUD_STATUS. Never a token. */

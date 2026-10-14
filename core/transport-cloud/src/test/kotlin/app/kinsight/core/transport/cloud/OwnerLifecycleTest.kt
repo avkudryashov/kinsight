@@ -129,35 +129,51 @@ class OwnerLifecycleTest {
     }
 
     @Test
-    fun theOwnerIsUnavailableWhenGoneOrSilentForAWeek() {
+    fun theOwnerIsUnavailableWhenGoneOrNotHeardHereForAWeek() {
         val now = 100L * 24 * 60 * 60 * 1000
         val day = 24L * 60 * 60 * 1000
         assertFalse(OwnerLifecycle.ownerUnavailable(state(), now - 6 * day, now))
-        assertTrue(OwnerLifecycle.ownerUnavailable(state(), now - 8 * day, now))
-        assertFalse(OwnerLifecycle.ownerUnavailable(state(), null, now), "never heard of: no claim")
+        assertTrue(OwnerLifecycle.ownerUnavailable(state(), now - 7 * day, now), "a full week on this device's clock")
+        assertFalse(OwnerLifecycle.ownerUnavailable(state(), null, now), "never tracked here: no claim")
         val removed = at(dadKeys, 40).removeMemberEntry(momKeys.deviceId, mom1.seq) // keeps her ops up to mom1
         assertTrue(OwnerLifecycle.ownerUnavailable(state(removed), now, now))
     }
 
     @Test
-    fun anOwnerStampInTheFutureCountsAsNow() {
+    fun aNewOwnerSeqIsHeardOnTheLocalClockAndNothingElseIs() {
+        val first = OwnerLifecycle.ownerHeard(null, momKeys.deviceId, newestSeq = 5, nowMs = 1_000)
+        assertEquals(OwnerHeard(momKeys.deviceId, 5, 1_000), first, "first tracked: the week starts now")
+        assertEquals(first, OwnerLifecycle.ownerHeard(first, momKeys.deviceId, 5, 2_000), "nothing new")
+        assertEquals(first, OwnerLifecycle.ownerHeard(first, momKeys.deviceId, 4, 2_000), "never backwards")
+        assertEquals(OwnerHeard(momKeys.deviceId, 6, 3_000), OwnerLifecycle.ownerHeard(first, momKeys.deviceId, 6, 3_000))
+        assertEquals(OwnerHeard(dadKeys.deviceId, 2, 4_000), OwnerLifecycle.ownerHeard(first, dadKeys.deviceId, 2, 4_000), "another owner")
+    }
+
+    /** Rulings Q14: the owner's own clock never decides; only when this device saw its log grow. */
+    @Test
+    fun aFutureOwnerStampDecidesNothing() {
         val now = 100L * 24 * 60 * 60 * 1000
         val day = 24L * 60 * 60 * 1000
-        assertFalse(OwnerLifecycle.ownerUnavailable(state(), now + 30 * day, now), "Q4: never a negative silence")
-        val stamped = now + 2 * day
-        assertFalse(OwnerLifecycle.ownerUnavailable(state(), stamped, now + 6 * day))
-        assertTrue(OwnerLifecycle.ownerUnavailable(state(), stamped, now + 10 * day), "silent a week past its stamp")
+        val heard = OwnerLifecycle.ownerHeard(null, momKeys.deviceId, newestSeq = 5, nowMs = now)
+        // The owner's next entry is stamped a month ahead; it is still heard at the reader's now.
+        val ahead = at(momKeys, 20, seq = 6).create { it.copy(heartbeat = Heartbeat(app_version = "t"), created_at_ms = now + 30 * day) }
+        val later = OwnerLifecycle.ownerHeard(heard, momKeys.deviceId, ahead.seq, now + day)
+        assertEquals(now + day, later.heardAtMs)
+        assertFalse(OwnerLifecycle.ownerUnavailable(state(), later.heardAtMs, now + 7 * day))
+        assertTrue(OwnerLifecycle.ownerUnavailable(state(), later.heardAtMs, now + 8 * day), "silent a week here, whatever its stamp")
     }
 
     @Test
-    fun aLaggingClockDecidesOnTheReadersTime() {
+    fun aLaggingOwnerClockDecidesNothing() {
         val now = 100L * 24 * 60 * 60 * 1000
         val day = 24L * 60 * 60 * 1000
-        // The owner's clock runs 3 days behind and it was heard just now: still available.
-        assertFalse(OwnerLifecycle.ownerUnavailable(state(), now - 3 * day, now))
-        // The reader's clock runs behind the owner's: the stamp is clamped to the reader's now.
-        assertFalse(OwnerLifecycle.ownerUnavailable(state(), now + day, now - 5 * day))
-        assertTrue(OwnerLifecycle.ownerUnavailable(state(), now - 9 * day, now), "a week past the clamp on the reader's clock")
+        val heard = OwnerLifecycle.ownerHeard(null, momKeys.deviceId, newestSeq = 5, nowMs = now - day)
+        // The owner's clock runs three weeks behind: its fresh entry would look silent by its stamp, but it is new here.
+        val behind = at(momKeys, 20, seq = 6).create { it.copy(heartbeat = Heartbeat(app_version = "t"), created_at_ms = now - 21 * day) }
+        val later = OwnerLifecycle.ownerHeard(heard, momKeys.deviceId, behind.seq, now)
+        assertFalse(OwnerLifecycle.ownerUnavailable(state(), later.heardAtMs, now))
+        assertFalse(OwnerLifecycle.ownerUnavailable(state(), later.heardAtMs, now + 6 * day))
+        assertTrue(OwnerLifecycle.ownerUnavailable(state(), later.heardAtMs, now + 7 * day))
     }
 
     @Test
@@ -168,14 +184,6 @@ class OwnerLifecycleTest {
         assertFalse(OwnerLifecycle.canTakeOver(m, dadKeys.deviceId, emptyList(), null, 0))
         assertFalse(OwnerLifecycle.canTakeOver(m, kidKeys.deviceId, asked, null, 0))
         assertFalse(OwnerLifecycle.canTakeOver(m, momKeys.deviceId, asked, null, 0))
-    }
-
-    @Test
-    fun lastHeardIsTheOwnersNewestEntry() {
-        val a = at(momKeys, 20).create { it.copy(heartbeat = Heartbeat(app_version = "t"), created_at_ms = 5) }
-        val b = at(momKeys, 21, seq = 101).create { it.copy(heartbeat = Heartbeat(app_version = "t"), created_at_ms = 9) }
-        assertEquals(9L, OwnerLifecycle.lastHeard(momKeys.deviceId, listOf(a, b, beat(dadKeys, 1))))
-        assertNull(OwnerLifecycle.lastHeard(kidKeys.deviceId, listOf(a)))
     }
 
     @Test

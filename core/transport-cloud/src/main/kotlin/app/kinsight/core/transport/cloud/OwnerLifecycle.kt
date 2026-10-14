@@ -8,6 +8,9 @@ import app.kinsight.core.model.StorageOwnerState
 import app.kinsight.core.model.proto.StateEvent
 import okio.ByteString.Companion.toByteString
 
+/** Rulings Q14: [owner]'s newest seq this device has seen, and when (this device's clock) it first saw it. */
+data class OwnerHeard(val owner: DeviceId, val seq: Long, val heardAtMs: Long)
+
 /** Why this phone may not leave yet (spec §7.1): it holds the storage, or its old storage is still in use. */
 enum class OwnerLeaveBlock { HANDOVER_NEEDED, SWITCHING }
 
@@ -47,27 +50,33 @@ object OwnerLifecycle {
         return to.takeIf { it != owner.deviceId && target.isAdmin && !target.isChild }
     }
 
-    /** The newest creation time among [owner]'s entries in [entries] (its Heartbeats and events), or null. */
-    fun lastHeard(owner: DeviceId, entries: List<DecodedEntry>): Long? =
-        entries.filter { it.author == owner }.maxOfOrNull { it.body.created_at_ms }
+    /**
+     * Rulings Q14: when this device last saw [owner]'s log grow, on its own clock. A first sighting of an owner (or another
+     * owner) counts as heard [nowMs], so the week of §7.2 starts when this device began to track it; a [newestSeq] above
+     * the one seen before is heard [nowMs]; anything else keeps [previous]. The owner's own stamps never enter.
+     */
+    fun ownerHeard(previous: OwnerHeard?, owner: DeviceId, newestSeq: Long, nowMs: Long): OwnerHeard = when {
+        previous == null || previous.owner != owner || newestSeq > previous.seq -> OwnerHeard(owner, newestSeq, nowMs)
+        else -> previous
+    }
 
     /**
-     * Spec §7.2: the owner departed, or nothing was heard from it for [UNAVAILABLE_AFTER_MS] on the reader's clock [nowMs].
-     * Never heard of: available. [ownerLastHeardMs] is the owner's own stamp (the entry store keeps no receive time), so
-     * a stamp ahead of [nowMs] counts as now (rulings Q4).
+     * Spec §7.2: the owner departed, or this device has not seen its log grow for [UNAVAILABLE_AFTER_MS]. [ownerHeardAtMs]
+     * is [OwnerHeard.heardAtMs] for the current owner, on this device's clock like [nowMs] (rulings Q14); null (never
+     * tracked here) is available.
      */
-    fun ownerUnavailable(m: MembershipState, ownerLastHeardMs: Long?, nowMs: Long): Boolean {
+    fun ownerUnavailable(m: MembershipState, ownerHeardAtMs: Long?, nowMs: Long): Boolean {
         val owner = m.storageOwner ?: return false
         if (owner.deviceId !in m.active) return true
-        return ownerLastHeardMs != null && nowMs - minOf(ownerLastHeardMs, nowMs) > UNAVAILABLE_AFTER_MS
+        return ownerHeardAtMs != null && nowMs - ownerHeardAtMs >= UNAVAILABLE_AFTER_MS
     }
 
     /** An active admin parent other than the owner, asked by the owner (§7.1) or with the owner unavailable (§7.2, §7.3). */
-    fun canTakeOver(m: MembershipState, self: DeviceId, handovers: List<DecodedEntry>, ownerLastHeardMs: Long?, nowMs: Long): Boolean {
+    fun canTakeOver(m: MembershipState, self: DeviceId, handovers: List<DecodedEntry>, ownerHeardAtMs: Long?, nowMs: Long): Boolean {
         val owner = m.storageOwner ?: return false
         val me = m.active[self] ?: return false
         if (owner.deviceId == self || !me.isAdmin || me.isChild) return false
-        return handoverTo(m, handovers) == self || ownerUnavailable(m, ownerLastHeardMs, nowMs)
+        return handoverTo(m, handovers) == self || ownerUnavailable(m, ownerHeardAtMs, nowMs)
     }
 
     /**

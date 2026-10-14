@@ -29,7 +29,8 @@ suspend fun RoomEntryStore.ownLog(self: DeviceId): OwnLog =
  * false means no group yet. [ownLog] reads the log of the author it gets, from Room only (never the pipeline); it runs
  * inside [append]'s build, under the pipeline lock: no own entry can be stored or superseded between reading the live
  * set and signing it, so a live entry is never declared dead. When neither the clock nor the log calls for one, the
- * build returns nothing and no Heartbeat is signed.
+ * build returns nothing and no Heartbeat is signed. Each carries the cloud storage generation ([cloudGeneration]); a new
+ * generation is due at once.
  */
 class Heartbeats(
     private val state: TransportStateStore,
@@ -37,11 +38,17 @@ class Heartbeats(
     private val append: suspend (suspend (EntryAuthor) -> List<DecodedEntry>) -> Boolean,
     private val ownLog: suspend (EntryAuthor) -> OwnLog = { OwnLog(emptyList(), null) },
     private val clock: () -> Long = System::currentTimeMillis,
+    /** The storage generation of the last successful cloud sync (spec §7), 0 without the cloud. A new one makes a Heartbeat due. */
+    private val cloudGeneration: suspend () -> Long = { 0L },
 ) {
-    private val version = "$appVersion/$PROTOCOL_VERSION"
+    private val baseVersion = "$appVersion/$PROTOCOL_VERSION"
 
     suspend fun emitIfDue(): Boolean {
         val now = clock()
+        val generation = cloudGeneration()
+        // The generation is part of the mark: the first Heartbeat after a switch is due at once, which is how the phone
+        // that replaced a token learns that everyone switched (spec §7.1 «Когда все активные подтвердили»).
+        val version = if (generation == 0L) baseVersion else "$baseVersion/g$generation"
         val last = state.heartbeat()
         val timeDue = last == null || last.version != version || now - last.atMs !in 0 until INTERVAL_MS
         // Cheap checks first: inside the moved floor nothing is due, so neither the pipeline lock nor the own log is taken.
@@ -52,7 +59,7 @@ class Heartbeats(
             val moved = (log.liveSeqs.lastOrNull() ?: 0L) > (log.heartbeatSeq ?: 0L)
             if (!timeDue && !moved) return@append emptyList()
             signed = true
-            listOf(author.create { it.copy(heartbeat = LiveSet.heartbeat(appVersion, PROTOCOL_VERSION, log.liveSeqs, log.heartbeatSeq)) })
+            listOf(author.create { it.copy(heartbeat = LiveSet.heartbeat(appVersion, PROTOCOL_VERSION, log.liveSeqs, log.heartbeatSeq, storageGeneration = generation)) })
         }
         if (!appended || !signed) return false
         state.setHeartbeat(HeartbeatMark(now, version))

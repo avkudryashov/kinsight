@@ -146,4 +146,21 @@ class TransportStateTest {
         assertTrue(beats.emitIfDue())
         assertEquals(2, appended.size)
     }
+
+    @Test
+    fun aNewCloudGenerationMakesAHeartbeatDueAndIsCarried() = runBlocking {
+        val group = TestGroup.create(1)
+        val d = group.devices[0]
+        val appended = mutableListOf<app.kinsight.core.model.DecodedEntry>()
+        var generation = 0L
+        val beats = Heartbeats(state, "0.1.0", append = { build -> appended += build(d.author); true }, clock = { now }, cloudGeneration = { generation })
+        assertTrue(beats.emitIfDue())
+        assertEquals(0L, appended.last().body.heartbeat!!.storage_generation)
+        now += Heartbeats.MOVED_INTERVAL_MS + 1
+        assertFalse(beats.emitIfDue())
+        generation = 2
+        assertTrue(beats.emitIfDue(), "spec §7.1: a switch is confirmed at once")
+        assertEquals(2L, appended.last().body.heartbeat!!.storage_generation)
+        assertFalse(beats.emitIfDue())
+    }
 }

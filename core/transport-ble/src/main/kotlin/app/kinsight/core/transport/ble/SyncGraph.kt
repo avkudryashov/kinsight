@@ -75,6 +75,10 @@ object SyncGraph {
     @Volatile
     var cloudHandoff: suspend (Context, GroupConfig, EntryStore, DeviceKeys) -> SessionHandoff? = { _, _, _, _ -> null }
 
+    /** The storage generation of the last successful cloud sync (spec §7), set by the app at start; 0 without the cloud. */
+    @Volatile
+    var cloudGeneration: suspend (Context) -> Long = { 0L }
+
     internal fun publish(s: ServiceSnapshot) {
         _snapshot.value = s
     }
@@ -219,6 +223,7 @@ object SyncGraph {
             append = { build -> UsageGraph.pipeline(app).appendOwn(build = build) },
             // Room only, never the pipeline: runs inside the Heartbeat's build, under stateLock and the pipeline lock.
             ownLog = { author -> RoomEntryStore(KinsightDatabaseFactory.shared(app), author.groupId).ownLog(author.keys.deviceId) },
+            cloudGeneration = { cloudGeneration(app) },
         )
     }
 
