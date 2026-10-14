@@ -57,18 +57,34 @@ class CloudWorkTest {
         CloudWork.cancel(app)
     }
 
-    /** A token arriving never stacks runs (KEEP); opening the app replaces a run stuck in a backoff (REPLACE, spec §9). */
+    /** Opening the app replaces a run stuck in a backoff (REPLACE, spec §9). */
     @Test
     fun openingTheAppReplacesAWaitingRun() {
         val wm = WorkManager.getInstance(app)
         fun live() = wm.getWorkInfosForUniqueWork(CloudWork.NOW).get().filter { it.state != WorkInfo.State.CANCELLED }.map { it.id }
-        CloudWork.runNow(app)
+        CloudWork.runNow(app, ExistingWorkPolicy.REPLACE)
         val first = live().single()
-        CloudWork.runNow(app)
-        assertEquals(listOf(first), live())
         CloudWork.runNow(app, ExistingWorkPolicy.REPLACE)
         val replaced = live().single()
         assertNotEquals(first, replaced)
+        CloudWork.cancel(app)
+    }
+
+    /**
+     * Final review Important 1: a token arriving while a run is in flight (it may have read the dead token) gets a run of
+     * its own after that one, so a restore or a hand-off never leaves the §11 error on screen until the next period.
+     */
+    @Test
+    fun aTokenArrivingDuringARunQueuesAnotherAfterIt() {
+        val wm = WorkManager.getInstance(app)
+        fun live() = wm.getWorkInfosForUniqueWork(CloudWork.NOW).get().filter { it.state != WorkInfo.State.CANCELLED }
+        CloudWork.runNow(app, ExistingWorkPolicy.REPLACE) // the app was opened: a run is on its way
+        val inFlight = live().single()
+        CloudWork.afterToken(app)
+        val after = live().filter { it.id != inFlight.id }.single()
+        assertEquals("chained after the run in flight, not dropped", WorkInfo.State.BLOCKED, after.state)
+        assertEquals(ExistingWorkPolicy.APPEND_OR_REPLACE, CloudWork.TOKEN_POLICY)
+        assertEquals(1, wm.getWorkInfosForUniqueWork(CloudWork.PERIODIC).get().count { it.state != WorkInfo.State.CANCELLED })
         CloudWork.cancel(app)
     }
 

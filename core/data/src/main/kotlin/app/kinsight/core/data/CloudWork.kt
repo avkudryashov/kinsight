@@ -66,10 +66,10 @@ object CloudWork {
     }
 
     /**
-     * A run now. [policy] KEEP (a token arrived) never stacks runs; REPLACE (the app was opened) replaces a run waiting in
-     * a long backoff, so the parent reads at once (spec §9).
+     * A run now. [policy] [TOKEN_POLICY] (a token arrived) queues one more run after a run in flight; REPLACE (the app was
+     * opened) replaces a run waiting in a long backoff, so the parent reads at once (spec §9).
      */
-    fun runNow(context: Context, policy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP) {
+    fun runNow(context: Context, policy: ExistingWorkPolicy) {
         val request = OneTimeWorkRequestBuilder<CloudWorker>()
             .setConstraints(network())
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
@@ -88,10 +88,19 @@ object CloudWork {
     /** App start and after every Bluetooth session (it may have brought a storage owner): the periodic job, if the cloud is on. */
     fun keepScheduled(context: Context): Job = whenOn(context) { schedule(context) }
 
-    /** A token arrived (sign-in, pairing welcome, Bluetooth hand-off): the periodic job and a run now. */
-    fun runSoon(context: Context): Job = whenOn(context) {
+    /**
+     * A run in flight may have read the old token (or none) and end in a §11 error after the new one is stored: a token
+     * arriving always gets a run of its own after it (APPEND_OR_REPLACE), never one dropped as a duplicate (final review).
+     */
+    val TOKEN_POLICY = ExistingWorkPolicy.APPEND_OR_REPLACE
+
+    /** A token arrived (sign-in, pairing welcome, Bluetooth hand-off): the periodic job and a run after any in flight. */
+    fun runSoon(context: Context): Job = whenOn(context) { afterToken(context) }
+
+    /** What [runSoon] does once it knows the cloud is on. */
+    fun afterToken(context: Context) {
         schedule(context)
-        runNow(context)
+        runNow(context, TOKEN_POLICY)
     }
 
     /** The app was opened (spec §9: a parent reads at once): the periodic job and a fresh run now. */
