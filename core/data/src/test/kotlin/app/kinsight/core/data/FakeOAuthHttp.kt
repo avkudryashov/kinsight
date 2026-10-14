@@ -11,7 +11,7 @@ import java.net.URLDecoder
 
 /**
  * The Yandex token endpoint: a code starting with "bad" is refused (invalid_grant), one starting with "busy" gets a 503
- * without an error field, anything else gets [accessToken] for a year. [unreachable]: the next request fails with no answer.
+ * without an error field, one starting with "down" a 503 with the OAuth error temporarily_unavailable, anything else gets [accessToken] for a year. [unreachable]: the next request fails with no answer.
  * [gate]: a request waits for it after [entered] completes (a slow endpoint).
  */
 class FakeOAuthHttp(var accessToken: String = "AT1") : Http() {
@@ -34,6 +34,8 @@ class FakeOAuthHttp(var accessToken: String = "AT1") : Http() {
         forms += form
         return if (form["code"]?.startsWith("bad") == true) {
             HttpResponse(400, """{"error":"invalid_grant"}""".encodeToByteArray(), emptyMap())
+        } else if (form["code"]?.startsWith("down") == true) {
+            HttpResponse(503, """{"error":"temporarily_unavailable"}""".encodeToByteArray(), emptyMap())
         } else if (form["code"]?.startsWith("busy") == true) {
             HttpResponse(503, "{}".encodeToByteArray(), emptyMap())
         } else {

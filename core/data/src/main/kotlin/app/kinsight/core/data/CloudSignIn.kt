@@ -170,8 +170,8 @@ class CloudSignIn(
             reopen(p, networkError = false)
             throw e
         } catch (e: OAuthException) {
-            // Spec §11: 5xx and 429 are retried, like no answer at all.
-            if (e.error == "http_429" || e.error.startsWith("http_5")) return reopen(p, networkError = true)
+            // Spec §11: 5xx, 429 and the endpoint's own trouble codes are retried, like no answer at all.
+            if (e.retryable) return reopen(p, networkError = true)
             Log.w(TAG, "sign-in refused: ${e.error}")
             return settle(CloudEnableResult.SIGN_IN_FAILED)
         } catch (e: IOException) {

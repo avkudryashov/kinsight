@@ -23,8 +23,18 @@ data class TokenSet(val accessToken: String, val refreshToken: String?, val expi
     override fun toString() = "TokenSet(expiresAtMs=$expiresAtMs, refresh=${refreshToken != null})"
 }
 
-/** `invalid_grant`: the code or refresh token is dead, sign in again; `invalid_client`: wrong id or secret. */
-class OAuthException(val error: String, val description: String?) : IOException("$error: $description")
+/**
+ * `invalid_grant`: the code or refresh token is dead, sign in again; `invalid_client`: wrong id or secret. [status]: the
+ * HTTP status (0 when the answer was 200 but unusable). [retryable]: the endpoint is in trouble, not the request (spec §11:
+ * 5xx and 429, or `server_error` / `temporarily_unavailable` whatever the status); the same request may be sent again.
+ */
+class OAuthException(val error: String, val description: String?, val status: Int = 0) : IOException("$error: $description") {
+    val retryable: Boolean get() = status == 429 || status in 500..599 || error in RETRYABLE_ERRORS
+
+    private companion object {
+        val RETRYABLE_ERRORS = setOf("server_error", "temporarily_unavailable")
+    }
+}
 
 /**
  * Yandex OAuth (spec §3, §6). [clientSecret] ships in the APK (spec §2) and is needed only to refresh and revoke;
@@ -74,7 +84,7 @@ class YandexOAuth(
         } catch (e: IllegalArgumentException) {
             null
         } ?: throw IOException("token endpoint answered ${r.code} without a JSON object")
-        if (r.code != 200) throw OAuthException(o.str("error") ?: "http_${r.code}", o.str("error_description"))
+        if (r.code != 200) throw OAuthException(o.str("error") ?: "http_${r.code}", o.str("error_description"), r.code)
         val access = o.str("access_token") ?: throw OAuthException("no_access_token", null)
         val expiresIn = (o["expires_in"] as? JsonPrimitive)?.longOrNull ?: 0L
         return TokenSet(access, o.str("refresh_token"), clock() + expiresIn * 1000)

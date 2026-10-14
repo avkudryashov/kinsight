@@ -71,7 +71,27 @@ class YandexOAuthTest {
         y.on({ it.path == "/token" }) { _, ex -> y.respond(ex, 400, """{"error":"invalid_grant","error_description":"Code has expired"}""") }
         val e = assertFailsWith<OAuthException> { oauth.exchange("OLD", "V") }
         assertEquals("invalid_grant", e.error)
+        assertFalse(e.retryable, "a dead code is not retried")
         assertFailsWith<IllegalStateException> { YandexOAuth("CID", null, base = y.base).refresh("RT") }
+    }
+
+    /** Spec §11: a 5xx or 429 is retried even with an OAuth error body, and so is server_error or temporarily_unavailable. */
+    @Test
+    fun endpointTroubleIsRetryable() = runTest {
+        val answers = ArrayDeque(
+            listOf(
+                503 to """{"error":"invalid_request"}""",
+                429 to """{"error":"too_many"}""",
+                400 to """{"error":"server_error"}""",
+                400 to """{"error":"temporarily_unavailable"}""",
+                500 to "{}",
+            ),
+        )
+        y.on({ it.path == "/token" }) { _, ex -> answers.removeFirst().let { (code, body) -> y.respond(ex, code, body) } }
+        repeat(5) {
+            val e = assertFailsWith<OAuthException> { oauth.exchange("C", "V") }
+            assertTrue(e.retryable, e.error)
+        }
     }
 
     @Test

@@ -210,6 +210,9 @@ class CloudSignInTest {
         // Spec §11: a 5xx is retried like no answer.
         assertEquals(CloudEnableResult.NETWORK, s.finish("busy1234"))
         assertEquals(SignInState.Waiting(url, networkError = true), s.state.value)
+        // Final review: a 503 whose body names an OAuth error is endpoint trouble too, not a refused code.
+        assertEquals(CloudEnableResult.NETWORK, s.finish("down1234"))
+        assertEquals(SignInState.Waiting(url, networkError = true), s.state.value)
         assertEquals(CloudEnableResult.ENABLED, s.finish("1234567"), "the same code, sent again")
         assertEquals(SignInState.Done(CloudEnableResult.ENABLED), s.state.value)
     }
