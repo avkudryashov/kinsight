@@ -81,7 +81,8 @@ internal fun LazyListScope.cloudSection(s: CloudStatus, nowMs: Long, onSignIn: (
  */
 @Composable
 internal fun CloudSignInDialog(state: SignInState, onCode: (String) -> Unit, onSignIn: () -> Unit, onDismiss: () -> Unit) {
-    var code by rememberSaveable { mutableStateOf("") }
+    // A new sign-in (a new address) starts with an empty field: a spent code must not be sent to it.
+    var code by rememberSaveable((state as? SignInState.Waiting)?.url) { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier.dialogTestTags(), // its own window: the root flag does not reach it

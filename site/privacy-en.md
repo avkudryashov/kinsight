@@ -35,7 +35,7 @@ Kinsight reads only what it needs to count screen time and to exchange it inside
 - Identifiers and cryptographic keys created by the app on that phone: a random device identifier, a group identifier and public keys. These are not linked to your Google account, phone number, IMEI, advertising ID or any other hardware identifier.
 - Group membership records: who joined or left, who is an admin, and short "still here" signals that tell the group when a phone was last in contact.
 - On parents' phones only: limit notification rules and app category changes made by parents. Category changes are shared with the other parents; limit rules stay on the phone where they were set.
-- Only if a parent turned on the sync through Yandex Disk: the access to the Kinsight folder on that parent's Yandex Disk (an access token), which the phones of the group receive from that parent's phone over the encrypted pairing or Bluetooth connection, and, on that parent's phone only, the token that renews it. Kinsight never sees the parent's Yandex password.
+- Only if a parent turned on the sync through Yandex Disk: the access to the Kinsight folder on that parent's Yandex Disk (an access token), which the phones of the group receive in encrypted form from that parent's phone, directly or through the other phones of the group, and, on that parent's phone only, the token that renews it. Kinsight never sees the parent's Yandex password.
 
 **Camera:** when a phone joins a group, Kinsight uses the camera to scan the invitation QR code. The images are processed on the phone only to read the code, and are neither saved nor sent anywhere.
 
@@ -48,7 +48,7 @@ Information leaves a phone only for the other phones of the same family group th
 - **A child's phone** sends its screen time, app list, events, name and keys to the phones of all parents in the group, including parents who join the group later. The current list of parents is shown on the child's phone in Settings, on the screen "Who sees my data".
 - **A parent's phone** keeps the children's data and passes it on to the other parents of the group, so that all parents see the same picture. A parent's phone sends only its own name, keys, membership records and "still here" signals; it never sends its own screen time.
 - **A child's phone does not receive** the data of other phones in the group, except the list of group members.
-- **Yandex** stores the encrypted files on the Disk of the parent who turned the sync on, under that parent's own Yandex account and the terms between that parent and Yandex. The files are sealed with the group's key, which Yandex does not have: Yandex sees only folder names (random identifiers), file sizes and times.
+- **Yandex** stores the encrypted files on the Disk of the parent who turned the sync on, under that parent's own Yandex account and the terms between that parent and Yandex. The contents of the files are sealed with the group's key, which Yandex does not have. Yandex does see: at sign-in, the name of the phone that signs in and a random identifier of that phone; on the Disk, the names of the folders and files (random identifiers and number ranges), their sizes and times, and the random identifier of the storage; and, because every phone that syncs through the Disk connects to Yandex, the child's phone included, the IP address of each such phone.
 
 Apart from those encrypted files, nobody else receives the information: not us, not Google, not advertisers, not any other company. We do not sell, rent or share data with third parties, because we never have it.
 
@@ -94,7 +94,7 @@ Older records are deleted automatically and are no longer accepted from other ph
 - **Disconnect this phone** (Settings, Advanced, Disconnect this phone and pair again): everything on this phone is deleted, including the history, the keys and the settings.
 - **Uninstall the app** or clear its storage in Android settings: everything Kinsight stored on this phone is deleted.
 - **An admin can remove a phone** from the group; after that the group no longer accepts new data from it.
-- **Files on the Yandex Disk:** the parent whose Disk holds them can delete the Kinsight folder on that Disk at any time. Without the group's key the files cannot be read.
+- **Files on the Yandex Disk:** the parent whose Disk holds them can delete the Kinsight folder on that Disk at any time. Without the group's key the files cannot be read. While the sync stays on, the phones of the group put their data into the folder again; a phone that leaves the group or is disconnected stops doing so.
 
 **Important:** copies that have already reached other family phones are stored on those phones. Deleting data on one phone does not erase these copies right away; they are deleted by each phone's own retention setting (by default after 90 days for details and 1 year for daily totals), or immediately when that phone leaves the group, is reset or Kinsight is uninstalled there. Because we never receive the data, we cannot delete it for you, but you can write to us at kav2k13@gmail.com and we will explain how to remove it from each phone.
 

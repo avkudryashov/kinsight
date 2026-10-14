@@ -229,7 +229,7 @@ class SettingsViewModel internal constructor(private val actions: SettingsAction
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w(TAG, "cloud sign-in failed to start", e)
+                Log.w(TAG, "cloud sign-in failed to start: ${e.javaClass.simpleName}")
             }
         }
     }

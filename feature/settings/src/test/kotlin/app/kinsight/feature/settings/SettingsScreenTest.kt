@@ -1,6 +1,9 @@
 package app.kinsight.feature.settings
 
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
@@ -549,6 +552,29 @@ class SettingsScreenTest {
         assertEquals(listOf("1234567"), codes)
     }
 
+    @Test
+    fun aNewSignInStartsWithAnEmptyCodeField() {
+        val codes = mutableListOf<String>()
+        var ui by mutableStateOf(ownerUi().copy(signIn = SignInState.Waiting("https://oauth.yandex.ru/authorize?x=1")))
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                SettingsScreen(
+                    ui, "0.4.0", onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {},
+                    onRetention = { _, _ -> }, onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {},
+                    onResetIdentity = {}, nowMs = NOW, onCloudCode = { codes += it },
+                )
+            }
+        }
+        rule.onNodeWithTag("set_cloud_code").performTextInput("1234567")
+        ui = ui.copy(signIn = SignInState.Done(CloudEnableResult.SIGN_IN_FAILED))
+        rule.waitForIdle()
+        ui = ui.copy(signIn = SignInState.Waiting("https://oauth.yandex.ru/authorize?x=2"))
+        rule.waitForIdle()
+        rule.onNodeWithTag("set_cloud_done").assertIsNotEnabled()
+        rule.onNodeWithTag("set_cloud_code").performTextInput("7654321")
+        rule.onNodeWithTag("set_cloud_done").performClick()
+        assertEquals(listOf("7654321"), codes)
+    }
     @Test
     fun aRejectedPasteKeepsTheFieldWithAnError() {
         val codes = mutableListOf<String>()
