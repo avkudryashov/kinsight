@@ -9,11 +9,11 @@ import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.proto.AppCatalog
 import app.kinsight.core.model.proto.CloudAccess
-import app.kinsight.core.model.storageHandoverEntry
 import app.kinsight.core.model.proto.Heartbeat
 import app.kinsight.core.model.proto.Location
 import app.kinsight.core.model.proto.SafeZone
 import app.kinsight.core.model.proto.StateEvent
+import app.kinsight.core.model.storageHandoverEntry
 import app.kinsight.core.sync.categoryOverride
 import app.kinsight.core.sync.detail
 import app.kinsight.core.sync.summary
@@ -264,17 +264,17 @@ class KinsightMigrationTest {
     }
 
     @Test
-    fun migratesV4GivingAStoredUnknownHandoverItsKind() = runTest {
+    fun migratesV3GivingAStoredUnknownHandoverItsKind() = runTest {
         val keys = DeviceKeys.generate()
         val genesis = GroupGenesis.create(keys, "Mom")
         val author = EntryAuthor(genesis.groupId, keys, lastSeq = 1)
         val dad = DeviceKeys.generate().deviceId
         val old = author.storageHandoverEntry(dad, 1)
         val newer = author.storageHandoverEntry(dad, 2)
-        val v4 = File(dir, "v4h.db").absolutePath
-        // A 0.8.3 build could not decode the payload: kind 0, no supersede key.
-        ExportedSchema.create(v4, 4) { c -> for (e in listOf(old, newer)) insertV3(c, e, kind = EntryKinds.UNKNOWN, key = null) }
-        val db = KinsightDatabaseFactory.open(HostContext(), v4)
+        val v3 = File(dir, "v3h.db").absolutePath
+        // A released 0.8.x build (schema 3) could not decode the payload: kind 0, no supersede key.
+        ExportedSchema.create(v3, 3) { c -> for (e in listOf(old, newer)) insertV3(c, e, kind = EntryKinds.UNKNOWN, key = null) }
+        val db = KinsightDatabaseFactory.open(HostContext(), v3)
         val a = keys.deviceId.hex
         assertNull(db.entryDao().get(a, old.seq), "the older handover is superseded")
         assertEquals(EntryKinds.STORAGE_HANDOVER, db.entryDao().get(a, newer.seq)!!.kind)

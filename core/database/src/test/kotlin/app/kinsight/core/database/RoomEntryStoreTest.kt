@@ -1,17 +1,17 @@
 package app.kinsight.core.database
 
-import app.kinsight.core.model.storageHandoverEntry
-import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
+import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.addMember
 import app.kinsight.core.model.proto.DeviceRole
-import app.kinsight.core.model.removeMemberEntry
 import app.kinsight.core.model.proto.AppCatalog
 import app.kinsight.core.model.proto.AppTotal
 import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.model.proto.UsageSummary
+import app.kinsight.core.model.removeMemberEntry
+import app.kinsight.core.model.storageHandoverEntry
 import app.kinsight.core.sync.SyncPolicy
 import app.kinsight.core.sync.categoryOverride
 import app.kinsight.core.sync.detail

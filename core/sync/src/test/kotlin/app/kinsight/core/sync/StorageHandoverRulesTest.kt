@@ -14,6 +14,7 @@ import okio.ByteString.Companion.toByteString
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class StorageHandoverRulesTest {
     private val momKeys = DeviceKeys.generate()
@@ -50,4 +51,11 @@ class StorageHandoverRulesTest {
     @Test
     fun aChildDoesNotTakeAHandover() =
         assertEquals(Verdict.Unwanted, verdict(mom.storageHandoverEntry(dadKeys.deviceId, 1), self = kidKeys, showOthers = false))
+
+    @Test
+    fun aHandoverOverTheBodyCapIsSkipped() {
+        val big = mom.create { it.copy(storage_handover = StorageHandover(to_device_id = ByteArray(2000).toByteString(), generation = 1)) }
+        assertTrue(StorageHandoverRules.violation(big, state)!!.contains("over ${StorageHandoverRules.MAX_BODY_BYTES} bytes"))
+        assertIs<Verdict.Skipped>(verdict(big))
+    }
 }
