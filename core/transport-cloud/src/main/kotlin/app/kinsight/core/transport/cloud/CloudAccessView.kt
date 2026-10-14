@@ -83,6 +83,14 @@ object CloudAccessView {
      * entry would be decoded). Null as [current].
      */
     suspend fun current(store: EntryStore, membership: MembershipState, ring: Map<Int, ByteArray>, page: Int = PAGE): StorageAccess? {
+        val newest = newestAccessEntry(store, membership, page)
+        return current(membership, listOfNotNull(newest), ring)
+    }
+
+    private const val PAGE = 500
+
+    /** The owner's newest CLOUD_ACCESS entry, paging through the owner's log only; null without an owner or an entry. */
+    internal suspend fun newestAccessEntry(store: EntryStore, membership: MembershipState, page: Int = PAGE): DecodedEntry? {
         val owner = membership.storageOwner ?: return null
         var newest: DecodedEntry? = null
         var after = 0L
@@ -92,10 +100,8 @@ object CloudAccessView {
             entries.lastOrNull { it.kind == EntryKind.CLOUD_ACCESS }?.let { newest = it }
             after = entries.last().seq
         }
-        return current(membership, listOfNotNull(newest), ring)
+        return newest
     }
-
-    private const val PAGE = 500
 
     private fun aad(groupId: GroupId, generation: Long, storageId: ByteArray, keyEpoch: Int): ByteArray =
         groupId.bytes() + ByteBuffer.allocate(12).putLong(generation).putInt(keyEpoch).array() + storageId

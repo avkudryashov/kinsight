@@ -431,18 +431,8 @@ class CloudSync(
      * The key generation of the current owner's newest CloudAccess: readers need it to open the access token. Pages through
      * the owner's log only (a parent's: small), never the whole database.
      */
-    private suspend fun accessEpoch(membership: MembershipState): Int? {
-        val owner = membership.storageOwner ?: return null
-        var newest: DecodedEntry? = null
-        var after = 0L
-        while (true) {
-            val page = store.entriesAfter(owner.deviceId, after, PAGE)
-            if (page.isEmpty()) break
-            page.lastOrNull { it.kind == EntryKind.CLOUD_ACCESS }?.let { newest = it }
-            after = page.last().seq
-        }
-        return newest?.body?.cloud_access?.key_epoch
-    }
+    private suspend fun accessEpoch(membership: MembershipState): Int? =
+        CloudAccessView.newestAccessEntry(store, membership)?.body?.cloud_access?.key_epoch
 
     private fun mayOpen(d: DeferredPack, ring: Map<Int, ByteArray>): Boolean {
         val key = ring[d.epoch] ?: return false
