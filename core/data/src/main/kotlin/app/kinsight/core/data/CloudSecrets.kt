@@ -26,12 +26,14 @@ import kotlinx.coroutines.withContext
 /**
  * This device's cloud secrets (spec §5, §6 «Хранение»): the token vault and the group key ring, both sealed files of
  * core/keystore. Wiped with the group (LocalReset). [onAccess] runs after a handed token was stored (the app schedules
- * the cloud worker then).
+ * the cloud worker then). [runLock]: the process-wide lock every CloudSync run holds (the same one the CloudRunner gets);
+ * [forget] takes it, so a run in progress cannot write the old group's key back after the wipe.
  */
 class CloudSecrets(
     private val vault: CloudTokenVault,
     private val keyFile: GroupKeyFile,
     private val onAccess: () -> Unit = {},
+    val runLock: Mutex = Mutex(),
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val vaultLock = Mutex()
@@ -121,10 +123,29 @@ class CloudSecrets(
         cloud?.access?.let { saveHanded(groupId, it) }
     }
 
-    /** Leaving, a removal or a new identity (LocalReset): no token and no key of the old group stays. */
-    suspend fun forget() {
+    /**
+     * Leaving, a removal or a new identity (LocalReset): no token and no key of the old group stays. Waits for a cloud run
+     * in progress ([runLock]): a run finishing after the delete would write the old ring back.
+     */
+    suspend fun forget(): Unit = runLock.withLock {
         vaultLock.withLock { withContext(io) { vault.delete() } }
         ringLock.withLock { withContext(io) { keyFile.delete() } }
+    }
+
+    /**
+     * The vault says this device owns the storage of [groupId], but the StorageOwner record names another device (two
+     * parents turned the cloud on at once and the other one won, or a later hand-over): the owner role and the refresh
+     * token go, so handed tokens are accepted again. The whole vault goes: its access token belongs to the owner role (a
+     * storage this device created) and, kept as a member's, could outrank the real owner's handed token. True when
+     * dropped.
+     */
+    suspend fun dropStaleOwner(groupId: GroupId, membership: MembershipState, self: DeviceId): Boolean = vaultLock.withLock {
+        val owner = membership.storageOwner ?: return@withLock false
+        if (owner.deviceId == self) return@withLock false
+        tokens()?.takeIf { it.owner && it.groupHex == groupId.hex } ?: return@withLock false
+        withContext(io) { vault.delete() }
+        Log.i(TAG, "another device owns the storage: dropping the owner role")
+        true
     }
 
     private inner class FileKeyRing(private val group: GroupConfig) : GroupKeyRing {

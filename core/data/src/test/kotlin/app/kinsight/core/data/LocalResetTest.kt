@@ -1,8 +1,20 @@
 package app.kinsight.core.data
 
+import app.kinsight.core.keystore.CloudTokenVault
+import app.kinsight.core.keystore.GroupKeyFile
+import app.kinsight.core.transport.cloud.DiskApi
+import app.kinsight.core.transport.cloud.DiskItem
+import app.kinsight.core.transport.cloud.InMemoryDisk
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import java.io.File
 import kotlin.test.AfterTest
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -107,5 +119,84 @@ class LocalResetTest {
         assertFalse(d.groups.exists())
         assertEquals(Prefs(), d.prefs.current())
         assertEquals(ResetStatus.Idle, d.reset.status.value)
+    }
+
+    @Test
+    fun forgettingTheGroupWipesTokensAndKeys() = runBlocking<Unit> {
+        d.group.createGroup("Pixel")
+        d.ownStorage()
+        d.cloudState.record(5, synced = true, problem = null)
+        d.reset.forgetGroup()
+        assertNull(d.cloudSecrets.tokens())
+        assertFalse(File(d.dir, CloudTokenVault.FILE_NAME).exists())
+        assertFalse(File(d.dir, GroupKeyFile.FILE_NAME).exists())
+        assertEquals(CloudState(), d.cloudState.current())
+        d.group.createGroup("Pixel")
+        val g = d.groups.read()!!
+        val ring = d.cloudSecrets.ring(g).keys()
+        assertEquals(setOf(0), ring.keys, "the next group starts from its own generation 0")
+        assertContentEquals(g.discoveryKey, ring.getValue(0))
+    }
+
+    @Test
+    fun anIdentityResetWipesTheTokensToo() = runBlocking<Unit> {
+        d.group.createGroup("Pixel")
+        d.ownStorage()
+        d.reset.resetIdentity()
+        assertNull(d.cloudSecrets.tokens())
+        assertFalse(File(d.dir, GroupKeyFile.FILE_NAME).exists())
+    }
+
+    @Test
+    fun theWipeWaitsForACloudRunThatWouldWriteTheOldKeysBack() = runBlocking<Unit> {
+        d.group.createGroup("Pixel")
+        d.ownStorage()
+        // Written by the first run, so the run under test finds the storage and talks to the Disk.
+        val disk = InMemoryDisk()
+        assertEquals(CloudRun.SYNCED, d.runner(disk).run(CloudTrigger.NOW))
+        val g = d.groups.read()!!
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        // A run in the middle of CloudSync that then stores a group key (as absorbing a rotation does).
+        val gated = GatedDisk(disk) {
+            entered.complete(Unit)
+            release.await()
+            d.cloudSecrets.ring(g).put(1, ByteArray(32) { 7 })
+        }
+        val run = async(Dispatchers.Default) { runCatching { d.runner(gated).run(CloudTrigger.NOW) } }
+        withTimeout(20_000) { entered.await() }
+        val wipe = async(Dispatchers.Default) { d.reset.forgetGroup() }
+        delay(300)
+        assertFalse(wipe.isCompleted, "the wipe waits for the run")
+        assertTrue(File(d.dir, CloudTokenVault.FILE_NAME).exists())
+        release.complete(Unit)
+        withTimeout(20_000) {
+            run.await()
+            wipe.await()
+        }
+        assertFalse(File(d.dir, GroupKeyFile.FILE_NAME).exists(), "nothing of the old group is written back")
+        assertFalse(File(d.dir, CloudTokenVault.FILE_NAME).exists())
+    }
+
+    /** Runs [gate] once, on the first Disk call. */
+    private class GatedDisk(private val inner: DiskApi, private val gate: suspend () -> Unit) : DiskApi {
+        private var gated = false
+
+        private suspend fun once() {
+            if (!gated) {
+                gated = true
+                gate()
+            }
+        }
+
+        override suspend fun list(path: String): List<DiskItem> = once().let { inner.list(path) }
+
+        override suspend fun mkdir(path: String) = once().let { inner.mkdir(path) }
+
+        override suspend fun upload(path: String, bytes: ByteArray) = once().let { inner.upload(path, bytes) }
+
+        override suspend fun download(path: String): ByteArray = once().let { inner.download(path) }
+
+        override suspend fun delete(path: String) = once().let { inner.delete(path) }
     }
 }

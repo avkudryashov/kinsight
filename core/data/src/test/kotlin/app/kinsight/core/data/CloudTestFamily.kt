@@ -14,7 +14,6 @@ import app.kinsight.core.transport.cloud.DiskApi
 import app.kinsight.core.transport.cloud.DiskException
 import app.kinsight.core.transport.cloud.DiskItem
 import app.kinsight.core.transport.cloud.TokenSet
-import kotlinx.coroutines.sync.Mutex
 
 private const val YEAR_MS = 365L * 24 * 60 * 60 * 1000
 
@@ -65,7 +64,7 @@ suspend fun TestDevice.ownSummary(date: String, totalMs: Long): DecodedEntry {
 fun TestDevice.runner(disk: DiskApi): CloudRunner = runner { _ -> disk }
 
 fun TestDevice.runner(disk: (suspend () -> String) -> DiskApi): CloudRunner = CloudRunner(
-    db, groups, keyProvider, settings, cloudSecrets, cloudState, appendOwn, disk, Mutex(), clock = { now },
+    db, groups, keyProvider, settings, cloudSecrets, cloudState, appendOwn, disk, cloudSecrets.runLock, clock = { now },
 )
 
 /** A Disk that answers 401 unless the presented token is in [accepted]. */

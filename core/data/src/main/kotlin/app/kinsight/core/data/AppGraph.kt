@@ -3,6 +3,7 @@ package app.kinsight.core.data
 import android.content.Context
 import androidx.datastore.preferences.preferencesDataStoreFile
 import app.kinsight.core.database.KinsightDatabaseFactory
+import app.kinsight.core.keystore.CloudFiles
 import app.kinsight.core.keystore.DeviceIdentity
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.transport.ble.AndroidPairingLink
@@ -37,10 +38,18 @@ class Graph internal constructor(app: Context) {
     val keys: suspend () -> DeviceKeys = { DeviceIdentity.get(app).keys }
     val sync: SyncControl = ServiceSyncControl(app)
     val snapshots = Snapshots(db, groups, keys, transport, scope = scope)
+
+    /** The one CloudSecrets of the process (R15); its runLock is the one every cloud run must take. */
+    val cloudSecrets = CloudSecrets(CloudFiles.vault(app), CloudFiles.groupKeys(app))
+    val cloudState = CloudStateStore.create(app.preferencesDataStoreFile(CloudStateStore.NAME), CoroutineScope(Dispatchers.IO + SupervisorJob()))
     val reset = LocalReset(
         db = db,
         pipeline = pipeline,
-        forgetGroupFiles = { SyncGraph.forgetGroup(app) },
+        forgetGroupFiles = {
+            SyncGraph.forgetGroup(app)
+            cloudSecrets.forget()
+            cloudState.clear()
+        },
         settings = settings,
         prefs = prefs,
         sync = sync,
@@ -59,6 +68,7 @@ class Graph internal constructor(app: Context) {
         reset = reset,
         sync = sync,
         snapshots = snapshots,
+        cloud = cloudSecrets,
     )
     val group = GroupRepository(
         snapshots = snapshots,

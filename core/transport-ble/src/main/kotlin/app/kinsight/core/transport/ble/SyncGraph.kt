@@ -10,9 +10,12 @@ import app.kinsight.core.database.KinsightDatabaseFactory
 import app.kinsight.core.database.RoomEntryStore
 import app.kinsight.core.keystore.DeviceIdentity
 import app.kinsight.core.model.DeviceId
+import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.proto.StateEvent
+import app.kinsight.core.sync.EntryStore
+import app.kinsight.core.sync.SessionHandoff
 import app.kinsight.core.usage.PublishTarget
 import app.kinsight.core.usage.UsageGraph
 import app.kinsight.core.usage.ownUsageAllowed
@@ -64,6 +67,13 @@ object SyncGraph {
     /** Runs after every finished session, outside any lock (the app schedules its alerts there). Must not throw. */
     @Volatile
     var onSessionFinished: (Context) -> Unit = {}
+
+    /**
+     * The cloud hand-off for a session (spec §6 «Раздача»), set by the app: core/data sits above this module. Null hands
+     * nothing. Must not throw (a failure is logged and the session runs without the hand-off).
+     */
+    @Volatile
+    var cloudHandoff: suspend (Context, GroupConfig, EntryStore, DeviceKeys) -> SessionHandoff? = { _, _, _, _ -> null }
 
     internal fun publish(s: ServiceSnapshot) {
         _snapshot.value = s
@@ -170,7 +180,17 @@ object SyncGraph {
             keys = keys,
             store = store,
             policy = SyncPolicies.forDevice(membership, keys.deviceId, settings),
+            handoff = handoffOrNull(context, group, store, keys),
         )
+    }
+
+    private suspend fun handoffOrNull(context: Context, group: GroupConfig, store: EntryStore, keys: DeviceKeys): SessionHandoff? = try {
+        cloudHandoff(context, group, store, keys)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "no cloud hand-off for this session: ${e.javaClass.simpleName}")
+        null
     }
 
     /**

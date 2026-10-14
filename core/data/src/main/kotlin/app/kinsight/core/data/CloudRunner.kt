@@ -82,6 +82,8 @@ class CloudRunner(
         }
         val ring = secrets.ring(group)
         val isOwner = owner.deviceId == self
+        // R16: another device owns the storage now; a vault still saying owner loses that role and its refresh token.
+        if (!isOwner) secrets.dropStaleOwner(group.groupId, membership, self)
         val access = secrets.access(store, membership, self, ring)
             ?: return if (isOwner) {
                 // The owner lost its tokens (an unreadable vault): only a new sign-in brings them back.

@@ -132,6 +132,8 @@ class TestDevice(
         forgetGroupFiles = {
             groups.delete()
             transport.clear()
+            cloudSecrets.forget()
+            cloudState.clear()
         },
         settings = settings,
         prefs = prefs,

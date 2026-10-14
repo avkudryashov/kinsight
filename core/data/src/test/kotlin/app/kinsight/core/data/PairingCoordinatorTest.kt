@@ -12,6 +12,7 @@ import app.kinsight.core.model.removeMemberEntry
 import app.kinsight.core.sync.pairing.Invite
 import app.kinsight.core.transport.ble.PairingRadioException
 import app.kinsight.core.transport.ble.RadioProblem
+import app.kinsight.core.transport.cloud.GroupKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
@@ -24,6 +25,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlin.test.AfterTest
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
@@ -47,7 +49,7 @@ class PairingCoordinatorTest {
         keys: suspend () -> DeviceKeys = d.keyProvider,
     ) = PairingCoordinator(
         link = air, db = d.db, groups = d.groups, keys = keys, pipeline = d.pipeline, settings = d.settings,
-        reset = d.reset, sync = sync, snapshots = d.snapshots, clock = clock,
+        reset = d.reset, sync = sync, snapshots = d.snapshots, cloud = d.cloudSecrets, clock = clock,
     )
 
     /** A service that refuses the «sync now» nudge (start), as a dead or restricted service would. */
@@ -105,6 +107,47 @@ class PairingCoordinatorTest {
         assertTrue(kid.store().stateEvents().any { it.author == kid.keys.deviceId && it.body.state_event!!.kind == StateEvent.Kind.SHARING_RESUMED })
         assertTrue("start:true" in mom.sync.calls)
         assertTrue("start:true" in kid.sync.calls)
+    }
+
+    @Test
+    fun aJoinerGetsTheAccessAndTheKeyInTheWelcome() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        mom.ownStorage(token = "AT")
+        val (invite, qr) = openInvite()
+        val join = kidPairing.join(scope, qr, "Kid", consent = true)
+        invite.state.awaitFirst { it is InviteState.Confirm }
+        invite.confirm()
+        assertEquals(JoinState.Joined, join.state.awaitFirst { it is JoinState.Joined || it is JoinState.Failed })
+        val t = kid.cloudSecrets.tokens()!!
+        assertEquals("AT", t.accessToken)
+        assertFalse(t.owner)
+        assertNull(t.refreshToken)
+        val g = kid.groups.read()!!
+        assertEquals(setOf(0), kid.cloudSecrets.ring(g).keys().keys)
+        assertNotNull(Membership.compute(g.groupId, kid.store().membershipEntries())!!.storageOwner)
+    }
+
+    @Test
+    fun theAddMemberRecordsTheKeyGenerationHandedInTheWelcome() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val g = mom.groups.read()!!
+        val before = Membership.compute(g.groupId, mom.store().membershipEntries())!!
+        check(mom.pipeline.appendOwn { a -> listOf(GroupKey.rotate(a, before)) })
+        val (epoch, key) = GroupKey.open(mom.keys, Membership.compute(g.groupId, mom.store().membershipEntries())!!)!!
+        mom.cloudSecrets.ring(g).put(epoch, key)
+        val (invite, qr) = openInvite()
+        val join = kidPairing.join(scope, qr, "Kid", consent = true)
+        invite.state.awaitFirst { it is InviteState.Confirm }
+        invite.confirm()
+        assertEquals(JoinState.Joined, join.state.awaitFirst { it is JoinState.Joined || it is JoinState.Failed })
+        assertNull(kid.cloudSecrets.tokens(), "no storage owner: no access")
+        val ring = kid.cloudSecrets.ring(kid.groups.read()!!).keys()
+        assertEquals(setOf(0, 1), ring.keys)
+        assertContentEquals(key, ring.getValue(1))
+        val m = Membership.compute(g.groupId, mom.store().membershipEntries())!!
+        val add = m.effectiveEntries.mapNotNull { it.body.membership_op?.add }.single { it.display_name == "Kid" }
+        assertEquals(1, add.group_key_epoch)
+        assertTrue(GroupKey.membersWithoutKey(m).isEmpty(), "the kid got generation 1 in the welcome: no rotation needed")
     }
 
     @Test

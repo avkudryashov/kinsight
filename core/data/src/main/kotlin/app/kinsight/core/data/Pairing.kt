@@ -14,6 +14,7 @@ import app.kinsight.core.model.addMember
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.PairReject
 import app.kinsight.core.sync.ByteStream
+import app.kinsight.core.sync.WelcomeCloud
 import app.kinsight.core.sync.pairing.GuestResult
 import app.kinsight.core.sync.pairing.HostDecision
 import app.kinsight.core.sync.pairing.HostOutcome
@@ -29,6 +30,7 @@ import app.kinsight.core.transport.ble.PairingHostHandle
 import app.kinsight.core.transport.ble.PairingLink
 import app.kinsight.core.transport.ble.PairingRadioException
 import app.kinsight.core.transport.ble.RadioProblem
+import app.kinsight.core.transport.cloud.GroupKey
 import app.kinsight.core.usage.SettingsStore
 import app.kinsight.core.usage.UsagePipeline
 import kotlinx.coroutines.CancellationException
@@ -127,6 +129,8 @@ class PairingCoordinator(
     private val reset: LocalReset,
     private val sync: SyncControl,
     private val snapshots: Snapshots,
+    /** Spec §6 «Раздача»: the admin hands its newest group key and (the owner only) the access; the joiner stores them. Null: nothing. */
+    private val cloud: CloudSecrets? = null,
     private val clock: () -> Long = System::currentTimeMillis,
     private val dialTimeout: Duration = 60.seconds,
     private val io: CoroutineDispatcher = Dispatchers.IO,
@@ -342,18 +346,29 @@ class PairingCoordinator(
                 return HostDecision.Reject(refusal(o))
             }
             bound = joiner.id
+            // The key generation the joiner gets is known before its AddMember, which records it (R12: a joiner handed an
+            // older generation than the group's newest rotation is one the next admin cloud run rotates again for).
+            val handed = cloudWelcome(before, group)
+            val keyEpoch = handed?.keyEpoch?.takeIf { it == GroupKey.currentEpoch(before) } ?: 0
             pipeline.appendOwn { author ->
-                listOf(author.addMember(joiner.signPublicKey, joiner.dhPublicKey, joiner.displayName, role.toDeviceRole()))
+                listOf(author.addMember(joiner.signPublicKey, joiner.dhPublicKey, joiner.displayName, role.toDeviceRole(), groupKeyEpoch = keyEpoch))
             }
             // The host may still refuse (expiry re-check): the member stays added and the next attempt is re-welcomed.
-            return welcome(Membership.compute(group.groupId, store.membershipEntries())!!, group)
+            return welcome(Membership.compute(group.groupId, store.membershipEntries())!!, group, handed)
         }
 
         private fun refusal(o: Opened): PairReject.Reason =
             if (clock() > o.expiresAtMs) PairReject.Reason.EXPIRED else PairReject.Reason.DECLINED
 
-        private fun welcome(state: MembershipState, group: GroupConfig) =
-            HostDecision.Welcome(group.discoveryKey, state.effectiveEntries.map { it.bytes })
+        private suspend fun welcome(state: MembershipState, group: GroupConfig, handed: WelcomeCloud? = null) = HostDecision.Welcome(
+            group.discoveryKey,
+            state.effectiveEntries.map { it.bytes },
+            handed ?: cloudWelcome(state, group),
+        )
+
+        /** Spec §6 «Раздача»: the newest group key and, from the storage owner only, the access. Null without the cloud. */
+        private suspend fun cloudWelcome(state: MembershipState, group: GroupConfig): WelcomeCloud? =
+            cloud?.welcome(group, RoomEntryStore(db, group.groupId), state, keys().deviceId)
 
         /** Must hold [lock]. Terminal states stay, except Added over Expired (a welcome racing the expiry). */
         private fun move(next: InviteState): Boolean {
@@ -484,6 +499,8 @@ class PairingCoordinator(
             RoomEntryStore(db, invite.groupId).applyBatch(r.membership)
             val share = consent && invite.role == DeviceRole.CHILD
             if (share) settings.recordConsent(clock())
+            // Before the group file: a crash in between leaves a ring and a token without a group, replaced by the next join.
+            cloud?.adopt(invite.groupId, r.discoveryKey, r.cloud)
             withContext(io) { groups.write(GroupConfig(invite.groupId, r.discoveryKey)) }
             try {
                 if (share) pipeline.setSharing(true) else pipeline.reconcileSharing()

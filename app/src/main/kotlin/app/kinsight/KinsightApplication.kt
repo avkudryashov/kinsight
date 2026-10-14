@@ -3,6 +3,7 @@ package app.kinsight
 import android.app.Application
 import android.util.Log
 import app.kinsight.core.data.AppGraph
+import app.kinsight.core.data.CloudSessionHandoff
 import app.kinsight.core.data.IntegrityFastSync
 import app.kinsight.core.data.ResetStatus
 import app.kinsight.core.transport.ble.BlePermissions
@@ -31,6 +32,7 @@ open class KinsightApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         SyncGraph.install(this)
+        SyncGraph.cloudHandoff = { ctx, group, store, keys -> CloudSessionHandoff(AppGraph.get(ctx).cloudSecrets, group, store, keys.deviceId) }
         IntegrityFastSync.install(this)
         UsageWork.schedule(this)
         AlertsWork.schedule(this)
