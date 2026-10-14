@@ -9,6 +9,7 @@ import android.graphics.Paint
 import android.util.Log
 import app.kinsight.core.crypto.toHex
 import app.kinsight.core.data.AppGraph
+import app.kinsight.core.data.CloudTrigger
 import app.kinsight.core.database.KinsightDatabaseFactory
 import app.kinsight.core.database.RoomEntryStore
 import app.kinsight.core.keystore.DeviceIdentity
@@ -37,6 +38,8 @@ import kotlin.time.Duration.Companion.seconds
  * for the two-phone test (stage 4 pairing creates groups). The answer is the broadcast's result data.
  * No intent filter: adb addresses it explicitly, e.g.
  * `am broadcast -n app.kinsight/.debug.DebugGroupReceiver -a app.kinsight.debug.STATUS`.
+ * Cloud hooks: CLOUD_SYNC_NOW (one run of the process-wide runner), CLOUD_STATUS (never a token), CLOUD_FAKE_DISK
+ * (`--ez on true|false`, the in-memory Disk instead of Yandex).
  */
 class DebugGroupReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -83,6 +86,9 @@ class DebugGroupReceiver : BroadcastReceiver() {
         "$PREFIX.DEMO_USAGE" -> demoUsage(c, intent.getIntExtra("days", 14), intent.getLongExtra("seed", 1L))
         "$PREFIX.SYNC_NOW" -> SyncService.instance?.syncNow() ?: "service not running"
         "$PREFIX.STATUS" -> status(c)
+        "$PREFIX.CLOUD_SYNC_NOW" -> "cloud=" + AppGraph.get(c).cloud.run(CloudTrigger.NOW)
+        "$PREFIX.CLOUD_STATUS" -> AppGraph.get(c).cloud.describe()
+        "$PREFIX.CLOUD_FAKE_DISK" -> DebugCloud.fakeDisk(intent.getBooleanExtra("on", true))
         else -> error("unknown action ${intent.action}")
     }
 
