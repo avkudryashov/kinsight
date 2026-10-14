@@ -41,6 +41,9 @@ class ReleaseGatesTest {
         val missing = assertNotNull(ReleaseGates.yandexClientProblem(none))
         assertTrue(ReleaseGates.YANDEX_CLIENT_ID_PROPERTY in missing && "local.properties" in missing, missing)
         assertNotNull(ReleaseGates.yandexClientProblem(ReleaseGates.YandexClient(fakeId, null, null)))
+        val badId = "pasted-secret-in-the-id-key"
+        val badIdProblem = assertNotNull(ReleaseGates.yandexClientProblem(ReleaseGates.YandexClient(badId, fakeSecret, null)))
+        assertTrue(badId !in badIdProblem && ReleaseGates.YANDEX_CLIENT_ID_PROPERTY in badIdProblem, badIdProblem)
         val badSecret = "has spaces \" and quotes"
         val problem = assertNotNull(ReleaseGates.yandexClientProblem(ReleaseGates.YandexClient(fakeId, badSecret, null)))
         assertTrue(badSecret !in problem, problem)

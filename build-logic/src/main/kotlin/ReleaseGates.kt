@@ -78,11 +78,11 @@ object ReleaseGates {
         val id = c.clientId
         val secret = c.clientSecret
         if (id.isNullOrBlank()) return "the Yandex client id is missing: $hint"
-        if (!YANDEX_ID.matches(id)) return "the Yandex client id is not 32 lowercase hex characters ($id): $hint"
+        if (!YANDEX_ID.matches(id)) return "the Yandex client id is not 32 lowercase hex characters (its value is not shown): $hint"
         if (secret.isNullOrBlank()) return "the Yandex client secret is missing: $hint"
         if (!YANDEX_SECRET.matches(secret)) return "the Yandex client secret is malformed (its value is not shown): $hint"
         if (c.redirectUri != null && yandexRedirect(c) != c.redirectUri) {
-            return "$YANDEX_REDIRECT_PROPERTY must be the yx$id: redirect the Yandex console shows for the Android platform (${c.redirectUri})"
+            return "$YANDEX_REDIRECT_PROPERTY must be the yx$id: redirect the Yandex console shows for the Android platform (the configured value is not shown)"
         }
         return null
     }
