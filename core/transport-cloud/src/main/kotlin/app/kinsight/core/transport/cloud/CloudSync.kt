@@ -108,10 +108,12 @@ class CloudSync(
         cursor = liftOwn(listing[self].orEmpty(), membership, cursor)
         // Spec §11: our folder lost what we uploaded (deleted in the Disk UI, or a new storage): upload everything again.
         // Checked by the names we wrote, not by the ranges listed: a renamed file must not stand in for a lost one.
+        // A kept pack (A-4) is never written by us: one gone from the Disk leaves its range a hole, never re-sealed empty.
         val ownNames = listing[self].orEmpty().map { it.name }.toSet()
-        if (cursor.uploadedUpTo > 0 && (cursor.ownPacks.isEmpty() || cursor.ownPacks.keys.any { it !in ownNames })) {
+        val written = cursor.ownPacks.filterValues { !it.kept }
+        if (cursor.uploadedUpTo > 0 && (cursor.ownPacks.isEmpty() || written.keys.any { it !in ownNames })) {
             log("own packs up to ${cursor.uploadedUpTo} are gone: uploading the whole log again")
-            cursor = cursor.copy(uploadedUpTo = 0, ownPacks = emptyMap())
+            cursor = cursor.copy(uploadedUpTo = 0, ownPacks = cursor.ownPacks - written.keys)
             cursors.save(cursor)
         }
         rotationEntry = membership.effectiveEntries.firstOrNull { it.body.membership_op?.rotate?.epoch == GroupKey.currentEpoch(membership) && it.body.membership_op?.rotate?.epoch != 0 }
@@ -185,7 +187,7 @@ class CloudSync(
         val keyId = keyId(epoch)
         var cursor = start
         var packs = 0
-        for ((range, entries) in chunks(start.uploadedUpTo + 1, upTo)) {
+        for ((range, entries) in ownChunks(start.uploadedUpTo + 1, upTo, start)) {
             val bytes = PackCodec.seal(keys, groupId, entries, range.first, range.last, epoch, groupKey, clock(), keyUpdates(epoch))
             val name = CloudPaths.packName(range.first, range.last)
             try {
@@ -198,6 +200,8 @@ class CloudSync(
             cursors.save(cursor)
             packs++
         }
+        // What is left above the last pack written is kept packs: on the Disk already.
+        if (!storageFull && cursor.uploadedUpTo < upTo) cursor = cursor.copy(uploadedUpTo = upTo).also { cursors.save(it) }
         return packs to cursor
     }
 
@@ -236,24 +240,23 @@ class CloudSync(
     /**
      * A-4 (Y1 review): our database lost entries while our keys survived, and our own folder holds packs above what we
      * hold. Each one is checked (our signature, the range in its name): one we can open gives its entries back to the
-     * store; one sealed with a key we lack still proves the range is ours. Those seqs are accounted, so they are never
-     * signed again, and they count as uploaded, so no compaction re-seals the range from an emptied log. Bounded like
-     * Bluetooth: a jump above SyncSession.MAX_OWN_SEQ_JUMP is ignored.
+     * store; one sealed with a key we lack still proves the range is ours and is kept as it is ([KeyId.kept]: never
+     * overwritten, re-sealed or deleted). Those seqs are accounted, so they are never signed again, and they count as
+     * uploaded, so no compaction re-seals the range from an emptied log. Bounded like Bluetooth: a pack whose name ends
+     * more than SyncSession.MAX_OWN_SEQ_JUMP above what we hold is ignored.
      */
     private suspend fun liftOwn(own: List<PackItem>, start: MembershipState, cursor: CloudCursor): CloudCursor {
         val held = store.versionVector()[self]
-        val above = own.filter { it.range.last > held }.sortedBy { it.range.first }
+        // Names are not verified yet: only the ones over the bound are dropped, the lift goes on from the others.
+        val (above, far) = own.filter { it.range.last > held }.partition { it.range.last - held <= SyncSession.MAX_OWN_SEQ_JUMP }
+        for (p in far) log("own folder: ${p.name} is too far above $held, ignored")
         if (above.isEmpty()) return cursor
-        val top = above.maxOf { it.range.last }
-        if (top - held > SyncSession.MAX_OWN_SEQ_JUMP) {
-            log("ignored own packs up to $top (held $held)")
-            return cursor
-        }
+        val sorted = above.sortedBy { it.range.first }
         var membership = start
         var lifted = held
         var ownPacks = cursor.ownPacks
         val dir = CloudPaths.deviceDir(groupId, self)
-        for (p in above) {
+        for (p in sorted) {
             val bytes = try {
                 disk.download("$dir/${p.name}")
             } catch (e: DiskException.NotFound) {
@@ -266,8 +269,15 @@ class CloudSync(
                     lifted = maxOf(lifted, outcome.pack.to)
                     ownPacks = ownPacks + (p.name to KeyId(outcome.pack.epoch, GroupKey.fingerprint(keys.getValue(outcome.pack.epoch))))
                 }
-                // The signature is checked before the key: the range is ours even when we cannot read it.
-                is PackOutcome.KeyUnknown, is PackOutcome.KeyMismatch -> lifted = maxOf(lifted, p.range.last)
+                // The signature is checked before the key: the range is ours even when we cannot read it. Kept as it is.
+                is PackOutcome.KeyUnknown -> {
+                    lifted = maxOf(lifted, p.range.last)
+                    ownPacks = ownPacks + (p.name to KeyId.kept(outcome.epoch))
+                }
+                is PackOutcome.KeyMismatch -> {
+                    lifted = maxOf(lifted, p.range.last)
+                    ownPacks = ownPacks + (p.name to KeyId.kept(outcome.epoch))
+                }
                 is PackOutcome.UnknownAuthor, is PackOutcome.Rejected -> log("own folder: ${p.name} is not ours, ignored")
             }
         }
@@ -275,6 +285,24 @@ class CloudSync(
         store.completeAuthor(self, lifted)
         log("own log found on the Disk up to $lifted, held $held: those seqs are not reused (A-4)")
         return cursor.copy(uploadedUpTo = maxOf(cursor.uploadedUpTo, lifted), ownPacks = ownPacks).also { cursors.save(it) }
+    }
+
+    /** The ranges of [cursor]'s kept own packs (A-4): never sealed by us. */
+    private fun keptRanges(cursor: CloudCursor): List<LongRange> =
+        cursor.ownPacks.filterValues { it.kept }.keys.mapNotNull { CloudPaths.parsePack(it) }
+
+    /** [chunks] of [from]..[upTo] minus the kept ranges: a range whose entries we do not hold is never sealed. */
+    private suspend fun ownChunks(from: Long, upTo: Long, cursor: CloudCursor): List<Pair<LongRange, List<DecodedEntry>>> {
+        val out = mutableListOf<Pair<LongRange, List<DecodedEntry>>>()
+        var next = from
+        for (k in keptRanges(cursor).sortedBy { it.first }) {
+            if (k.last < next) continue
+            if (k.first > upTo) break
+            if (k.first > next) out += chunks(next, k.first - 1)
+            next = k.last + 1
+        }
+        if (next <= upTo) out += chunks(next, upTo)
+        return out
     }
 
     private suspend fun uploadPack(name: String, bytes: ByteArray) {
@@ -300,20 +328,23 @@ class CloudSync(
         val now = clock()
         val current = keyId(epoch)
         // An older generation, or another key of this one (a concurrent rotation we lost): re-encrypt everything.
-        val full = force || start.ownPacks.values.any { it != current }
+        val full = force || start.ownPacks.values.any { !it.kept && it != current }
         if (!full && now - start.lastCompactionMs < COMPACTION_INTERVAL_MS) return start
         val done = start.copy(lastCompactionMs = now)
         val dir = CloudPaths.deviceDir(groupId, self)
+        val kept = start.ownPacks.filterValues { it.kept }
+        val keptTop = keptRanges(start).maxOfOrNull { it.last } ?: 0L
+        // Kept packs (A-4) are never replaced; a daily merge stays above them.
         val existing = try {
             disk.list(dir).mapNotNull { i -> if (i.isDir) null else CloudPaths.parsePack(i.name)?.let { PackItem(i.name, "", it, i.size) } }
         } catch (e: DiskException.NotFound) {
             emptyList()
-        }
+        }.filter { it.name !in kept }
         if (start.uploadedUpTo == 0L) return done.also { cursors.save(it) }
         val replaced = if (full) {
             existing
         } else {
-            existing.filter { it.range.last <= start.uploadedUpTo }
+            existing.filter { it.range.last <= start.uploadedUpTo && it.range.first > keptTop }
                 .sortedWith(compareBy({ it.range.first }, { it.range.last }))
                 .takeLastWhile { it.size < smallPackBytes }
         }
@@ -321,7 +352,7 @@ class CloudSync(
         val from = if (full) 1L else replaced.first().range.first
         val replacedNames = replaced.map { it.name }.toSet()
         val groupKey = ring.keys().getValue(epoch)
-        val planned = chunks(from, start.uploadedUpTo).map { (r, entries) -> CloudPaths.packName(r.first, r.last) to (r to entries) }
+        val planned = ownChunks(from, start.uploadedUpTo, start).map { (r, entries) -> CloudPaths.packName(r.first, r.last) to (r to entries) }
         val written = mutableMapOf<String, KeyId>()
         try {
             for ((name, chunk) in planned) {
@@ -339,7 +370,7 @@ class CloudSync(
         }
         val obsolete = replacedNames - planned.map { it.first }.toSet()
         // After a full re-seal every own pack on the Disk is one just written.
-        val compacted = done.copy(ownPacks = if (full) written else start.ownPacks + written - obsolete)
+        val compacted = done.copy(ownPacks = if (full) kept + written else start.ownPacks + written - obsolete)
         cursors.save(compacted) // forgotten before deleted: a lost delete leaves a stray file, never a missing own name
         for (name in obsolete) {
             try {

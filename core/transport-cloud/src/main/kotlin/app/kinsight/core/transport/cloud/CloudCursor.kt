@@ -7,7 +7,20 @@ import java.io.DataOutputStream
 import java.io.IOException
 
 /** A key generation and the [GroupKey.fingerprint] of the key: two admins rotating at once give one generation two keys. */
-data class KeyId(val epoch: Int, val fingerprint: String)
+data class KeyId(val epoch: Int, val fingerprint: String) {
+    /**
+     * An own pack kept as it is (A-4): found in our folder, signed by us, sealed with a key we lack. Its range counts as
+     * uploaded; it is never overwritten, re-sealed or deleted, since its entries are not in our log.
+     */
+    val kept: Boolean get() = fingerprint == KEPT
+
+    companion object {
+        /** [fingerprint] of a [kept] pack; a real one is hex. */
+        const val KEPT = "kept"
+
+        fun kept(epoch: Int) = KeyId(epoch, KEPT)
+    }
+}
 
 /**
  * A pack that could not be opened yet, sealed with generation [epoch] (-1 when unknown). [failedKey]: the fingerprint of our
