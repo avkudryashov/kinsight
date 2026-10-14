@@ -151,31 +151,44 @@ class LocalResetTest {
     fun theWipeWaitsForACloudRunThatWouldWriteTheOldKeysBack() = runBlocking<Unit> {
         d.group.createGroup("Pixel")
         d.ownStorage()
-        // Written by the first run, so the run under test finds the storage and talks to the Disk.
+        // Written by the first run, so the runs under test find the storage and talk to the Disk.
         val disk = InMemoryDisk()
         assertEquals(CloudRun.SYNCED, d.runner(disk).run(CloudTrigger.NOW))
         val g = d.groups.read()!!
         val entered = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
-        // A run in the middle of CloudSync that then stores a group key (as absorbing a rotation does).
-        val gated = GatedDisk(disk) {
+        // Each run stores a group key of the old group from inside CloudSync (as absorbing a rotation does).
+        val oldKey: suspend () -> Unit = { d.cloudSecrets.ring(g).put(1, ByteArray(32) { 7 }) }
+        val held = GatedDisk(disk) {
             entered.complete(Unit)
             release.await()
-            d.cloudSecrets.ring(g).put(1, ByteArray(32) { 7 })
+            oldKey()
         }
-        val run = async(Dispatchers.Default) { runCatching { d.runner(gated).run(CloudTrigger.NOW) } }
+        var queuedTouchedTheDisk = false
+        val queued = GatedDisk(disk) {
+            queuedTouchedTheDisk = true
+            oldKey()
+        }
+        // Run 1 is inside CloudSync when the wipe starts; run 2 starts after the wipe queued behind run 1.
+        val run1 = async(Dispatchers.Default) { runCatching { d.runner(held).run(CloudTrigger.NOW) } }
         withTimeout(20_000) { entered.await() }
         val wipe = async(Dispatchers.Default) { d.reset.forgetGroup() }
         delay(300)
+        assertTrue(d.cloudSecrets.runLock.isLocked)
         assertFalse(wipe.isCompleted, "the wipe waits for the run")
-        assertTrue(File(d.dir, CloudTokenVault.FILE_NAME).exists())
+        assertTrue(d.groups.exists(), "nothing is wiped while a run holds the lock")
+        val run2 = async(Dispatchers.Default) { d.runner(queued).run(CloudTrigger.NOW) }
+        delay(300)
         release.complete(Unit)
         withTimeout(20_000) {
-            run.await()
+            run1.await()
             wipe.await()
         }
+        assertEquals(CloudRun.OFF, withTimeout(20_000) { run2.await() }, "the queued run finds no group")
+        assertFalse(queuedTouchedTheDisk)
         assertFalse(File(d.dir, GroupKeyFile.FILE_NAME).exists(), "nothing of the old group is written back")
         assertFalse(File(d.dir, CloudTokenVault.FILE_NAME).exists())
+        assertNull(d.cloudSecrets.tokens())
     }
 
     /** Runs [gate] once, on the first Disk call. */

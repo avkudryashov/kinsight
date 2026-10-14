@@ -19,6 +19,7 @@ import app.kinsight.core.usage.SettingsStore
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /** [PERIODIC]: the worker's schedule (a child may skip); [NOW]: the app was opened, a hand-off arrived, a debug hook. */
@@ -60,7 +61,14 @@ class CloudRunner(
         return Membership.compute(group.groupId, RoomEntryStore(db, group.groupId).membershipEntries())?.storageOwner != null
     }
 
-    suspend fun run(trigger: CloudTrigger): CloudRun {
+    /**
+     * The whole run holds [runLock], the group file and membership are read under it: a run queued behind a local wipe
+     * (LocalReset holds the same lock across it) finds no group and does nothing, so it cannot write the old group's
+     * keys back. Lock order: runLock, then the pipeline lock (the rotation's appendOwn), as in LocalReset.
+     */
+    suspend fun run(trigger: CloudTrigger): CloudRun = runLock.withLock { runLocked(trigger) }
+
+    private suspend fun runLocked(trigger: CloudTrigger): CloudRun {
         val group = withContext(io) { groups.read() } ?: return CloudRun.OFF
         val k = keys()
         val self = k.deviceId
@@ -97,7 +105,7 @@ class CloudRunner(
         val sync = cached?.takeIf { it.first == key }?.second
             ?: CloudSync(
                 store, k, policy, disk { token ?: throw DiskException.Unauthorized() }, ring, cursors, clock,
-                log = { Log.i(TAG, it) }, running = runLock,
+                log = { Log.i(TAG, it) }, running = Mutex(), // [runLock] is already held around the whole run
             ).also { cached = key to it }
         return when (sync.run()) {
             is CloudResult.Synced -> record(now, CloudRun.SYNCED, null, synced = true)

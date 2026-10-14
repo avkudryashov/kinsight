@@ -56,6 +56,7 @@ class Graph internal constructor(app: Context) {
         wipeIdentity = { DeviceIdentity.resetBlocking(app) },
         snapshots = snapshots,
         marker = ResetMarker(java.io.File(app.noBackupFilesDir, ResetMarker.FILE_NAME)),
+        runLock = cloudSecrets.runLock,
         scope = scope,
     )
     val pairing = PairingCoordinator(

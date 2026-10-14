@@ -105,7 +105,8 @@ class CloudHandoffTest {
         val held = dad.cloudSecrets.tokens()!!
         assertEquals("AT", held.accessToken)
         assertEquals(mom.now + 365L * 24 * 60 * 60 * 1000, held.expiresAtMs)
-        // The kid does not offer it, and Dad's side refuses it even when a child sends it (SyncSession does not check).
+        // The session above never reaches Dad's receive guard (the kid's offer is null): the direct calls below test both
+        // sides, the kid offers nothing and Dad refuses a child's access even when it arrives (SyncSession does not check).
         val m = membershipOf(dad)
         assertNull(handoffOf(kid).offer(m.active.getValue(dad.keys.deviceId), m))
         val copy = kid.cloudSecrets.tokens()!!

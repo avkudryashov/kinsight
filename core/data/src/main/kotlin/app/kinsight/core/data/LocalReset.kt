@@ -42,6 +42,8 @@ sealed interface ResetStatus {
  * 3. under the usage pipeline lock: for a new identity first the keys ([wipeIdentity], blocking, on [io]), then
  *    database tables and usage settings. A [marker] brackets the identity reset; [finishInterruptedReset] runs a
  *    cut-short one again at the next start (audit A-4). Nothing in there takes the transport state lock.
+ * Steps 2 and 3 hold the cloud [runLock] (taken before the other locks; a CloudRunner takes it before the pipeline lock
+ * too): a cloud run waits for the whole wipe and then finds no group, so no key or token of the old group comes back.
  *
  * Wipes run one at a time (a [Mutex]) and report [status]. The screens start them with [launchResetIdentity] /
  * [launchForgetGroup] on [scope] (the app scope): a call while one runs returns the running job instead of starting
@@ -57,6 +59,8 @@ class LocalReset(
     private val wipeIdentity: () -> Unit,
     private val snapshots: Snapshots,
     private val marker: ResetMarker,
+    /** The process-wide cloud run lock (CloudSecrets.runLock), held across the group files and the data wipe. */
+    private val runLock: Mutex = Mutex(),
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) {
@@ -73,8 +77,11 @@ class LocalReset(
     /** A join's fresh database: no trace of the group; the identity and the device name stay. */
     suspend fun forgetGroup(): Unit = tracked(ResetKind.FORGET_GROUP) {
         sync.stopAndWait()
-        forgetGroupFiles()
-        pipeline.exclusive { wipeData() }
+        // A cloud run waits for the whole wipe, then finds no group (CloudRunner reads it under the same lock).
+        runLock.withLock {
+            forgetGroupFiles()
+            pipeline.exclusive { wipeData() }
+        }
         prefs.resetForNewGroup()
         snapshots.invalidate()
     }
@@ -103,12 +110,14 @@ class LocalReset(
     private suspend fun identityReset(keepName: Boolean = false) {
         withContext(io) { marker.set() }
         sync.stopAndWait()
-        forgetGroupFiles()
-        pipeline.exclusive {
-            // Keys before data: a crash in between leaves a new identity over stale data (wiped at the next start or
-            // by the next join), never the old keys over an emptied log.
-            withContext(io) { wipeIdentity() }
-            wipeData()
+        runLock.withLock {
+            forgetGroupFiles()
+            pipeline.exclusive {
+                // Keys before data: a crash in between leaves a new identity over stale data (wiped at the next start or
+                // by the next join), never the old keys over an emptied log.
+                withContext(io) { wipeIdentity() }
+                wipeData()
+            }
         }
         if (keepName) prefs.resetForNewGroup() else prefs.reset()
         snapshots.invalidate()

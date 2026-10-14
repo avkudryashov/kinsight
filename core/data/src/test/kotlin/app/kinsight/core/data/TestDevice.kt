@@ -141,6 +141,7 @@ class TestDevice(
         wipeIdentity = { onKeyWipe?.invoke(); identityWipeFails?.let { throw it }; identityResets += runBlocking { db.entryDao().all().isEmpty() }; keys = DeviceKeys.generate(); afterKeyWipeFails?.let { throw it } },
         snapshots = snapshots,
         marker = resetMarker,
+        runLock = cloudSecrets.runLock,
     )
     val group = GroupRepository(
         snapshots = snapshots,
