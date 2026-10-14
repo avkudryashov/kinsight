@@ -131,6 +131,8 @@ class PairingCoordinator(
     private val snapshots: Snapshots,
     /** Spec §6 «Раздача»: the admin hands its newest group key and (the owner only) the access; the joiner stores them. Null: nothing. */
     private val cloud: CloudSecrets? = null,
+    /** After a join wrote the group file: the app schedules the cloud work (a welcome token is usable right away). */
+    private val onJoined: () -> Unit = {},
     private val clock: () -> Long = System::currentTimeMillis,
     private val dialTimeout: Duration = 60.seconds,
     private val io: CoroutineDispatcher = Dispatchers.IO,
@@ -512,6 +514,11 @@ class PairingCoordinator(
                 sync.start(fast = true)
             } catch (e: Exception) {
                 Log.w(TAG, "joined, no fast sync: $e")
+            }
+            try {
+                onJoined()
+            } catch (e: Exception) {
+                Log.w(TAG, "joined, cloud not scheduled: $e")
             }
             JoinState.Joined
         }

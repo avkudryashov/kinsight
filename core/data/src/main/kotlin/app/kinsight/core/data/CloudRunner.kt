@@ -56,10 +56,14 @@ class CloudRunner(
     @Volatile
     private var token: String? = null
 
-    /** True while the group has a storage owner: the worker is scheduled only then. */
+    /**
+     * True while this device is an active member of a group with a storage owner: the worker is scheduled only then.
+     * The same conditions as the run's OFF checks, so a removed device does not schedule runs that only cancel themselves.
+     */
     suspend fun isOn(): Boolean {
         val group = withContext(io) { groups.read() } ?: return false
-        return Membership.compute(group.groupId, RoomEntryStore(db, group.groupId).membershipEntries())?.storageOwner != null
+        val membership = Membership.compute(group.groupId, RoomEntryStore(db, group.groupId).membershipEntries()) ?: return false
+        return membership.storageOwner != null && keys().deviceId in membership.active
     }
 
     /**

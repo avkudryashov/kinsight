@@ -1,6 +1,8 @@
 package app.kinsight.core.data
 
 import app.kinsight.core.model.proto.DeviceRole
+import app.kinsight.core.model.Membership
+import app.kinsight.core.model.removeMemberEntry
 import app.kinsight.core.model.storageOwnerEntry
 import app.kinsight.core.transport.cloud.DiskApi
 import app.kinsight.core.transport.cloud.DiskException
@@ -51,6 +53,20 @@ class CloudRunnerTest {
         assertTrue(mom.runner(disk).isOn())
         assertNotNull(mom.cloudState.current().lastSyncMs)
         assertNull(mom.cloudState.current().problem)
+    }
+
+    /** Review Minor 5: a removed device is not on, so it never schedules runs that only cancel themselves. */
+    @Test
+    fun aRemovedDeviceIsNotOn() = runBlocking<Unit> {
+        family()
+        mom.ownStorage()
+        kid.learnsStorageFrom(mom)
+        assertTrue(kid.runner(disk).isOn())
+        check(mom.pipeline.appendOwn { a -> listOf(a.removeMemberEntry(kid.keys.deviceId, lastSeq = 0)) })
+        kid.store().storeMembership(mom.store().membershipEntries())
+        assertNotNull(Membership.compute(kid.groups.read()!!.groupId, kid.store().membershipEntries())!!.storageOwner)
+        assertFalse(kid.runner(disk).isOn())
+        assertEquals(CloudRun.OFF, kid.runner(disk).run(CloudTrigger.NOW))
     }
 
     @Test

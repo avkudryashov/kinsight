@@ -78,6 +78,7 @@ class Graph internal constructor(app: Context) {
         sync = sync,
         snapshots = snapshots,
         cloud = cloudSecrets,
+        onJoined = { CloudWork.runSoon(app) },
     )
     val group = GroupRepository(
         snapshots = snapshots,

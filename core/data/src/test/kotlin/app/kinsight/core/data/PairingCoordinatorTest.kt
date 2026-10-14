@@ -13,6 +13,7 @@ import app.kinsight.core.sync.pairing.Invite
 import app.kinsight.core.transport.ble.PairingRadioException
 import app.kinsight.core.transport.ble.RadioProblem
 import app.kinsight.core.transport.cloud.GroupKey
+import app.kinsight.core.transport.cloud.InMemoryDisk
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
@@ -47,9 +48,10 @@ class PairingCoordinatorTest {
         sync: SyncControl = d.sync,
         clock: () -> Long = { d.now },
         keys: suspend () -> DeviceKeys = d.keyProvider,
+        onJoined: () -> Unit = {},
     ) = PairingCoordinator(
         link = air, db = d.db, groups = d.groups, keys = keys, pipeline = d.pipeline, settings = d.settings,
-        reset = d.reset, sync = sync, snapshots = d.snapshots, cloud = d.cloudSecrets, clock = clock,
+        reset = d.reset, sync = sync, snapshots = d.snapshots, cloud = d.cloudSecrets, onJoined = onJoined, clock = clock,
     )
 
     /** A service that refuses the «sync now» nudge (start), as a dead or restricted service would. */
@@ -125,6 +127,22 @@ class PairingCoordinatorTest {
         val g = kid.groups.read()!!
         assertEquals(setOf(0), kid.cloudSecrets.ring(g).keys().keys)
         assertNotNull(Membership.compute(g.groupId, kid.store().membershipEntries())!!.storageOwner)
+    }
+
+    /** Review Minor 3: the welcome token is stored before the group file, so the cloud is scheduled once the join is done. */
+    @Test
+    fun aJoinSchedulesTheCloudOnceTheGroupFileIsWritten() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        mom.ownStorage(token = "AT")
+        val groupFileAtHook = mutableListOf<Boolean>()
+        val pairing = coordinator(kid, onJoined = { groupFileAtHook += kid.groups.exists() })
+        val (invite, qr) = openInvite()
+        val join = pairing.join(scope, qr, "Kid", consent = true)
+        invite.state.awaitFirst { it is InviteState.Confirm }
+        invite.confirm()
+        assertEquals(JoinState.Joined, join.state.awaitFirst { it is JoinState.Joined || it is JoinState.Failed })
+        assertEquals(listOf(true), groupFileAtHook)
+        assertTrue(kid.runner(InMemoryDisk()).isOn(), "the welcome token makes the cloud on for the joiner")
     }
 
     @Test

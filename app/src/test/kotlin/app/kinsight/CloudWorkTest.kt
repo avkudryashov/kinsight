@@ -3,13 +3,16 @@ package app.kinsight
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.CloudGraph
 import app.kinsight.core.data.CloudWork
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -30,6 +33,43 @@ class CloudWorkTest {
         assertEquals(15 * 60_000L, info.periodicityInfo!!.repeatIntervalMillis)
         CloudWork.cancel(app)
         assertTrue(WorkManager.getInstance(app).getWorkInfosForUniqueWork(CloudWork.PERIODIC).get().all { it.state == WorkInfo.State.CANCELLED })
+    }
+
+    /** Off by default (review Minor 1): without a group with a storage owner no app hook schedules anything. */
+    @Test
+    fun withoutACloudNothingIsScheduled() = runBlocking<Unit> {
+        CloudWork.keepScheduled(app).join()
+        CloudWork.runSoon(app).join()
+        CloudWork.opened(app).join()
+        val wm = WorkManager.getInstance(app)
+        assertTrue(wm.getWorkInfosForUniqueWork(CloudWork.PERIODIC).get().isEmpty())
+        assertTrue(wm.getWorkInfosForUniqueWork(CloudWork.NOW).get().isEmpty())
+    }
+
+    /** Rescheduling at every start, session and app open keeps the running job, so the 15-minute cadence is not reset. */
+    @Test
+    fun reschedulingKeepsThePeriodicJob() {
+        val wm = WorkManager.getInstance(app)
+        CloudWork.schedule(app)
+        val first = wm.getWorkInfosForUniqueWork(CloudWork.PERIODIC).get().single().id
+        CloudWork.schedule(app)
+        assertEquals(first, wm.getWorkInfosForUniqueWork(CloudWork.PERIODIC).get().single { it.state != WorkInfo.State.CANCELLED }.id)
+        CloudWork.cancel(app)
+    }
+
+    /** A token arriving never stacks runs (KEEP); opening the app replaces a run stuck in a backoff (REPLACE, spec §9). */
+    @Test
+    fun openingTheAppReplacesAWaitingRun() {
+        val wm = WorkManager.getInstance(app)
+        fun live() = wm.getWorkInfosForUniqueWork(CloudWork.NOW).get().filter { it.state != WorkInfo.State.CANCELLED }.map { it.id }
+        CloudWork.runNow(app)
+        val first = live().single()
+        CloudWork.runNow(app)
+        assertEquals(listOf(first), live())
+        CloudWork.runNow(app, ExistingWorkPolicy.REPLACE)
+        val replaced = live().single()
+        assertNotEquals(first, replaced)
+        CloudWork.cancel(app)
     }
 
     /** R14/R15: the wipe and every cloud run of the process take one lock, or a run could write the old group's keys back. */

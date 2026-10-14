@@ -19,6 +19,7 @@ import app.kinsight.core.transport.cloud.DiskApi
 import app.kinsight.core.transport.cloud.InMemoryDisk
 import app.kinsight.core.transport.cloud.YandexDisk
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import java.util.concurrent.TimeUnit
@@ -64,14 +65,18 @@ object CloudWork {
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.KEEP, request)
     }
 
-    fun runNow(context: Context) {
+    /**
+     * A run now. [policy] KEEP (a token arrived) never stacks runs; REPLACE (the app was opened) replaces a run waiting in
+     * a long backoff, so the parent reads at once (spec §9).
+     */
+    fun runNow(context: Context, policy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP) {
         val request = OneTimeWorkRequestBuilder<CloudWorker>()
             .setConstraints(network())
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .setInputData(workDataOf(KEY_TRIGGER to CloudTrigger.NOW.name))
             .build()
-        WorkManager.getInstance(context).enqueueUniqueWork(NOW, ExistingWorkPolicy.KEEP, request)
+        WorkManager.getInstance(context).enqueueUniqueWork(NOW, policy, request)
     }
 
     fun cancel(context: Context) {
@@ -81,21 +86,28 @@ object CloudWork {
     }
 
     /** App start and after every Bluetooth session (it may have brought a storage owner): the periodic job, if the cloud is on. */
-    fun keepScheduled(context: Context) = whenOn(context) { schedule(context) }
+    fun keepScheduled(context: Context): Job = whenOn(context) { schedule(context) }
 
-    /** The app was opened (spec §9: a parent reads at once) or a token arrived: the periodic job and a run now. */
-    fun runSoon(context: Context) = whenOn(context) {
+    /** A token arrived (sign-in, pairing welcome, Bluetooth hand-off): the periodic job and a run now. */
+    fun runSoon(context: Context): Job = whenOn(context) {
         schedule(context)
         runNow(context)
+    }
+
+    /** The app was opened (spec §9: a parent reads at once): the periodic job and a fresh run now. */
+    fun opened(context: Context): Job = whenOn(context) {
+        schedule(context)
+        runNow(context, ExistingWorkPolicy.REPLACE)
     }
 
     fun resultOf(run: CloudRun): ListenableWorker.Result =
         if (run == CloudRun.RETRY) ListenableWorker.Result.retry() else ListenableWorker.Result.success()
 
-    private fun whenOn(context: Context, block: () -> Unit) {
+    /** The returned job lets a test wait for the check; callers do not need it. */
+    private fun whenOn(context: Context, block: () -> Unit): Job {
         val app = context.applicationContext
         val g = AppGraph.get(app)
-        g.scope.launch {
+        return g.scope.launch {
             try {
                 if (g.cloud.isOn()) block()
             } catch (e: CancellationException) {

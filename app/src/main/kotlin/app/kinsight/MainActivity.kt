@@ -55,7 +55,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         AppGraph.get(this).sync.start(fast = false)
-        CloudWork.runSoon(applicationContext)
+        CloudWork.opened(applicationContext)
     }
 
     /**
