@@ -5,14 +5,18 @@ import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.addMember
+import app.kinsight.core.model.grantAdminEntry
+import app.kinsight.core.model.storageOwnerEntry
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.PairMessage
 import app.kinsight.core.model.proto.PairPending
 import app.kinsight.core.model.proto.PairReject
 import app.kinsight.core.model.proto.PairRequest
 import app.kinsight.core.sync.ByteStream
+import app.kinsight.core.sync.HandedAccess
 import app.kinsight.core.sync.MemoryPipe
 import app.kinsight.core.sync.SecureChannel
+import app.kinsight.core.sync.WelcomeCloud
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -290,5 +294,77 @@ class PairingTest {
         hostJob.cancel()
         hostJob.join()
         assertFalse(after)
+    }
+
+    private fun welcomeWithCloud(cloud: WelcomeCloud, extra: List<ByteArray>): suspend (Joiner) -> HostDecision = { j ->
+        val add = admin.addMember(j.signPublicKey, j.dhPublicKey, j.displayName, DeviceRole.CHILD)
+        HostDecision.Welcome(discoveryKey, listOf(genesis.entry.bytes) + extra + add.bytes, cloud)
+    }
+
+    @Test
+    fun theWelcomeCarriesTheStorageAccess() = runTest {
+        val storageId = ByteArray(16) { 3 }
+        val owner = admin.storageOwnerEntry(adminKeys.deviceId, storageId, 1)
+        val (_, g) = pair({ host().serve(it, welcomeWithCloud(WelcomeCloud(0, null, HandedAccess(1, storageId, "AT", 99)), listOf(owner.bytes))) }, { guest().join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertEquals("AT", joined.cloud!!.access!!.accessToken)
+        assertEquals(0, joined.cloud!!.keyEpoch)
+        assertNull(joined.cloud!!.groupKey)
+    }
+
+    @Test
+    fun accessForAnotherStorageIsDropped() = runTest {
+        val owner = admin.storageOwnerEntry(adminKeys.deviceId, ByteArray(16) { 3 }, 1)
+        val (_, g) = pair({ host().serve(it, welcomeWithCloud(WelcomeCloud(0, null, HandedAccess(1, ByteArray(16) { 4 }, "AT", 99)), listOf(owner.bytes))) }, { guest().join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertNull(joined.cloud!!.access)
+    }
+
+    @Test
+    fun accessFromAnAdminThatDoesNotOwnTheStorageIsDropped() = runTest {
+        // R3: only the storage owner hands the token; here the owner is another parent, not the inviting admin.
+        val dadKeys = DeviceKeys.generate()
+        val storageId = ByteArray(16) { 3 }
+        val addDad = admin.addMember(dadKeys.sign.publicKey, dadKeys.dh.publicKey, "Dad", DeviceRole.PARENT)
+        val grant = admin.grantAdminEntry(dadKeys.deviceId)
+        val owner = admin.storageOwnerEntry(dadKeys.deviceId, storageId, 1)
+        val cloud = WelcomeCloud(0, null, HandedAccess(1, storageId, "AT", 99))
+        val (_, g) = pair({ host().serve(it, welcomeWithCloud(cloud, listOf(addDad.bytes, grant.bytes, owner.bytes))) }, { guest().join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertEquals(dadKeys.deviceId, joined.state.storageOwner?.deviceId, "the fixture names Dad as the owner")
+        assertNull(joined.cloud!!.access)
+    }
+
+    @Test
+    fun aGroupKeyOfAGenerationTheMembershipDoesNotHaveIsDropped() = runTest {
+        val (_, g) = pair({ host().serve(it, welcomeWithCloud(WelcomeCloud(1, ByteArray(32) { 5 }, null), emptyList())) }, { guest().join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertNull(joined.cloud, "generation 1 does not exist in this membership")
+    }
+
+    @Test
+    fun aWelcomeWithoutCloudFieldsJoinsOnGenerationZero() = runTest {
+        val (_, g) = pair({ host().serve(it, welcomeAs(DeviceRole.CHILD)) }, { guest().join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertEquals(0, joined.cloud!!.keyEpoch)
+        assertNull(joined.cloud!!.groupKey)
+        assertNull(joined.cloud!!.access)
+    }
+
+    @Test
+    fun aFullFirstPageStillFitsTheCloudFields() = runTest {
+        // Enough membership for a second page, and the largest token HandedAccess allows, in 3-byte UTF-8 chars.
+        val others = (0 until 400).map { n ->
+            val k = DeviceKeys.generate()
+            admin.addMember(k.sign.publicKey, k.dh.publicKey, "Kid $n".padEnd(60, 'x'), DeviceRole.CHILD).bytes
+        }
+        assertTrue(others.sumOf { it.size } > PairingProtocol.PAGE_BYTES, "the fixture must page")
+        val storageId = ByteArray(16) { 3 }
+        val owner = admin.storageOwnerEntry(adminKeys.deviceId, storageId, 1)
+        val token = "\u0436".repeat(HandedAccess.MAX_TOKEN_CHARS)
+        val cloud = WelcomeCloud(0, null, HandedAccess(1, storageId, token, 99))
+        val (_, g) = pair({ host().serve(it, welcomeWithCloud(cloud, listOf(owner.bytes) + others)) }, { guest().join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertEquals(token, joined.cloud!!.access!!.accessToken)
     }
 }

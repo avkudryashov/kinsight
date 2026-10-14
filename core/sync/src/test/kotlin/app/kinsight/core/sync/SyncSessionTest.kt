@@ -4,6 +4,8 @@ import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
+import app.kinsight.core.model.Member
+import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.proto.AddMember
 import app.kinsight.core.model.proto.MembershipOp
 import app.kinsight.core.model.Membership
@@ -298,7 +300,7 @@ class SyncSessionTest {
             val offers = received.mapNotNull { it.membership }
             assertTrue(offers.isNotEmpty(), "got $received")
             assertTrue(offers.all { it.entries.isEmpty() }, "a non-member got membership entries: $offers")
-            assertTrue(received.none { it.vector_announce != null || it.ack != null || it.batch != null }, "got $received")
+            assertTrue(received.none { it.vector_announce != null || it.ack != null || it.batch != null || it.cloud_handoff != null }, "got $received")
             assertEquals(Reject.Reason.NOT_A_MEMBER, received.last().reject?.reason)
         }
     }
@@ -453,6 +455,49 @@ class SyncSessionTest {
         b.store = InMemoryEntryStore(b.store.groupId).also { it.storeMembership(a.store.membershipEntries()) }
         assertIs<SessionResult.Completed>(syncPair(a, b).second)
         assertEquals(5L, b.store.versionVector()[b.keys.deviceId], "b must not hand out seqs 1..5 again")
+    }
+
+    private class RecordingHandoff(private val give: HandedAccess?) : SessionHandoff {
+        val got = mutableListOf<HandedAccess>()
+
+        override suspend fun offer(peer: Member, membership: MembershipState): HandedAccess? = give
+
+        override suspend fun receive(peer: Member, membership: MembershipState, access: HandedAccess) {
+            got += access
+        }
+    }
+
+    @Test
+    fun theCloudHandoffGoesOverAfterAuthentication() = runBlocking {
+        val (a, b) = buildGroup(2)
+        val ha = RecordingHandoff(HandedAccess(1, ByteArray(16) { 1 }, "AT", 5))
+        val hb = RecordingHandoff(null)
+        val (ra, rb) = syncPair(a, b, handoffA = ha, handoffB = hb)
+        assertIs<SessionResult.Completed>(ra)
+        assertIs<SessionResult.Completed>(rb)
+        assertEquals(listOf("AT"), hb.got.map { it.accessToken })
+        assertTrue(ha.got.isEmpty(), "an empty hand-off is not delivered")
+    }
+
+    @Test
+    fun aProtocol2PeerGetsNoHandoffAndTheSessionCompletes() = runBlocking {
+        val (a, b) = buildGroup(2)
+        val ha = RecordingHandoff(HandedAccess(1, ByteArray(16) { 1 }, "AT", 5))
+        val hb = RecordingHandoff(null)
+        val (ra, rb) = syncPair(a, b, versionsB = 2..2, handoffA = ha, handoffB = hb)
+        assertIs<SessionResult.Completed>(ra)
+        assertIs<SessionResult.Completed>(rb)
+        assertTrue(hb.got.isEmpty())
+    }
+
+    @Test
+    fun aMalformedHandoffIsIgnored() = runBlocking {
+        val (a, b) = buildGroup(2)
+        val ha = RecordingHandoff(HandedAccess(1, ByteArray(15), "AT", 5)) // a storage id of 15 bytes
+        val hb = RecordingHandoff(null)
+        val (_, rb) = syncPair(a, b, handoffA = ha, handoffB = hb)
+        assertIs<SessionResult.Completed>(rb)
+        assertTrue(hb.got.isEmpty())
     }
 }
 

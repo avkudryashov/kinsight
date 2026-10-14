@@ -85,15 +85,17 @@ suspend fun syncPair(
     versionsB: IntRange = ProtocolVersions.SUPPORTED,
     legacyA: Boolean = false,
     legacyB: Boolean = false,
+    handoffA: SessionHandoff? = null,
+    handoffB: SessionHandoff? = null,
 ): Pair<SessionResult, SessionResult> = coroutineScope {
     val (sa, sb) = MemoryPipe.pair(faults, capacity)
     val prologue = SecureChannel.prologue(a.store.groupId)
     val ra = async {
-        runCatching { SyncSession(a.store, a.policy, versions = versionsA, legacyHello = legacyA).run(SecureChannel.initiate(sa, a.keys.dh, prologue)) }
+        runCatching { SyncSession(a.store, a.policy, versions = versionsA, legacyHello = legacyA, handoff = handoffA).run(SecureChannel.initiate(sa, a.keys.dh, prologue)) }
             .getOrElse { SessionResult.Failed(it) }
     }
     val rb = async {
-        runCatching { SyncSession(b.store, b.policy, versions = versionsB, legacyHello = legacyB).run(SecureChannel.accept(sb, b.keys.dh, prologue)) }
+        runCatching { SyncSession(b.store, b.policy, versions = versionsB, legacyHello = legacyB, handoff = handoffB).run(SecureChannel.accept(sb, b.keys.dh, prologue)) }
             .getOrElse { SessionResult.Failed(it) }
     }
     ra.await() to rb.await()

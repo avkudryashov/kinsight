@@ -55,6 +55,15 @@ message Reject {
   Reason reason = 1;
 }
 
+// Spec §6 «Раздача» between paired devices (protocol 3): each side sends exactly one right after VectorAnnounce. All
+// fields empty when the sender hands nothing (only the storage owner hands the token; the receiver decides what to trust).
+message CloudHandoff {
+  uint64 storage_generation = 1;
+  bytes storage_id = 2;
+  string access_token = 3;
+  int64 expires_at_ms = 4;
+}
+
 message SyncMessage {
   oneof msg {
     Hello hello = 1;
@@ -64,5 +73,6 @@ message SyncMessage {
     Done done = 5;
     Reject reject = 6;
     VectorAnnounce vector_announce = 7;
+    CloudHandoff cloud_handoff = 8;
   }
 }

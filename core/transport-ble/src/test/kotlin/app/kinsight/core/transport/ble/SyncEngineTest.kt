@@ -3,6 +3,7 @@ package app.kinsight.core.transport.ble
 import app.kinsight.core.crypto.DiscoveryTags
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.proto.BatchAck
+import app.kinsight.core.model.proto.CloudHandoff
 import app.kinsight.core.model.proto.Hello
 import app.kinsight.core.model.proto.SyncMessage
 import app.kinsight.core.model.proto.VectorAnnounce
@@ -374,6 +375,7 @@ class SyncEngineTest {
         )
         val vector = d0.store.versionVector().toProto()
         send(SyncMessage(vector_announce = VectorAnnounce(vector = vector)))
+        send(SyncMessage(cloud_handoff = CloudHandoff()))
         // Never Done: a stray ack every 50 ms keeps the session's 30-second idle timeout from ever firing.
         withTimeout(10.seconds) {
             assertFailsWith<IOException> {

@@ -20,6 +20,16 @@ message PairWelcome {
   bytes discovery_key = 1;
   repeated bytes entries = 2;  // SignedEntry bytes: the group's effective membership entries
   bool more = 3;
+  // Spec §6 «Раздача», first page only; a 0.8.x guest ignores them. key_epoch / group_key: the newest group key generation
+  // the admin holds (group_key empty: generation 0, the discovery key above). The access fields: the storage access for
+  // the storage of the membership's StorageOwner, set only when the admin is that owner (only the owner hands the token);
+  // empty when the cloud is off or the admin is not the owner. The guest drops access from anyone else.
+  uint32 key_epoch = 4;
+  bytes group_key = 5;
+  uint64 storage_generation = 6;
+  bytes storage_id = 7;
+  string access_token = 8;
+  int64 access_expires_at_ms = 9;
 }
 
 message PairReject {

@@ -16,7 +16,9 @@ import app.kinsight.core.model.proto.PairReject
 import app.kinsight.core.model.proto.PairRequest
 import app.kinsight.core.model.proto.PairWelcome
 import app.kinsight.core.sync.ByteStream
+import app.kinsight.core.sync.HandedAccess
 import app.kinsight.core.sync.SecureChannel
+import app.kinsight.core.sync.WelcomeCloud
 import kotlinx.coroutines.withTimeoutOrNull
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
@@ -44,8 +46,11 @@ class Joiner(val signPublicKey: ByteArray, val dhPublicKey: ByteArray, val displ
 }
 
 sealed interface HostDecision {
-    /** [membership]: SignedEntry bytes of the group's effective membership, the guest's AddMember included. */
-    class Welcome(val discoveryKey: ByteArray, val membership: List<ByteArray>) : HostDecision
+    /**
+     * [membership]: SignedEntry bytes of the group's effective membership, the guest's AddMember included. [cloud]: what
+     * the first page hands for the cloud; its access only when this admin is the storage owner (the guest drops it otherwise).
+     */
+    class Welcome(val discoveryKey: ByteArray, val membership: List<ByteArray>, val cloud: WelcomeCloud? = null) : HostDecision
 
     data class Reject(val reason: PairReject.Reason) : HostDecision
 }
@@ -57,7 +62,13 @@ sealed interface HostOutcome {
 }
 
 sealed interface GuestResult {
-    class Joined(val discoveryKey: ByteArray, val membership: List<DecodedEntry>, val state: MembershipState) : GuestResult
+    /** [cloud]: null when the welcome's cloud part does not fit [state] (joining does not depend on it). */
+    class Joined(
+        val discoveryKey: ByteArray,
+        val membership: List<DecodedEntry>,
+        val state: MembershipState,
+        val cloud: WelcomeCloud? = null,
+    ) : GuestResult
 
     data class Rejected(val reason: PairReject.Reason) : GuestResult
 }
@@ -180,12 +191,23 @@ class PairingHost(
         return HostOutcome.Rejected(reason, joiner)
     }
 
+    private companion object {
+        /** Tags, lengths and the varint fields of a PairWelcome page beyond its entries. */
+        const val FIELD_OVERHEAD = 64
+    }
+
     private suspend fun sendWelcome(ch: SecureChannel, w: HostDecision.Welcome) {
         val pages = mutableListOf<List<ByteArray>>()
         var page = mutableListOf<ByteArray>()
         var size = 0
+        // The first page also carries the discovery key and the cloud fields (a token of up to 4096 chars, so up to
+        // 16 KB of UTF-8): its entries get that much less room, which keeps every frame below SecureChannel.MAX_PLAINTEXT.
+        val firstExtra = w.discoveryKey.size + (w.cloud?.let { c ->
+            (c.groupKey?.size ?: 0) + (c.access?.let { it.storageId.size + it.accessToken.encodeToByteArray().size } ?: 0)
+        } ?: 0) + FIELD_OVERHEAD
         for (e in w.membership) {
-            if (page.isNotEmpty() && size + e.size > PairingProtocol.PAGE_BYTES) {
+            val budget = if (pages.isEmpty()) PairingProtocol.PAGE_BYTES - firstExtra else PairingProtocol.PAGE_BYTES
+            if (page.isNotEmpty() && size + e.size > budget) {
                 pages += page
                 page = mutableListOf()
                 size = 0
@@ -195,10 +217,19 @@ class PairingHost(
         }
         pages += page
         pages.forEachIndexed { i, p ->
+            val first = i == 0
+            val cloud = w.cloud?.takeIf { first }
+            val access = cloud?.access
             val welcome = PairWelcome(
-                discovery_key = if (i == 0) w.discoveryKey.toByteString() else ByteString.EMPTY,
+                discovery_key = if (first) w.discoveryKey.toByteString() else ByteString.EMPTY,
                 entries = p.map { it.toByteString() },
                 more = i < pages.lastIndex,
+                key_epoch = cloud?.takeIf { it.groupKey != null }?.keyEpoch ?: 0,
+                group_key = cloud?.groupKey?.toByteString() ?: ByteString.EMPTY,
+                storage_generation = access?.storageGeneration ?: 0,
+                storage_id = access?.storageId?.toByteString() ?: ByteString.EMPTY,
+                access_token = access?.accessToken.orEmpty(),
+                access_expires_at_ms = access?.expiresAtMs ?: 0,
             )
             PairingProtocol.send(ch, PairMessage(welcome = welcome))
         }
@@ -248,21 +279,22 @@ class PairingGuest(
     }
 
     private suspend fun readDecision(ch: SecureChannel): GuestResult {
-        var key: ByteArray? = null
+        var first: PairWelcome? = null
         val raw = mutableListOf<ByteArray>()
         while (true) {
             val m = PairingProtocol.receive(ch)
             m.reject?.let { return GuestResult.Rejected(it.reason) }
             val w = m.welcome ?: throw PairingException(PairingException.Kind.MALFORMED, "expected PairWelcome")
-            if (key == null) key = w.discovery_key.toByteArray()
+            if (first == null) first = w
             w.entries.mapTo(raw) { it.toByteArray() }
             if (!w.more) break
         }
-        return validate(key!!, raw)
+        return validate(first!!, raw)
     }
 
-    private fun validate(discoveryKey: ByteArray, raw: List<ByteArray>): GuestResult.Joined {
+    private fun validate(first: PairWelcome, raw: List<ByteArray>): GuestResult.Joined {
         fun invalid(why: String): Nothing = throw PairingException(PairingException.Kind.INVALID_WELCOME, why)
+        val discoveryKey = first.discovery_key.toByteArray()
         if (discoveryKey.size != 32) invalid("discovery key must be 32 bytes")
         val entries = raw.map { runCatching { DecodedEntry.decode(it) }.getOrElse { invalid("undecodable entry") } }
         val state = Membership.compute(invite.groupId, entries) ?: invalid("no valid genesis for the invited group")
@@ -272,6 +304,25 @@ class PairingGuest(
         val inviter = state.active[invite.adminId]
         if (inviter?.isAdmin != true) invalid("the inviting admin is not an active admin")
         if (!inviter.dhPublicKey.toByteArray().contentEquals(invite.adminDhKey)) invalid("the admin's X25519 key differs from the QR")
-        return GuestResult.Joined(discoveryKey, entries, state)
+        return GuestResult.Joined(discoveryKey, entries, state, cloudOf(first, state))
+    }
+
+    /**
+     * The cloud part of the welcome, or null when it does not fit this membership. The admin hands its newest generation:
+     * a generation the membership does not have is dropped, never trusted. Access is kept only when it names the
+     * membership's storage and the inviting admin is that storage's owner (only the owner hands the token). Joining does
+     * not depend on it (the device then waits for the access over Bluetooth).
+     */
+    private fun cloudOf(first: PairWelcome, state: MembershipState): WelcomeCloud? {
+        val epoch = first.key_epoch
+        val key = first.group_key.toByteArray()
+        val groupKey = when {
+            epoch == 0 && key.isEmpty() -> null
+            epoch > 0 && epoch == (state.discoveryRotation?.epoch ?: 0) && key.size == 32 -> key
+            else -> return null
+        }
+        val access = HandedAccess.of(first.storage_generation, first.storage_id.toByteArray(), first.access_token, first.access_expires_at_ms)
+            ?.takeIf { it.isFor(state.storageOwner) && state.storageOwner?.deviceId == invite.adminId }
+        return WelcomeCloud(epoch, groupKey, access)
     }
 }

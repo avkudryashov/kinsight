@@ -6,6 +6,7 @@ import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.addMember
 import app.kinsight.core.model.proto.AppTotal
 import app.kinsight.core.model.proto.BatchAck
+import app.kinsight.core.model.proto.CloudHandoff
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.Done
 import app.kinsight.core.model.proto.EntryBatch
@@ -69,6 +70,7 @@ class SessionHardeningTest {
         assertNotNull(announce.vector_announce)
         got += announce
         ch.put(SyncMessage(vector_announce = VectorAnnounce(vector = member.store.versionVector().toProto())))
+        ch.put(SyncMessage(cloud_handoff = CloudHandoff()))
         while (true) {
             val m = ch.next()
             got += m
@@ -148,6 +150,7 @@ class SessionHardeningTest {
             ch.put(SyncMessage(hello = Hello(protocol_version = PROTOCOL_VERSION, group_id = hello.group_id, membership_hash = hello.membership_hash, wants_foreign_entries = false)))
             assertNotNull(ch.next().vector_announce)
             ch.put(SyncMessage(vector_announce = VectorAnnounce(vector = a.store.versionVector().toProto())))
+            ch.put(SyncMessage(cloud_handoff = CloudHandoff()))
             ch.put(SyncMessage(batch = EntryBatch(entries = listOf(a.author.summary(TODAY.toString(), 1).bytes.toByteString()))))
             repeat(1_000) { ch.put(SyncMessage(ack = BatchAck())) } // the unbounded MemoryPipe never blocks us
             delay(500)
@@ -178,6 +181,7 @@ class SessionHardeningTest {
             ch.put(SyncMessage(hello = Hello(protocol_version = PROTOCOL_VERSION, group_id = hello.group_id, membership_hash = hello.membership_hash, wants_foreign_entries = true)))
             assertNotNull(ch.next().vector_announce)
             ch.put(SyncMessage(vector_announce = VectorAnnounce(vector = a.store.versionVector().toProto())))
+            ch.put(SyncMessage(cloud_handoff = CloudHandoff()))
             ch.put(SyncMessage(batch = EntryBatch(entries = tampered.map { it.bytes.toByteString() })))
             val seen = mutableListOf<SyncMessage>()
             try {
@@ -202,6 +206,7 @@ class SessionHardeningTest {
             assertNotNull(ch.next().vector_announce)
             val own = app.kinsight.core.model.proto.VectorItem(author_id = b.keys.deviceId.bytes().toByteString(), seq = ownSeen)
             ch.put(SyncMessage(vector_announce = VectorAnnounce(vector = listOf(own))))
+            ch.put(SyncMessage(cloud_handoff = CloudHandoff()))
             ch.put(SyncMessage(done = Done()))
             while (ch.next().done == null) Unit
             ch.put(SyncMessage(done = Done()))

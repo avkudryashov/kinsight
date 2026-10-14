@@ -7,6 +7,7 @@ import app.kinsight.core.model.Membership
 import app.kinsight.core.model.MembershipLimits
 import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.proto.BatchAck
+import app.kinsight.core.model.proto.CloudHandoff
 import app.kinsight.core.model.proto.Done
 import app.kinsight.core.model.proto.EntryBatch
 import app.kinsight.core.model.proto.Hello
@@ -35,7 +36,7 @@ import kotlin.time.Duration.Companion.seconds
 
 /**
  * 2: CategoryOverride entries (stage 5c).
- * 3: cloud storage, location and safe zones (entry kinds only; sessions behave as in 2).
+ * 3: cloud storage, location and safe zones; one CloudHandoff each way after the vectors.
  * The highest version this build speaks.
  */
 const val PROTOCOL_VERSION = 3
@@ -80,6 +81,7 @@ class SyncSession internal constructor(
     private val lingerTimeout: Duration = LINGER,
     private val log: (String) -> Unit = {},
     private val legacyHello: Boolean,
+    private val handoff: SessionHandoff? = null,
 ) {
     constructor(
         store: EntryStore,
@@ -89,7 +91,8 @@ class SyncSession internal constructor(
         sessionTimeout: Duration = 5.minutes,
         lingerTimeout: Duration = LINGER,
         log: (String) -> Unit = {},
-    ) : this(store, policy, versions, idleTimeout, sessionTimeout, lingerTimeout, log, legacyHello = false)
+        handoff: SessionHandoff? = null,
+    ) : this(store, policy, versions, idleTimeout, sessionTimeout, lingerTimeout, log, legacyHello = false, handoff = handoff)
 
     suspend fun run(channel: SecureChannel): SessionResult = try {
         withTimeout(sessionTimeout) { exchange(channel) }
@@ -243,6 +246,28 @@ class SyncSession internal constructor(
             } else {
                 log("ignored own seq $ownSeen from ${peer.id.hex} (held $ownHeld)")
             }
+        }
+
+        // Spec §6 «Раздача» between paired devices (protocol 3): one CloudHandoff each way, empty when there is nothing.
+        // A protocol 2 peer never sees it. Who may hand what (only the storage owner) is the handoff's decision.
+        if (agreed >= 3) {
+            val offer = handoff?.offer(peer, membership)
+            send(
+                ch,
+                SyncMessage(
+                    cloud_handoff = CloudHandoff(
+                        storage_generation = offer?.storageGeneration ?: 0,
+                        storage_id = offer?.storageId?.toByteString() ?: ByteString.EMPTY,
+                        access_token = offer?.accessToken.orEmpty(),
+                        expires_at_ms = offer?.expiresAtMs ?: 0,
+                    ),
+                ),
+            )
+            val m = receive(ch)
+            m.reject?.let { return@coroutineScope SessionResult.Rejected(it.reason, byPeer = true) }
+            val got = m.cloud_handoff ?: throw ProtocolException("expected cloud handoff")
+            HandedAccess.of(got.storage_generation, got.storage_id.toByteArray(), got.access_token, got.expires_at_ms)
+                ?.let { handoff?.receive(peer, membership, it) }
         }
 
         val validator = EntryValidator(store.groupId, membership, policy)
