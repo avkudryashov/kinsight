@@ -9,16 +9,17 @@ import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.model.proto.StorageOwner
 import okio.ByteString.Companion.toByteString
 
-/** Creates a signed AddMember op; an over-cap [displayName] is refused before anything is signed. */
+/** Creates a signed AddMember op; [groupKeyEpoch] is the key generation the joiner is handed at pairing; an over-cap [displayName] is refused before anything is signed. */
 fun EntryAuthor.addMember(
     signPublicKey: ByteArray,
     dhPublicKey: ByteArray,
     displayName: String,
     role: DeviceRole = DeviceRole.PARENT,
+    groupKeyEpoch: Int = 0,
 ): DecodedEntry {
     require(MembershipLimits.nameOk(displayName)) { "display name over ${MembershipLimits.MAX_NAME_CODE_POINTS} code points" }
     val entry = create {
-        it.copy(membership_op = MembershipOp(add = AddMember(signPublicKey.toByteString(), dhPublicKey.toByteString(), displayName, role)))
+        it.copy(membership_op = MembershipOp(add = AddMember(signPublicKey.toByteString(), dhPublicKey.toByteString(), displayName, role, groupKeyEpoch)))
     }
     check(MembershipLimits.withinLimits(entry)) { "membership entry over limits" }
     return entry

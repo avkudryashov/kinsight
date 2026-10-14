@@ -131,6 +131,8 @@ message AddMember {
   bytes dh_public_key = 2;
   string display_name = 3;
   DeviceRole role = 4;
+  // The group key generation the adding admin handed the joiner at pairing (0 when absent: the key from pairing).
+  uint32 group_key_epoch = 5;
 }
 
 message RemoveMember {

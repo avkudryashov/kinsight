@@ -19,6 +19,7 @@ tasks.named<Test>("test") {
     inputs.property("liveYandex", live)
     if (live) {
         outputs.upToDateWhen { false }
+        outputs.cacheIf { false }
         val local = rootProject.file("local.properties")
         val token = if (local.exists()) {
             Properties().also { p -> local.inputStream().use { p.load(it) } }.getProperty("kinsight.yandex.testToken")

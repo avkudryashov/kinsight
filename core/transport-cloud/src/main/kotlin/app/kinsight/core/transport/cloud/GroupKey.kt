@@ -75,21 +75,21 @@ object GroupKey {
         groupId.bytes() + ByteBuffer.allocate(4).putInt(epoch).array() + device.bytes()
 
     /**
-     * Active members the newest rotation was not sealed to although their AddMember carries a lower Lamport value than the
-     * rotation op: its author cannot have seen the rotation, so the member got an older generation at pairing and never
-     * gets this one (Y1 review). Turning the cloud on, and any admin's cloud run, rotates again while this is not empty. A
-     * member added after the rotation got the newest generation in its welcome and is not listed.
+     * Active members that did not get the newest rotation's key: not among its holders, and the AddMember that admitted them
+     * records a key generation (`group_key_epoch`, what the adding admin handed over at pairing) below the rotation's
+     * epoch, so the admin had not seen the rotation (Y1 review). Causal, no Lamport comparison; an AddMember without the
+     * field reads 0, which flags a member added by a pre-cloud build after a rotation. Turning the cloud on, and any
+     * admin's cloud run, rotates again while this is not empty. A member without an AddMember (the creator) is never listed.
      */
     fun membersWithoutKey(membership: MembershipState): Set<DeviceId> {
         val r = membership.discoveryRotation ?: return emptySet()
-        val op = membership.effectiveEntries.firstOrNull { it.body.membership_op?.rotate == r } ?: return emptySet()
         val holders = r.keys.map { it.device_id }.toSet()
-        val addedAt = membership.effectiveEntries.mapNotNull { e ->
-            val pk = e.body.membership_op?.add?.sign_public_key ?: return@mapNotNull null
-            DeviceId.fromSignPublicKey(pk.toByteArray()) to e.lamport
+        val addedWith = membership.effectiveEntries.mapNotNull { e ->
+            val add = e.body.membership_op?.add ?: return@mapNotNull null
+            DeviceId.fromSignPublicKey(add.sign_public_key.toByteArray()) to add.group_key_epoch
         }.toMap()
         return membership.active.keys.filter { id ->
-            id.bytes().toByteString() !in holders && (addedAt[id] ?: 0L) < op.lamport
+            id.bytes().toByteString() !in holders && (addedWith[id]?.let { it < r.epoch } ?: false)
         }.toSet()
     }
 }

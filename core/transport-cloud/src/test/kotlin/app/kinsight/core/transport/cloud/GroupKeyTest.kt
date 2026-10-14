@@ -72,21 +72,28 @@ class GroupKeyTest {
     }
 
     @Test
-    fun aMemberAddedBeforeTheRotationWasSeenHasNoKey() {
+    fun aMemberAddedWithoutTheNewestKeyIsListed() {
         val grant = mom.grantAdminEntry(dadKeys.deviceId)
         val withGrant = base + grant
-        // Dad adds Grandpa having seen the grant but not Mom's rotation, which carries a higher Lamport value.
-        val dadAfterGrant = EntryAuthor(genesis.groupId, dadKeys, lastSeq = 0, lastLamport = grant.lamport)
-        val grandpaKeys = DeviceKeys.generate()
-        val addGrandpa = dadAfterGrant.addMember(grandpaKeys.sign.publicKey, grandpaKeys.dh.publicKey, "Grandpa")
-        val momLater = EntryAuthor(genesis.groupId, momKeys, lastSeq = mom.lastSeq, lastLamport = addGrandpa.lamport + 5)
-        val rotation = GroupKey.rotate(momLater, Membership.compute(genesis.groupId, withGrant)!!)
-        val state = Membership.compute(genesis.groupId, withGrant + addGrandpa + rotation)!!
-        assertEquals(setOf(grandpaKeys.deviceId), GroupKey.membersWithoutKey(state))
-        // A member added after the rotation got the newest generation in its welcome.
-        val newKid = DeviceKeys.generate()
-        val later = Membership.compute(genesis.groupId, withGrant + addGrandpa + rotation + momLater.addMember(newKid.sign.publicKey, newKid.dh.publicKey, "Kid2", DeviceRole.CHILD))!!
-        assertEquals(setOf(grandpaKeys.deviceId), GroupKey.membersWithoutKey(later))
+        val rotation = GroupKey.rotate(mom, Membership.compute(genesis.groupId, withGrant)!!)
+        val epoch = rotation.body.membership_op!!.rotate!!.epoch
+        // Dad never saw the rotation but his Lamport value is far above it: only the recorded epoch tells.
+        val dadBlind = EntryAuthor(genesis.groupId, dadKeys, lastSeq = 0, lastLamport = rotation.lamport + 50)
+        val blindKeys = DeviceKeys.generate()
+        val addBlind = dadBlind.addMember(blindKeys.sign.publicKey, blindKeys.dh.publicKey, "Grandpa", groupKeyEpoch = epoch - 1)
+        // Dad that had seen it hands over the newest generation.
+        val dadSeeing = EntryAuthor(genesis.groupId, dadKeys, lastSeq = dadBlind.lastSeq + 1, lastLamport = rotation.lamport)
+        val seenKeys = DeviceKeys.generate()
+        val addSeeing = dadSeeing.addMember(seenKeys.sign.publicKey, seenKeys.dh.publicKey, "Grandma", groupKeyEpoch = epoch)
+        // A pre-cloud build records nothing: reads 0.
+        val oldKeys = DeviceKeys.generate()
+        val addOld = dadSeeing.addMember(oldKeys.sign.publicKey, oldKeys.dh.publicKey, "Uncle")
+        val all = withGrant + rotation + addBlind + addSeeing + addOld
+        val state = Membership.compute(genesis.groupId, all)!!
+        assertEquals(setOf(blindKeys.deviceId, oldKeys.deviceId), GroupKey.membersWithoutKey(state))
+        // Holders (Mom, Dad, Kid) are never listed; neither is a removed member.
+        val removed = Membership.compute(genesis.groupId, all + mom.removeMemberEntry(blindKeys.deviceId, lastSeq = 0))!!
+        assertEquals(setOf(oldKeys.deviceId), GroupKey.membersWithoutKey(removed))
     }
 
     @Test

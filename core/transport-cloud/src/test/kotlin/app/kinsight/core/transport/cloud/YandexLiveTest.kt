@@ -3,6 +3,7 @@ package app.kinsight.core.transport.cloud
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.sync.summary
 import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -20,7 +21,7 @@ class YandexLiveTest {
 
     @Test
     fun twoPhonesSyncThroughALiveDisk() = runTest(timeout = 3.minutes) {
-        if (!enabled) return@runTest
+        assumeTrue(enabled, "live Yandex test is opt in")
         val disk = YandexDisk({ token!! })
         val (mom, kid) = family(DeviceRole.CHILD)
         try {

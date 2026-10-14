@@ -82,15 +82,15 @@ object CloudAccessView {
      * [current] over the owner's log only, paged: the app never decodes the whole database for it (on Room every live
      * entry would be decoded). Null as [current].
      */
-    suspend fun current(store: EntryStore, membership: MembershipState, ring: Map<Int, ByteArray>): StorageAccess? {
+    suspend fun current(store: EntryStore, membership: MembershipState, ring: Map<Int, ByteArray>, page: Int = PAGE): StorageAccess? {
         val owner = membership.storageOwner ?: return null
         var newest: DecodedEntry? = null
         var after = 0L
         while (true) {
-            val page = store.entriesAfter(owner.deviceId, after, PAGE)
-            if (page.isEmpty()) break
-            page.lastOrNull { it.kind == EntryKind.CLOUD_ACCESS }?.let { newest = it }
-            after = page.last().seq
+            val entries = store.entriesAfter(owner.deviceId, after, page)
+            if (entries.isEmpty()) break
+            entries.lastOrNull { it.kind == EntryKind.CLOUD_ACCESS }?.let { newest = it }
+            after = entries.last().seq
         }
         return current(membership, listOfNotNull(newest), ring)
     }

@@ -12,6 +12,7 @@ import app.kinsight.core.model.proto.CloudAccess
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.removeMemberEntry
 import app.kinsight.core.model.storageOwnerEntry
+import app.kinsight.core.sync.summary
 import okio.ByteString.Companion.toByteString
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -147,11 +148,21 @@ class CloudAccessViewTest {
 
     @Test
     fun currentIsReadFromTheOwnersLogOnly() = runTest {
-        val (mom, kid) = family(DeviceRole.CHILD)
+        val (mom, dad, kid) = family(DeviceRole.PARENT, DeviceRole.CHILD)
         mom.publish(mom.author.storageOwnerEntry(mom.id, ByteArray(16) { 1 }, 1))
         mom.publish(CloudAccessView.issue(mom.author, mom.membership(), 0, GEN0, "OLD", 9))
         mom.publish(CloudAccessView.issue(mom.author, mom.membership(), 0, GEN0, "NEW", 9))
-        assertEquals("NEW", CloudAccessView.current(mom.store, mom.membership(), mapOf(0 to GEN0))!!.accessToken)
+        // Entries after the newest access push it off the last page.
+        repeat(3) { mom.publish(mom.author.summary("2026-10-0${it + 1}", 1)) }
+        // A non-owner's CloudAccess is in the store, with a higher seq than any of the owner's, and is ignored.
+        mom.publish(
+            dad.author.create {
+                it.copy(cloud_access = CloudAccess(generation = 1, storage_id = ByteArray(16) { 1 }.toByteString(), nonce = ByteArray(12).toByteString(), ciphertext = ByteArray(40).toByteString()))
+            },
+        )
+        for (page in listOf(2, 1, 500)) {
+            assertEquals("NEW", CloudAccessView.current(mom.store, mom.membership(), mapOf(0 to GEN0), page)!!.accessToken, "page $page")
+        }
         assertNull(CloudAccessView.current(kid.store, kid.membership(), mapOf(0 to GEN0)), "the kid knows no owner yet")
     }
 }
