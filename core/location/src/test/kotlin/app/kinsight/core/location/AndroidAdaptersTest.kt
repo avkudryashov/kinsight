@@ -42,8 +42,7 @@ class AndroidAdaptersTest {
     @Before
     fun setUp() {
         WorkManagerTestInitHelper.initializeTestWorkManager(app)
-        LocationService.wanted = false
-        LocationService.foreground = false
+        ServiceGate.reset()
     }
 
     @Test
@@ -181,10 +180,10 @@ class AndroidAdaptersTest {
         cadence.stopService()
         assertEquals(LocationService::class.java.name, shadowOf(app).nextStartedService?.component?.className)
         assertNull(shadowOf(app).nextStoppedService)
-        val service = Robolectric.buildService(LocationService::class.java).create().startCommand(0, 1).get()
+        val service = runService(1)
         assertNotNull(shadowOf(service).lastForegroundNotification)
         assertTrue(shadowOf(service).isStoppedBySelf)
-        assertFalse(LocationService.foreground)
+        assertFalse(ServiceGate.isForeground)
     }
 
     @Test
@@ -192,16 +191,16 @@ class AndroidAdaptersTest {
         val cadence = AndroidCadence(app)
         cadence.startService()
         assertNotNull(shadowOf(app).nextStartedService)
-        val service = Robolectric.buildService(LocationService::class.java).create().startCommand(0, 1).get()
+        val service = runService(1)
         assertNotNull(shadowOf(service).lastForegroundNotification)
         assertFalse(shadowOf(service).isStoppedBySelf)
-        assertTrue(LocationService.foreground)
+        assertTrue(ServiceGate.isForeground)
         // The next 5-minute tick finds it running: no second start.
         assertTrue(cadence.startService())
         assertNull(shadowOf(app).nextStartedService)
         cadence.stopService()
         assertEquals(LocationService::class.java.name, shadowOf(app).nextStoppedService?.component?.className)
-        assertFalse(LocationService.foreground)
+        assertFalse(ServiceGate.isForeground)
         // Started again after the stop: a new start, not skipped.
         cadence.startService()
         assertNotNull(shadowOf(app).nextStartedService)
@@ -230,4 +229,52 @@ class AndroidAdaptersTest {
         assertEquals(1, finished.get())
         assertTrue(Broadcasts.RECEIVER_BUDGET_MS < 60_000L - LocationEngine.FIX_TIMEOUT_MS)
     }
+
+    @Test
+    fun anExitStopAndStartBeforeTheServiceRunsKeepItOnWithOneStart() {
+        // Exit, entry, exit again before the first onStartCommand: one start, no stop, the service stays foreground.
+        val cadence = AndroidCadence(app)
+        cadence.startService()
+        cadence.stopService()
+        cadence.startService()
+        assertNotNull(shadowOf(app).nextStartedService)
+        assertNull(shadowOf(app).nextStartedService)
+        assertNull(shadowOf(app).nextStoppedService)
+        val service = runService(1)
+        assertFalse(shadowOf(service).isStoppedBySelf)
+        assertTrue(ServiceGate.isForeground)
+        assertEquals(0, ServiceGate.pendingStarts)
+    }
+
+    @Test
+    fun aServiceThatStopsItselfDoesSoByItsStartIdAndAStartAfterwardsIsSent() {
+        val cadence = AndroidCadence(app)
+        cadence.startService()
+        cadence.stopService()
+        val service = runService(7)
+        assertTrue(shadowOf(service).isStoppedBySelf)
+        assertEquals(7, shadowOf(service).stopSelfId)
+        // The restart that follows is not lost: a new start goes out.
+        shadowOf(app).nextStartedService
+        cadence.startService()
+        assertNotNull(shadowOf(app).nextStartedService)
+        assertEquals(1, ServiceGate.pendingStarts)
+    }
+
+    @Test
+    fun aRefusedForegroundStopsByStartIdAndTheNextTickTriesAgain() {
+        val cadence = AndroidCadence(app)
+        cadence.startService()
+        val controller = Robolectric.buildService(LocationService::class.java).create()
+        shadowOf(controller.get()).setThrowInStartForeground(SecurityException("type"))
+        val service = controller.startCommand(0, 3).get()
+        assertEquals(3, shadowOf(service).stopSelfId)
+        assertFalse(ServiceGate.isForeground)
+        shadowOf(app).nextStartedService
+        cadence.startService()
+        assertNotNull(shadowOf(app).nextStartedService)
+    }
+
+    private fun runService(startId: Int): LocationService =
+        Robolectric.buildService(LocationService::class.java).create().startCommand(0, startId).get()
 }

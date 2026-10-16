@@ -15,36 +15,32 @@ import android.util.Log
  * notification; the points come from the tick (LocationTickReceiver), which goes on without it. If Android refuses the
  * location type here (spec §14, a start from the background on Android 14+), it stops at once and the tick carries on.
  *
- * Start and stop meet through [wanted] and [foreground]: a service started with startForegroundService must reach
- * startForeground before anything stops it, or Android crashes the app. So it always goes foreground first and then
- * stops itself when it is no longer wanted; [AndroidCadence] stops it from outside only once it is foreground.
+ * Start and stop meet in [ServiceGate]: a service started with startForegroundService must reach startForeground
+ * before anything stops it, or Android crashes the app. So every start command goes foreground first and then stops
+ * the service itself (by its own start id) when it is no longer wanted; [AndroidCadence] stops it from outside only
+ * when it is foreground with no start pending.
  */
 class LocationService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        try {
+        val ok = try {
             getSystemService(NotificationManager::class.java).createNotificationChannel(
                 NotificationChannel(CHANNEL_ID, getString(R.string.loc_channel), NotificationManager.IMPORTANCE_LOW),
             )
             startForeground(NOTIFICATION_ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+            true
         } catch (e: Exception) {
             Log.w(TAG, "location service refused: ${e.javaClass.simpleName}")
-            foreground = false
-            stopSelf()
-            return START_NOT_STICKY
+            false
         }
-        // Written before reading [wanted], the mirror of AndroidCadence.stopService: one of the two sides sees the other.
-        foreground = true
-        if (!wanted) {
-            foreground = false
-            stopSelf()
-        }
+        // By start id: a newer start already sent keeps the service and gets its own onStartCommand (and check).
+        if (ServiceGate.started(ok)) stopSelf(startId)
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
-        foreground = false
+        ServiceGate.destroyed()
         super.onDestroy()
     }
 
@@ -65,13 +61,67 @@ class LocationService : Service() {
         const val CHANNEL_ID = "kinsight-location"
         private const val NOTIFICATION_ID = 41
         private const val TAG = "KinsightLocation"
+    }
+}
 
-        /** The engine wants the service (outside every zone). */
-        @Volatile
-        internal var wanted = false
+/**
+ * The one place start and stop of [LocationService] are decided, under one monitor (never held across a call into
+ * Android): whether the engine wants it, whether it is in the foreground, and how many startForegroundService calls
+ * have not reached onStartCommand yet. While a start is pending nothing stops the service from outside (its own
+ * onStartCommand checks [wanted] after going foreground) and no second start is sent.
+ */
+internal object ServiceGate {
+    private var wanted = false
+    private var foreground = false
+    private var pending = 0
 
-        /** The service has called startForeground and is not being stopped: safe to stop from outside. */
-        @Volatile
-        internal var foreground = false
+    /** The engine wants the service; true when the caller must send startForegroundService (counted as pending). */
+    @Synchronized
+    fun wantStart(): Boolean {
+        wanted = true
+        if (foreground || pending > 0) return false
+        pending++
+        return true
+    }
+
+    /** startForegroundService threw: that start never comes. */
+    @Synchronized
+    fun startFailed() {
+        if (pending > 0) pending--
+    }
+
+    /** The engine no longer wants it; true when the caller must stop it now (foreground, no start pending). */
+    @Synchronized
+    fun wantStop(): Boolean {
+        wanted = false
+        if (!foreground || pending > 0) return false
+        foreground = false
+        return true
+    }
+
+    /** A start command reached the service ([ok]: it is foreground); true when it must stop itself. */
+    @Synchronized
+    fun started(ok: Boolean): Boolean {
+        if (pending > 0) pending--
+        foreground = ok && wanted
+        return !foreground
+    }
+
+    @Synchronized
+    fun destroyed() {
+        foreground = false
+    }
+
+    @get:Synchronized
+    val isForeground: Boolean get() = foreground
+
+    @get:Synchronized
+    val pendingStarts: Int get() = pending
+
+    @Synchronized
+    fun reset() {
+        wanted = false
+        foreground = false
+        pending = 0
     }
 }

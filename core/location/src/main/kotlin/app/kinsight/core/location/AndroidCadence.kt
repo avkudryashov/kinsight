@@ -23,32 +23,29 @@ class AndroidCadence(context: Context) : Cadence {
     private val app = context.applicationContext
     private val alarms = app.getSystemService(AlarmManager::class.java)
 
-    /** Not called again while the service is already in the foreground (the tick follows every 5 minutes). */
+    /** Sends no second start while one is pending or the service is foreground (the tick follows every 5 minutes). */
     override fun startService(): Boolean {
-        LocationService.wanted = true
-        if (LocationService.foreground) return true
+        if (!ServiceGate.wantStart()) return true
         return try {
             app.startForegroundService(Intent(app, LocationService::class.java))
             true
         } catch (e: ForegroundServiceStartNotAllowedException) {
+            ServiceGate.startFailed()
             Log.w(TAG, "location service not allowed from the background") // spec §14, Android 12+ / 14+
             false
         } catch (e: SecurityException) {
+            ServiceGate.startFailed()
             Log.w(TAG, "location service refused: ${e.javaClass.simpleName}")
             false
         }
     }
 
     /**
-     * Only a service already in the foreground is stopped from here; one still starting goes foreground and then stops
-     * itself (LocationService), never «startForegroundService() did not then call startForeground()».
+     * Only a foreground service with no start pending is stopped from here; one still starting goes foreground and then
+     * stops itself (LocationService), never «startForegroundService() did not then call startForeground()».
      */
     override fun stopService() {
-        LocationService.wanted = false
-        if (LocationService.foreground) {
-            LocationService.foreground = false
-            app.stopService(Intent(app, LocationService::class.java))
-        }
+        if (ServiceGate.wantStop()) app.stopService(Intent(app, LocationService::class.java))
     }
 
     override fun armTick(delayMs: Long) {
