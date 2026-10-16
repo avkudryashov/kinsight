@@ -103,7 +103,12 @@ class SettingsViewModelTest {
             calls += "dismissCloudSignIn"
         }
 
-        override suspend fun requestHandover(to: DeviceId) = call("handover:${to.hex}")
+        var handoverAccepted = true
+
+        override suspend fun requestHandover(to: DeviceId): Boolean {
+            call("handover:${to.hex}")
+            return handoverAccepted
+        }
     }
 
     private val actions = FakeActions()
@@ -224,5 +229,20 @@ class SettingsViewModelTest {
         vm.requestHandover(DeviceId("bb".repeat(16)))
         advanceUntilIdle()
         assertEquals(listOf("handover:${"bb".repeat(16)}"), actions.calls)
+        assertEquals(SettingsError.HANDOVER, vm.error.value)
+    }
+
+    @Test
+    fun aRefusedHandoverRequestIsShownAndAnAcceptedOneClearsIt() = runTest {
+        actions.handoverAccepted = false
+        val vm = SettingsViewModel(actions)
+        backgroundScope.launch { vm.ui.collect {} }
+        vm.requestHandover(DeviceId("bb".repeat(16)))
+        advanceUntilIdle()
+        assertEquals(SettingsError.HANDOVER, vm.ui.value.error)
+        actions.handoverAccepted = true
+        vm.requestHandover(DeviceId("bb".repeat(16)))
+        advanceUntilIdle()
+        assertNull(vm.ui.value.error)
     }
 }

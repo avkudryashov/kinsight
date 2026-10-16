@@ -161,6 +161,8 @@ fun SettingsScreen(
     val role = ready?.self?.role
     var ask by rememberSaveable { mutableStateOf<Ask?>(null) }
     var handover by rememberSaveable { mutableStateOf(false) } // the «who takes the storage» dialog (spec §7.1)
+    // No one left to pick: the request is over, it must not come back by itself when targets return.
+    LaunchedEffect(ui.cloud.handoverTargets.isEmpty()) { if (ui.cloud.handoverTargets.isEmpty()) handover = false }
     var pending by rememberSaveable { mutableStateOf(intArrayOf()) } // the detail and summary days a SHRINK asks about
     val retention: (Pair<Int, Int>) -> Unit = { (d, s) ->
         if (d < ui.usage.detailRetentionDays || s < ui.usage.summaryRetentionDays) {
@@ -222,6 +224,7 @@ fun SettingsScreen(
                             SettingsError.RETENTION -> R.string.set_error_retention
                             SettingsError.NOTIFICATIONS -> R.string.set_error_notifications
                             SettingsError.RESET -> R.string.set_error_reset
+                            SettingsError.HANDOVER -> R.string.set_error_handover
                         },
                     ),
                 ) { TextButton(onDismissError) { Text(stringResource(R.string.set_ok)) } }

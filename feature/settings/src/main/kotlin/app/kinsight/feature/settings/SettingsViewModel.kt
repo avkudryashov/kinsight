@@ -36,7 +36,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /** Something the settings screen tried and could not do; shown until dismissed or the next attempt. */
-enum class SettingsError { SHARING, RETENTION, NOTIFICATIONS, RESET }
+enum class SettingsError { SHARING, RETENTION, NOTIFICATIONS, RESET, HANDOVER }
 
 data class SettingsUi(
     val group: GroupState = GroupState.Loading,
@@ -98,8 +98,8 @@ internal interface SettingsActions {
     /** The address for the browser, or null (the sign-in state then says why). [takeOver]: taking the storage (spec §7.1, §7.2). */
     suspend fun startCloudSignIn(takeOver: Boolean = false): String? = null
 
-    /** Spec §7.1: the owner asks [to] to take the storage. */
-    suspend fun requestHandover(to: DeviceId) = Unit
+    /** Spec §7.1: the owner asks [to] to take the storage; false when refused (CloudSignIn.requestHandover). */
+    suspend fun requestHandover(to: DeviceId): Boolean = false
 
     /** Finishes on the app scope (CloudRepository.finishSignIn): leaving the screen does not cancel it. */
     fun finishCloudSignIn(input: String) = Unit
@@ -153,9 +153,7 @@ private class RepositoryActions(
     override suspend fun startCloudSignIn(takeOver: Boolean): String? =
         cloudRepo.startSignIn(if (takeOver) SignInMode.TAKE_OVER else SignInMode.ENABLE)
 
-    override suspend fun requestHandover(to: DeviceId) {
-        cloudRepo.requestHandover(to)
-    }
+    override suspend fun requestHandover(to: DeviceId): Boolean = cloudRepo.requestHandover(to)
 
     override fun finishCloudSignIn(input: String) {
         cloudRepo.finishSignIn(input)
@@ -250,17 +248,12 @@ class SettingsViewModel internal constructor(private val actions: SettingsAction
         }
     }
 
-    /** Spec §7.1 «Владелец выбирает родителя». */
-    fun requestHandover(to: DeviceId) {
-        viewModelScope.launch {
-            try {
-                actions.requestHandover(to)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "handover request failed: ${e.javaClass.simpleName}")
-            }
-        }
+    /**
+     * Spec §7.1 «Владелец выбирает родителя». A refusal (the parent is no longer an admin, this phone no longer owns
+     * the storage, the entry was not written) is shown like a failure: the dialog has already closed.
+     */
+    fun requestHandover(to: DeviceId) = attempt(SettingsError.HANDOVER, "requestHandover") {
+        check(actions.requestHandover(to)) { "handover refused" }
     }
 
     /**

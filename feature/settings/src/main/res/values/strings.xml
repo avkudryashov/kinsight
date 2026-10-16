@@ -63,6 +63,7 @@
     <string name="set_error_retention">The history setting was not saved, or old history was not removed yet. Try again.</string>
     <string name="set_error_notifications">The notification setting was not saved. Try again.</string>
     <string name="set_error_reset">Disconnecting did not finish. Part of the data may already be deleted. Try again.</string>
+    <string name="set_error_handover">The storage was not handed over. Check that the parent is still in the group and try again.</string>
     <string name="tr_title">Who sees my data</string>
     <string name="tr_child_who">Your screen time is sent to all parents in your family group, including any who join later. Now:</string>
     <string name="tr_nobody">nobody yet</string>

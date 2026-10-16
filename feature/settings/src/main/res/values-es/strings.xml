@@ -63,6 +63,7 @@
     <string name="set_error_retention">No se ha guardado el ajuste del historial, o todavía no se ha borrado el historial antiguo. Inténtalo de nuevo.</string>
     <string name="set_error_notifications">No se ha guardado el ajuste de notificaciones. Inténtalo de nuevo.</string>
     <string name="set_error_reset">La desconexión no ha terminado. Puede que parte de los datos ya se haya borrado. Inténtalo de nuevo.</string>
+    <string name="set_error_handover">No se ha pasado el almacenamiento. Comprueba que el adulto sigue en el grupo e inténtalo de nuevo.</string>
     <string name="tr_title">Quién ve mis datos</string>
     <string name="tr_child_who">Tu tiempo de pantalla se envía a todos los adultos de tu grupo familiar, incluidos los que se unan más adelante. Ahora:</string>
     <string name="tr_nobody">todavía nadie</string>

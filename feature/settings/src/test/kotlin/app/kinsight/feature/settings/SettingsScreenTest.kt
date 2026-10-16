@@ -754,4 +754,20 @@ class SettingsScreenTest {
         rule.onNodeWithTag("set_reset").performClick()
         rule.onNodeWithText("Sync through Yandex Disk turns off", substring = true).assertDoesNotExist()
     }
+
+    @Test
+    fun aRefusedHandoverIsShown() {
+        show(ownerUi().copy(error = SettingsError.HANDOVER))
+        rule.onNodeWithText("The storage was not handed over", substring = true).assertExists()
+    }
+
+    @Test
+    fun aChildAndANonAdminParentSeeNoOwnerActions() {
+        val kidCloud = CloudStatus(available = true, on = true, ownerName = "Mom", isChild = true)
+        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), Prefs(), running, cloud = kidCloud))
+        scrollToCloud()
+        for (tag in listOf("set_cloud_take_over", "set_cloud_handover", "set_cloud_new_phone", "set_cloud_owner_gone", "set_cloud_restore")) {
+            rule.onNodeWithTag(tag, useUnmergedTree = true).assertDoesNotExist()
+        }
+    }
 }
