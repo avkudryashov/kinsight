@@ -171,6 +171,17 @@ class ZonesScreenTest {
     }
 
     @Test
+    fun theNameStopsAtTheRulesCap() {
+        show(ZonesState(emptyList(), canEdit = true, children = emptyList()))
+        rule.onNodeWithTag("zones_add").performClick()
+        rule.onNodeWithTag("zone_name").performTextInput("a".repeat(64))
+        rule.onNodeWithTag("zone_name").performTextInput("b")
+        rule.onNodeWithTag("zone_coords").performTextInput("40.41680, -3.70380")
+        rule.onNodeWithTag("zone_save").performScrollTo().performClick()
+        assertEquals("a".repeat(64), saved.last().name)
+    }
+
+    @Test
     fun deletingAsksFirst() {
         show(ZonesState(listOf(home), canEdit = true, children = emptyList()))
         rule.onNodeWithTag("zone_${home.id}").performClick()

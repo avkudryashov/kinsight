@@ -220,7 +220,10 @@ internal fun ZoneEditor(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         OutlinedTextField(
-            name, { name = it }, label = { Text(stringResource(R.string.zone_name)) }, singleLine = true,
+            name,
+            // Cap at SafeZoneRules (64 code points / 256 bytes): the field stops taking characters rather than Save going grey.
+            { text -> if (text.isBlank() || SafeZoneRules.nameOk(text.trim())) name = text },
+            label = { Text(stringResource(R.string.zone_name)) }, singleLine = true,
             modifier = Modifier.fillMaxWidth().testTag("zone_name"),
         )
         Text(
