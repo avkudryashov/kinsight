@@ -67,6 +67,7 @@ import app.kinsight.feature.devicedetail.AllAppsRoute
 import app.kinsight.feature.devicedetail.AppDetailRoute
 import app.kinsight.feature.devicedetail.DeviceDetailRoute
 import app.kinsight.feature.devicedetail.ThresholdsRoute
+import app.kinsight.feature.devicedetail.ZonesRoute
 import app.kinsight.feature.group.GroupRoute
 import app.kinsight.feature.group.InviteRoute
 import app.kinsight.feature.group.JoinRoute
@@ -274,6 +275,7 @@ private fun MainScaffold(appVersion: String, openDevice: StateFlow<String?>, onD
                     )
                 }
                 composable<ThresholdsDest> { e -> ThresholdsRoute(DeviceId(e.toRoute<ThresholdsDest>().id), onBack = { nav.popBackStack() }) }
+                composable<ZonesDest> { ZonesRoute(onBack = { nav.popBackStack() }) }
                 composable<AllAppsDest> { e ->
                     val r = e.toRoute<AllAppsDest>()
                     val range = DetailRange(Period.valueOf(r.period), LocalDate.parse(r.start), LocalDate.parse(r.end))

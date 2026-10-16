@@ -136,4 +136,26 @@
     <string name="thr_presets">Quick choice</string>
     <string name="det_missing_title">This phone is no longer in the group</string>
     <string name="det_missing_body">Its data is not on this phone. It may have left the family group or been removed.</string>
+    <string name="zones_title">Safe zones</string>
+    <string name="zones_add">Add a zone</string>
+    <string name="zones_empty">No zones yet. Add home, school or a club.</string>
+    <string name="zones_parents_only">Only the group\'s admins change the safe zones.</string>
+    <string name="zones_radius">Radius %1$d m</string>
+    <string name="zone_new_title">New zone</string>
+    <string name="zone_edit_title">Zone</string>
+    <string name="zone_name">Name</string>
+    <string name="zone_center_none">No centre chosen</string>
+    <string name="zone_center_value">Centre: %1$s</string>
+    <string name="zone_from_child">Where %1$s is now</string>
+    <string name="zone_here">My location</string>
+    <string name="zone_here_failed">Could not find this phone\'s location.</string>
+    <string name="zone_coords">Coordinates</string>
+    <string name="zone_coords_hint">For example 40.41680, -3.70380</string>
+    <string name="zone_radius_value">Radius: %1$d m</string>
+    <string name="zone_save">Save</string>
+    <string name="zone_delete">Delete zone</string>
+    <string name="zone_delete_title">Delete “%1$s”?</string>
+    <string name="zone_delete_body">Children\'s phones stop checking this zone.</string>
+    <string name="zone_cancel">Cancel</string>
+    <string name="zone_failed">Could not save the zone. Try again.</string>
 </resources>
