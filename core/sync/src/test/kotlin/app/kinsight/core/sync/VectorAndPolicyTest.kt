@@ -3,6 +3,7 @@ package app.kinsight.core.sync
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
+import app.kinsight.core.model.locationEntry
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -40,5 +41,18 @@ class VectorAndPolicyTest {
         assertTrue(policy.acceptsFromPeers(author.summary("2026-10-09", 1)))
         val stranger = EntryAuthor(genesis.groupId, DeviceKeys.generate(), 0)
         assertFalse(policy.acceptsFromPeers(stranger.summary("2026-10-09", 1)))
+    }
+
+    @Test
+    fun aLocationExpiresByItsFixTimeAfter48Hours() {
+        val now = 1_760_000_000_000L
+        val hour = 3_600_000L
+        val policy = SyncPolicy(self = keys.deviceId, nowMs = { now })
+        fun at(ms: Long) = author.locationEntry(1, 2, 10, ms, app.kinsight.core.model.proto.Location.Provider.GPS)
+        assertTrue(policy.isExpired(at(now - 48 * hour - 1)))
+        assertFalse(policy.isExpired(at(now - 47 * hour)))
+        assertFalse(policy.isExpired(at(now + hour)))
+        assertTrue(policy.isExpired(at(now + 48 * hour + 1)), "a fix time that far ahead is garbage and would never go")
+        assertEquals(48 * hour, SyncPolicy.LOCATION_RETENTION_MS)
     }
 }

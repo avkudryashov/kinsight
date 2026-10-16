@@ -97,8 +97,14 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
     /** The live StorageHandover entries (spec §7.1), one per author. */
     suspend fun storageHandovers(): List<DecodedEntry> = entryDao.bytesOfKind(EntryKinds.STORAGE_HANDOVER).map(DecodedEntry::decode)
 
+    /** Every LOCATION entry (spec §8), each author's by seq; at most 48 h of them after the daily prune. */
+    suspend fun locations(): List<DecodedEntry> = entryDao.bytesOfKind(EntryKinds.LOCATION).map(DecodedEntry::decode)
+
+    /** The live SafeZone entries (spec §8.1), one per author and zone; read through core/data SafeZones. */
+    suspend fun safeZones(): List<DecodedEntry> = entryDao.bytesOfKind(EntryKinds.SAFE_ZONE).map(DecodedEntry::decode)
+
     override suspend fun prune(policy: SyncPolicy): Unit = db.write {
-        for (bytes in entryDao.bytesWithUsageDate()) {
+        for (bytes in entryDao.bytesWithUsageDate() + entryDao.bytesOfKind(EntryKinds.LOCATION)) {
             val e = DecodedEntry.decode(bytes)
             if (policy.isExpired(e)) entryDao.delete(e.author.hex, e.seq)
         }

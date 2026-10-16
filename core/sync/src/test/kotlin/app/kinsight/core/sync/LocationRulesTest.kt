@@ -32,7 +32,7 @@ class LocationRulesTest {
     private val zoneId = ByteArray(16) { 7 }
 
     private fun verdict(e: DecodedEntry, self: DeviceKeys = momKeys, showOthers: Boolean = true) =
-        EntryValidator(genesis.groupId, state, SyncPolicy(self.deviceId, showOthers, today = { TODAY })).check(e, alreadyAccounted = false)
+        EntryValidator(genesis.groupId, state, SyncPolicy(self.deviceId, showOthers, today = { TODAY }, nowMs = { now })).check(e, alreadyAccounted = false)
 
     private fun EntryAuthor.point(lat: Int = 404_168_000, lon: Int = -37_038_000, acc: Int = 20, at: Long = now) =
         locationEntry(lat, lon, acc, at, Location.Provider.GPS)
@@ -91,5 +91,12 @@ class LocationRulesTest {
         assertEquals(Verdict.Unwanted, verdict(mom.summary("2026-10-09", 1), self = kidKeys, showOthers = false))
         // A phone that does not show others (a child) never takes another member's position.
         assertEquals(Verdict.Unwanted, verdict(kid.point(), self = DeviceKeys.generate(), showOthers = false))
+    }
+
+    @Test
+    fun anOldLocationExpiresOnReceipt() {
+        val v = EntryValidator(genesis.groupId, state, SyncPolicy(momKeys.deviceId, today = { TODAY }, nowMs = { now }))
+        assertEquals(Verdict.Expired, v.check(kid.point(at = now - SyncPolicy.LOCATION_RETENTION_MS - 1), alreadyAccounted = false))
+        assertEquals(Verdict.Accept, v.check(kid.point(at = now - 60_000), alreadyAccounted = false))
     }
 }

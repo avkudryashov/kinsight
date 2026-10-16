@@ -5,6 +5,9 @@ import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.addMember
+import app.kinsight.core.model.locationEntry
+import app.kinsight.core.model.safeZoneEntry
+import app.kinsight.core.model.proto.Location
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.AppCatalog
 import app.kinsight.core.model.proto.AppTotal
@@ -244,5 +247,21 @@ class RoomEntryStoreTest {
         store.applyBatch(listOf(second))
         assertEquals(listOf(second), store.storageHandovers())
         assertEquals(11, EntryKinds.code(EntryKind.STORAGE_HANDOVER))
+    }
+
+    @Test
+    fun locationsAndSafeZonesAreReadByKindAndAZoneEditReplacesItsVersion() = runTest {
+        val store = open()
+        val zoneId = ByteArray(16) { 3 }
+        val first = author.safeZoneEntry(zoneId, "Home", 1, 2, 100, rank = 1)
+        val point = author.locationEntry(1, 2, 10, 1_000, Location.Provider.GPS)
+        store.applyBatch(listOf(first, point))
+        assertEquals(listOf(first), store.safeZones())
+        assertEquals(listOf(point), store.locations())
+        val edit = author.safeZoneEntry(zoneId, "Home", 1, 2, 200, rank = 2)
+        store.applyBatch(listOf(edit))
+        assertEquals(listOf(edit), store.safeZones())
+        assertEquals(9, EntryKinds.code(EntryKind.LOCATION))
+        assertEquals(10, EntryKinds.code(EntryKind.SAFE_ZONE))
     }
 }

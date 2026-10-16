@@ -600,6 +600,7 @@ class Pruner(
             self = keys().deviceId,
             detailRetentionDays = s.detailRetentionDays.toLong(),
             summaryRetentionDays = s.summaryRetentionDays.toLong(),
+            nowMs = clock,
         )
         val store = RoomEntryStore(db, group.groupId)
         store.prune(policy)
