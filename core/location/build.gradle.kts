@@ -21,5 +21,6 @@ dependencies {
     testImplementation(libs.junit4)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.androidx.test.ext.junit)
+    testImplementation(libs.work.testing)
     testRuntimeOnly(libs.junit.vintage)
 }

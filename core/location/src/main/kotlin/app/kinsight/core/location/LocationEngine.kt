@@ -6,7 +6,10 @@ import kotlinx.coroutines.sync.withLock
 import kotlin.math.ceil
 import kotlin.math.roundToLong
 
-/** The family side (core/data FamilyLocation): who may track, the zones, signing, the upload. */
+/**
+ * The family side (core/data FamilyLocation): who may track, the zones, signing, the upload. Ruling L6: called under the
+ * engine lock, so no method takes the cloud runLock or calls back into the engine; [upload] only enqueues work.
+ */
 interface LocationHost {
     /**
      * The zones to watch, or null when this phone must not track: not an active child that consented and shares, or a

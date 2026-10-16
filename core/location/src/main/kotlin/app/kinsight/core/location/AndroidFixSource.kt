@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.os.CancellationSignal
+import android.util.Log
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
@@ -59,14 +60,33 @@ object Fixes {
 }
 
 /** Spec §8: one fix through the system LocationManager (`getCurrentLocation`, API 30+), never Play services. */
-class AndroidFixSource(context: Context) : FixSource {
+class AndroidFixSource internal constructor(context: Context, request: Request?) : FixSource {
+    constructor(context: Context) : this(context, null)
+
+    /** The platform request (a seam for tests): throws SecurityException when the permission went away meanwhile. */
+    internal fun interface Request {
+        fun current(provider: String, signal: CancellationSignal, done: (android.location.Location?) -> Unit)
+    }
+
     private val app = context.applicationContext
     private val lm = app.getSystemService(LocationManager::class.java)
 
+    @SuppressLint("MissingPermission") // checked in current(); a revoke in between is caught in fix()
+    private val request = request ?: Request { provider, signal, done ->
+        lm.getCurrentLocation(provider, signal, app.mainExecutor) { done(it) }
+    }
+
     override fun ready(): Boolean = LocationPermissions.state(app) == LocationPermissions.State.ALWAYS
 
-    @SuppressLint("MissingPermission") // checked right below
-    override suspend fun fix(timeoutMs: Long): Fix? {
+    /** Ruling L6: a permission revoked between the check and the request is no fix, never a crash. */
+    override suspend fun fix(timeoutMs: Long): Fix? = try {
+        current(timeoutMs)
+    } catch (e: SecurityException) {
+        Log.w("KinsightLocation", "fix refused: ${e.javaClass.simpleName}")
+        null
+    }
+
+    private suspend fun current(timeoutMs: Long): Fix? {
         if (!LocationPermissions.foregroundGranted(app)) return null
         fun on(p: String) = lm.isProviderEnabled(p)
         val provider = Providers.pick(
@@ -78,7 +98,7 @@ class AndroidFixSource(context: Context) : FixSource {
             suspendCancellableCoroutine { cont ->
                 val signal = CancellationSignal()
                 cont.invokeOnCancellation { signal.cancel() }
-                lm.getCurrentLocation(provider, signal, app.mainExecutor) { l -> if (cont.isActive) cont.resume(l?.let(Fixes::of)) }
+                request.current(provider, signal) { l -> if (cont.isActive) cont.resume(l?.let(Fixes::of)) }
             }
         }
     }

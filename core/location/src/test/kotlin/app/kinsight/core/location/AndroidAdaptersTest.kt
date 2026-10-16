@@ -1,15 +1,21 @@
 package app.kinsight.core.location
 
 import android.Manifest
+import android.app.AlarmManager
 import android.app.Application
 import android.content.Intent
 import android.location.LocationManager
 import android.net.Uri
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import androidx.work.testing.WorkManagerTestInitHelper
+import kotlinx.coroutines.runBlocking
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Shadows.shadowOf
@@ -20,6 +26,12 @@ import app.kinsight.core.model.proto.Location as WireLocation
 @Config(sdk = [35])
 class AndroidAdaptersTest {
     private val app get() = ApplicationProvider.getApplicationContext<Application>()
+    private val alarms get() = shadowOf(app.getSystemService(AlarmManager::class.java))
+
+    @Before
+    fun workManager() {
+        WorkManagerTestInitHelper.initializeTestWorkManager(app)
+    }
 
     @Test
     fun aLocationBecomesAFixRoundedToE7() {
@@ -85,5 +97,66 @@ class AndroidAdaptersTest {
         assertEquals(LocationPermissions.State.WHILE_IN_USE, LocationPermissions.state(app))
         shadowOf(app).grantPermissions(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
         assertEquals(LocationPermissions.State.ALWAYS, LocationPermissions.state(app))
+    }
+
+    @Test
+    fun stopAndCancelAreSafeWhenNothingRuns() {
+        // Ruling L6: the engine's off() calls these on every refresh of a phone that never tracks.
+        val cadence = AndroidCadence(app)
+        cadence.stopService()
+        cadence.cancelTick()
+        cadence.cancelPeriodic()
+        AndroidProximityAlerts(app).unregister("aa".repeat(16))
+        assertEquals(0, alarms.scheduledAlarms.size)
+    }
+
+    @Test
+    fun armingTheTickAgainReplacesThePendingOne() {
+        val cadence = AndroidCadence(app)
+        cadence.armTick(LocationEngine.TICK_MS)
+        cadence.armTick(LocationEngine.TICK_MS)
+        assertEquals(1, alarms.scheduledAlarms.size)
+        cadence.cancelTick()
+        assertEquals(0, alarms.scheduledAlarms.size)
+    }
+
+    @Test
+    fun theInZoneCheckIsOneUniqueWork() {
+        val cadence = AndroidCadence(app)
+        cadence.schedulePeriodic()
+        cadence.schedulePeriodic()
+        val wm = WorkManager.getInstance(app)
+        assertEquals(1, wm.getWorkInfosForUniqueWork(LocationWork.PERIODIC).get().size)
+        cadence.cancelPeriodic()
+        assertEquals(WorkInfo.State.CANCELLED, wm.getWorkInfosForUniqueWork(LocationWork.PERIODIC).get().single().state)
+    }
+
+    @Test
+    fun aFixComesFromTheFirstEnabledProvider() {
+        shadowOf(app).grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION)
+        shadowOf(app.getSystemService(LocationManager::class.java)).setProviderEnabled(LocationManager.GPS_PROVIDER, true)
+        val asked = mutableListOf<String>()
+        val source = AndroidFixSource(app) { provider, _, done ->
+            asked += provider
+            done(android.location.Location(provider).apply { latitude = 1.0; longitude = 2.0; accuracy = 5f; time = 9L })
+        }
+        assertEquals(Fix(10_000_000, 20_000_000, 5, 9L, WireLocation.Provider.GPS), runBlocking { source.fix(1_000L) })
+        assertEquals(listOf(LocationManager.GPS_PROVIDER), asked)
+    }
+
+    @Test
+    fun aPermissionRevokedBeforeTheRequestIsNoFix() {
+        shadowOf(app).grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION)
+        shadowOf(app.getSystemService(LocationManager::class.java)).setProviderEnabled(LocationManager.GPS_PROVIDER, true)
+        // The check passed a moment earlier, the platform refuses the request: no fix, no crash (ruling L6).
+        val source = AndroidFixSource(app) { _, _, _ -> throw SecurityException("revoked") }
+        assertNull(runBlocking { source.fix(1_000L) })
+    }
+
+    @Test
+    fun noPermissionAsksNothing() {
+        var asked = false
+        assertNull(runBlocking { AndroidFixSource(app) { _, _, _ -> asked = true }.fix(1_000L) })
+        assertEquals(false, asked)
     }
 }
