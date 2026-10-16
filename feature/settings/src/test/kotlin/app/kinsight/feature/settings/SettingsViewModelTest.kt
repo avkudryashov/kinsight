@@ -12,6 +12,7 @@ import app.kinsight.core.data.ResetStatus
 import app.kinsight.core.data.ServiceStatus
 import app.kinsight.core.data.SignInState
 import app.kinsight.core.data.SummaryMode
+import app.kinsight.core.model.DeviceId
 import app.kinsight.core.transport.ble.ServiceState
 import app.kinsight.core.usage.UsageSettings
 import kotlin.test.AfterTest
@@ -89,8 +90,8 @@ class SettingsViewModelTest {
         val signInFlow = MutableStateFlow<SignInState>(SignInState.Idle)
         override val signIn: Flow<SignInState> = signInFlow
 
-        override suspend fun startCloudSignIn(): String? {
-            calls += "startCloudSignIn"
+        override suspend fun startCloudSignIn(takeOver: Boolean): String? {
+            calls += if (takeOver) "startCloudSignIn:takeOver" else "startCloudSignIn"
             return "https://oauth.yandex.ru/authorize?t=1"
         }
 
@@ -101,6 +102,8 @@ class SettingsViewModelTest {
         override fun dismissCloudSignIn() {
             calls += "dismissCloudSignIn"
         }
+
+        override suspend fun requestHandover(to: DeviceId) = call("handover:${to.hex}")
     }
 
     private val actions = FakeActions()
@@ -201,5 +204,25 @@ class SettingsViewModelTest {
         advanceUntilIdle()
         vm.dismissCloudSignIn()
         assertEquals(listOf("startCloudSignIn", "finishCloudSignIn:1234567", "dismissCloudSignIn"), actions.calls)
+    }
+
+    @Test
+    fun takingOverAndTheHandoverReachTheRepository() = runTest {
+        val vm = SettingsViewModel(actions)
+        var opened: String? = null
+        vm.startCloudSignIn(takeOver = true) { opened = it }
+        vm.requestHandover(DeviceId("bb".repeat(16)))
+        advanceUntilIdle()
+        assertEquals(listOf("startCloudSignIn:takeOver", "handover:${"bb".repeat(16)}"), actions.calls)
+        assertEquals("https://oauth.yandex.ru/authorize?t=1", opened)
+    }
+
+    @Test
+    fun aFailedHandoverRequestDoesNotCrash() = runTest {
+        actions.fail = "handover:${"bb".repeat(16)}"
+        val vm = SettingsViewModel(actions)
+        vm.requestHandover(DeviceId("bb".repeat(16)))
+        advanceUntilIdle()
+        assertEquals(listOf("handover:${"bb".repeat(16)}"), actions.calls)
     }
 }

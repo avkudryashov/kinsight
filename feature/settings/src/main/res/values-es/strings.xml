@@ -123,4 +123,18 @@
     <string name="set_cloud_err_network">Sin conexión con Yandex Disk. Inténtalo de nuevo.</string>
     <string name="set_cloud_err_expired">El inicio de sesión tardó demasiado. Empieza de nuevo.</string>
     <string name="set_cloud_err_other">No se pudo activar la nube.</string>
+    <string name="set_cloud_handover">Pasar el almacenamiento a otro adulto</string>
+    <string name="set_cloud_handover_title">¿Quién se queda con el almacenamiento?</string>
+    <string name="set_cloud_handover_body">Ese adulto inicia sesión en su cuenta de Yandex en su teléfono y los datos de la familia se mudan a su Disco.</string>
+    <string name="set_cloud_handover_pending">Esperando a que %1$s acepte el almacenamiento</string>
+    <string name="set_cloud_handover_from">%1$s te pasa el almacenamiento de la familia</string>
+    <string name="set_cloud_take_over">Aceptar el almacenamiento</string>
+    <string name="set_cloud_owner_gone">El propietario no está disponible</string>
+    <string name="set_cloud_i_am_owner">Soy el propietario</string>
+    <string name="set_cloud_renew">Un teléfono ha salido del grupo. Inicia sesión en Yandex para dar a la familia un acceso nuevo al Disco.</string>
+    <string name="set_cloud_new_phone">Pasar a un teléfono nuevo</string>
+    <string name="set_cloud_taken_over">El almacenamiento de la familia está ahora en tu Yandex Disk.</string>
+    <string name="set_cloud_err_not_allowed">Ahora no se puede tomar el almacenamiento.</string>
+    <string name="set_cloud_leave_off">La sincronización con Yandex Disk se desactivará. Los datos se quedan en los teléfonos y Bluetooth sigue funcionando.</string>
+    <string name="set_reset_handover">Primero pasa el almacenamiento a otro adulto (Yandex Disk, arriba).</string>
 </resources>

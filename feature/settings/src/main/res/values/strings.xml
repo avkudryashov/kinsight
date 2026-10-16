@@ -123,4 +123,18 @@
     <string name="set_cloud_err_network">No connection to Yandex Disk. Try again.</string>
     <string name="set_cloud_err_expired">The sign-in took too long. Start again.</string>
     <string name="set_cloud_err_other">The cloud could not be turned on.</string>
+    <string name="set_cloud_handover">Hand the storage to another parent</string>
+    <string name="set_cloud_handover_title">Who takes the storage?</string>
+    <string name="set_cloud_handover_body">That parent signs in to their Yandex account on their phone, and the family\'s data moves to their Disk.</string>
+    <string name="set_cloud_handover_pending">Waiting for %1$s to take the storage</string>
+    <string name="set_cloud_handover_from">%1$s hands you the family\'s storage</string>
+    <string name="set_cloud_take_over">Take the storage</string>
+    <string name="set_cloud_owner_gone">The owner is unavailable</string>
+    <string name="set_cloud_i_am_owner">I am the owner</string>
+    <string name="set_cloud_renew">A phone left the group. Sign in to Yandex to give the family a new access to the Disk.</string>
+    <string name="set_cloud_new_phone">Move to a new phone</string>
+    <string name="set_cloud_taken_over">The family\'s storage is now on your Yandex Disk.</string>
+    <string name="set_cloud_err_not_allowed">The storage cannot be taken over right now.</string>
+    <string name="set_cloud_leave_off">Sync through Yandex Disk turns off. The data stays on the phones, and Bluetooth goes on working.</string>
+    <string name="set_reset_handover">First hand the storage to another parent (Yandex Disk, above).</string>
 </resources>

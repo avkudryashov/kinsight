@@ -78,13 +78,21 @@ import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.ErrorState
 import app.kinsight.core.designsystem.component.isJustNow
 import app.kinsight.core.designsystem.component.relativeTime
+import app.kinsight.core.model.DeviceId
 import app.kinsight.core.transport.ble.ServiceState
 import app.kinsight.core.transport.ble.SyncProblem
 import app.kinsight.core.usage.UsageAccessSettings
 import kotlinx.coroutines.delay
 
 @Composable
-fun SettingsRoute(appVersion: String, onConsent: () -> Unit, onTransparency: () -> Unit, onBattery: () -> Unit, onDiagnostics: () -> Unit) {
+fun SettingsRoute(
+    appVersion: String,
+    onConsent: () -> Unit,
+    onTransparency: () -> Unit,
+    onBattery: () -> Unit,
+    onDiagnostics: () -> Unit,
+    onNewPhone: () -> Unit = {},
+) {
     val context = LocalContext.current
     val vm: SettingsViewModel = viewModel {
         val g = AppGraph.get(context)
@@ -107,6 +115,9 @@ fun SettingsRoute(appVersion: String, onConsent: () -> Unit, onTransparency: () 
         onCloudSignIn = { vm.startCloudSignIn { url -> context.open(Intent(Intent.ACTION_VIEW, url.toUri())) } },
         onCloudCode = vm::finishCloudSignIn,
         onCloudDismiss = vm::dismissCloudSignIn,
+        onCloudTakeOver = { vm.startCloudSignIn(takeOver = true) { url -> context.open(Intent(Intent.ACTION_VIEW, url.toUri())) } },
+        onCloudHandover = vm::requestHandover,
+        onNewPhone = onNewPhone,
     )
 }
 
@@ -141,11 +152,15 @@ fun SettingsScreen(
     onCloudSignIn: () -> Unit = {},
     onCloudCode: (String) -> Unit = {},
     onCloudDismiss: () -> Unit = {},
+    onCloudTakeOver: () -> Unit = {},
+    onCloudHandover: (DeviceId) -> Unit = {},
+    onNewPhone: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val ready = ui.group as? GroupState.Ready
     val role = ready?.self?.role
     var ask by rememberSaveable { mutableStateOf<Ask?>(null) }
+    var handover by rememberSaveable { mutableStateOf(false) } // the «who takes the storage» dialog (spec §7.1)
     var pending by rememberSaveable { mutableStateOf(intArrayOf()) } // the detail and summary days a SHRINK asks about
     val retention: (Pair<Int, Int>) -> Unit = { (d, s) ->
         if (d < ui.usage.detailRetentionDays || s < ui.usage.summaryRetentionDays) {
@@ -177,10 +192,19 @@ fun SettingsScreen(
         TextButton(onDiagnostics) { Text(stringResource(R.string.set_diagnostics)) }
         OutlinedButton(
             onClick = { ask = Ask.RESET },
-            enabled = !ui.resetting,
+            enabled = !ui.resetting && !ui.cloud.handoverNeeded,
             colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
             modifier = Modifier.fillMaxWidth().testTag("set_reset"),
         ) { Text(stringResource(if (ui.resetting) R.string.set_resetting else R.string.set_reset)) }
+        if (ui.cloud.handoverNeeded) {
+            // Spec §7.1: leaving (this reset is one way out) waits until the storage is handed over.
+            Text(
+                stringResource(R.string.set_reset_handover),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("set_reset_handover"),
+            )
+        }
     }
     LazyColumn(
         Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).testTag("set_list"),
@@ -233,7 +257,7 @@ fun SettingsScreen(
                 if (role == Role.PARENT) Text(stringResource(R.string.set_not_shared), style = MaterialTheme.typography.bodyMedium)
             }
         }
-        cloudSection(ui.cloud, nowMs, onCloudSignIn)
+        cloudSection(ui.cloud, nowMs, onCloudSignIn, onCloudTakeOver, { handover = true }, onNewPhone)
         ready?.let { r ->
             item {
                 ListItem(
@@ -340,7 +364,7 @@ fun SettingsScreen(
             stringResource(R.string.set_stop), "set_stop_confirm",
             onConfirm = onStopSync, onDismiss = { ask = null },
         )
-        Ask.RESET -> ResetIdentityDialog(onConfirm = onResetIdentity, onDismiss = { ask = null })
+        Ask.RESET -> ResetIdentityDialog(onConfirm = onResetIdentity, onDismiss = { ask = null }, cloudOff = ui.cloud.selfIsOwner)
         Ask.SHRINK -> if (pending.size == 2) {
             val (d, s) = pending
             // Fewer daily totals deletes everything older; fewer detail days deletes only the detail.
@@ -357,6 +381,9 @@ fun SettingsScreen(
         null -> Unit
     }
     if (ui.signIn !is SignInState.Idle) CloudSignInDialog(ui.signIn, onCloudCode, onCloudSignIn, onCloudDismiss)
+    if (handover && ui.cloud.handoverTargets.isNotEmpty()) {
+        CloudHandoverDialog(ui.cloud.handoverTargets, onPick = { onCloudHandover(it); handover = false }, onDismiss = { handover = false })
+    }
 }
 
 @Composable

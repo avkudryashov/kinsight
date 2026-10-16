@@ -127,4 +127,18 @@
     <string name="set_cloud_err_network">Нет связи с Яндекс Диском. Попробуйте ещё раз.</string>
     <string name="set_cloud_err_expired">Вход занял слишком много времени. Начните заново.</string>
     <string name="set_cloud_err_other">Не удалось включить облако.</string>
+    <string name="set_cloud_handover">Передать хранилище другому родителю</string>
+    <string name="set_cloud_handover_title">Кому передать хранилище?</string>
+    <string name="set_cloud_handover_body">Этот родитель войдёт в свой Яндекс на своём телефоне, и данные семьи переедут на его Диск.</string>
+    <string name="set_cloud_handover_pending">Ждём, пока %1$s примет хранилище</string>
+    <string name="set_cloud_handover_from">%1$s передаёт вам семейное хранилище</string>
+    <string name="set_cloud_take_over">Принять хранилище</string>
+    <string name="set_cloud_owner_gone">Владелец недоступен</string>
+    <string name="set_cloud_i_am_owner">Я владелец</string>
+    <string name="set_cloud_renew">Телефон вышел из группы. Войдите в Яндекс, чтобы выдать семье новый доступ к Диску.</string>
+    <string name="set_cloud_new_phone">Перенести на новый телефон</string>
+    <string name="set_cloud_taken_over">Семейное хранилище теперь на вашем Яндекс Диске.</string>
+    <string name="set_cloud_err_not_allowed">Сейчас забрать хранилище нельзя.</string>
+    <string name="set_cloud_leave_off">Синхронизация через Яндекс Диск отключится. Данные останутся на телефонах, Bluetooth продолжит работать.</string>
+    <string name="set_reset_handover">Сначала передайте хранилище другому родителю (Яндекс Диск, выше).</string>
 </resources>

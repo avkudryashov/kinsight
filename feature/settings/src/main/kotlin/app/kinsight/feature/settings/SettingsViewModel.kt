@@ -15,9 +15,11 @@ import app.kinsight.core.data.ServiceRepository
 import app.kinsight.core.data.ServiceStatus
 import app.kinsight.core.data.SettingsRepository
 import app.kinsight.core.data.Sharing
+import app.kinsight.core.data.SignInMode
 import app.kinsight.core.data.SignInState
 import app.kinsight.core.data.SummaryMode
 import app.kinsight.core.data.UsageRepository
+import app.kinsight.core.model.DeviceId
 import app.kinsight.core.usage.UsageSettings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -93,8 +95,11 @@ internal interface SettingsActions {
 
     val signIn: Flow<SignInState> get() = flowOf(SignInState.Idle)
 
-    /** The address for the browser, or null (the sign-in state then says why). */
-    suspend fun startCloudSignIn(): String? = null
+    /** The address for the browser, or null (the sign-in state then says why). [takeOver]: taking the storage (spec §7.1, §7.2). */
+    suspend fun startCloudSignIn(takeOver: Boolean = false): String? = null
+
+    /** Spec §7.1: the owner asks [to] to take the storage. */
+    suspend fun requestHandover(to: DeviceId) = Unit
 
     /** Finishes on the app scope (CloudRepository.finishSignIn): leaving the screen does not cancel it. */
     fun finishCloudSignIn(input: String) = Unit
@@ -145,7 +150,12 @@ private class RepositoryActions(
     override val cloud = cloudRepo.status
     override val signIn: Flow<SignInState> = cloudRepo.signInState
 
-    override suspend fun startCloudSignIn(): String? = cloudRepo.startSignIn()
+    override suspend fun startCloudSignIn(takeOver: Boolean): String? =
+        cloudRepo.startSignIn(if (takeOver) SignInMode.TAKE_OVER else SignInMode.ENABLE)
+
+    override suspend fun requestHandover(to: DeviceId) {
+        cloudRepo.requestHandover(to)
+    }
 
     override fun finishCloudSignIn(input: String) {
         cloudRepo.finishSignIn(input)
@@ -224,15 +234,31 @@ class SettingsViewModel internal constructor(private val actions: SettingsAction
         actions.launchReset()
     }
 
-    /** The switch or «Войти в Яндекс»: [open] gets the address for the browser (a plain ACTION_VIEW, no Custom Tabs library). */
-    fun startCloudSignIn(open: (String) -> Unit) {
+    /**
+     * The switch, «Войти в Яндекс», or taking the storage ([takeOver], spec §7): [open] gets the address for the browser
+     * (a plain ACTION_VIEW, no Custom Tabs library).
+     */
+    fun startCloudSignIn(takeOver: Boolean = false, open: (String) -> Unit) {
         viewModelScope.launch {
             try {
-                actions.startCloudSignIn()?.let(open)
+                actions.startCloudSignIn(takeOver)?.let(open)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "cloud sign-in failed to start: ${e.javaClass.simpleName}")
+            }
+        }
+    }
+
+    /** Spec §7.1 «Владелец выбирает родителя». */
+    fun requestHandover(to: DeviceId) {
+        viewModelScope.launch {
+            try {
+                actions.requestHandover(to)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "handover request failed: ${e.javaClass.simpleName}")
             }
         }
     }

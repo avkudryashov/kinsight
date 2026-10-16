@@ -24,17 +24,28 @@ import androidx.compose.ui.unit.dp
 import app.kinsight.core.data.CloudEnableResult
 import app.kinsight.core.data.CloudProblem
 import app.kinsight.core.data.CloudStatus
+import app.kinsight.core.data.MemberView
 import app.kinsight.core.data.SignInState
 import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.isJustNow
 import app.kinsight.core.designsystem.component.relativeTime
+import app.kinsight.core.model.DeviceId
 
 /**
  * «Синхронизировать через Яндекс Диск» (spec §6, §11). Off: a switch for an admin parent (the sign-in starts from it),
- * nothing for others. On: the storage owner, the last cloud sync and what the user can act on; the switch shows the state
- * and cannot turn the cloud off (that is the owner lifecycle, Y3); a child's phone has no switch at all (spec §10).
+ * nothing for others. On: the storage owner, the last cloud sync and what the user can act on: restoring or renewing
+ * access (spec §11, §7.4), handing the storage over or moving it to a new phone (§7.1, §7.3), taking it when asked or
+ * when the owner is gone (§7.1, §7.2). The switch shows the state and cannot turn the cloud off; a child's phone has no
+ * switch at all (spec §10).
  */
-internal fun LazyListScope.cloudSection(s: CloudStatus, nowMs: Long, onSignIn: () -> Unit) {
+internal fun LazyListScope.cloudSection(
+    s: CloudStatus,
+    nowMs: Long,
+    onSignIn: () -> Unit,
+    onTakeOver: () -> Unit = {},
+    onHandover: () -> Unit = {},
+    onNewPhone: () -> Unit = {},
+) {
     if (!s.available || !(s.on || s.canEnable)) return
     item {
         val switch: (@Composable () -> Unit)? = if (s.isChild) {
@@ -65,6 +76,24 @@ internal fun LazyListScope.cloudSection(s: CloudStatus, nowMs: Long, onSignIn: (
                         if ((s.problem == CloudProblem.UNAUTHORIZED || s.problem == CloudProblem.RENEW_ACCESS) && s.selfIsOwner) {
                             OutlinedButton(onSignIn, Modifier.testTag("set_cloud_restore")) { Text(stringResource(R.string.set_cloud_sign_in)) }
                         }
+                        // Spec §7.1, §7.2: the parent asked to take the storage, or any admin parent once the owner is gone.
+                        s.handoverFrom?.let { Text(stringResource(R.string.set_cloud_handover_from, it)) }
+                        if (s.handoverFrom == null && s.ownerUnavailable) {
+                            Text(stringResource(R.string.set_cloud_owner_gone), color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("set_cloud_owner_gone"))
+                        }
+                        if (s.canTakeOver) {
+                            OutlinedButton(onTakeOver, Modifier.testTag("set_cloud_take_over")) {
+                                Text(stringResource(if (s.handoverFrom != null) R.string.set_cloud_take_over else R.string.set_cloud_i_am_owner))
+                            }
+                        }
+                        if (s.selfIsOwner) {
+                            s.handoverPendingTo?.let { Text(stringResource(R.string.set_cloud_handover_pending, it)) }
+                            if (s.handoverTargets.isNotEmpty()) {
+                                OutlinedButton(onHandover, Modifier.testTag("set_cloud_handover")) { Text(stringResource(R.string.set_cloud_handover)) }
+                            }
+                            // Spec §7.3: the owner's new phone by QR.
+                            OutlinedButton(onNewPhone, Modifier.testTag("set_cloud_new_phone")) { Text(stringResource(R.string.set_cloud_new_phone)) }
+                        }
                     }
                 }
             },
@@ -72,6 +101,26 @@ internal fun LazyListScope.cloudSection(s: CloudStatus, nowMs: Long, onSignIn: (
             modifier = Modifier.testTag("set_cloud"),
         )
     }
+}
+
+/** Spec §7.1 «Владелец выбирает родителя»: one button per parent who may take the storage. */
+@Composable
+internal fun CloudHandoverDialog(targets: List<MemberView>, onPick: (DeviceId) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.dialogTestTags(), // its own window: the root flag does not reach it
+        title = { Text(stringResource(R.string.set_cloud_handover_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.set_cloud_handover_body))
+                for (m in targets) {
+                    TextButton({ onPick(m.id) }, Modifier.testTag("set_cloud_handover_to")) { Text(m.name) }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onDismiss, Modifier.testTag("set_cloud_cancel")) { Text(stringResource(R.string.set_cloud_cancel)) } },
+    )
 }
 
 /**
@@ -147,7 +196,8 @@ private fun cloudLastSync(last: Long?, nowMs: Long): String = when {
 /** Spec §11. Network trouble is retried quietly: the last sync time says enough. */
 @Composable
 private fun cloudProblemText(p: CloudProblem?): String? = when (p) {
-    CloudProblem.UNAUTHORIZED, CloudProblem.RENEW_ACCESS -> stringResource(R.string.set_cloud_restore)
+    CloudProblem.UNAUTHORIZED -> stringResource(R.string.set_cloud_restore)
+    CloudProblem.RENEW_ACCESS -> stringResource(R.string.set_cloud_renew)
     CloudProblem.NO_ACCESS -> stringResource(R.string.set_cloud_wait)
     CloudProblem.STORAGE_FULL -> stringResource(R.string.set_cloud_full)
     CloudProblem.NETWORK, null -> null
@@ -156,12 +206,14 @@ private fun cloudProblemText(p: CloudProblem?): String? = when (p) {
 @Composable
 private fun enableResultText(r: CloudEnableResult): String = stringResource(
     when (r) {
-        CloudEnableResult.ENABLED, CloudEnableResult.RESTORED, CloudEnableResult.TAKEN_OVER -> R.string.set_cloud_on_done
+        CloudEnableResult.ENABLED, CloudEnableResult.RESTORED -> R.string.set_cloud_on_done
+        CloudEnableResult.TAKEN_OVER -> R.string.set_cloud_taken_over
+        CloudEnableResult.NOT_ALLOWED -> R.string.set_cloud_err_not_allowed
         CloudEnableResult.OLD_APP_IN_GROUP -> R.string.set_cloud_err_old_app
         CloudEnableResult.SIGN_IN_FAILED -> R.string.set_cloud_err_sign_in
         CloudEnableResult.NETWORK -> R.string.set_cloud_err_network
         CloudEnableResult.SIGN_IN_EXPIRED -> R.string.set_cloud_err_expired
         CloudEnableResult.STORAGE_FULL -> R.string.set_cloud_full
-        CloudEnableResult.NOT_CONFIGURED, CloudEnableResult.NOT_ADMIN, CloudEnableResult.ALREADY_ON, CloudEnableResult.NOT_ALLOWED -> R.string.set_cloud_err_other
+        CloudEnableResult.NOT_CONFIGURED, CloudEnableResult.NOT_ADMIN, CloudEnableResult.ALREADY_ON -> R.string.set_cloud_err_other
     },
 )

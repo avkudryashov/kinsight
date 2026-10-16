@@ -76,6 +76,9 @@ class SettingsScreenTest {
         onCloudSignIn: () -> Unit = {},
         onCloudCode: (String) -> Unit = {},
         onCloudDismiss: () -> Unit = {},
+        onCloudTakeOver: () -> Unit = {},
+        onCloudHandover: (DeviceId) -> Unit = {},
+        onNewPhone: () -> Unit = {},
     ) = rule.setContent {
         KinsightTheme(dynamicColor = false) {
             SettingsScreen(
@@ -84,6 +87,7 @@ class SettingsScreenTest {
                 onRetention = onRetention, onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {},
                 onResetIdentity = onReset, onSyncNow = { calls += "syncNow" }, onPrivacyPolicy = onPrivacyPolicy, nowMs = nowMs,
                 onCloudSignIn = onCloudSignIn, onCloudCode = onCloudCode, onCloudDismiss = onCloudDismiss,
+                onCloudTakeOver = onCloudTakeOver, onCloudHandover = onCloudHandover, onNewPhone = onNewPhone,
             )
         }
     }
@@ -659,5 +663,95 @@ class SettingsScreenTest {
         rule.onNodeWithText("Who sees my data").assertExists()
         rule.onNodeWithTag("tr_back").performClick()
         assertEquals(1, back)
+    }
+
+    private val dadView = MemberView(DeviceId("bb".repeat(16)), "Dad", Role.PARENT, isAdmin = true, isSelf = false, lastSeenMs = null)
+
+    @Test
+    fun theOwnerHandsTheStorageToAParentOrMovesItToANewPhone() {
+        var picked: DeviceId? = null
+        var newPhone = 0
+        val ui = ownerUi().let { it.copy(cloud = it.cloud.copy(handoverTargets = listOf(dadView), handoverNeeded = true)) }
+        show(ui, onCloudHandover = { picked = it }, onNewPhone = { newPhone++ })
+        scrollToCloud()
+        rule.onNodeWithTag("set_cloud_new_phone").performClick()
+        assertEquals(1, newPhone)
+        rule.onNodeWithTag("set_cloud_handover").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Dad").performClick()
+        assertEquals(dadView.id, picked)
+        rule.onNodeWithTag("set_cloud_handover_to").assertDoesNotExist()
+    }
+
+    @Test
+    fun theOwnerWaitsForTheAskedParent() {
+        val ui = ownerUi().let { it.copy(cloud = it.cloud.copy(handoverTargets = listOf(dadView), handoverPendingTo = "Dad", handoverNeeded = true)) }
+        show(ui)
+        scrollToCloud()
+        rule.onNodeWithText("Waiting for Dad to take the storage", useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag("set_cloud_take_over").assertDoesNotExist()
+    }
+
+    @Test
+    fun theChosenParentTakesTheStorage() {
+        var takes = 0
+        val asked = CloudStatus(available = true, on = true, ownerName = "Dad", handoverFrom = "Dad", canTakeOver = true)
+        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running, cloud = asked), onCloudTakeOver = { takes++ })
+        scrollToCloud()
+        rule.onNodeWithText("Dad hands you the family's storage", useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag("set_cloud_new_phone").assertDoesNotExist()
+        rule.onNodeWithTag("set_cloud_handover").assertDoesNotExist()
+        rule.onNodeWithTag("set_cloud_take_over").assertTextEquals("Take the storage").performClick()
+        assertEquals(1, takes)
+    }
+
+    @Test
+    fun aParentSeesTheOwnerIsUnavailableAndMayTakeOver() {
+        val gone = CloudStatus(available = true, on = true, ownerName = "Dad", ownerUnavailable = true, canTakeOver = true)
+        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running, cloud = gone))
+        scrollToCloud()
+        rule.onNodeWithTag("set_cloud_owner_gone", useUnmergedTree = true).assertTextEquals("The owner is unavailable")
+        rule.onNodeWithTag("set_cloud_take_over").assertTextEquals("I am the owner")
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun theOwnerLifecycleSpecWordsInRussian() {
+        val gone = CloudStatus(available = true, on = true, ownerName = "Dad", ownerUnavailable = true, canTakeOver = true)
+        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running, cloud = gone))
+        scrollToCloud()
+        rule.onNodeWithTag("set_cloud_owner_gone", useUnmergedTree = true).assertTextEquals("Владелец недоступен")
+        rule.onNodeWithTag("set_cloud_take_over").assertTextEquals("Я владелец")
+    }
+
+    @Test
+    fun aRemovedPhoneAsksTheOwnerToRenewAndTheResetWaitsForTheHandover() {
+        var signIns = 0
+        val ui = ownerUi(CloudProblem.RENEW_ACCESS).let { it.copy(cloud = it.cloud.copy(handoverTargets = listOf(dadView), handoverNeeded = true)) }
+        show(ui, onCloudSignIn = { signIns++ })
+        scrollToCloud()
+        rule.onNodeWithText("A phone left the group", substring = true, useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag("set_cloud_restore").performClick()
+        assertEquals(1, signIns)
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_reset"))
+        rule.onNodeWithTag("set_reset").assertIsNotEnabled()
+        rule.onNodeWithTag("set_reset_handover", useUnmergedTree = true).assertExists()
+    }
+
+    @Test
+    fun theLastParentOwnerIsToldTheResetTurnsTheCloudOff() {
+        show(ownerUi())
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_reset"))
+        rule.onNodeWithTag("set_reset_handover").assertDoesNotExist()
+        rule.onNodeWithTag("set_reset").assertIsEnabled().performClick()
+        rule.onNodeWithText("Sync through Yandex Disk turns off", substring = true).assertExists()
+    }
+
+    @Test
+    fun theResetOfAPhoneThatOwnsNothingSaysNothingOfTheCloud() {
+        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running))
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_reset"))
+        rule.onNodeWithTag("set_reset").performClick()
+        rule.onNodeWithText("Sync through Yandex Disk turns off", substring = true).assertDoesNotExist()
     }
 }
