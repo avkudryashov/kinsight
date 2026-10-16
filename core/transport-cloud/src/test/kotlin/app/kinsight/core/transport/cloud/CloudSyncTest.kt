@@ -214,7 +214,7 @@ class CloudSyncTest {
         kid.publish(day)
         kid.sync(disk).run()
         mom.publish(mom.author.summary("2026-10-12", 1))
-        assertEquals(CloudResult.StorageFull, mom.sync(FullDisk(disk)).run())
+        kotlin.test.assertIs<CloudResult.StorageFull>(mom.sync(FullDisk(disk)).run())
         assertTrue(day in mom.store.liveEntries())
         assertEquals(0L, mom.cursor.cursor.uploadedUpTo)
     }

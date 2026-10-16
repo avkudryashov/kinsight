@@ -75,6 +75,25 @@ class CloudRunnerTest {
         assertFalse(CloudWork.alertsNeeded(again))
     }
 
+    /** Re-review: a run that cannot upload (full Disk) still reads the others and tells what it brought. */
+    @Test
+    fun aFullDiskRunStillTellsWhatItBrought() = runBlocking<Unit> {
+        family()
+        mom.ownStorage()
+        kid.learnsStorageFrom(mom)
+        assertEquals(CloudRun.SYNCED, mom.runner(disk).run(CloudTrigger.NOW)) // storage.id is on the Disk
+        kid.ownSummary("2026-10-13", 60_000)
+        assertEquals(CloudRun.SYNCED, kid.runner(disk).run(CloudTrigger.NOW))
+        mom.ownSummary("2026-10-13", 1_000) // something of its own to upload, so the full Disk refuses it
+        val full = object : DiskApi by disk {
+            override suspend fun upload(path: String, bytes: ByteArray) = throw DiskException.StorageFull()
+        }
+        val outcome = mom.runner(full).runCounted(CloudTrigger.NOW)
+        assertEquals(CloudRun.STORAGE_FULL, outcome.run)
+        assertTrue(outcome.received > 0)
+        assertTrue(CloudWork.alertsNeeded(outcome))
+    }
+
     private suspend fun TestDevice.beat(): app.kinsight.core.model.DecodedEntry {
         var e: app.kinsight.core.model.DecodedEntry? = null
         check(pipeline.appendOwn { a -> listOf(a.create { it.copy(heartbeat = Heartbeat(app_version = "t", protocol_version = 3)) }.also { e = it }) })

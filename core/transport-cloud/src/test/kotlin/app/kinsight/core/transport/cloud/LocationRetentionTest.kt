@@ -120,4 +120,18 @@ class LocationRetentionTest {
         assertEquals(emptyList(), fixesOnDisk(kid))
         assertTrue(kid.cursor.cursor.locationDue.isEmpty())
     }
+
+    /** Re-review: the 1 h cut measures a pack's whole min..max of fix times, not the distance from its first point. */
+    @Test
+    fun pointsOutOfTimeOrderStillSpanAtMostAnHourPerPack() = runTest {
+        val (_, kid) = family(DeviceRole.CHILD)
+        val min = 60_000L
+        // Each within 50 min of the first, but 100 min from each other.
+        kid.point(t0)
+        kid.point(t0 + 50 * min)
+        kid.point(t0 - 50 * min)
+        assertIs<CloudResult.Synced>(kid.sync(disk, { t0 + 60 * min }).run())
+        val dir = CloudPaths.deviceDir(kid.store.groupId, kid.id)
+        assertEquals(setOf(CloudPaths.packName(1, 2), CloudPaths.packName(3, 3)), disk.files(dir).keys.map { it.substringAfterLast('/') }.toSet())
+    }
 }

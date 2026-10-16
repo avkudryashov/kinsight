@@ -28,7 +28,8 @@ sealed interface CloudResult {
     /** The ring holds no generation of the group key: nothing can be sealed or read (Y2 seeds it at pairing). */
     data object NoGroupKey : CloudResult
     data object Unauthorized : CloudResult
-    data object StorageFull : CloudResult
+    /** The Disk refused an upload; the others were still read, [received] entries of theirs (alerts follow them). */
+    data class StorageFull(val received: Int = 0) : CloudResult
     data class Retry(val cause: Throwable) : CloudResult
 }
 
@@ -84,7 +85,7 @@ class CloudSync(
     } catch (e: DiskException.Unauthorized) {
         CloudResult.Unauthorized
     } catch (e: DiskException.StorageFull) {
-        CloudResult.StorageFull
+        CloudResult.StorageFull()
     } catch (e: CancellationException) {
         throw e
     } catch (e: IOException) {
@@ -124,7 +125,7 @@ class CloudSync(
         val afterExpiry = if (storageFull) afterCompaction else expireLocations(epoch, afterCompaction)
         val (received, afterDownload) = download(listing, membership, afterExpiry)
         cursors.save(afterDownload)
-        return if (storageFull) CloudResult.StorageFull else CloudResult.Synced(uploaded, received)
+        return if (storageFull) CloudResult.StorageFull(received) else CloudResult.Synced(uploaded, received)
     }
 
     /**
@@ -211,8 +212,8 @@ class CloudSync(
      * [MAX_PACK_BYTES]; consecutive ranges, the last ending at [upTo]. Own seqs up to [upTo] are accounted for here, so a
      * seq of the range without an entry is superseded or pruned: dead, as the signed range states. Spec §8: a LOCATION
      * past the 48 h retention never goes into a pack (the local prune may not have run yet), and a pack holds LOCATION
-     * entries of at most [LOCATION_SPAN_MS] of fix times, so its one re-seal ([expireLocations]) finds them all expired
-     * within that span of the first.
+     * entries whose fix times span at most [LOCATION_SPAN_MS] (min to max), so its one re-seal ([expireLocations]) comes
+     * at most that long after its oldest point expired.
      */
     private suspend fun chunks(from: Long, upTo: Long): List<Pair<LongRange, List<DecodedEntry>>> {
         val all = live(from, upTo)
@@ -220,20 +221,26 @@ class CloudSync(
         var start = from
         var current = mutableListOf<DecodedEntry>()
         var bytes = 0
-        var firstFix: Long? = null
+        var minFix: Long? = null
+        var maxFix: Long? = null
         for (e in all) {
             val fix = e.body.location?.fix_time_ms
-            val tooLong = fix != null && firstFix != null && kotlin.math.abs(fix - firstFix) > LOCATION_SPAN_MS
+            // The pack's whole min..max of fix times, so points out of time order cannot stretch it.
+            val tooLong = fix != null && minFix != null && maxOf(maxFix!!, fix) - minOf(minFix, fix) > LOCATION_SPAN_MS
             if (current.isNotEmpty() && (current.size >= maxPackEntries || bytes + e.bytes.size > MAX_PACK_BYTES || tooLong)) {
                 out += (start..current.last().seq) to current
                 start = current.last().seq + 1
                 current = mutableListOf()
                 bytes = 0
-                firstFix = null
+                minFix = null
+                maxFix = null
             }
             current += e
             bytes += e.bytes.size
-            if (firstFix == null) firstFix = fix
+            if (fix != null) {
+                minFix = minOf(minFix ?: fix, fix)
+                maxFix = maxOf(maxFix ?: fix, fix)
+            }
         }
         out += (start..upTo) to current
         return out

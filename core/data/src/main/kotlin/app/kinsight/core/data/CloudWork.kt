@@ -10,6 +10,8 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.ListenableWorker
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.Operation
+import androidx.work.await
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkInfo
 import kotlinx.coroutines.flow.first
@@ -82,14 +84,14 @@ object CloudWork {
      * A run now. [policy] [TOKEN_POLICY] (a token arrived) queues one more run after a run in flight; REPLACE (the app was
      * opened) replaces a run waiting in a long backoff, so the parent reads at once (spec §9).
      */
-    fun runNow(context: Context, policy: ExistingWorkPolicy) {
+    fun runNow(context: Context, policy: ExistingWorkPolicy): Operation {
         val request = OneTimeWorkRequestBuilder<CloudWorker>()
             .setConstraints(network())
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .setInputData(workDataOf(KEY_TRIGGER to CloudTrigger.NOW.name))
             .build()
-        WorkManager.getInstance(context).enqueueUniqueWork(NOW, policy, request)
+        return WorkManager.getInstance(context).enqueueUniqueWork(NOW, policy, request)
     }
 
     fun cancel(context: Context) {
@@ -137,7 +139,8 @@ object CloudWork {
     suspend fun upload(context: Context) {
         uploadLock.withLock {
             val states = WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(NOW).first().map { it.state }
-            uploadPolicy(states)?.let { runNow(context, it) }
+            // Awaited inside the lock: the next decision reads the WorkInfo this enqueue wrote.
+            uploadPolicy(states)?.let { runNow(context, it).await() }
         }
     }
 
@@ -152,8 +155,11 @@ object CloudWork {
     @Volatile
     var onReceived: ((Context) -> Unit)? = null
 
-    /** Y4 final review Important 1: only a synced run that brought entries of others asks for an alerts pass. */
-    fun alertsNeeded(outcome: CloudRunOutcome): Boolean = outcome.run == CloudRun.SYNCED && outcome.received > 0
+    /**
+     * Y4 final review Important 1: a run that brought entries of others asks for an alerts pass; a full Disk still reads
+     * the others (STORAGE_FULL with entries received), so it asks too.
+     */
+    fun alertsNeeded(outcome: CloudRunOutcome): Boolean = outcome.received > 0
 
     /** Spec §9: a follow-up is queued only after a run that read the Disk, while a child is outside ([needed] is asked then). */
     suspend fun followNext(run: CloudRun, needed: suspend () -> Boolean): Boolean = run == CloudRun.SYNCED && needed()

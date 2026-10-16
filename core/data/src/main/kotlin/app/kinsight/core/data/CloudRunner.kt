@@ -203,6 +203,7 @@ class CloudRunner(
             ).also { cached = key to it }
         val result = sync.run()
         if (result is CloudResult.Synced) received = result.received
+        if (result is CloudResult.StorageFull) received = result.received
         observeOwner(store, membership, now)
         val after = Membership.compute(group.groupId, store.membershipEntries())
         if (!isOwner && after != null) {
@@ -222,7 +223,7 @@ class CloudRunner(
                 }
             }
             CloudResult.Unauthorized -> record(now, CloudRun.UNAUTHORIZED, if (isOwner) CloudProblem.UNAUTHORIZED else CloudProblem.NO_ACCESS)
-            CloudResult.StorageFull -> record(now, CloudRun.STORAGE_FULL, CloudProblem.STORAGE_FULL)
+            is CloudResult.StorageFull -> record(now, CloudRun.STORAGE_FULL, CloudProblem.STORAGE_FULL)
             // Rare (every rotation is sealed to the owner): a new sign-in cannot fix a missing key, so the owner is not
             // asked for one; it waits like on a network problem (no message). Another device waits for the owner.
             CloudResult.NoGroupKey -> record(now, CloudRun.NO_ACCESS, if (isOwner) CloudProblem.NETWORK else CloudProblem.NO_ACCESS)

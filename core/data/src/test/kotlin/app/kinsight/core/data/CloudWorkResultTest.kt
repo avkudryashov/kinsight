@@ -63,5 +63,7 @@ class CloudWorkResultTest {
         assertEquals(true, CloudWork.alertsNeeded(CloudRunOutcome(CloudRun.SYNCED, received = 3)))
         assertEquals(false, CloudWork.alertsNeeded(CloudRunOutcome(CloudRun.SYNCED, received = 0)))
         for (run in CloudRun.entries - CloudRun.SYNCED) assertEquals(false, CloudWork.alertsNeeded(CloudRunOutcome(run, received = 0)), run.name)
+        // A full Disk still reads the others: what it brought gets its alerts too.
+        assertEquals(true, CloudWork.alertsNeeded(CloudRunOutcome(CloudRun.STORAGE_FULL, received = 2)))
     }
 }

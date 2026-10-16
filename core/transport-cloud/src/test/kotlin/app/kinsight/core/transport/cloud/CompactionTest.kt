@@ -148,7 +148,7 @@ class CompactionTest {
         kid.publish(kidDay)
         kid.sync(disk, { 10L }).run()
         val lastCompaction = mom.cursor.cursor.lastCompactionMs
-        assertEquals(CloudResult.StorageFull, mom.sync(FullDisk(disk), { 10L + day }).run())
+        kotlin.test.assertIs<CloudResult.StorageFull>(mom.sync(FullDisk(disk), { 10L + day }).run())
         assertTrue(kidDay in mom.store.liveEntries())
         assertEquals(before.keys, disk.files(dir).keys)
         assertEquals(lastCompaction, mom.cursor.cursor.lastCompactionMs)
