@@ -254,7 +254,10 @@ class CloudSecrets(
         val entry = CloudAccessView.newestFor(store, older) ?: return false
         val keys = ring.keys()
         val old = CloudAccessView.open(membership.groupId, older, entry, keys) ?: return true
-        val inUse = setOfNotNull(CloudAccessView.current(store, membership, keys)?.accessToken, tokens()?.takeIf { it.groupHex == membership.groupId.hex }?.accessToken)
+        val inUse = setOfNotNull(
+            CloudAccessView.current(store, membership, keys)?.accessToken,
+            tokens()?.takeIf { it.groupHex == membership.groupId.hex }?.accessToken,
+        )
         if (old.accessToken !in inUse) retire(membership.groupId, older.generation, old.accessToken)
         return true
     }

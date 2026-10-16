@@ -626,8 +626,9 @@ class PairingCoordinator(
 
         /**
          * Signs StorageOwner(generation + 1, the same storage) and its CloudAccess, then keeps the handed access and refresh
-         * token as the owner's (spec §6: the refresh token only on the owner) and the old owner's pending revokes. The same token goes on, so the op keeps the
-         * token id and the departed list of the op in force (rulings Q3). True once the StorageOwner is signed. Best
+         * token as the owner's (spec §6: the refresh token only on the owner) and the old owner's pending revokes. The
+         * same token goes on, so the op keeps the token id and the departed list of the op in force (rulings Q3). True
+         * once the StorageOwner is signed. Best
          * effort: a failure before the append leaves this phone a member and the old phone the owner (the refresh token is
          * not kept); a failure of the vault write after it leaves this phone the owner without its tokens, to be restored
          * with a sign-in (as CloudSignIn's), while the old phone gives the role up. Lock order: [commitLock], then
