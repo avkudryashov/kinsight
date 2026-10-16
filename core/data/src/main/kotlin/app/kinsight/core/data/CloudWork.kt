@@ -15,6 +15,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import app.kinsight.core.location.LocationGraph
 import app.kinsight.core.transport.cloud.DiskApi
 import app.kinsight.core.transport.cloud.InMemoryDisk
 import app.kinsight.core.transport.cloud.YandexDisk
@@ -55,6 +56,11 @@ object CloudWork {
     const val PERIODIC = "kinsight-cloud-periodic"
     const val NOW = "kinsight-cloud-now"
     const val KEY_TRIGGER = "trigger"
+    const val FOLLOW = "kinsight-cloud-follow"
+    const val KEY_FOLLOW = "follow"
+
+    /** Spec §9: while a child is outside its zones, a parent reads every 5 minutes. */
+    const val FOLLOW_MINUTES = 5L
     private const val TAG = "KinsightCloud"
 
     private fun network() = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
@@ -86,7 +92,32 @@ object CloudWork {
         val wm = WorkManager.getInstance(context)
         wm.cancelUniqueWork(PERIODIC)
         wm.cancelUniqueWork(NOW)
+        wm.cancelUniqueWork(FOLLOW)
     }
+
+    /** The follow-up run queues its successor behind itself; any other run leaves a waiting one alone. */
+    fun followPolicy(fromFollow: Boolean): ExistingWorkPolicy =
+        if (fromFollow) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.KEEP
+
+    /**
+     * Spec §9 «родитель может читать чаще, со своей службой и уведомлением»: one run [FOLLOW_MINUTES] from now. The
+     * parent's own service and notification are the Bluetooth SyncService every phone of a group already runs.
+     */
+    fun follow(context: Context, fromFollow: Boolean) {
+        val request = OneTimeWorkRequestBuilder<CloudWorker>()
+            .setInitialDelay(FOLLOW_MINUTES, TimeUnit.MINUTES)
+            .setConstraints(network())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .setInputData(workDataOf(KEY_TRIGGER to CloudTrigger.NOW.name, KEY_FOLLOW to true))
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(FOLLOW, followPolicy(fromFollow), request)
+    }
+
+    /**
+     * Spec §8.1: a zone event or an outside point goes to the Disk at once (after a run in flight). Only enqueues work
+     * (rulings L8): the location engine calls it and must never wait for, or run, the cloud itself.
+     */
+    fun uploadSoon(context: Context): Job = whenOn(context) { runNow(context, ExistingWorkPolicy.APPEND_OR_REPLACE) }
 
     /** App start and after every Bluetooth session (it may have brought a storage owner): the periodic job, if the cloud is on. */
     fun keepScheduled(context: Context): Job = whenOn(context) { schedule(context) }
@@ -149,10 +180,16 @@ object CloudWork {
 class CloudWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val trigger = inputData.getString(CloudWork.KEY_TRIGGER)?.let { n -> CloudTrigger.entries.firstOrNull { it.name == n } } ?: CloudTrigger.PERIODIC
+        val follow = inputData.getBoolean(CloudWork.KEY_FOLLOW, false)
         return CloudWork.outcome {
-            val run = AppGraph.get(applicationContext).cloud.run(trigger)
+            val g = AppGraph.get(applicationContext)
+            val run = g.cloud.run(trigger)
             Log.i(TAG, "cloud run $trigger: $run")
             if (run == CloudRun.OFF) CloudWork.cancel(applicationContext)
+            // After the run (never inside its runLock): a child takes the zones this run brought (spec §8.1)...
+            LocationGraph.refresh(applicationContext)
+            // ...and a parent keeps reading while a child is outside (spec §9).
+            if (run == CloudRun.SYNCED && g.familyLocation.followNeeded()) CloudWork.follow(applicationContext, fromFollow = follow)
             run
         }
     }

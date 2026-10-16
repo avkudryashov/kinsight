@@ -53,8 +53,7 @@ class MainActivityTest {
         val requested = app.packageManager.getPackageInfo(app.packageName, PackageManager.GET_PERMISSIONS).requestedPermissions.orEmpty().toSet()
         val forbidden = listOf(
             "android.permission.QUERY_ALL_PACKAGES",
-            "android.permission.ACCESS_FINE_LOCATION",
-            "android.permission.ACCESS_COARSE_LOCATION",
+            // Location is allowed since cloud Y4 (spec §12): core/location, through core/data, asks for it.
             "android.permission.BLUETOOTH",
             "android.permission.BLUETOOTH_ADMIN",
             "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",

@@ -6,6 +6,7 @@ import androidx.datastore.preferences.preferencesDataStoreFile
 import app.kinsight.core.database.KinsightDatabaseFactory
 import app.kinsight.core.keystore.CloudFiles
 import app.kinsight.core.keystore.DeviceIdentity
+import app.kinsight.core.location.LocationGraph
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.transport.ble.AndroidPairingLink
 import app.kinsight.core.transport.ble.BlePermissions
@@ -46,6 +47,9 @@ class Graph internal constructor(app: Context) {
 
     private val ownAppend: OwnAppend = { build -> pipeline.appendOwn(build = build) }
 
+    /** Spec §8: the child's tracking reads and signs through the family; the app installs it in LocationGraph. */
+    val familyLocation = FamilyLocation(db, groups, keys, settings, ownAppend, snapshots, upload = { CloudWork.uploadSoon(app) })
+
     /** The one CloudSecrets of the process (R15); its runLock (CloudGraph.runLock) is the one every cloud run must take. */
     val cloudSecrets = CloudSecrets(
         CloudFiles.vault(app),
@@ -63,6 +67,8 @@ class Graph internal constructor(app: Context) {
             CloudWork.cancel(app)
             cloudSecrets.forget()
             cloudState.clear()
+            // Under the cloud runLock (R14): no alert, tick or service of the old group survives the wipe.
+            LocationGraph.forget(app)
         },
         settings = settings,
         prefs = prefs,

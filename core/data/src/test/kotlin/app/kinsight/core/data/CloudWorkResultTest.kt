@@ -23,4 +23,12 @@ class CloudWorkResultTest {
         assertEquals(ListenableWorker.Result.success(), CloudWork.outcome { CloudRun.SYNCED })
         assertFailsWith<CancellationException> { CloudWork.outcome { throw CancellationException("stopped") } }
     }
+
+    /** Spec §9: the follow-up run queues its successor behind itself; any other run keeps a waiting one. */
+    @Test
+    fun aFollowUpChainsItselfAndOtherRunsKeepIt() {
+        assertEquals(androidx.work.ExistingWorkPolicy.APPEND_OR_REPLACE, CloudWork.followPolicy(fromFollow = true))
+        assertEquals(androidx.work.ExistingWorkPolicy.KEEP, CloudWork.followPolicy(fromFollow = false))
+        assertEquals(5L, CloudWork.FOLLOW_MINUTES)
+    }
 }
