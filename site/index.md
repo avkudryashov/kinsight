@@ -1,6 +1,6 @@
 # Kinsight
 
-Family screen time, phone to phone. A child's phone shares its screen time with the parents' phones over Bluetooth, with the child's consent on the child's phone. No servers of ours and no Kinsight accounts: the app goes online only to sync through your Yandex Disk, if you turned that on, and the developer stores nothing.
+Family screen time, phone to phone. A child's phone shares its screen time with the parents' phones over Bluetooth, with the child's consent on the child's phone; when a parent turns on the sync through their Yandex Disk, it also shares where it is, and the parents are told when it leaves a safe zone. On the child's phone only a parent changes sharing, with a parent PIN, and anything turned off in Android settings is shown to the parents. No servers of ours and no Kinsight accounts: the app goes online only to sync through your Yandex Disk, if you turned that on, and the developer stores nothing.
 
 ## Download (Android 12+)
 
@@ -18,7 +18,7 @@ The app is distributed as an APK while it is in family testing.
 <img src="img/week.webp" width="200" alt="Week view with gridlines and the average line">
 <img src="img/month.webp" width="200" alt="Month view with daily totals and the limit line">
 <img src="img/limits.webp" width="200" alt="Daily limits that only notify">
-<img src="img/child.webp" width="200" alt="Child's overview: who sees my screen time, pause">
+<img src="img/child.webp" width="200" alt="Child's overview: who sees my screen time">
 <img src="img/who-sees.webp" width="200" alt="Who sees my data screen on the child's phone">
 </p>
 

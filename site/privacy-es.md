@@ -2,7 +2,7 @@
 
 **Kinsight: tiempo de pantalla** (paquete de Android `app.kinsight`)
 
-Fecha de entrada en vigor: 2026-10-14
+Fecha de entrada en vigor: 2026-10-17
 
 Esta Política de privacidad explica qué información lee la aplicación Kinsight, adónde va, cómo se protege, cuánto tiempo se conserva y cómo se puede borrar. Kinsight es una aplicación de control parental: en el teléfono de un menor cuenta el tiempo de pantalla y lo comparte con los adultos del grupo familiar (padres, madres o tutores). Se publica en Google Play con el nombre de desarrollador que aparece en la ficha de la aplicación.
 
@@ -16,9 +16,9 @@ Contacto para cualquier pregunta o solicitud sobre privacidad: kav2k13@gmail.com
 
 - Kinsight solo se conecta a internet para la sincronización a través de tu Yandex Disk, si la activaste; viene desactivada. Nosotros, el desarrollador, no tenemos servidores y no guardamos nada. La aplicación no tiene cuentas de Kinsight, publicidad, analíticas ni informes de errores, y no contiene código de terceros que envíe datos a ningún sitio.
 - Nosotros, el desarrollador, nunca recibimos datos de la aplicación. No podemos ver el tiempo de pantalla de tu familia.
-- En un teléfono configurado como teléfono de un menor, y solo después de que el menor lo acepte en ese teléfono, Kinsight envía estadísticas de tiempo de pantalla por Bluetooth a los teléfonos de los adultos del mismo grupo familiar y, si un adulto activó la sincronización con Yandex Disk, también a través del Yandex Disk de ese adulto, cifradas.
+- En un teléfono configurado como teléfono de un menor, y solo después de que el menor lo acepte en ese teléfono, Kinsight envía estadísticas de tiempo de pantalla por Bluetooth a los teléfonos de los adultos del mismo grupo familiar y, si un adulto activó la sincronización con Yandex Disk, también a través del Yandex Disk de ese adulto, cifradas. Con esa sincronización, el teléfono del menor también envía dónde está (sección 3).
 - El teléfono de un adulto no envía su propio tiempo de pantalla a nadie.
-- Mientras el intercambio está activado, el teléfono del menor siempre muestra una notificación. El menor puede pausar o detener el intercambio en cualquier momento, y los adultos lo ven.
+- El teléfono del menor siempre muestra una notificación que indica que está en un grupo familiar de Kinsight. En el teléfono del menor, solo un adulto puede pausar o detener el intercambio, con el PIN de los adultos; si se desactiva algo en los ajustes de Android (el acceso a datos de uso, la ubicación, la notificación), los adultos lo ven.
 
 ## 3. Qué información lee la aplicación
 
@@ -27,7 +27,8 @@ Kinsight solo lee lo que necesita para contar el tiempo de pantalla e intercambi
 **En el teléfono de un menor (tras su consentimiento):**
 - Los eventos de uso de aplicaciones que proporciona Android (qué aplicación estaba en primer plano y cuándo, cuándo se encendió y apagó la pantalla, cuándo se desbloqueó el teléfono). A partir de ellos, Kinsight calcula el tiempo de pantalla por día, por aplicación y por hora, y el número de desbloqueos. Kinsight no lee lo que se muestra dentro de las aplicaciones.
 - La lista de aplicaciones que se pueden abrir desde la pantalla de inicio, con sus nombres, iconos y categorías de Android, para que los adultos sepan a qué aplicación corresponde el tiempo.
-- Eventos sobre el estado del intercambio: una pausa y su fin, la sincronización detenida, el acceso a datos de uso desactivado, la notificación de Kinsight desactivada, la retirada del permiso «Dispositivos cercanos», la detención forzosa de la aplicación, un cambio en la hora del teléfono y los periodos de los que Android ya no proporciona datos de uso.
+- Eventos sobre el estado del intercambio: una pausa y su fin, la sincronización detenida, el acceso a datos de uso desactivado, el acceso a la ubicación o la ubicación del teléfono desactivados, la notificación de Kinsight desactivada, la retirada del permiso «Dispositivos cercanos», el cierre forzado de la aplicación, un cambio del reloj del teléfono y los periodos de los que Android ya no da datos de uso.
+- Solo si un adulto activó la sincronización con Yandex Disk: la ubicación del teléfono, del propio servicio de ubicación de Android (sin servicios de Google): fuera de las zonas seguras de la familia, un punto con su precisión aproximadamente cada 5 minutos; dentro de una zona segura, solo en qué zona está, aproximadamente cada 30 a 60 minutos; y el momento en que sale de una zona segura o entra en ella. Las ubicaciones de más de 48 horas se borran en todos los teléfonos.
 - La zona horaria del teléfono, para que el tiempo se cuente en la fecha local correcta.
 
 **En todos los teléfonos del grupo (de menores y de adultos):**
@@ -35,17 +36,19 @@ Kinsight solo lee lo que necesita para contar el tiempo de pantalla e intercambi
 - Identificadores y claves criptográficas que la aplicación crea en ese teléfono: un identificador aleatorio del dispositivo, un identificador del grupo y claves públicas. No están vinculados a tu cuenta de Google, número de teléfono, IMEI, ID de publicidad ni a ningún otro identificador de hardware.
 - Registros de pertenencia al grupo: quién se ha unido o ha salido, quién es administrador y breves señales de «sigo aquí» que indican al grupo cuándo estuvo un teléfono en contacto por última vez.
 - Solo en los teléfonos de los adultos: las reglas de aviso de límites y los cambios de categoría de aplicaciones hechos por los adultos. Los cambios de categoría se comparten con los demás adultos; las reglas de límites se quedan en el teléfono donde se fijaron.
+- Las zonas seguras (un nombre, un centro y un radio) que define un adulto administrador. Las guarda cada teléfono del grupo, también el del menor, que las usa para notar cuándo sale de una zona o entra en ella.
+- Si un adulto administrador lo puso: un hash irreversible del PIN de los adultos (Argon2id con una sal aleatoria), que guarda cada teléfono del grupo para que el teléfono del menor pueda comprobar el PIN. El PIN en sí nunca se guarda ni se envía.
 - Solo si un adulto activó la sincronización con Yandex Disk: el acceso a la carpeta de Kinsight en el Yandex Disk de ese adulto (un token de acceso), que los teléfonos del grupo reciben cifrado del teléfono de ese adulto, directamente o a través de los demás teléfonos del grupo, y, solo en el teléfono de ese adulto, el token que lo renueva. Kinsight nunca ve la contraseña de Yandex.
 
 **Cámara:** cuando un teléfono se une a un grupo, Kinsight usa la cámara para escanear el código QR de la invitación. Las imágenes se procesan en el teléfono solo para leer el código, y no se guardan ni se envían a ningún sitio.
 
-**Lo que Kinsight no lee ni recopila:** la ubicación, los mensajes, las llamadas, los contactos, las fotos y archivos, el historial de navegación, el contenido de la pantalla, las contraseñas, tu cuenta de Google, tu número de teléfono, el ID de publicidad y los identificadores de hardware.
+**Lo que Kinsight no lee ni recopila:** los mensajes, las llamadas, los contactos, las fotos y archivos, el historial de navegación, el contenido de la pantalla, las contraseñas, tu cuenta de Google, tu número de teléfono, el ID de publicidad y los identificadores de hardware; la ubicación, solo con la sincronización con Yandex Disk, como se describe arriba.
 
 ## 4. Quién recibe la información
 
 La información solo sale de un teléfono hacia los demás teléfonos del mismo grupo familiar que se emparejaron con él escaneando un código QR: por Bluetooth y, si un adulto activó la sincronización con Yandex Disk, como archivos cifrados en la carpeta de Kinsight del Yandex Disk de ese adulto.
 
-- **El teléfono de un menor** envía su tiempo de pantalla, la lista de aplicaciones, los eventos, su nombre y sus claves a los teléfonos de todos los adultos del grupo, incluidos los que se unan más adelante. La lista actual de adultos se muestra en el teléfono del menor, en Ajustes, en la pantalla «Quién ve mis datos».
+- **El teléfono de un menor** envía su tiempo de pantalla, la lista de aplicaciones, los eventos, su nombre y sus claves a los teléfonos de todos los adultos del grupo, incluidos los que se unan más adelante. La lista actual de adultos se muestra en el teléfono del menor, en Ajustes, en la pantalla «Quién ve mis datos». Con la sincronización con Yandex Disk, también envía su ubicación a esos mismos teléfonos.
 - **El teléfono de un adulto** guarda los datos de los menores y los pasa a los demás adultos del grupo, para que todos vean lo mismo. El teléfono de un adulto solo envía su propio nombre, sus claves, los registros de pertenencia y las señales de «sigo aquí»; nunca envía su propio tiempo de pantalla.
 - **El teléfono de un menor no recibe** los datos de los demás teléfonos del grupo, salvo la lista de miembros del grupo.
 - **Yandex** guarda los archivos cifrados en el Disco del adulto que activó la sincronización, en la propia cuenta de Yandex de ese adulto y según las condiciones entre ese adulto y Yandex. El contenido de los archivos está sellado con la clave del grupo, que Yandex no tiene. Yandex sí ve: al iniciar sesión, el nombre del teléfono con el que se inicia sesión y un identificador aleatorio de ese teléfono; en el Disco, los nombres de las carpetas y de los archivos (identificadores aleatorios y rangos de números), su tamaño y sus horas, y el identificador aleatorio del almacenamiento; y, como cada teléfono que sincroniza a través del Disco se conecta con Yandex, incluido el del menor, la dirección IP de cada uno de esos teléfonos.
@@ -70,9 +73,12 @@ La aplicación se distribuye a través de tiendas de aplicaciones (RuStore, Goog
 | Permiso | Para qué |
 |---|---|
 | Acceso a datos de uso (`PACKAGE_USAGE_STATS`) | En el teléfono de un menor, para contar cuánto tiempo se usa cada aplicación y cuántas veces se desbloquea el teléfono. Lo activas tú en los ajustes de Android y puedes desactivarlo en cualquier momento; en ese caso, los adultos ven que se desactivó el acceso a datos de uso. No se usa para nada más |
-| Dispositivos cercanos (`BLUETOOTH_SCAN`, `BLUETOOTH_ADVERTISE`, `BLUETOOTH_CONNECT`) | Para encontrar los teléfonos de la familia que están cerca e intercambiar datos con ellos. Kinsight declara que no usa el Bluetooth para determinar la ubicación, y no solicita el permiso de ubicación |
-| Notificaciones (`POST_NOTIFICATIONS`) | Para mostrar la notificación permanente mientras el intercambio está activado (quién recibe los datos y un botón para detener la sincronización), y para avisar a los adultos de pausas, pérdidas de contacto, resúmenes y límites. Si se desactivan las notificaciones en el teléfono de un menor, los adultos lo ven, y el intercambio se pausa hasta que se vuelvan a activar; el tiempo contado mientras tanto se envía entonces |
+| Dispositivos cercanos (`BLUETOOTH_SCAN`, `BLUETOOTH_ADVERTISE`, `BLUETOOTH_CONNECT`) | Para encontrar los teléfonos de la familia que están cerca e intercambiar datos con ellos. Kinsight declara que no usa el Bluetooth para determinar la ubicación. |
+| Notificaciones (`POST_NOTIFICATIONS`) | Para mostrar la notificación permanente (en el teléfono del menor, que el teléfono está en un grupo familiar de Kinsight y quién recibe los datos; en el de un adulto, también un botón para detener la sincronización) y para avisar a los adultos de pausas, permisos desactivados, pérdidas de contacto, resúmenes y límites. Si se desactivan las notificaciones en el teléfono del menor, los adultos lo ven |
 | Servicio en primer plano, dispositivo conectado | Para mantener disponible el intercambio por Bluetooth en segundo plano mientras se muestra la notificación permanente |
+| Ubicación precisa y aproximada (`ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`) | En el teléfono del menor, solo con la sincronización con Yandex Disk: para saber dónde está el teléfono (sección 3). En el de un adulto, solo cuando lo pide: un punto para poner una zona segura donde está. Solo con el propio servicio de ubicación de Android. Si se retira en el teléfono del menor, los adultos lo ven |
+| Ubicación siempre (`ACCESS_BACKGROUND_LOCATION`) | En el teléfono del menor, con la sincronización con Yandex Disk: para notar cuándo sale de una zona segura o entra en ella y tomar puntos con Kinsight cerrado |
+| Servicio en primer plano, ubicación (`FOREGROUND_SERVICE_LOCATION`) | En el teléfono del menor, mientras está fuera de todas las zonas seguras: se muestra una notificación mientras se toma un punto aproximadamente cada 5 minutos |
 | Cámara | Para escanear el código QR de la invitación al unirse a un grupo. Las imágenes no se guardan ni se envían |
 | Inicio al arrancar | Para reanudar el recuento y el intercambio después de reiniciar el teléfono |
 | Internet, ver conexiones de red (`INTERNET`, `ACCESS_NETWORK_STATE`) | Solo para la sincronización con Yandex Disk, si un adulto la activó: para iniciar sesión en Yandex, leer y escribir la carpeta de Kinsight en ese Disco y sincronizar solo cuando hay red. Mientras la sincronización está desactivada, Kinsight no se conecta a internet |
@@ -85,13 +91,14 @@ Cada teléfono decide por sí mismo cuánto tiempo conserva el historial; el aju
 
 - Historial detallado (tiempo por aplicación y por hora): **90 días**.
 - Totales diarios: **hasta 1 año**.
+- Ubicaciones: **48 horas**, igual en todos los teléfonos. En el Yandex Disk, el teléfono del menor las borra al cabo de unas 48 horas, mientras siga sincronizando.
 
 Los registros más antiguos se borran automáticamente y ya no se aceptan de otros teléfonos. Los eventos de estado (pausas, pérdidas de contacto y similares) más antiguos que los totales diarios también se borran, salvo el último evento de cada tipo y el primer consentimiento. Los nombres e iconos de las aplicaciones se borran con el mismo calendario cuando ningún total diario conservado menciona la aplicación: en el teléfono que los describió, y en todos los teléfonos cuando ese teléfono ha salido del grupo. Los registros de pertenencia al grupo y las claves se conservan mientras el teléfono está en el grupo.
 
 ## 8. Cómo borrar la información
 
-- **Salir del grupo** (pantalla Grupo, «Salir del grupo»): se borran los datos del grupo en este teléfono, y se avisa a los demás teléfonos de que este teléfono ha salido.
-- **Desconectar este teléfono** (Ajustes, Avanzado, «Desconectar este teléfono y volver a emparejarlo»): se borra todo lo que hay en este teléfono, incluidos el historial, las claves y los ajustes.
+- **Salir del grupo** (en el teléfono de un adulto: pantalla Grupo, «Salir del grupo»): se borran los datos del grupo en este teléfono, y se avisa a los demás teléfonos de que este teléfono ha salido.
+- **Desconectar este teléfono** (Ajustes, Avanzado, «Desconectar este teléfono y volver a emparejarlo»; en el teléfono del menor, solo después de que un adulto introduzca el PIN de los adultos): se borra todo lo que hay en este teléfono, incluidos el historial, las claves y los ajustes.
 - **Desinstalar la aplicación** o borrar su almacenamiento en los ajustes de Android: se borra todo lo que Kinsight guardó en este teléfono.
 - **Un administrador puede eliminar un teléfono** del grupo; a partir de entonces el grupo ya no acepta datos nuevos de ese teléfono.
 - **Archivos del Yandex Disk:** el adulto en cuyo Disco están puede borrar la carpeta de Kinsight de ese Disco en cualquier momento. Sin la clave del grupo los archivos no se pueden leer. Mientras la sincronización siga activada, los teléfonos del grupo vuelven a guardar sus datos en la carpeta; un teléfono que sale del grupo o se desconecta deja de hacerlo.
@@ -100,20 +107,19 @@ Los registros más antiguos se borran automáticamente y ya no se aceptan de otr
 
 ## 9. Tus opciones y tu control
 
-- **Primero, el consentimiento.** El teléfono de un menor no envía nada hasta que el menor toca «Aceptar» en la pantalla de consentimiento, que explica qué se envía y a quién. Si el menor elige «Ahora no», el teléfono se une al grupo sin compartir, y la familia ve que no comparte.
-- **Pausa.** El intercambio se puede pausar con dos toques. El tiempo contado durante una pausa se envía cuando termina, y la propia pausa es visible para los adultos. Es intencionado: el intercambio solo se puede detener abiertamente, nunca a escondidas.
-- **Notificación oculta.** En el teléfono de un menor, desactivar las notificaciones de Kinsight pausa el intercambio hasta que se vuelvan a activar. Los adultos ven que la notificación está oculta, y el tiempo contado mientras tanto se envía cuando vuelve a mostrarse.
-- **Detener.** La sincronización se puede detener por completo con «Detener» en la notificación o en Ajustes; los adultos ven cuándo se detuvo.
+- **Primero, el consentimiento.** El teléfono de un menor no envía nada hasta que el menor toca «Aceptar» en la pantalla de consentimiento, que explica qué se envía y a quién. Si el menor elige «Ahora no», el teléfono se une al grupo sin compartir, y la familia ve que no comparte. La pantalla de consentimiento menciona la sincronización con el Yandex Disk de un adulto y la ubicación; un teléfono que aceptó un texto anterior no envía nada a través del Disk ni comparte su ubicación hasta que vuelva a aceptar.
+- **Solo un adulto cambia el intercambio.** En el teléfono del menor no se puede pausar ni detener el intercambio, ni desconectar el teléfono de la familia, sin el PIN de los adultos, que un adulto administrador pone en su propio teléfono. Un adulto también puede quitar el teléfono del menor del grupo desde su teléfono. Una pausa hecha con el PIN queda firmada y la ven todos los adultos; el tiempo contado durante la pausa se envía cuando termina.
+- **Todo lo que se desactiva se ve.** El acceso a datos de uso, el acceso a la ubicación, la ubicación del teléfono, la notificación de Kinsight y el permiso «Dispositivos cercanos» siempre se pueden desactivar en los ajustes de Android; los adultos lo ven. Si se detiene o elimina Kinsight o el teléfono pierde la conexión, los adultos reciben un aviso tras el número de horas que eligieron («sin contacto»).
 - **Transparencia.** La pantalla «Quién ve mis datos» muestra quién recibe los datos, qué se envía y cuánto tiempo se conserva.
 - **Permisos.** Cualquier permiso se puede retirar en los ajustes de Android en cualquier momento.
 
 ## 10. Menores
 
-Kinsight está pensada para padres, madres y tutores, y en las tiendas de aplicaciones está dirigida a adultos. Un adulto instala Kinsight en el teléfono del menor y lo empareja con el grupo familiar. Antes de que se comparta ningún dato, el menor ve en ese teléfono una pantalla de consentimiento redactada en lenguaje sencillo («Los adultos de tu familia verán cuánto tiempo pasas con el teléfono y en qué aplicaciones») y tiene que aceptarla expresamente. El menor puede ver en cualquier momento quién recibe los datos y puede pausar o detener el intercambio; los adultos ven la pausa o la detención.
+Kinsight está pensada para padres, madres y tutores, y en las tiendas de aplicaciones está dirigida a adultos. Un adulto instala Kinsight en el teléfono del menor y lo empareja con el grupo familiar. Antes de que se comparta ningún dato, el menor ve en ese teléfono una pantalla de consentimiento redactada en lenguaje sencillo («Los adultos de tu familia verán cuánto tiempo pasas con el teléfono y en qué aplicaciones y, si uno de ellos activa la sincronización con su Yandex Disk, dónde está este teléfono.») y tiene que aceptarla expresamente. El menor puede ver en cualquier momento quién recibe los datos y siempre ve la notificación de Kinsight; solo un adulto puede pausar o detener el intercambio en el teléfono del menor, con el PIN de los adultos, y si se desactiva algo en los ajustes de Android, los adultos lo ven.
 
 Solo comparten tiempo de pantalla los teléfonos configurados como teléfono de un menor. Kinsight no debe usarse para vigilar a un adulto, ni siquiera con su consentimiento.
 
-No recopilamos datos de menores ni de nadie más: los datos del menor solo van a los teléfonos de los adultos del grupo familiar y, si un adulto activó la sincronización con Yandex Disk, pasan cifrados por el Disco de ese adulto. Kinsight no muestra anuncios, no tiene compras dentro de la aplicación y no usa el ID de publicidad, la ubicación ni identificadores de hardware.
+No recopilamos datos de menores ni de nadie más: los datos del menor solo van a los teléfonos de los adultos del grupo familiar y, si un adulto activó la sincronización con Yandex Disk, pasan cifrados por el Disco de ese adulto. Kinsight no muestra anuncios, no tiene compras dentro de la aplicación y no usa el ID de publicidad ni identificadores de hardware; la ubicación del menor solo se usa con la sincronización con Yandex Disk, como se describe en la sección 3.
 
 El adulto que instala Kinsight en el teléfono de un menor es responsable de hacerlo de forma lícita y de implicar al menor de la manera adecuada a su edad.
 
