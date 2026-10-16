@@ -324,7 +324,6 @@ class PairingCoordinator(
                                 Log.w(TAG, "after adding ${outcome.joiner.id}: $e") // the AddMember is stored: still Added
                             }
                             val transferred = outcome.ownerRoleTaken && transferTo == outcome.joiner.id
-                            if (transferred) confirmTransfer(group, outcome.joiner.id)
                             synchronized(lock) { move(InviteState.Added(outcome.joiner.displayName, ownerTransferred = transferred)) }
                             sessionJob.cancel() // ends open()'s timer; this coroutine is the last one
                         }
@@ -381,7 +380,7 @@ class PairingCoordinator(
             var handed = cloudWelcome(before, group, withRefresh = transferOwner && joiner.protocolVersion >= PROTOCOL_VERSION)
             val inForce = before.storageOwner
             var transfer = handed?.refreshToken != null && inForce != null
-            if (transfer && !recordTransfer(group, joiner.id, inForce!!, o.expiresAtMs)) {
+            if (transfer && !recordTransfer(group, joiner.id, inForce!!)) {
                 transfer = false
                 handed = handed?.let { WelcomeCloud(it.keyEpoch, it.groupKey, it.access) }
             }
@@ -413,10 +412,10 @@ class PairingCoordinator(
         }
 
         /** False when the record could not be written: then no refresh token goes out (the old phone could not leave). */
-        private suspend fun recordTransfer(group: GroupConfig, target: DeviceId, inForce: StorageOwnerState, untilMs: Long): Boolean {
+        private suspend fun recordTransfer(group: GroupConfig, target: DeviceId, inForce: StorageOwnerState): Boolean {
             val t = ownerTransfer ?: return true
             return try {
-                t.record(group.groupId, target, inForce, untilMs)
+                t.record(group.groupId, target, inForce)
                 true
             } catch (e: CancellationException) {
                 throw e
@@ -426,15 +425,6 @@ class PairingCoordinator(
             }
         }
 
-        private suspend fun confirmTransfer(group: GroupConfig, target: DeviceId) {
-            try {
-                ownerTransfer?.confirm(group.groupId, target)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "owner transfer not confirmed: ${e.javaClass.simpleName}") // it then expires with the invite
-            }
-        }
 
         /**
          * Spec §6 «Раздача»: the newest group key and, from the storage owner only, the access. Null without the cloud.

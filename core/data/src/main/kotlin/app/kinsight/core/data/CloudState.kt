@@ -113,13 +113,8 @@ class CloudStateStore(private val store: DataStore<Preferences>) {
             p[TRANSFER_TO] = r.target.hex
             p[TRANSFER_TOKEN_ID] = r.tokenIdHex
             p[TRANSFER_GENERATION] = r.generation
-            if (r.untilMs == null) p.remove(TRANSFER_UNTIL) else p[TRANSFER_UNTIL] = r.untilMs
+            p[TRANSFER_UNTIL] = r.untilMs
         }
-    }
-
-    /** The target acknowledged it took the role: the record no longer expires with the invite. */
-    suspend fun confirmTransfer(groupHex: String, target: DeviceId) {
-        store.edit { p -> if (p[TRANSFER_GROUP] == groupHex && p[TRANSFER_TO] == target.hex) p.remove(TRANSFER_UNTIL) }
     }
 
     /** Drops the record, only when it is still [r] (a newer invite may have replaced it). */
@@ -135,7 +130,7 @@ class CloudStateStore(private val store: DataStore<Preferences>) {
 
     private fun transfer(p: Preferences): OwnerTransferRecord? {
         val to = p[TRANSFER_TO]?.let { runCatching { DeviceId(it) }.getOrNull() } ?: return null
-        return OwnerTransferRecord(p[TRANSFER_GROUP] ?: return null, to, p[TRANSFER_TOKEN_ID] ?: return null, p[TRANSFER_GENERATION] ?: return null, p[TRANSFER_UNTIL])
+        return OwnerTransferRecord(p[TRANSFER_GROUP] ?: return null, to, p[TRANSFER_TOKEN_ID] ?: return null, p[TRANSFER_GENERATION] ?: return null, p[TRANSFER_UNTIL] ?: return null)
     }
 
     suspend fun clear() {

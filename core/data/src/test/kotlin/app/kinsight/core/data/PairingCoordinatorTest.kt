@@ -782,7 +782,9 @@ class PairingCoordinatorTest {
         val g = mom.groups.read()!!
         assertEquals(mom.keys.deviceId, Membership.compute(g.groupId, mom.store().membershipEntries())!!.storageOwner!!.deviceId)
         momClock += Invite.LIFETIME_MS + 1
-        assertNull(momTransfer.check(), "the record expires with the invite")
+        assertEquals(OwnerTransferPhase.PENDING, momTransfer.check(), "a lost PairAck does not end the record with the invite")
+        momClock += OwnerTransfer.RECORD_MS
+        assertNull(momTransfer.check(), "7 days without the new StorageOwner: the record goes")
         assertNull(mom.cloudState.current().transfer)
         assertNull(momStatus().ownerTransfer)
         assertEquals(g.groupId, mom.groups.read()?.groupId, "nothing else happens: the old phone stays in the group")
@@ -843,5 +845,40 @@ class PairingCoordinatorTest {
         val m = Membership.compute(qr.groupId, w.entries.map { DecodedEntry.decode(it.toByteArray()) })!!
         assertFalse(m.active[kid.keys.deviceId]!!.isAdmin)
         assertNull(mom.cloudState.current().transfer)
+    }
+
+    @Test
+    fun aStorageOwnerArrivingAfterALostAckStillMakesTheOldPhoneLeave() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        mom.ownStorage(token = "AT", tokenId = ByteArray(16) { 9 })
+        kid.joinAsAdminOf(mom, name = "Pixel")
+        val g = mom.groups.read()!!
+        val inForce = Membership.compute(g.groupId, mom.store().membershipEntries())!!.storageOwner!!
+        // The welcome went out (recorded), the new phone signed the role, but its PairAck never reached the old phone.
+        momTransfer.record(g.groupId, kid.keys.deviceId, inForce)
+        val kidGroup = kid.groups.read()!!
+        assertNotNull(
+            OwnerRecords.claim(
+                { build -> kid.pipeline.appendOwn(build = build) }, kid.store(), kid.keys, kid.cloudSecrets.ring(kidGroup),
+                ByteArray(16) { 1 }, 2, "AT", kid.now + 86_400_000L, tokenId = inForce.tokenId.toByteArray(), departed = inForce.departed,
+            ),
+        )
+        momClock += 2 * 86_400_000L // well after the invite: the role arrives later over Bluetooth or the cloud
+        assertEquals(OwnerTransferPhase.PENDING, momTransfer.check())
+        val momId = mom.keys.deviceId
+        mom.onKeyWipe = {
+            runBlocking {
+                val momStore = RoomEntryStore(mom.db, g.groupId)
+                kid.store().storeMembership(momStore.membershipEntries())
+                kid.store().applyBatch(momStore.liveEntries().filter { it.author == momId })
+            }
+        }
+        mom.store().storeMembership(kid.store().membershipEntries())
+        mom.store().applyBatch(kid.store().liveEntries().filter { it.author == kid.keys.deviceId })
+        assertEquals(OwnerTransferPhase.DONE, momTransfer.check())
+        assertNull(mom.groups.read(), "the old phone left by itself")
+        val m = Membership.compute(g.groupId, kid.store().membershipEntries())!!
+        assertTrue(momId in m.departed)
+        assertFalse(OwnerLifecycle.tokenExposed(m))
     }
 }

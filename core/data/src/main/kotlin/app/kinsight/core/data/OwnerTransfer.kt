@@ -18,10 +18,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Spec §7.3 on the old phone: its transfer invite welcomed [target] with the owner's tokens while the StorageOwner of
- * [generation] with token id [tokenIdHex] was in force. [untilMs]: the invite's expiry, after which an unconfirmed record
- * is dropped; null once the target acknowledged that it took the role.
+ * [generation] with token id [tokenIdHex] was in force. [untilMs]: [OwnerTransfer.RECORD_MS] after the welcome; the record
+ * lives until the target's StorageOwner is seen or that time passes without it (a lost PairAck does not end it).
  */
-data class OwnerTransferRecord(val groupHex: String, val target: DeviceId, val tokenIdHex: String, val generation: Long, val untilMs: Long?)
+data class OwnerTransferRecord(val groupHex: String, val target: DeviceId, val tokenIdHex: String, val generation: Long, val untilMs: Long)
 
 /** For the screens (CloudStatus.ownerTransfer): [PENDING] «Перенос роли…»; [DONE] the new phone holds the role, this one leaves. */
 enum class OwnerTransferPhase { PENDING, DONE }
@@ -31,7 +31,7 @@ object OwnerTransfers {
     fun phase(r: OwnerTransferRecord?, groupId: GroupId, m: MembershipState?, nowMs: Long): OwnerTransferPhase? {
         if (r == null || r.groupHex != groupId.hex) return null
         if (m != null && completed(r, m)) return OwnerTransferPhase.DONE
-        if (r.untilMs != null && nowMs > r.untilMs) return null
+        if (nowMs > r.untilMs) return null
         return OwnerTransferPhase.PENDING
     }
 
@@ -42,15 +42,17 @@ object OwnerTransfers {
         return m.effectiveEntries.any { e -> e.author == r.target && e.body.membership_op?.storage_owner?.generation == owner.generation }
     }
 
-    fun record(groupId: GroupId, target: DeviceId, inForce: StorageOwnerState, untilMs: Long?) =
+    fun record(groupId: GroupId, target: DeviceId, inForce: StorageOwnerState, untilMs: Long) =
         OwnerTransferRecord(groupId.hex, target, inForce.tokenId.hex(), inForce.generation, untilMs)
 }
 
 /**
  * The old phone's side of spec §7.3 «Старый телефон под рукой... 0 нажатий. Старый удаляется из группы»: the transfer
- * invite records its target ([record], [confirm]); [check], run on every membership change while a record exists, makes
+ * invite records its target ([record]); [check], run on every membership change while a record exists, makes
  * this phone leave the group by itself (LEFT_GROUP and the local reset, [leave]) once the target's own StorageOwner is in
- * its membership. An incomplete transfer changes nothing: its record expires with the invite. The LEFT_GROUP keeps the
+ * its membership, whenever it arrives (Bluetooth or cloud, also after a lost PairAck). An incomplete transfer changes
+ * nothing: its record expires [RECORD_MS] after the welcome; until then the owner does not refresh its token (CloudRunner),
+ * so the handed refresh token stays good. The LEFT_GROUP keeps the
  * token unexposed (OwnerLifecycle.tokenExposed's §7.3 exception), so the new owner goes on with the same token.
  */
 class OwnerTransfer(
@@ -65,10 +67,9 @@ class OwnerTransfer(
 ) {
     private val leaving = AtomicBoolean(false)
 
-    suspend fun record(groupId: GroupId, target: DeviceId, inForce: StorageOwnerState, untilMs: Long) =
-        state.recordTransfer(OwnerTransfers.record(groupId, target, inForce, untilMs))
-
-    suspend fun confirm(groupId: GroupId, target: DeviceId) = state.confirmTransfer(groupId.hex, target)
+    /** The welcome to [target] goes out now: the record lives [RECORD_MS] unless the target's StorageOwner comes first. */
+    suspend fun record(groupId: GroupId, target: DeviceId, inForce: StorageOwnerState) =
+        state.recordTransfer(OwnerTransfers.record(groupId, target, inForce, clock() + RECORD_MS))
 
     /** Null without a live record; [OwnerTransferPhase.DONE] once the transfer completed (the leave has been run). */
     suspend fun check(): OwnerTransferPhase? {
@@ -96,7 +97,9 @@ class OwnerTransfer(
         return phase
     }
 
-    private companion object {
-        const val TAG = "KinsightOwnerTransfer"
+    companion object {
+        /** Fix round 2: how long the old phone waits for the target's StorageOwner (7 days, as «Владелец недоступен»). */
+        const val RECORD_MS = 7 * 24 * 3_600_000L
+        private const val TAG = "KinsightOwnerTransfer"
     }
 }
