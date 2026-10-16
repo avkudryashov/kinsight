@@ -131,6 +131,9 @@ class Graph internal constructor(app: Context) {
     )
     val usage = UsageRepository(snapshots, prefs, appendOwn = { build -> pipeline.appendOwn(build = build) })
     val location = LocationRepository(snapshots, ownAppend)
+
+    /** Spec §10: the family PIN (parents) and the child's settings lock. */
+    val childLock = ChildLock(snapshots, ownAppend, prefs)
     val service = ServiceRepository(SyncGraph.snapshot, transport, { BlePermissions.missing(app) }, sync, usageAccess = { AppOpsUsageAccess(app).granted() })
     val pruner = Pruner(db, groups, settings, keys)
     val settingsRepository = SettingsRepository(

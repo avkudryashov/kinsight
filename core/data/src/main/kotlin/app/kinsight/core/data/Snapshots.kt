@@ -62,6 +62,8 @@ sealed interface GroupSnapshot {
         val locations: List<DecodedEntry> = emptyList(),
         /** Live SafeZone entries (spec §8.1); read through SafeZones. */
         val safeZones: List<DecodedEntry> = emptyList(),
+        /** Live ParentPin entries (spec §10); read through [ParentPins]. */
+        val parentPins: List<DecodedEntry> = emptyList(),
     ) : GroupSnapshot {
         val removed: Boolean get() = self !in membership.active
     }
@@ -175,6 +177,7 @@ class Snapshots(
             handovers = store.storageHandovers(),
             locations = store.locations(),
             safeZones = store.safeZones(),
+            parentPins = store.parentPins(),
         )
     }
 

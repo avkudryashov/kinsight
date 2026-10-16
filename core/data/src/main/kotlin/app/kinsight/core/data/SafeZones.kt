@@ -49,7 +49,7 @@ object SafeZones {
      * one, or the one kept at departure) is an admin. Revoking admin is final and the app never offers it, so the
      * record's flag is the flag at signing; a grant has no seq, so a zone signed just before the grant counts after it.
      */
-    private fun signedByAnAdmin(e: DecodedEntry, membership: MembershipState): Boolean {
+    internal fun signedByAnAdmin(e: DecodedEntry, membership: MembershipState): Boolean {
         if (!membership.acceptsEntryFrom(e.author, e.seq)) return false
         val m = membership.active[e.author] ?: membership.departed[e.author]?.member ?: return false
         return m.isAdmin && !m.isChild
