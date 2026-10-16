@@ -221,7 +221,14 @@ object SyncGraph {
             // Room only, never the pipeline: runs inside the Heartbeat's build, under stateLock and the pipeline lock.
             ownLog = { author -> RoomEntryStore(KinsightDatabaseFactory.shared(app), author.groupId).ownLog(author.keys.deviceId) },
             cloudGeneration = { cloudGeneration(app) },
+            interval = { Heartbeats.intervalFor(cloudGeneration(app), isChild(app)) },
         )
+    }
+
+    /** This phone is an active child of its group (group file and Room only, never the pipeline). */
+    private suspend fun isChild(context: Context): Boolean {
+        val t = target(context) ?: return false
+        return membership(context, t)?.active?.get(t.keys.deviceId)?.isChild == true
     }
 
     /** Unserialised: callers go through [onBluetoothOff] and [onBluetoothOn]. */
@@ -282,6 +289,15 @@ object SyncGraph {
     /** «Nearby devices» granted or not, only while a group exists: app start, every service check, hourly alerts run. */
     suspend fun onNearbyPermission(context: Context, granted: Boolean) = stateLock.withLock {
         if (groups(context).exists()) NearbyWatch(state(context), recorder(context), gate(context)).onPermission(granted)
+    }
+
+    /**
+     * Spec §10: the child's location access and the system switch (LocationWatch). [gate] is core/data's
+     * (FamilyLocation.watchGate), computed by the caller before this lock. True when an event was queued. Only while a
+     * group exists.
+     */
+    suspend fun onLocationState(context: Context, gate: GateState, access: Boolean, enabled: Boolean): Boolean = stateLock.withLock {
+        if (groups(context).exists()) LocationWatch(state(context), recorder(context)).onCheck(gate, access, enabled) else false
     }
 
     /**

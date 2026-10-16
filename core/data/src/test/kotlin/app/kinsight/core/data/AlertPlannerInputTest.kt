@@ -9,6 +9,7 @@ import app.kinsight.core.model.addMember
 import app.kinsight.core.model.proto.AppCatalog
 import app.kinsight.core.model.proto.AppTotal
 import app.kinsight.core.model.proto.DeviceRole
+import app.kinsight.core.model.proto.Heartbeat
 import app.kinsight.core.model.proto.UsageSummary
 import java.time.LocalDate
 import java.time.ZoneId
@@ -41,11 +42,11 @@ class AlertPlannerInputTest {
         }
     }
 
-    private fun ready(summaries: List<DecodedEntry>) = GroupSnapshot.Ready(
+    private fun ready(summaries: List<DecodedEntry>, heartbeats: List<DecodedEntry> = emptyList()) = GroupSnapshot.Ready(
         genesis.groupId, momKeys.deviceId, Membership.compute(genesis.groupId, ops)!!,
         summaries = summaries,
         catalog = listOf(EntryAuthor(genesis.groupId, kidKeys, lastSeq = 50, clock = { longAgo }).create { it.copy(app_catalog = AppCatalog(package_name = roblox, label = "Roblox")) }),
-        events = emptyList(), heartbeats = emptyList(), peerSeen = emptyMap(),
+        events = emptyList(), heartbeats = heartbeats, peerSeen = emptyMap(),
     )
 
     private fun rule(target: ThresholdTarget, limitMs: Long) = ThresholdRule.of(kidKeys.deviceId, target, limitMs)!!
@@ -120,5 +121,18 @@ class AlertPlannerInputTest {
         val overrides = mapOf(roblox to AppCategory.VIDEO)
         val plan = AlertPlanner.plan(AlertPlanner.input(snapshot, Prefs(), AlertMarkers(initialized = true), now, utc, listOf(games, video), overrides))
         assertEquals(listOf(ThresholdTarget.Category(AppCategory.VIDEO)), plan.alerts.filterIsInstance<Alert.Threshold>().map { it.target })
+    }
+
+    /** Spec §10 «На стороне родителя нет HEARTBEAT дольше порога»: a cloud-only child, seen by its Heartbeat alone. */
+    @Test
+    fun aCloudChildIsOutOfContactByItsHeartbeatAge() {
+        val now = at(utc, 10, 20)
+        fun beatAt(ms: Long) = EntryAuthor(genesis.groupId, kidKeys, lastSeq = 0, clock = { ms })
+            .create { it.copy(heartbeat = Heartbeat(app_version = "t", protocol_version = 3, storage_generation = 1)) }
+        fun noContact(beat: DecodedEntry) = AlertPlanner.plan(
+            AlertPlanner.input(ready(emptyList(), heartbeats = listOf(beat)), Prefs(noContactHours = 6), AlertMarkers(initialized = true), now, utc),
+        ).alerts.filterIsInstance<Alert.NoContact>()
+        assertEquals(listOf(Alert.NoContact("Kid", now - 7 * h, kidKeys.deviceId)), noContact(beatAt(now - 7 * h)))
+        assertEquals(emptyList(), noContact(beatAt(now - h)))
     }
 }

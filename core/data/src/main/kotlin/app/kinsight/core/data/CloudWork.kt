@@ -20,6 +20,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import app.kinsight.core.location.LocationGraph
+import app.kinsight.core.transport.ble.SyncGraph
 import app.kinsight.core.transport.cloud.DiskApi
 import app.kinsight.core.transport.cloud.InMemoryDisk
 import app.kinsight.core.transport.cloud.YandexDisk
@@ -234,6 +235,18 @@ class CloudWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         val follow = inputData.getBoolean(CloudWork.KEY_FOLLOW, false)
         return CloudWork.outcome {
             val g = AppGraph.get(applicationContext)
+            // Spec §10, before the run and never inside its runLock: what the child turned off is signed now and goes up
+            // with this run.
+            attempt("location state") { g.checkLocationState() }
+            // A cloud child's hourly Heartbeat (spec §10), signed before the run so this run uploads it. Outside runLock
+            // (it takes stateLock and the pipeline lock only), so the run's single runLock hold is never re-entered.
+            try {
+                SyncGraph.emitHeartbeatIfDue(applicationContext)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "heartbeat failed", e)
+            }
             val outcome = g.cloud.runCounted(trigger)
             val run = outcome.run
             Log.i(TAG, "cloud run $trigger: $run")
@@ -245,6 +258,16 @@ class CloudWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
             // ...and a parent keeps reading while a child is outside (spec §9).
             if (CloudWork.followNext(run, g.familyLocation::followNeeded)) CloudWork.follow(applicationContext, fromFollow = follow)
             run
+        }
+    }
+
+    private suspend fun attempt(what: String, block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "$what failed: ${e.javaClass.simpleName}")
         }
     }
 

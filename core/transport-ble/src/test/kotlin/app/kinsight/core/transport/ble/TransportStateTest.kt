@@ -163,4 +163,24 @@ class TransportStateTest {
         assertEquals(2L, appended.last().body.heartbeat!!.storage_generation)
         assertFalse(beats.emitIfDue())
     }
+
+    @Test
+    fun aCloudChildBeatsHourlyAndEveryoneElseDaily() = runBlocking {
+        assertEquals(Heartbeats.CLOUD_CHILD_INTERVAL_MS, Heartbeats.intervalFor(cloudGeneration = 1, child = true))
+        assertEquals(Heartbeats.INTERVAL_MS, Heartbeats.intervalFor(cloudGeneration = 0, child = true), "Bluetooth only: sessions say it")
+        assertEquals(Heartbeats.INTERVAL_MS, Heartbeats.intervalFor(cloudGeneration = 1, child = false))
+        val group = TestGroup.create(1)
+        val d = group.devices[0]
+        val appended = mutableListOf<app.kinsight.core.model.DecodedEntry>()
+        val beats = Heartbeats(
+            state, "0.1.0", append = { build -> appended += build(d.author); true }, clock = { now },
+            cloudGeneration = { 1L }, interval = { Heartbeats.intervalFor(1L, child = true) },
+        )
+        assertTrue(beats.emitIfDue())
+        now += Heartbeats.CLOUD_CHILD_INTERVAL_MS - 1
+        assertFalse(beats.emitIfDue())
+        now += 1
+        assertTrue(beats.emitIfDue(), "an hour later, with nothing new in its log")
+        assertEquals(2, appended.size)
+    }
 }
