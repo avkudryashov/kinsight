@@ -36,6 +36,12 @@ data class CloudStatus(
     val handoverPendingTo: String? = null,
     /** For the owner: another parent could take the storage, so leaving and the reset wait for the handover (spec §7.1). */
     val handoverNeeded: Boolean = false,
+    /**
+     * Spec §7.3, on the old phone after its transfer invite: [OwnerTransferPhase.PENDING] while the new phone has not
+     * signed the role yet («Перенос роли…»), [OwnerTransferPhase.DONE] once it has (this phone then leaves by itself).
+     * Nothing to tap in either; null otherwise.
+     */
+    val ownerTransfer: OwnerTransferPhase? = null,
 )
 
 object CloudViews {
@@ -43,6 +49,7 @@ object CloudViews {
     fun status(s: GroupSnapshot, state: CloudState, available: Boolean, nowMs: Long = System.currentTimeMillis()): CloudStatus {
         val r = s as? GroupSnapshot.Ready ?: return CloudStatus(available = available)
         val me = r.membership.active[r.self] ?: return CloudStatus(available = available)
+        val transfer = OwnerTransfers.phase(state.transfer, r.groupId, r.membership, nowMs)
         val owner = r.membership.storageOwner
             ?: return CloudStatus(available = available, canEnable = available && me.isAdmin && !me.isChild, isChild = me.isChild)
         val selfIsOwner = owner.deviceId == r.self
@@ -74,6 +81,7 @@ object CloudViews {
             handoverTargets = targets,
             handoverPendingTo = handoverTo?.takeIf { selfIsOwner }?.let { m.active[it]?.displayName },
             handoverNeeded = targets.isNotEmpty(),
+            ownerTransfer = transfer,
         )
     }
 }

@@ -10,6 +10,7 @@ import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.MembershipLimits
 import app.kinsight.core.model.MembershipState
+import app.kinsight.core.model.proto.PairAck
 import app.kinsight.core.model.proto.PairMessage
 import app.kinsight.core.model.proto.PairPending
 import app.kinsight.core.model.proto.PairReject
@@ -17,6 +18,7 @@ import app.kinsight.core.model.proto.PairRequest
 import app.kinsight.core.model.proto.PairWelcome
 import app.kinsight.core.sync.ByteStream
 import app.kinsight.core.sync.HandedAccess
+import app.kinsight.core.sync.PROTOCOL_VERSION
 import app.kinsight.core.sync.SecureChannel
 import app.kinsight.core.sync.WelcomeCloud
 import kotlinx.coroutines.withTimeoutOrNull
@@ -40,8 +42,11 @@ class PairingException(val kind: Kind, message: String, cause: Throwable? = null
     enum class Kind { WRONG_ADMIN, MALFORMED, INVALID_WELCOME }
 }
 
-/** A device asking to join; [dhPublicKey] is its Noise static key, proven by the handshake; [sas] the channel's code. */
-class Joiner(val signPublicKey: ByteArray, val dhPublicKey: ByteArray, val displayName: String, val sas: String = "") {
+/**
+ * A device asking to join; [dhPublicKey] is its Noise static key, proven by the handshake; [sas] the channel's code;
+ * [protocolVersion] the highest sync protocol it speaks (0: older than Y3, it cannot take the owner role, spec §7.3).
+ */
+class Joiner(val signPublicKey: ByteArray, val dhPublicKey: ByteArray, val displayName: String, val sas: String = "", val protocolVersion: Int = 0) {
     val id: DeviceId = DeviceId.fromSignPublicKey(signPublicKey)
 }
 
@@ -57,7 +62,11 @@ sealed interface HostDecision {
 }
 
 sealed interface HostOutcome {
-    class Welcomed(val joiner: Joiner) : HostOutcome
+    /**
+     * [ownerRoleTaken]: the welcome carried the owner's refresh token (spec §7.3) and the guest acknowledged that it
+     * stored the welcome and signed the StorageOwner. False for every other welcome, and when no acknowledgement came.
+     */
+    class Welcomed(val joiner: Joiner, val ownerRoleTaken: Boolean = false) : HostOutcome
 
     class Rejected(val reason: PairReject.Reason, val joiner: Joiner?) : HostOutcome
 }
@@ -79,6 +88,9 @@ object PairingProtocol {
     const val PAGE_BYTES = 60_000
     val DECISION_TIMEOUT: Duration = 3.minutes
     val REQUEST_TIMEOUT: Duration = 20.seconds
+
+    /** How long the host waits for the guest's PairAck after a welcome with the refresh token (the guest stores it first). */
+    val ACK_TIMEOUT: Duration = 60.seconds
     private val PROOF_LABEL = "kinsight-pair-v1".encodeToByteArray()
 
     /** Never equal to SecureChannel.prologue: a pairing handshake cannot be mistaken for a sync session. */
@@ -146,7 +158,10 @@ class PairingHost(
             val first = withTimeoutOrNull(PairingProtocol.REQUEST_TIMEOUT) { PairingProtocol.receive(ch) }
                 ?: throw IOException("no pairing request within ${PairingProtocol.REQUEST_TIMEOUT}")
             val request = first.request ?: return reject(ch, PairReject.Reason.REASON_UNSPECIFIED, null)
-            val joiner = Joiner(request.sign_public_key.toByteArray(), ch.remoteStaticKey, request.display_name, PairingSas.code(ch.handshakeHash))
+            val joiner = Joiner(
+                request.sign_public_key.toByteArray(), ch.remoteStaticKey, request.display_name, PairingSas.code(ch.handshakeHash),
+                request.protocol_version,
+            )
             problem(request, ch.remoteStaticKey)?.let { return reject(ch, it, joiner) }
             PairingProtocol.send(ch, PairMessage(pending = PairPending()))
             return when (val d = withTimeoutOrNull(decisionTimeout) { decide(joiner) } ?: HostDecision.Reject(PairReject.Reason.EXPIRED)) {
@@ -155,8 +170,9 @@ class PairingHost(
                     if (clock() > expiresAtMs) return reject(ch, PairReject.Reason.EXPIRED, joiner)
                     if (!bind(joiner.dhPublicKey)) return reject(ch, PairReject.Reason.BAD_TOKEN, joiner)
                     sendWelcome(ch, d)
+                    val taken = refreshOf(d.cloud) != null && awaitAck(ch)
                     PairingProtocol.linger(ch)
-                    HostOutcome.Welcomed(joiner)
+                    HostOutcome.Welcomed(joiner, ownerRoleTaken = taken)
                 }
             }
         } finally {
@@ -195,6 +211,15 @@ class PairingHost(
     private companion object {
         /** Tags, lengths and the varint fields of a PairWelcome page beyond its entries. */
         const val FIELD_OVERHEAD = 64
+    }
+
+    /** Spec §7.3: true only when the guest answers the transfer welcome with PairAck(owner_role_taken) in time. */
+    private suspend fun awaitAck(ch: SecureChannel): Boolean = try {
+        withTimeoutOrNull(PairingProtocol.ACK_TIMEOUT) { PairingProtocol.receive(ch).ack?.owner_role_taken == true } ?: false
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        false // the guest hung up or sent something else: the role was not confirmed
     }
 
     /** Spec §7.3: the refresh token goes only with the access it belongs to, and only when well formed. */
@@ -257,8 +282,18 @@ class PairingGuest(
     private val displayName: String,
     private val decisionTimeout: Duration = PairingProtocol.DECISION_TIMEOUT + 30.seconds,
 ) {
-    /** [onPending] gets this channel's SAS ([PairingSas]) once the admin answered «wait»: the screen shows it to compare. */
-    suspend fun join(stream: ByteStream, onPending: (sas: String) -> Unit = {}): GuestResult {
+    /**
+     * [onPending] gets this channel's SAS ([PairingSas]) once the admin answered «wait»: the screen shows it to compare.
+     * [onOwnerHandover]: only for a welcome whose refresh token this guest kept (spec §7.3), called with the result
+     * while the channel is still open; it stores the welcome and takes the role, and its answer (true: the StorageOwner
+     * is signed) goes back to the admin as PairAck (a welcome that offered one the guest did not keep is answered no).
+     * After a call the caller must not store the result again.
+     */
+    suspend fun join(
+        stream: ByteStream,
+        onOwnerHandover: suspend (GuestResult.Joined) -> Boolean = { false },
+        onPending: (sas: String) -> Unit = {},
+    ): GuestResult {
         try {
             val ch = SecureChannel.initiate(stream, keys.dh, PairingProtocol.prologue(invite.groupId, invite.token))
             if (!ch.remoteStaticKey.contentEquals(invite.adminDhKey)) {
@@ -270,6 +305,7 @@ class PairingGuest(
                 sign_public_key = keys.sign.publicKey.toByteString(),
                 display_name = displayName,
                 proof = proof.toByteString(),
+                protocol_version = PROTOCOL_VERSION,
             )
             PairingProtocol.send(ch, PairMessage(request = request))
             val first = withTimeoutOrNull(decisionTimeout) { PairingProtocol.receive(ch) }
@@ -277,8 +313,19 @@ class PairingGuest(
             first.reject?.let { return GuestResult.Rejected(it.reason) }
             if (first.pending == null) throw PairingException(PairingException.Kind.MALFORMED, "expected PairPending")
             onPending(PairingSas.code(ch.handshakeHash))
-            val result = withTimeoutOrNull(decisionTimeout) { readDecision(ch) }
+            val (result, offered) = withTimeoutOrNull(decisionTimeout) { readDecision(ch) }
                 ?: throw IOException("no decision from the admin within $decisionTimeout")
+            // Spec §7.3: a welcome that offered the refresh token is always answered, so the admin never reports a
+            // transfer that did not happen (and does not wait out its timeout).
+            if (offered && result is GuestResult.Joined) {
+                var taken = false
+                try {
+                    // Only a refresh token this guest kept (cloudOf) can make it the owner; otherwise the answer is no.
+                    if (result.cloud?.refreshToken != null) taken = onOwnerHandover(result)
+                } finally {
+                    acknowledge(ch, taken)
+                }
+            }
             ch.close()
             return result
         } finally {
@@ -286,18 +333,30 @@ class PairingGuest(
         }
     }
 
-    private suspend fun readDecision(ch: SecureChannel): GuestResult {
+    /** Best effort: a link that dropped already tells the admin nothing was confirmed. */
+    private suspend fun acknowledge(ch: SecureChannel, taken: Boolean) {
+        try {
+            PairingProtocol.send(ch, PairMessage(ack = PairAck(owner_role_taken = taken)))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // the admin hung up
+        }
+    }
+
+    /** The decision, and whether the welcome offered the refresh token (it is answered with PairAck then). */
+    private suspend fun readDecision(ch: SecureChannel): Pair<GuestResult, Boolean> {
         var first: PairWelcome? = null
         val raw = mutableListOf<ByteArray>()
         while (true) {
             val m = PairingProtocol.receive(ch)
-            m.reject?.let { return GuestResult.Rejected(it.reason) }
+            m.reject?.let { return GuestResult.Rejected(it.reason) to false }
             val w = m.welcome ?: throw PairingException(PairingException.Kind.MALFORMED, "expected PairWelcome")
             if (first == null) first = w
             w.entries.mapTo(raw) { it.toByteArray() }
             if (!w.more) break
         }
-        return validate(first!!, raw)
+        return validate(first!!, raw) to first.refresh_token.isNotEmpty()
     }
 
     private fun validate(first: PairWelcome, raw: List<ByteArray>): GuestResult.Joined {

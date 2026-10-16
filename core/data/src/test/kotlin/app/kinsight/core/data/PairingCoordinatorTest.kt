@@ -1,6 +1,15 @@
 package app.kinsight.core.data
 
 import app.kinsight.core.crypto.Primitives
+import kotlin.time.Duration.Companion.seconds
+import okio.ByteString.Companion.toByteString
+import app.kinsight.core.transport.cloud.TokenSet
+import app.kinsight.core.sync.pairing.PairingProtocol
+import app.kinsight.core.sync.SecureChannel
+import app.kinsight.core.model.proto.PairRequest
+import app.kinsight.core.model.proto.PairMessage
+import app.kinsight.core.model.DecodedEntry
+import app.kinsight.core.database.RoomEntryStore
 import app.kinsight.core.keystore.KeyStorageException
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryKind
@@ -41,7 +50,7 @@ import kotlin.test.assertTrue
 
 class PairingCoordinatorTest {
     private val air = FakePairingLink()
-    private val mom = TestDevice()
+    private val mom = TestDevice(leaveTimeoutMs = 300) // the automatic leave (spec §7.3) does not wait a minute for a session
     private val kid = TestDevice()
     private val kid2 = TestDevice()
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -53,9 +62,11 @@ class PairingCoordinatorTest {
         clock: () -> Long = { d.now },
         keys: suspend () -> DeviceKeys = d.keyProvider,
         onJoined: () -> Unit = {},
+        ownerTransfer: OwnerTransfer? = null,
     ) = PairingCoordinator(
         link = air, db = d.db, groups = d.groups, keys = keys, pipeline = d.pipeline, settings = d.settings,
         reset = d.reset, sync = sync, snapshots = d.snapshots, cloud = d.cloudSecrets, onJoined = onJoined, clock = clock,
+        ownerTransfer = ownerTransfer,
     )
 
     /** A service that refuses the «sync now» nudge (start), as a dead or restricted service would. */
@@ -66,7 +77,8 @@ class PairingCoordinatorTest {
     private suspend fun ownSharingEvents(d: TestDevice) =
         d.store().stateEvents().count { it.author == d.keys.deviceId && it.body.state_event!!.kind in SHARING }
 
-    private val momPairing = coordinator(mom, clock = { momClock })
+    private val momTransfer = OwnerTransfer(mom.db, mom.groups, mom.keyProvider, mom.cloudState, leave = { mom.group.leaveAndForget().join() }, clock = { momClock })
+    private val momPairing = coordinator(mom, clock = { momClock }, ownerTransfer = momTransfer)
     private val kidPairing = coordinator(kid)
     private val kid2Pairing = coordinator(kid2)
 
@@ -709,5 +721,127 @@ class PairingCoordinatorTest {
         assertFalse(t.owner)
         assertNull(t.refreshToken)
         assertEquals(mom.keys.deviceId, Membership.compute(kid.groups.read()!!.groupId, kid.store().membershipEntries())!!.storageOwner!!.deviceId)
+    }
+
+    /** Mom's transfer invite, the kid device playing her new phone; [beforeConfirm] runs while the joiner waits. */
+    private suspend fun transferByQr(beforeConfirm: () -> Unit = {}): Pair<InviteState, JoinState> {
+        val session = momPairing.invite(scope, Role.PARENT, "Mom", transferOwner = true)
+        val qr = Invite.parse(assertIs<InviteState.Showing>(session.state.awaitFirst { it is InviteState.Showing || it is InviteState.Failed }).uri)
+        val join = kidPairing.join(scope, qr, "Pixel", consent = false)
+        join.state.awaitFirst { it is JoinState.Waiting }
+        session.state.awaitFirst { it is InviteState.Confirm }
+        beforeConfirm()
+        session.confirm()
+        val joined = join.state.awaitFirst { it is JoinState.Joined || it is JoinState.Failed }
+        return session.state.awaitFirst { it is InviteState.Added } to joined
+    }
+
+    private suspend fun momStatus() = CloudViews.status(mom.snapshots.load(emptyMap()), mom.cloudState.current(), true, momClock)
+
+    @Test
+    fun theOldPhoneLeavesByItselfOnceTheNewOneHoldsTheRole() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        mom.ownStorage(token = "AT", tokenId = ByteArray(16) { 9 })
+        assertEquals(InviteState.Added("Pixel", ownerTransferred = true) to JoinState.Joined, transferByQr())
+        assertEquals(OwnerTransferPhase.PENDING, momTransfer.check(), "the old phone has not seen the new StorageOwner yet")
+        assertEquals(OwnerTransferPhase.PENDING, momStatus().ownerTransfer)
+        val g = mom.groups.read()!!
+        val momId = mom.keys.deviceId
+        val newPhone = kid.keys.deviceId
+        // As the identity wipe starts the data is still there: hand Mom's log to the new phone, as the leave's session would.
+        mom.onKeyWipe = {
+            runBlocking {
+                val momStore = RoomEntryStore(mom.db, g.groupId)
+                kid.store().storeMembership(momStore.membershipEntries())
+                kid.store().applyBatch(momStore.liveEntries().filter { it.author == momId })
+            }
+        }
+        mom.store().storeMembership(kid.store().membershipEntries())
+        mom.store().applyBatch(kid.store().liveEntries().filter { it.author == newPhone })
+        assertEquals(OwnerTransferPhase.DONE, momStatus().ownerTransfer)
+        assertEquals(OwnerTransferPhase.DONE, momTransfer.check())
+        assertNull(mom.groups.read(), "0 taps: the old phone left the group (spec §7.3)")
+        assertNotEquals(momId, mom.keys.deviceId)
+        assertNull(mom.cloudState.current().transfer)
+        val m = Membership.compute(g.groupId, kid.store().membershipEntries())!!
+        assertTrue(momId in m.departed, "the new phone sees the old one gone")
+        assertEquals(newPhone, m.storageOwner!!.deviceId)
+        assertFalse(OwnerLifecycle.tokenExposed(m), "Q6: the old phone left by itself after its own transfer: the token goes on")
+        assertEquals("AT", kid.cloudSecrets.tokens()!!.accessToken)
+    }
+
+    @Test
+    fun anIncompleteTransferLeavesTheOldPhoneTheOwner() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        mom.ownStorage(token = "AT")
+        // The new phone cannot store the welcome (an identity reset turned up): it never signs the role.
+        val (added, joined) = transferByQr(beforeConfirm = { kid.resetMarker.set() })
+        assertEquals(JoinState.Failed(PairFailure.IDENTITY), joined)
+        assertEquals(InviteState.Added("Pixel", ownerTransferred = false), added)
+        assertEquals(OwnerTransferPhase.PENDING, momTransfer.check())
+        val g = mom.groups.read()!!
+        assertEquals(mom.keys.deviceId, Membership.compute(g.groupId, mom.store().membershipEntries())!!.storageOwner!!.deviceId)
+        momClock += Invite.LIFETIME_MS + 1
+        assertNull(momTransfer.check(), "the record expires with the invite")
+        assertNull(mom.cloudState.current().transfer)
+        assertNull(momStatus().ownerTransfer)
+        assertEquals(g.groupId, mom.groups.read()?.groupId, "nothing else happens: the old phone stays in the group")
+        assertTrue(mom.cloudSecrets.tokens()!!.owner)
+    }
+
+    @Test
+    fun aTransferInviteOfAnOwnerWithoutItsRefreshTokenFails() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        mom.ownStorage(token = "AT")
+        mom.cloudSecrets.saveOwner(mom.groups.read()!!.groupId, 1, ByteArray(16) { 1 }, TokenSet("AT", null, mom.now + 86_400_000L))
+        val session = momPairing.invite(scope, Role.PARENT, "Mom", transferOwner = true)
+        assertEquals(InviteState.Failed(PairFailure.NOT_ADMIN), session.state.awaitFirst { it is InviteState.Showing || it is InviteState.Failed })
+    }
+
+    @Test
+    fun anExistingParentReWelcomedOnATransferQrGetsNoRole() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        mom.ownStorage(token = "AT")
+        val plain = momPairing.invite(scope, Role.PARENT, "Mom")
+        val plainQr = Invite.parse(assertIs<InviteState.Showing>(plain.state.awaitFirst { it is InviteState.Showing || it is InviteState.Failed }).uri)
+        val first = kidPairing.join(scope, plainQr, "Pixel", consent = false)
+        plain.state.awaitFirst { it is InviteState.Confirm }
+        plain.confirm()
+        assertEquals(JoinState.Joined, first.state.awaitFirst { it is JoinState.Joined || it is JoinState.Failed })
+        mom.group.grantAdmin(kid.keys.deviceId) // an admin parent already: only the host's own rule keeps the role back
+        kid.groups.delete() // the welcome as if lost: the same keys come back on the transfer QR
+        val session = momPairing.invite(scope, Role.PARENT, "Mom", transferOwner = true)
+        val qr = Invite.parse(assertIs<InviteState.Showing>(session.state.awaitFirst { it is InviteState.Showing || it is InviteState.Failed }).uri)
+        val again = kidPairing.join(scope, qr, "Pixel", consent = false)
+        assertEquals(JoinState.Joined, again.state.awaitFirst { it is JoinState.Joined || it is JoinState.Failed })
+        assertEquals(InviteState.Added("Pixel", ownerTransferred = false), session.state.awaitFirst { it is InviteState.Added })
+        val m = Membership.compute(kid.groups.read()!!.groupId, kid.store().membershipEntries())!!
+        assertEquals(mom.keys.deviceId, m.storageOwner!!.deviceId, "no Confirm in this session: no transfer")
+        assertNull(kid.cloudSecrets.tokens()?.refreshToken)
+        assertNull(mom.cloudState.current().transfer)
+    }
+
+    @Test
+    fun aGuestOlderThanY3GetsAPlainParentAdd() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        mom.ownStorage(token = "AT")
+        val session = momPairing.invite(scope, Role.PARENT, "Mom", transferOwner = true)
+        val qr = Invite.parse(assertIs<InviteState.Showing>(session.state.awaitFirst { it is InviteState.Showing || it is InviteState.Failed }).uri)
+        // A 0.8.x guest: no protocol_version in its request.
+        val stream = air.dial(qr.advertTag, 5.seconds)
+        val ch = SecureChannel.initiate(stream, kid.keys.dh, PairingProtocol.prologue(qr.groupId, qr.token))
+        val proof = kid.keys.sign.sign(PairingProtocol.proofMessage(qr.token, kid.keys.dh.publicKey))
+        ch.send(PairMessage.ADAPTER.encode(PairMessage(request = PairRequest(qr.token.toByteString(), kid.keys.sign.publicKey.toByteString(), "Pixel", proof.toByteString()))))
+        assertNotNull(PairMessage.ADAPTER.decode(ch.receive()).pending)
+        session.state.awaitFirst { it is InviteState.Confirm }
+        session.confirm()
+        val w = assertNotNull(PairMessage.ADAPTER.decode(ch.receive()).welcome)
+        ch.close()
+        assertEquals("", w.refresh_token)
+        assertEquals("AT", w.access_token, "the owner's access as for any parent")
+        assertEquals(InviteState.Added("Pixel", ownerTransferred = false), session.state.awaitFirst { it is InviteState.Added })
+        val m = Membership.compute(qr.groupId, w.entries.map { DecodedEntry.decode(it.toByteArray()) })!!
+        assertFalse(m.active[kid.keys.deviceId]!!.isAdmin)
+        assertNull(mom.cloudState.current().transfer)
     }
 }

@@ -258,6 +258,8 @@ class CloudRunner(
      */
     private suspend fun refreshIfDue(groupId: GroupId, m: MembershipState, k: DeviceKeys, ring: GroupKeyRing, now: Long) {
         val s = state.current()
+        // Spec §7.3: while this phone's transfer invite may still hand its refresh token, a refresh could kill the handed one.
+        if (OwnerTransfers.phase(s.transfer, groupId, m, now) != null) return
         val last = s.refreshCheckMs
         if (last != null && now - last in 0 until REFRESH_CHECK_MS) return
         val c = config()

@@ -29,7 +29,8 @@ enum class CloudProblem { UNAUTHORIZED, NO_ACCESS, STORAGE_FULL, NETWORK, RENEW_
  * [syncedGeneration]: the storage generation of the last successful sync (the Heartbeat reports it, spec §7);
  * [refreshCheckMs]: the owner's last token check (spec §6 «Продление», weekly); [tokenSinceMs]: when the owner's token
  * was last refreshed, or first checked here (rulings Q9: refreshed at 30 days of age); [ownerHeard]: when this device
- * last saw the storage owner's log grow, on its own clock (rulings Q14, for «Владелец недоступен»).
+ * last saw the storage owner's log grow, on its own clock (rulings Q14, for «Владелец недоступен»); [transfer]: the owner's
+ * transfer invite this phone welcomed (spec §7.3), until the new phone's StorageOwner arrives and this phone leaves.
  */
 data class CloudState(
     val lastRunMs: Long? = null,
@@ -39,6 +40,7 @@ data class CloudState(
     val refreshCheckMs: Long? = null,
     val ownerHeard: OwnerHeard? = null,
     val tokenSinceMs: Long? = null,
+    val transfer: OwnerTransferRecord? = null,
 ) {
     /** This device's time of the last sighting of the tracked owner (rulings Q14), or null when none is tracked. */
     val ownerHeardAtMs: Long? get() = ownerHeard?.heardAtMs
@@ -58,6 +60,7 @@ class CloudStateStore(private val store: DataStore<Preferences>) {
             p[REFRESH_CHECK],
             ownerHeard(p),
             p[TOKEN_SINCE],
+            transfer(p),
         )
     }
 
@@ -103,6 +106,38 @@ class CloudStateStore(private val store: DataStore<Preferences>) {
         return OwnerHeard(id, p[OWNER_SEQ] ?: return null, p[OWNER_HEARD] ?: return null)
     }
 
+    /** Spec §7.3: this phone welcomed [r]'s target with the owner's tokens; replaces any earlier record. */
+    suspend fun recordTransfer(r: OwnerTransferRecord) {
+        store.edit { p ->
+            p[TRANSFER_GROUP] = r.groupHex
+            p[TRANSFER_TO] = r.target.hex
+            p[TRANSFER_TOKEN_ID] = r.tokenIdHex
+            p[TRANSFER_GENERATION] = r.generation
+            if (r.untilMs == null) p.remove(TRANSFER_UNTIL) else p[TRANSFER_UNTIL] = r.untilMs
+        }
+    }
+
+    /** The target acknowledged it took the role: the record no longer expires with the invite. */
+    suspend fun confirmTransfer(groupHex: String, target: DeviceId) {
+        store.edit { p -> if (p[TRANSFER_GROUP] == groupHex && p[TRANSFER_TO] == target.hex) p.remove(TRANSFER_UNTIL) }
+    }
+
+    /** Drops the record, only when it is still [r] (a newer invite may have replaced it). */
+    suspend fun clearTransfer(r: OwnerTransferRecord) {
+        store.edit { p ->
+            if (transfer(p)?.let { it.groupHex == r.groupHex && it.target == r.target && it.generation == r.generation } == true) {
+                listOf(TRANSFER_GROUP, TRANSFER_TO, TRANSFER_TOKEN_ID).forEach { p.remove(it) }
+                p.remove(TRANSFER_GENERATION)
+                p.remove(TRANSFER_UNTIL)
+            }
+        }
+    }
+
+    private fun transfer(p: Preferences): OwnerTransferRecord? {
+        val to = p[TRANSFER_TO]?.let { runCatching { DeviceId(it) }.getOrNull() } ?: return null
+        return OwnerTransferRecord(p[TRANSFER_GROUP] ?: return null, to, p[TRANSFER_TOKEN_ID] ?: return null, p[TRANSFER_GENERATION] ?: return null, p[TRANSFER_UNTIL])
+    }
+
     suspend fun clear() {
         store.edit { it.clear() }
     }
@@ -118,6 +153,11 @@ class CloudStateStore(private val store: DataStore<Preferences>) {
         private val OWNER_SEQ = longPreferencesKey("owner_heard_seq")
         private val OWNER_HEARD = longPreferencesKey("owner_heard_ms")
         private val TOKEN_SINCE = longPreferencesKey("token_since_ms")
+        private val TRANSFER_GROUP = stringPreferencesKey("transfer_group")
+        private val TRANSFER_TO = stringPreferencesKey("transfer_to")
+        private val TRANSFER_TOKEN_ID = stringPreferencesKey("transfer_token_id")
+        private val TRANSFER_GENERATION = longPreferencesKey("transfer_generation")
+        private val TRANSFER_UNTIL = longPreferencesKey("transfer_until_ms")
 
         /** [file] must end with ".preferences_pb". */
         fun create(file: File, scope: CoroutineScope): CloudStateStore = CloudStateStore(

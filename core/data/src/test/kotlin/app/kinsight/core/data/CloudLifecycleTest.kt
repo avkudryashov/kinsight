@@ -69,6 +69,20 @@ class CloudLifecycleTest {
         assertEquals(1, http.forms.size, "checked once a week")
     }
 
+    /** Task 10 review Minor 4: no refresh while the owner's transfer invite may still hand its refresh token (spec §7.3). */
+    @Test
+    fun theOwnerDoesNotRefreshWhileATransferIsPending() = runBlocking<Unit> {
+        family()
+        mom.ownStorage(token = "AT", expiresAtMs = mom.now + 20 * DAY)
+        val g = mom.groups.read()!!
+        mom.cloudState.recordTransfer(OwnerTransfers.record(g.groupId, dad.keys.deviceId, membershipOf(mom).storageOwner!!, mom.now + 600_000))
+        assertEquals(CloudRun.SYNCED, mom.runner(disks::disk, http).run(CloudTrigger.NOW))
+        assertEquals(0, refreshes())
+        mom.now += 600_001 // the record expired with the invite
+        mom.runner(disks::disk, http).run(CloudTrigger.NOW)
+        assertEquals(1, refreshes())
+    }
+
     /** Rulings Q9: weekly checks; a refresh at 30 days of age even with most of the year left. */
     @Test
     fun aTokenIsLeftAloneUnderAMonthOldAndRefreshedAtAMonth() = runBlocking<Unit> {

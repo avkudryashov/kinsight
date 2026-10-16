@@ -1,6 +1,7 @@
 package app.kinsight.core.data
 
 import android.content.Context
+import android.util.Log
 import androidx.datastore.preferences.preferencesDataStoreFile
 import app.kinsight.core.database.KinsightDatabaseFactory
 import app.kinsight.core.keystore.CloudFiles
@@ -11,10 +12,14 @@ import app.kinsight.core.transport.ble.BlePermissions
 import app.kinsight.core.transport.ble.SyncGraph
 import app.kinsight.core.usage.AppOpsUsageAccess
 import app.kinsight.core.usage.UsageGraph
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 /** Manual wiring for the screens (no Hilt in v1): one Graph per process over the existing singletons. */
 object AppGraph {
@@ -68,6 +73,8 @@ class Graph internal constructor(app: Context) {
         runLock = cloudSecrets.runLock,
         scope = scope,
     )
+    /** Spec §7.3: the old phone leaves by itself once its transfer invite's new phone holds the owner role. */
+    val ownerTransfer = OwnerTransfer(db, groups, keys, cloudState, leave = { group.leaveAndForget().join() })
     val pairing = PairingCoordinator(
         link = AndroidPairingLink(app),
         db = db,
@@ -80,6 +87,7 @@ class Graph internal constructor(app: Context) {
         snapshots = snapshots,
         cloud = cloudSecrets,
         onJoined = { CloudWork.runSoon(app) },
+        ownerTransfer = ownerTransfer,
     )
     val group = GroupRepository(
         snapshots = snapshots,
@@ -112,4 +120,23 @@ class Graph internal constructor(app: Context) {
         onEnabled = { CloudWork.runSoon(app) },
     )
     val cloudRepository = CloudRepository(snapshots, cloudState, cloudSignIn, prefs, config = { CloudGraph.config }, scope = scope)
+
+    init {
+        // Only while a transfer record exists: every membership change is checked (OwnerTransfer.check).
+        scope.launch {
+            cloudState.state.map { it.transfer != null }.distinctUntilChanged().collectLatest { pending ->
+                if (pending) {
+                    snapshots.snapshots.collect {
+                        try {
+                            ownerTransfer.check()
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Log.w("KinsightOwnerTransfer", "check failed: ${e.javaClass.simpleName}") // the next change retries
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

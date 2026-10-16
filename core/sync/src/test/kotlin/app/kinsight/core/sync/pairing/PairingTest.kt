@@ -15,6 +15,7 @@ import app.kinsight.core.model.proto.PairRequest
 import app.kinsight.core.sync.ByteStream
 import app.kinsight.core.sync.HandedAccess
 import app.kinsight.core.sync.MemoryPipe
+import app.kinsight.core.sync.PROTOCOL_VERSION
 import app.kinsight.core.sync.SecureChannel
 import app.kinsight.core.sync.WelcomeCloud
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -448,5 +449,61 @@ class PairingTest {
         val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
         assertEquals(access, joined.cloud!!.access!!.accessToken)
         assertEquals(refresh, joined.cloud!!.refreshToken)
+    }
+
+    @Test
+    fun theGuestTellsItsProtocolVersion() = runTest {
+        var seen = -1
+        val (_, g) = pair({ host().serve(it) { j -> seen = j.protocolVersion; welcomeAs(DeviceRole.CHILD)(j) } }, { guest().join(it) })
+        assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertEquals(PROTOCOL_VERSION, seen)
+    }
+
+    @Test
+    fun theHostReportsTheRoleTakenOnlyOnTheGuestsAck() = runTest {
+        var handedTo: String? = null
+        val (h, g) = pair({ parentHost().serve(it, transfer(makeAdmin = true, handed)) }, { s ->
+            guest(parentInvite, name = "Pixel").join(s, onOwnerHandover = { j -> handedTo = j.cloud?.refreshToken; true })
+        })
+        assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertEquals("RT", handedTo)
+        assertTrue(assertIs<HostOutcome.Welcomed>(h.getOrThrow()).ownerRoleTaken)
+    }
+
+    @Test
+    fun aTransferTheGuestCouldNotTakeIsNotReported() = runTest {
+        // The guest stored the welcome but could not sign the StorageOwner; and a guest the welcome did not make an admin.
+        for ((admin, answer) in listOf(true to false, false to true)) {
+            var called = false
+            val (h, g) = pair({ parentHost().serve(it, transfer(makeAdmin = admin, handed)) }, { s ->
+                guest(parentInvite, name = "Pixel").join(s, onOwnerHandover = { called = true; answer })
+            })
+            assertIs<GuestResult.Joined>(g.getOrThrow())
+            assertFalse(assertIs<HostOutcome.Welcomed>(h.getOrThrow()).ownerRoleTaken)
+            assertEquals(admin, called, "only a kept refresh token asks the guest to take the role")
+        }
+    }
+
+    @Test
+    fun aGuestThatNeverAnswersIsNotATransfer() = runTest {
+        // A guest older than Y3 skips refresh_token and hangs up without a PairAck.
+        val (h, g) = pair({ parentHost().serve(it, transfer(makeAdmin = true, handed)) }, { stream ->
+            val ch = SecureChannel.initiate(stream, kidKeys.dh, PairingProtocol.prologue(parentInvite.groupId, parentInvite.token))
+            PairingProtocol.send(ch, requestOf(parentInvite.token, kidKeys, kidKeys.dh.publicKey, "Pixel"))
+            assertNotNull(PairingProtocol.receive(ch).pending)
+            assertNotNull(PairingProtocol.receive(ch).welcome)
+            ch.close()
+            GuestResult.Rejected(PairReject.Reason.REASON_UNSPECIFIED)
+        })
+        g.getOrThrow()
+        assertFalse(assertIs<HostOutcome.Welcomed>(h.getOrThrow()).ownerRoleTaken)
+    }
+
+    @Test
+    fun aPlainWelcomeIsNotATransfer() = runTest {
+        var called = false
+        val (h, _) = pair({ host().serve(it, welcomeAs(DeviceRole.CHILD)) }, { s -> guest().join(s, onOwnerHandover = { called = true; true }) })
+        assertFalse(assertIs<HostOutcome.Welcomed>(h.getOrThrow()).ownerRoleTaken)
+        assertFalse(called)
     }
 }

@@ -43,6 +43,7 @@ suspend fun TestDevice.ownStorage(
     token: String = "AT",
     refresh: String = "RT",
     expiresAtMs: Long = now + YEAR_MS,
+    tokenId: ByteArray = ByteArray(0), // rulings Q3: a real sign-in names its token (16 random bytes)
 ) {
     val g = groups.read()!!
     cloudSecrets.saveOwner(g.groupId, 1, storageId, TokenSet(token, refresh, expiresAtMs))
@@ -50,7 +51,7 @@ suspend fun TestDevice.ownStorage(
     val before = store().membershipEntries()
     check(
         pipeline.appendOwn { a ->
-            val owner = a.storageOwnerEntry(keys.deviceId, storageId, 1)
+            val owner = a.storageOwnerEntry(keys.deviceId, storageId, 1, tokenId)
             val withOwner = Membership.compute(g.groupId, before + owner)!!
             listOf(owner, CloudAccessView.issue(a, withOwner, 0, gen0, token, expiresAtMs))
         },

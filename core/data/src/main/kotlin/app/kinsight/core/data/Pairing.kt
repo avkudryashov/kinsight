@@ -9,12 +9,14 @@ import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.MembershipState
+import app.kinsight.core.model.StorageOwnerState
 import app.kinsight.core.model.WireConstants
 import app.kinsight.core.model.addMember
 import app.kinsight.core.model.grantAdminEntry
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.PairReject
 import app.kinsight.core.sync.ByteStream
+import app.kinsight.core.sync.PROTOCOL_VERSION
 import app.kinsight.core.sync.WelcomeCloud
 import app.kinsight.core.sync.pairing.GuestResult
 import app.kinsight.core.sync.pairing.HostDecision
@@ -71,7 +73,11 @@ sealed interface InviteState {
     /** [code]: the channel's SAS (PairingSas) the guest's screen shows; the admin adds only when they match. */
     data class Confirm(val uri: String, val expiresAtMs: Long, val name: String, val role: Role, val code: String = "") : InviteState
 
-    /** [ownerTransferred]: the storage owner's role went to this new phone (spec §7.3); the old phone should leave the group next. */
+    /**
+     * [ownerTransferred]: the storage owner's role went to this new phone (spec §7.3): the welcome carried the refresh
+     * token to a joiner this session confirmed and made an admin, and the joiner acknowledged that it signed the role.
+     * This phone then leaves the group by itself (OwnerTransfer). False: a plain add, whatever the invite was for.
+     */
     data class Added(val name: String, val ownerTransferred: Boolean = false) : InviteState
 
     data object Expired : InviteState
@@ -136,6 +142,8 @@ class PairingCoordinator(
     private val cloud: CloudSecrets? = null,
     /** After a join wrote the group file: the app schedules the cloud work (a welcome token is usable right away). */
     private val onJoined: () -> Unit = {},
+    /** Spec §7.3: the old phone's record of its transfer invite, so it leaves once the new phone holds the role. */
+    private val ownerTransfer: OwnerTransfer? = null,
     private val clock: () -> Long = System::currentTimeMillis,
     private val dialTimeout: Duration = 60.seconds,
     private val io: CoroutineDispatcher = Dispatchers.IO,
@@ -147,7 +155,8 @@ class PairingCoordinator(
 
     /**
      * [transferOwner]: the storage owner invites its own new phone (spec §7.3): a parent, made an admin, handed the access
-     * and the refresh token. Only the storage owner may open one, for a parent ([PairFailure.NOT_ADMIN] otherwise).
+     * and the refresh token. Only the storage owner holding its refresh token may open one, for a parent
+     * ([PairFailure.NOT_ADMIN] otherwise). A joiner older than Y3 is added as a plain parent.
      */
     fun invite(scope: CoroutineScope, role: Role, adminName: String, transferOwner: Boolean = false): InviteSession =
         InviteSession(scope, role, adminName, transferOwner)
@@ -213,6 +222,9 @@ class PairingCoordinator(
         /** Only touched by the guest being served (one at a time). */
         @Volatile private var bound: DeviceId? = null
 
+        /** Spec §7.3: the joiner this session confirmed, made an admin and handed the refresh token; only it gets it again. */
+        @Volatile private var transferTo: DeviceId? = null
+
         init {
             scope.launch {
                 try {
@@ -246,7 +258,7 @@ class PairingCoordinator(
                 group = withContext(io) { groups.read() } ?: return fail(PairFailure.NOT_ADMIN)
                 val membership = Membership.compute(group.groupId, RoomEntryStore(db, group.groupId).membershipEntries())
                 if (membership?.active?.get(k.deviceId)?.isAdmin != true) return fail(PairFailure.NOT_ADMIN)
-                if (transferOwner && (role != Role.PARENT || membership?.storageOwner?.deviceId != k.deviceId)) return fail(PairFailure.NOT_ADMIN)
+                if (transferOwner && !canTransfer(k, group, membership)) return fail(PairFailure.NOT_ADMIN)
                 invite = Invite.create(group.groupId, k, role.toDeviceRole(), adminName) // IllegalArgumentException: bad name
             } catch (e: CancellationException) {
                 throw e
@@ -311,7 +323,9 @@ class PairingCoordinator(
                             } catch (e: Exception) {
                                 Log.w(TAG, "after adding ${outcome.joiner.id}: $e") // the AddMember is stored: still Added
                             }
-                            synchronized(lock) { move(InviteState.Added(outcome.joiner.displayName, ownerTransferred = transferOwner)) }
+                            val transferred = outcome.ownerRoleTaken && transferTo == outcome.joiner.id
+                            if (transferred) confirmTransfer(group, outcome.joiner.id)
+                            synchronized(lock) { move(InviteState.Added(outcome.joiner.displayName, ownerTransferred = transferred)) }
                             sessionJob.cancel() // ends open()'s timer; this coroutine is the last one
                         }
                         is HostOutcome.Rejected -> backToShowing()
@@ -335,11 +349,10 @@ class PairingCoordinator(
             when (val p = InviteRules.precheck(bound, joiner, before, role.toDeviceRole())) {
                 is Precheck.Reject -> return HostDecision.Reject(p.reason)
                 Precheck.Rewelcome -> {
-                    // Spec §7.3: the refresh token goes again only to the joiner this session's admin accepted (and
-                    // made an admin), never to a member that merely holds an AddMember under the same keys.
-                    val accepted = bound == joiner.id
+                    // Spec §7.3: the refresh token goes again only to the joiner this session's admin confirmed and made
+                    // an admin, never to a member that merely holds an AddMember under the same keys.
                     bound = joiner.id
-                    return welcome(before, group, withRefresh = accepted)
+                    return welcome(before, group, withRefresh = transferTo == joiner.id)
                 }
                 Precheck.AskAdmin -> Unit
             }
@@ -363,13 +376,22 @@ class PairingCoordinator(
             bound = joiner.id
             // The key generation the joiner gets is known before its AddMember, which records it (R12: a joiner handed an
             // older generation than the group's newest rotation is one the next admin cloud run rotates again for).
-            val handed = cloudWelcome(before, group, withRefresh = true)
+            // Spec §7.3: a transfer only to a joiner that can take the role (Y3 or later) and only with a refresh token in hand;
+            // otherwise this is a plain parent add.
+            var handed = cloudWelcome(before, group, withRefresh = transferOwner && joiner.protocolVersion >= PROTOCOL_VERSION)
+            val inForce = before.storageOwner
+            var transfer = handed?.refreshToken != null && inForce != null
+            if (transfer && !recordTransfer(group, joiner.id, inForce!!, o.expiresAtMs)) {
+                transfer = false
+                handed = handed?.let { WelcomeCloud(it.keyEpoch, it.groupKey, it.access) }
+            }
             val keyEpoch = handed?.keyEpoch?.takeIf { it == GroupKey.currentEpoch(before) } ?: 0
             pipeline.appendOwn { author ->
                 val add = author.addMember(joiner.signPublicKey, joiner.dhPublicKey, joiner.displayName, role.toDeviceRole(), groupKeyEpoch = keyEpoch)
                 // Spec §7.3: the owner's new phone is an admin in the same batch, so it may sign the StorageOwner itself.
-                if (transferOwner) listOf(add, author.grantAdminEntry(joiner.id)) else listOf(add)
+                if (transfer) listOf(add, author.grantAdminEntry(joiner.id)) else listOf(add)
             }
+            if (transfer) transferTo = joiner.id
             // The host may still refuse (expiry re-check): the member stays added and the next attempt is re-welcomed.
             return welcome(Membership.compute(group.groupId, store.membershipEntries())!!, group, handed)
         }
@@ -383,6 +405,36 @@ class PairingCoordinator(
                 state.effectiveEntries.map { it.bytes },
                 handed ?: cloudWelcome(state, group, withRefresh),
             )
+
+        /** The storage owner holding the refresh token of the access it hands, inviting a parent (spec §7.3). */
+        private suspend fun canTransfer(k: DeviceKeys, group: GroupConfig, membership: MembershipState?): Boolean {
+            if (membership == null || role != Role.PARENT || membership.storageOwner?.deviceId != k.deviceId) return false
+            return cloud?.welcome(group, RoomEntryStore(db, group.groupId), membership, k.deviceId, withRefresh = true)?.refreshToken != null
+        }
+
+        /** False when the record could not be written: then no refresh token goes out (the old phone could not leave). */
+        private suspend fun recordTransfer(group: GroupConfig, target: DeviceId, inForce: StorageOwnerState, untilMs: Long): Boolean {
+            val t = ownerTransfer ?: return true
+            return try {
+                t.record(group.groupId, target, inForce, untilMs)
+                true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "owner transfer not recorded: ${e.javaClass.simpleName}")
+                false
+            }
+        }
+
+        private suspend fun confirmTransfer(group: GroupConfig, target: DeviceId) {
+            try {
+                ownerTransfer?.confirm(group.groupId, target)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "owner transfer not confirmed: ${e.javaClass.simpleName}") // it then expires with the invite
+            }
+        }
 
         /**
          * Spec §6 «Раздача»: the newest group key and, from the storage owner only, the access. Null without the cloud.
@@ -439,6 +491,12 @@ class PairingCoordinator(
     ) {
         private val _state = MutableStateFlow<JoinState>(JoinState.Searching)
         val state: StateFlow<JoinState> = _state.asStateFlow()
+
+        /** The outcome of a welcome stored during the handshake (spec §7.3), and whether this phone took the owner role. */
+        @Volatile private var saved: JoinState? = null
+
+        @Volatile private var ownerTaken = false
+
         private val job: Job = scope.launch { run() }
 
         /** Stops searching or waiting; once the welcome is being stored, the store completes. */
@@ -467,13 +525,23 @@ class PairingCoordinator(
                 val k = keys()
                 val stream = link.dial(invite.advertTag, dialTimeout)
                 _state.value = JoinState.Connecting
-                val result = PairingGuest(invite, k, deviceName).join(stream) { sas -> _state.value = JoinState.Waiting(invite.adminName, sas) }
+                // Spec §7.3: a welcome with the owner's refresh token is stored while the link is open, so the admin hears
+                // whether this phone took the role.
+                val handover: suspend (GuestResult.Joined) -> Boolean = { joined ->
+                    _state.value = JoinState.Saving
+                    val s = withContext(NonCancellable) { save(k, joined) }
+                    saved = s
+                    s == JoinState.Joined && ownerTaken
+                }
+                val result = PairingGuest(invite, k, deviceName).join(stream, handover) { sas -> _state.value = JoinState.Waiting(invite.adminName, sas) }
                 when (result) {
                     is GuestResult.Rejected -> fail(result.reason.toFailure())
                     is GuestResult.Joined -> {
-                        _state.value = JoinState.Saving
-                        // The admin has added us: a half-stored welcome would be worse than finishing.
-                        _state.value = withContext(NonCancellable) { save(k, result) }
+                        _state.value = saved ?: run {
+                            _state.value = JoinState.Saving
+                            // The admin has added us: a half-stored welcome would be worse than finishing.
+                            withContext(NonCancellable) { save(k, result) }
+                        }
                     }
                 }
             } catch (e: CancellationException) {
@@ -524,7 +592,7 @@ class PairingCoordinator(
             cloud?.adopt(invite.groupId, r.discoveryKey, r.cloud)
             withContext(io) { groups.write(GroupConfig(invite.groupId, r.discoveryKey)) }
             // Spec §7.3: the owner's new phone takes the role with the same tokens (0 taps).
-            r.cloud?.let { c -> if (c.refreshToken != null && c.access != null) claimTransfer(k, r.discoveryKey, c) }
+            r.cloud?.let { c -> if (c.refreshToken != null && c.access != null) ownerTaken = claimTransfer(k, r.discoveryKey, c) }
             try {
                 if (share) pipeline.setSharing(true) else pipeline.reconcileSharing()
             } catch (e: Exception) {
@@ -547,13 +615,17 @@ class PairingCoordinator(
         /**
          * Signs StorageOwner(generation + 1, the same storage) and its CloudAccess, then keeps the handed access and refresh
          * token as the owner's (spec §6: the refresh token only on the owner). The same token goes on, so the op keeps the
-         * token id and the departed list of the op in force (rulings Q3). Best effort: on a failure this phone stays a
-         * member and the old phone keeps the role. Lock order: [commitLock], then runLock, then the pipeline lock.
+         * token id and the departed list of the op in force (rulings Q3). True once the StorageOwner is signed. Best
+         * effort: a failure before the append leaves this phone a member and the old phone the owner (the refresh token is
+         * not kept); a failure of the vault write after it leaves this phone the owner without its tokens, to be restored
+         * with a sign-in (as CloudSignIn's), while the old phone gives the role up. Lock order: [commitLock], then
+         * runLock, then the pipeline lock.
          */
-        private suspend fun claimTransfer(k: DeviceKeys, discoveryKey: ByteArray, c: WelcomeCloud) {
-            val secrets = cloud ?: return
-            val a = c.access ?: return
-            val refresh = c.refreshToken ?: return
+        private suspend fun claimTransfer(k: DeviceKeys, discoveryKey: ByteArray, c: WelcomeCloud): Boolean {
+            val secrets = cloud ?: return false
+            val a = c.access ?: return false
+            val refresh = c.refreshToken ?: return false
+            var signed = false
             try {
                 secrets.runLock.withLock {
                     val store = RoomEntryStore(db, invite.groupId)
@@ -568,6 +640,7 @@ class PairingCoordinator(
                     if (claimed == null) {
                         Log.w(TAG, "the owner role was handed over but could not be signed")
                     } else {
+                        signed = true
                         secrets.saveOwner(invite.groupId, generation, a.storageId, TokenSet(a.accessToken, refresh, a.expiresAtMs))
                     }
                 }
@@ -576,10 +649,12 @@ class PairingCoordinator(
             } catch (e: Exception) {
                 Log.w(TAG, "joined, owner role not taken: ${e.javaClass.simpleName}")
             }
+            return signed
         }
 
+        /** A welcome already stored during the handshake stays the outcome: the link failing after it changes nothing. */
         private fun fail(reason: PairFailure) {
-            _state.value = JoinState.Failed(reason)
+            _state.value = saved ?: JoinState.Failed(reason)
         }
     }
 }
