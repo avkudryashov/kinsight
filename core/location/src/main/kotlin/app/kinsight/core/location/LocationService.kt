@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
+import android.os.SystemClock
 import android.util.Log
 
 /**
@@ -68,19 +69,34 @@ class LocationService : Service() {
  * The one place start and stop of [LocationService] are decided, under one monitor (never held across a call into
  * Android): whether the engine wants it, whether it is in the foreground, and how many startForegroundService calls
  * have not reached onStartCommand yet. While a start is pending nothing stops the service from outside (its own
- * onStartCommand checks [wanted] after going foreground) and no second start is sent.
+ * onStartCommand checks [wanted] after going foreground) and no second start is sent. A pending start older than
+ * [PENDING_EXPIRY_MS] is forgotten: Android gives a started service about 10 s to call startForeground, so by then it
+ * either ran or never will (a start dropped without an error must not block the service for good).
  */
 internal object ServiceGate {
+    const val PENDING_EXPIRY_MS = 15_000L
+
+    /** Elapsed realtime; replaced in tests. */
+    @Volatile
+    var clock: () -> Long = SystemClock::elapsedRealtime
+
     private var wanted = false
     private var foreground = false
     private var pending = 0
+    private var pendingSinceMs = 0L
+
+    private fun expire() {
+        if (pending > 0 && clock() - pendingSinceMs >= PENDING_EXPIRY_MS) pending = 0
+    }
 
     /** The engine wants the service; true when the caller must send startForegroundService (counted as pending). */
     @Synchronized
     fun wantStart(): Boolean {
         wanted = true
+        expire()
         if (foreground || pending > 0) return false
         pending++
+        pendingSinceMs = clock()
         return true
     }
 
@@ -94,6 +110,7 @@ internal object ServiceGate {
     @Synchronized
     fun wantStop(): Boolean {
         wanted = false
+        expire()
         if (!foreground || pending > 0) return false
         foreground = false
         return true
@@ -116,12 +133,17 @@ internal object ServiceGate {
     val isForeground: Boolean get() = foreground
 
     @get:Synchronized
-    val pendingStarts: Int get() = pending
+    val pendingStarts: Int get() {
+        expire()
+        return pending
+    }
 
     @Synchronized
     fun reset() {
         wanted = false
         foreground = false
         pending = 0
+        pendingSinceMs = 0L
+        clock = SystemClock::elapsedRealtime
     }
 }

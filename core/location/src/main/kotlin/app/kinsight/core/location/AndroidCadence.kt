@@ -3,6 +3,7 @@ package app.kinsight.core.location
 import android.app.AlarmManager
 import android.app.ForegroundServiceStartNotAllowedException
 import android.app.PendingIntent
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
@@ -19,21 +20,34 @@ import java.util.concurrent.TimeUnit
  * Spec §8.1 cadence on Android: the location service, the 5-minute tick (`setAndAllowWhileIdle`: no exact-alarm
  * permission, Doze may stretch it; spec §14 measures it), the in-zone check (WorkManager).
  */
-class AndroidCadence(context: Context) : Cadence {
+class AndroidCadence internal constructor(context: Context, start: ((Intent) -> ComponentName?)?) : Cadence {
+    constructor(context: Context) : this(context, null)
+
     private val app = context.applicationContext
+
+    /** startForegroundService (a seam for tests): null when the system dropped the start without saying why. */
+    private val start: (Intent) -> ComponentName? = start ?: app::startForegroundService
     private val alarms = app.getSystemService(AlarmManager::class.java)
 
-    /** Sends no second start while one is pending or the service is foreground (the tick follows every 5 minutes). */
+    /**
+     * Sends no second start while one is pending or the service is foreground (the tick follows every 5 minutes). A
+     * start that throws or that the system drops (null) is uncounted at once, so the next tick tries again.
+     */
     override fun startService(): Boolean {
         if (!ServiceGate.wantStart()) return true
         return try {
-            app.startForegroundService(Intent(app, LocationService::class.java))
-            true
+            if (start(Intent(app, LocationService::class.java)) != null) {
+                true
+            } else {
+                ServiceGate.startFailed()
+                Log.w(TAG, "location service start dropped")
+                false
+            }
         } catch (e: ForegroundServiceStartNotAllowedException) {
             ServiceGate.startFailed()
             Log.w(TAG, "location service not allowed from the background") // spec §14, Android 12+ / 14+
             false
-        } catch (e: SecurityException) {
+        } catch (e: Exception) {
             ServiceGate.startFailed()
             Log.w(TAG, "location service refused: ${e.javaClass.simpleName}")
             false

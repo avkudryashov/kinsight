@@ -277,4 +277,43 @@ class AndroidAdaptersTest {
 
     private fun runService(startId: Int): LocationService =
         Robolectric.buildService(LocationService::class.java).create().startCommand(0, startId).get()
+
+    @Test
+    fun aStartTheSystemDropsIsUncountedAndTriedAgain() {
+        val sent = AtomicInteger()
+        val cadence = AndroidCadence(app) { sent.incrementAndGet(); null }
+        assertFalse(cadence.startService())
+        assertEquals(0, ServiceGate.pendingStarts)
+        assertFalse(cadence.startService())
+        assertEquals(2, sent.get())
+    }
+
+    @Test
+    fun anUnexpectedFailureOfTheStartIsUncountedAndTriedAgain() {
+        val sent = AtomicInteger()
+        val cadence = AndroidCadence(app) { sent.incrementAndGet(); throw IllegalStateException("odd") }
+        assertFalse(cadence.startService())
+        assertEquals(0, ServiceGate.pendingStarts)
+        assertFalse(cadence.startService())
+        assertEquals(2, sent.get())
+    }
+
+    @Test
+    fun aPendingStartThatNeverArrivesExpires() {
+        var now = 1_000L
+        ServiceGate.clock = { now }
+        val sent = AtomicInteger()
+        val cadence = AndroidCadence(app) { sent.incrementAndGet(); android.content.ComponentName(app, LocationService::class.java) }
+        assertTrue(cadence.startService())
+        now += ServiceGate.PENDING_EXPIRY_MS - 1
+        cadence.startService()
+        assertEquals(1, sent.get()) // still pending: no second start
+        now += 1
+        assertEquals(0, ServiceGate.pendingStarts)
+        cadence.startService()
+        assertEquals(2, sent.get())
+        // A late onStartCommand of the forgotten start is still handled: foreground, wanted.
+        runService(1)
+        assertTrue(ServiceGate.isForeground)
+    }
 }
