@@ -2,6 +2,7 @@ package app.kinsight.core.transport.ble
 
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.EntryKind
+import app.kinsight.core.model.addMember
 import app.kinsight.core.sync.LiveSet
 import app.kinsight.core.sync.PROTOCOL_VERSION
 import kotlinx.coroutines.CoroutineScope
@@ -182,5 +183,24 @@ class TransportStateTest {
         now += 1
         assertTrue(beats.emitIfDue(), "an hour later, with nothing new in its log")
         assertEquals(2, appended.size)
+    }
+
+    @Test
+    fun theGraphBeatsHourlyOnlyForAnActiveChildWithACloud() {
+        val parentKeys = app.kinsight.core.model.DeviceKeys.generate()
+        val kidKeys = app.kinsight.core.model.DeviceKeys.generate()
+        val genesis = app.kinsight.core.model.GroupGenesis.create(parentKeys, "Mom")
+        val mom = EntryAuthor(genesis.groupId, parentKeys, lastSeq = 1, lastLamport = genesis.entry.lamport)
+        val ops = listOf(
+            genesis.entry,
+            mom.addMember(kidKeys.sign.publicKey, kidKeys.dh.publicKey, "Kid", app.kinsight.core.model.proto.DeviceRole.CHILD),
+        )
+        val m = app.kinsight.core.model.Membership.compute(genesis.groupId, ops)!!
+        val hourly = Heartbeats.CLOUD_CHILD_INTERVAL_MS
+        assertEquals(hourly, SyncGraph.heartbeatInterval(1, m, kidKeys.deviceId))
+        assertEquals(Heartbeats.INTERVAL_MS, SyncGraph.heartbeatInterval(0, m, kidKeys.deviceId), "child without a cloud")
+        assertEquals(Heartbeats.INTERVAL_MS, SyncGraph.heartbeatInterval(1, m, parentKeys.deviceId), "a parent")
+        assertEquals(Heartbeats.INTERVAL_MS, SyncGraph.heartbeatInterval(1, null, kidKeys.deviceId), "no membership")
+        assertEquals(Heartbeats.INTERVAL_MS, SyncGraph.heartbeatInterval(1, m, null), "no group")
     }
 }

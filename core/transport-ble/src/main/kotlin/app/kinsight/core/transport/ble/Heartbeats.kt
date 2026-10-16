@@ -22,8 +22,8 @@ suspend fun RoomEntryStore.ownLog(self: DeviceId): OwnLog =
 
 /**
  * Heartbeat entries (spec §4.3, superseded by the next one): when the radio starts and before sessions, at most once
- * per [interval] (daily, hourly for a cloud child, see [intervalFor]) unless the app or protocol version changed, again whenever the clock went backwards, and whenever
- * the own log moved past the current Heartbeat, at most once per [MOVED_INTERVAL_MS] (audit A-2: each one carries the
+ * per [interval] (daily, hourly for a cloud child, see [intervalFor]) unless the app or protocol version
+ * changed, again whenever the clock went backwards, and whenever the own log moved past the current Heartbeat, at most once per [MOVED_INTERVAL_MS] (audit A-2: each one carries the
  * author's signed live set, which lets relays' receivers close gaps; a later statement is never stale, so the delay
  * costs nothing but a slower gap close). [append] is UsagePipeline.appendOwn: the same lock and own-log entry point as usage;
  * false means no group yet. [ownLog] reads the log of the author it gets, from Room only (never the pipeline); it runs

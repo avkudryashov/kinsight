@@ -221,15 +221,16 @@ object SyncGraph {
             // Room only, never the pipeline: runs inside the Heartbeat's build, under stateLock and the pipeline lock.
             ownLog = { author -> RoomEntryStore(KinsightDatabaseFactory.shared(app), author.groupId).ownLog(author.keys.deviceId) },
             cloudGeneration = { cloudGeneration(app) },
-            interval = { Heartbeats.intervalFor(cloudGeneration(app), isChild(app)) },
+            interval = {
+                val t = target(app)
+                heartbeatInterval(cloudGeneration(app), t?.let { membership(app, it) }, t?.keys?.deviceId)
+            },
         )
     }
 
-    /** This phone is an active child of its group (group file and Room only, never the pipeline). */
-    private suspend fun isChild(context: Context): Boolean {
-        val t = target(context) ?: return false
-        return membership(context, t)?.active?.get(t.keys.deviceId)?.isChild == true
-    }
+    /** [Heartbeats.intervalFor] for this phone: hourly only as an active child of its group with a cloud storage. */
+    internal fun heartbeatInterval(cloudGeneration: Long, membership: MembershipState?, self: DeviceId?): Long =
+        Heartbeats.intervalFor(cloudGeneration, child = self != null && membership?.active?.get(self)?.isChild == true)
 
     /** Unserialised: callers go through [onBluetoothOff] and [onBluetoothOn]. */
     private fun bluetoothOff(context: Context): BluetoothOffTracker {

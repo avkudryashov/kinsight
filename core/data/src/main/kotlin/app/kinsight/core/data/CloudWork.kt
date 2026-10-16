@@ -240,13 +240,7 @@ class CloudWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
             attempt("location state") { g.checkLocationState() }
             // A cloud child's hourly Heartbeat (spec §10), signed before the run so this run uploads it. Outside runLock
             // (it takes stateLock and the pipeline lock only), so the run's single runLock hold is never re-entered.
-            try {
-                SyncGraph.emitHeartbeatIfDue(applicationContext)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "heartbeat failed", e)
-            }
+            attempt("heartbeat") { SyncGraph.emitHeartbeatIfDue(applicationContext) }
             val outcome = g.cloud.runCounted(trigger)
             val run = outcome.run
             Log.i(TAG, "cloud run $trigger: $run")
