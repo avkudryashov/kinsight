@@ -671,7 +671,7 @@ class SyncService : Service() {
 
     private fun notification(s: ServiceSnapshot): Notification {
         val line = StatusText.line(s)
-        val title = getString(
+        val status = getString(
             when (line.kind) {
                 StatusLine.Kind.STARTING -> R.string.kinsight_status_starting
                 StatusLine.Kind.STORAGE_ERROR -> R.string.kinsight_status_storage_error
@@ -691,6 +691,10 @@ class SyncService : Service() {
             getString(res, s.peers.joinToString(", "))
         }
         val paused = if (StatusText.showsPause(s)) getString(R.string.kinsight_sharing_paused) else null
+        val child = StatusText.childPhone(s)
+        // A child's title is the spec's sentence; its sync line moves into the text (spec §10).
+        val title = if (child) getString(R.string.kinsight_child_title) else status
+        val lines = listOfNotNull(status.takeIf { child }, paused, lastSync, peers)
         val open = packageManager.getLaunchIntentForPackage(packageName)
             ?.let { PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE) }
         val stop = Notification.Action.Builder(
@@ -698,17 +702,17 @@ class SyncService : Service() {
             getString(R.string.kinsight_action_stop),
             selfIntent(ACTION_STOP, REQUEST_STOP),
         ).build()
-        return Notification.Builder(this, CHANNEL_ID)
+        val builder = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setContentTitle(title)
-            .setContentText(listOfNotNull(paused, lastSync, peers).joinToString(" · "))
-            .setStyle(Notification.BigTextStyle().bigText(listOfNotNull(paused, lastSync, peers).joinToString("\n")))
+            .setContentText(lines.joinToString(" · "))
+            .setStyle(Notification.BigTextStyle().bigText(lines.joinToString("\n")))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(open)
             .setDeleteIntent(selfIntent(ACTION_REPOST, REQUEST_REPOST)) // swiped away (API 34+): it comes back
-            .addAction(stop)
-            .build()
+        if (StatusText.offersStop(s)) builder.addAction(stop)
+        return builder.build()
     }
 
     private fun selfIntent(action: String, request: Int): PendingIntent = PendingIntent.getService(

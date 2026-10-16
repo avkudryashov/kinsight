@@ -262,7 +262,7 @@ internal enum class SyncAttention {
         /**
          * The old «This phone» card's precedence: the user's Stop first, then what blocks the radio, then missing
          * usage access (U1; only where [needsUsageAccess]: a consenting child), then a radio error, which retries by
-         * itself, then the system pause of a hidden notification (S-M3: sync runs, but no usage is signed).
+         * itself, then a hidden notification (the family sees it).
          */
         fun of(s: ServiceStatus?, needsUsageAccess: Boolean = false): SyncAttention? = when {
             s == null -> null

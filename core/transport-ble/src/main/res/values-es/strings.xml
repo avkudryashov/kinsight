@@ -15,4 +15,5 @@
     <string name="kinsight_sharing_paused">El intercambio está en pausa: no se envía el tiempo de pantalla nuevo</string>
     <string name="kinsight_shared_with">Ven tu tiempo de pantalla: %1$s</string>
     <string name="kinsight_action_stop">Detener</string>
+    <string name="kinsight_child_title">Este teléfono está en un grupo familiar de Kinsight</string>
 </resources>

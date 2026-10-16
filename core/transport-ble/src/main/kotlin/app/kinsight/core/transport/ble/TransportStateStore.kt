@@ -88,7 +88,7 @@ class TransportStateStore(private val store: DataStore<Preferences>) {
         store.edit { if (ms == null) it.remove(NOTIFICATION_HIDDEN_SINCE) else it[NOTIFICATION_HIDDEN_SINCE] = ms }
     }
 
-    /** Whether the sync notification is hidden as NotificationWatch recorded it: the system pause (S-M3) and its banner. */
+    /** Whether the sync notification is hidden as NotificationWatch recorded it: its banner (a signal, no pause). */
     val notificationHiddenFlow: Flow<Boolean> = store.data.map { it[NOTIFICATION_HIDDEN_SINCE] != null }.distinctUntilChanged()
 
     /** Since when «Nearby devices» is missing; null while granted (NearbyWatch). */

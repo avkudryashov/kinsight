@@ -71,6 +71,15 @@ object StatusText {
     /** A child whose sharing is paused says so in its notification (nothing new reaches the parents meanwhile). */
     fun showsPause(s: ServiceSnapshot): Boolean = s.peersAreParents && s.sharingPaused
 
+    /**
+     * Spec §10 «Постоянное уведомление на телефоне ребёнка «Этот телефон в семейной группе Kinsight»»: a child's phone
+     * (its peers are the parents who see its data) says so in the title.
+     */
+    fun childPhone(s: ServiceSnapshot): Boolean = s.peersAreParents
+
+    /** Spec §10: no switch on a child's phone, so its notification has no Stop (a parent stops sync with the PIN). */
+    fun offersStop(s: ServiceSnapshot): Boolean = !childPhone(s)
+
     /** Whether the user can see the sync notification; null before the service has posted it once. */
     fun notificationVisible(s: ServiceSnapshot): Boolean? = when (s.notificationsEnabled) {
         null -> null

@@ -5,6 +5,8 @@ import app.kinsight.core.model.Member
 import okio.ByteString
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class StatusTextTest {
     private val syncing = SyncStatus(syncing = true, lastSyncWallMs = 7)
@@ -64,5 +66,15 @@ class StatusTextTest {
         val members = listOf(member('c', "Masha"), self, member('b', "Dad"), member('d', "Masha"))
         assertEquals(listOf("Dad", "Masha", "Masha"), StatusText.peerNames(members, self.id))
         assertEquals(emptyList(), StatusText.peerNames(listOf(self), self.id))
+    }
+
+    @Test
+    fun aChildsNotificationNamesTheFamilyGroupAndOffersNoStop() {
+        val child = ServiceSnapshot(ServiceState.RUNNING, peers = listOf("Mom"), peersAreParents = true)
+        assertTrue(StatusText.childPhone(child))
+        assertFalse(StatusText.offersStop(child), "spec §10: only a parent stops it, with the PIN in Settings")
+        val parent = ServiceSnapshot(ServiceState.RUNNING, peers = listOf("Kid"))
+        assertFalse(StatusText.childPhone(parent))
+        assertTrue(StatusText.offersStop(parent))
     }
 }

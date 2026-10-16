@@ -423,10 +423,10 @@ class DashboardScreenTest {
     }
 
     @Test
-    fun aHiddenNotificationShowsThePauseBannerWithNotificationSettings() {
+    fun aHiddenNotificationShowsTheBannerWithNotificationSettings() {
         show(childUi(Sharing.On).copy(service = running.copy(notificationHidden = true)))
         rule.onNodeWithTag("dash_banner").assertExists()
-        rule.onNodeWithText("Notification hidden: sharing is paused", substring = true).assertExists()
+        rule.onNodeWithText("Notification hidden: your family sees it", substring = true).assertExists()
         rule.onNodeWithTag("dash_notification_settings").assertExists()
     }
 
@@ -461,7 +461,7 @@ class DashboardScreenTest {
     fun theParentsCardNamesAHiddenNotification() {
         val hidden = usage(kid, 30, 30).copy(updatedMs = now - 30 * hour, notificationHidden = true)
         show(DashboardUi(DashboardState(mom, null, listOf(hidden), emptyList()), running, true))
-        rule.onNodeWithText("The notification is hidden on the child's phone: sharing is paused").assertExists()
+        rule.onNodeWithText("The Kinsight notification is hidden on the child's phone").assertExists()
         rule.onNodeWithText("collection is off", substring = true).assertDoesNotExist()
     }
 
@@ -470,7 +470,7 @@ class DashboardScreenTest {
     fun theRussianParentsCardNamesAHiddenNotification() {
         val hidden = usage(kid, 30, 30).copy(notificationHidden = true)
         show(DashboardUi(DashboardState(mom, null, listOf(hidden), emptyList()), running, true))
-        rule.onNodeWithText("На телефоне ребёнка скрыто уведомление: обмен приостановлен").assertExists()
+        rule.onNodeWithText("На телефоне ребёнка скрыто уведомление Kinsight").assertExists()
         rule.onNodeWithText("Сбор данных не включён", substring = true).assertDoesNotExist()
     }
 

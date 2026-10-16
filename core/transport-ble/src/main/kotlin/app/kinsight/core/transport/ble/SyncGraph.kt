@@ -100,9 +100,6 @@ object SyncGraph {
         val app = context.applicationContext
         UsageGraph.targetProvider = { target(app) }
         UsageGraph.ownUsageGate = { t -> t != null && allowsOwnUsage(t, app) }
-        // S-M3: a hidden notification on a consenting child pauses usage. NotificationWatch keeps the «since» only once
-        // NOTIFICATION_HIDDEN was accepted, so a parent or a child before consent is never paused. DataStore read only.
-        UsageGraph.ownUsagePaused = { state(app).notificationHiddenSinceMs() != null }
     }
 
     /**
@@ -198,9 +195,9 @@ object SyncGraph {
     }
 
     /**
-     * Before a session: the notification check first (a notification hidden since the last session pauses this run's
-     * usage, S-M3), then fresh own usage (spec §7, force), the daily Heartbeat and a refused stop interval. Never inside
-     * the pipeline lock.
+     * Before a session: the notification check first (a notification hidden since the last session is signed as
+     * NOTIFICATION_HIDDEN, a signal the parents see), then fresh own usage (spec §7, force), the daily Heartbeat and a
+     * refused stop interval. Never inside the pipeline lock.
      */
     suspend fun prepare(context: Context) {
         onNotificationVisibility(context, notificationVisibleNow(context))

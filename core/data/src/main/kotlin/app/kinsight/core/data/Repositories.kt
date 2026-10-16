@@ -528,7 +528,7 @@ data class ServiceStatus(
     val finishedSessions: Int = 0,
     /** Peers refusing us over the protocol version: true when this phone must update (SyncStatus.outdated). */
     val outdated: Map<DeviceId, Boolean> = emptyMap(),
-    /** This child's sync notification is hidden: usage is paused until it is shown again (S-M3). */
+    /** This child's sync notification is hidden (a signal its parents see, spec §10). */
     val notificationHidden: Boolean = false,
     /** Usage access (AppOpsManager GET_USAGE_STATS) is granted to this app; re-read with the permissions (U1). */
     val usageAccessGranted: Boolean = true,

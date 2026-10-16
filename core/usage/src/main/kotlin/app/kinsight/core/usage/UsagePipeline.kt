@@ -26,8 +26,9 @@ data class RunReport(val collect: CollectResult, val publish: PublishReport?)
  * sharing is on (the next session signs it first: SyncGraph.prepare), so the app can bring a parent in range the
  * news at once (IntegrityFastSync, core/data). It runs inside the pipeline lock: it must not block or call back.
  *
- * [usagePaused] is the system pause (S-M3: the child's sync notification is hidden): while it holds, publishing signs
- * the queued integrity events but no usage (Publisher). Inside the pipeline lock: DataStore or Room reads only.
+ * [usagePaused] is a pause of usage only (integrity events still go); the app installs none since cloud Y5, where a
+ * hidden notification is a signal, not a pause. While it holds, publishing signs the queued integrity events but no
+ * usage (Publisher). Inside the pipeline lock: DataStore or Room reads only.
  */
 class UsagePipeline(
     private val db: KinsightDatabase,

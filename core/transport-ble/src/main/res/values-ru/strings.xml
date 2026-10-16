@@ -15,4 +15,5 @@
     <string name="kinsight_sharing_paused">Обмен на паузе: новое экранное время не передаётся</string>
     <string name="kinsight_shared_with">Ваше экранное время видят: %1$s</string>
     <string name="kinsight_action_stop">Остановить</string>
+    <string name="kinsight_child_title">Этот телефон в семейной группе Kinsight</string>
 </resources>

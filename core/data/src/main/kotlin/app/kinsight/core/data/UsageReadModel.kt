@@ -278,22 +278,20 @@ object UsageReadModel {
      * The child consented (sharing on) but its phone does not collect (U1, audit 2026-10-11): its last
      * USAGE_ACCESS_REVOKED is not followed by a USAGE_ACCESS_RESTORED, or nothing arrived for [staleMs] since its
      * latest summary ([updatedMs]) or, when it never sent one, since its consent (the first SHARING_RESUMED). [own]:
-     * the child's own events. A pause, no consent or a departed child is false: their own status says it. An open
-     * NOTIFICATION_HIDDEN is false too: the child's phone collects but holds the time back ([notificationHidden]).
+     * the child's own events. A pause, no consent or a departed child is false: their own status says it.
      */
     fun collectionOff(sharing: Sharing, own: List<EventView>, updatedMs: Long?, nowMs: Long, staleMs: Long = COLLECTION_STALE_MS): Boolean {
         if (sharing != Sharing.On) return false
         val access = own.filter { it.kind == StateEvent.Kind.USAGE_ACCESS_REVOKED || it.kind == StateEvent.Kind.USAGE_ACCESS_RESTORED }
             .maxByOrNull { it.seq }
         if (access?.kind == StateEvent.Kind.USAGE_ACCESS_REVOKED) return true
-        if (notificationHidden(sharing, own)) return false
         val since = updatedMs ?: own.firstOrNull { it.firstSharing }?.createdMs ?: return false
         return nowMs - since > staleMs
     }
 
     /**
-     * Sharing is on and the child's latest NOTIFICATION_HIDDEN has no later NOTIFICATION_SHOWN (S-M3): its phone pauses
-     * sending until the notification is back. [own]: the child's own events.
+     * Sharing is on and the child's latest NOTIFICATION_HIDDEN has no later NOTIFICATION_SHOWN: the notification cannot
+     * be seen on its phone (shown to the parents, spec §10). [own]: the child's own events.
      */
     fun notificationHidden(sharing: Sharing, own: List<EventView>): Boolean {
         if (sharing != Sharing.On) return false

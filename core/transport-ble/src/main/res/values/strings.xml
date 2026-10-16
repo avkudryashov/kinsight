@@ -15,4 +15,5 @@
     <string name="kinsight_sharing_paused">Sharing is paused: new screen time is not sent</string>
     <string name="kinsight_shared_with">Your screen time is visible to: %1$s</string>
     <string name="kinsight_action_stop">Stop</string>
+    <string name="kinsight_child_title">This phone is in a Kinsight family group</string>
 </resources>

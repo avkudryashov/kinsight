@@ -424,7 +424,7 @@ class UsageReadModelTest {
     }
 
     @Test
-    fun aHiddenNotificationIsTheCauseNotCollectionOff() {
+    fun aHiddenNotificationNoLongerHoldsTheTimeBack() {
         val day = 24 * 3_600_000L
         val consent = event(StateEvent.Kind.SHARING_RESUMED, createdMs = noonToday - 3 * day)
         val hidden = event(StateEvent.Kind.NOTIFICATION_HIDDEN, createdMs = noonToday - 2 * day)
@@ -432,7 +432,7 @@ class UsageReadModelTest {
         val stale = null // no summary since the consent three days ago
         val open = UsageReadModel.usage(member, stale, UsageReadModel.events(listOf(consent, hidden)), today, nowMs = noonToday)
         assertTrue(open.notificationHidden, "hidden two days ago, never shown again")
-        assertFalse(open.collectionOff, "the phone collects; it holds the time back")
+        assertTrue(open.collectionOff, "cloud Y5: a hidden notification holds nothing back, so three silent days are collection off")
         val closed = UsageReadModel.usage(member, stale, UsageReadModel.events(listOf(consent, hidden, shown)), today, nowMs = noonToday)
         assertFalse(closed.notificationHidden)
         assertTrue(closed.collectionOff, "shown again a day ago and still nothing: collection is off")

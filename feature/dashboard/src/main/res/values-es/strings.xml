@@ -24,12 +24,12 @@
     <string name="dash_empty_body">Invita al teléfono de un menor para ver aquí su tiempo de pantalla.</string>
     <string name="dash_invite_child">Invitar a un menor</string>
     <string name="dash_open_app_settings">Abrir los ajustes de la aplicación</string>
-    <string name="dash_notification_hidden">Notificación oculta: el intercambio está en pausa. Activa las notificaciones de Kinsight.</string>
+    <string name="dash_notification_hidden">Notificación oculta: tu familia lo ve. Vuelve a activar las notificaciones de Kinsight.</string>
     <string name="dash_open_notification_settings">Ajustes de notificaciones</string>
     <string name="dash_usage_access_missing">Kinsight no puede contar el tiempo de pantalla: el acceso a datos de uso está desactivado en este teléfono. Hasta que lo actives, tu familia no recibe datos.</string>
     <string name="dash_open_usage_access">Abrir acceso a datos de uso</string>
     <string name="dash_card_collection_off">El recuento del tiempo de pantalla está desactivado en el teléfono del menor</string>
-    <string name="dash_card_notification_hidden">La notificación está oculta en el teléfono del menor: el intercambio está en pausa</string>
+    <string name="dash_card_notification_hidden">La notificación de Kinsight está oculta en el teléfono del menor</string>
     <string name="dash_open_bluetooth">Ajustes de Bluetooth</string>
     <string name="dash_no_data_today">Sin datos hoy</string>
     <string name="dash_week_summary">Últimos 7 días: %1$s en total; el día de más uso, %2$s</string>

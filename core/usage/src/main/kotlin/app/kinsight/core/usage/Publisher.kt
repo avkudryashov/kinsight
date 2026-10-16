@@ -26,7 +26,7 @@ data class PublishReport(
     val days: List<String>,
     val catalog: List<String>,
     val oversized: List<String> = emptyList(),
-    /** Usage was not signed because the system paused it (the sync notification is hidden, S-M3); events still were. */
+    /** Usage was not signed: the pipeline's usagePaused held (none installed since cloud Y5); events still were. */
     val paused: Boolean = false,
 ) {
     companion object {
