@@ -1,5 +1,6 @@
 package app.kinsight.feature.dashboard
 
+import app.kinsight.core.data.PlaceStatus
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -544,5 +545,19 @@ class DashboardScreenTest {
         rule.mainClock.advanceTimeBy(SyncService.FAST_MS + 1_000)
         rule.waitForIdle()
         rule.onNodeWithTag("dash_searching").assertDoesNotExist()
+    }
+
+    @Test
+    fun aChildCardSaysWhereTheChildIs() {
+        val inZone = usage(kid, 30, 30).copy(place = PlaceStatus.InZone("aa".repeat(16), "Home", now - 5 * 60_000))
+        show(DashboardUi(DashboardState(mom, null, listOf(inZone), listOf(dad)), running, true))
+        rule.onNodeWithTag("dash_place", useUnmergedTree = true).assertTextContains("In the zone “Home”", substring = true)
+    }
+
+    @Test
+    fun aChildOutsideIsSaidSo() {
+        val out = usage(kid, 30, 30).copy(place = PlaceStatus.Outside(null, now - 60_000))
+        show(DashboardUi(DashboardState(mom, null, listOf(out), listOf(dad)), running, true))
+        rule.onNodeWithTag("dash_place", useUnmergedTree = true).assertTextContains("Outside the safe zones", substring = true)
     }
 }

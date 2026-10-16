@@ -22,7 +22,7 @@ object AlertText {
             // «When: …», then one line of what to do (U4).
             is Alert.Integrity -> Content(
                 channel,
-                context.getString(titleOf(alert.kind), alert.device),
+                title(context, alert),
                 context.getString(R.string.alert_at, at(alert.atMs)) + "\n" + context.getString(adviceOf(alert.kind)),
             )
             is Alert.NoContact -> Content(channel, context.getString(R.string.alert_no_contact, alert.device), context.getString(R.string.alert_no_contact_body, at(alert.sinceMs)))
@@ -35,6 +35,15 @@ object AlertText {
             )
             is Alert.Threshold -> Content(channel, threshold(context, alert), context.getString(R.string.alert_threshold_body))
         }
+    }
+
+    /** A zone event names its zone (spec §8.1), the rest the kind's own title. */
+    private fun title(context: Context, a: Alert.Integrity): String = when (a.kind) {
+        StateEvent.Kind.ZONE_EXIT -> a.zoneName?.let { context.getString(R.string.alert_zone_exit, a.device, it) }
+            ?: context.getString(R.string.alert_zone_exit_unnamed, a.device)
+        StateEvent.Kind.ZONE_ENTER -> a.zoneName?.let { context.getString(R.string.alert_zone_enter, a.device, it) }
+            ?: context.getString(R.string.alert_zone_enter_unnamed, a.device)
+        else -> context.getString(titleOf(a.kind), a.device)
     }
 
     private fun titleOf(kind: StateEvent.Kind): Int = when (kind) {
@@ -63,6 +72,8 @@ object AlertText {
         StateEvent.Kind.BLUETOOTH_OFF -> R.string.alert_advice_bluetooth_off
         StateEvent.Kind.DATA_GAP -> R.string.alert_advice_data_gap
         StateEvent.Kind.CLOCK_CHANGED -> R.string.alert_advice_clock_changed
+        StateEvent.Kind.ZONE_EXIT -> R.string.alert_advice_zone_exit
+        StateEvent.Kind.ZONE_ENTER -> R.string.alert_advice_zone_enter
         else -> R.string.alert_advice_event
     }
 

@@ -59,4 +59,7 @@
     <string name="dash_new_parent_body">Его видят все родители вашей семейной группы. Полный список: Настройки → Кто видит мои данные.</string>
     <string name="dash_new_parent_ok">Понятно</string>
     <string name="dash_searching">Ищем телефоны семьи…</string>
+    <string name="dash_place_in_zone">В зоне «%1$s», %2$s</string>
+    <string name="dash_place_in_unknown">В безопасной зоне, %1$s</string>
+    <string name="dash_place_outside">Вне безопасных зон, %1$s</string>
 </resources>

@@ -1,6 +1,7 @@
 package app.kinsight.core.data
 
 import app.kinsight.core.model.DeviceId
+import app.kinsight.core.model.WireConstants
 import app.kinsight.core.model.proto.StateEvent
 import java.time.DayOfWeek
 import java.time.Instant
@@ -12,6 +13,7 @@ sealed interface Alert {
     /**
      * [id]: the child's device, so tapping the alert can open its detail screen; null when unknown. [durationMs]: an
      * interval event's length (to_ms after from_ms), null when it has none; a short Bluetooth break is quiet (U4).
+     * [zoneName]: ZONE_ENTER / ZONE_EXIT, the zone's name, null when unknown (shown, never logged: not in toString).
      */
     data class Integrity(
         val device: String,
@@ -19,7 +21,10 @@ sealed interface Alert {
         val atMs: Long,
         val id: DeviceId? = null,
         val durationMs: Long? = null,
-    ) : Alert
+        val zoneName: String? = null,
+    ) : Alert {
+        override fun toString() = "Integrity($device, $kind, $atMs, $id, $durationMs)"
+    }
 
     /**
      * The child undid an open problem ([kind] is the open kind: SHARING_PAUSED or NOTIFICATION_HIDDEN, see
@@ -93,6 +98,7 @@ data class AlertPlan(val alerts: List<Alert>, val markers: AlertMarkers)
  * (each once, by seq; the first run marks history as seen) and their resolution (a resume after a pause, a shown
  * after a hidden notification: once per closing event, by the same seq marker), no contact for longer than N hours
  * (once per loss) and a daily (after [SUMMARY_HOUR]) or weekly (Sunday) summary. A child hears about every new parent.
+ * A child's zone exit is important, an entry minor, each naming its zone.
  *
  * The summary is posted at most once per day and is a snapshot of that moment: usage synced later the same evening does
  * not re-post or update it (the dashboard shows the live figure). A child is left out of the summary on the day it
@@ -122,8 +128,14 @@ object AlertPlanner {
     )
     private val OPENERS = CLOSERS.entries.associate { it.value to it.key }
 
-    /** Events that need nothing from a parent: «Прочие события», no sound (U4). */
-    val MINOR_KINDS = setOf(StateEvent.Kind.CLOCK_CHANGED, StateEvent.Kind.DATA_GAP)
+    /** Safe zone news (spec §8.1): announced like integrity events, but never a fast Bluetooth start (IntegrityFastSync). */
+    val ZONE_KINDS = WireConstants.ZONE_KINDS
+
+    /**
+     * Events that need nothing from a parent: «Прочие события», no sound (U4); an arrival in a zone needs nothing from
+     * a parent.
+     */
+    val MINOR_KINDS = setOf(StateEvent.Kind.CLOCK_CHANGED, StateEvent.Kind.DATA_GAP, StateEvent.Kind.ZONE_ENTER)
 
     /** A Bluetooth break shorter than this is minor; one of unknown length is important. */
     const val SHORT_BLUETOOTH_MS = 30 * 60_000L
@@ -189,7 +201,7 @@ object AlertPlanner {
             self = members.first { it.isSelf },
             members = members,
             departed = departed,
-            events = UsageReadModel.events(ready.events),
+            events = UsageReadModel.events(ready.events, SafeZones.names(ready.safeZones, ready.membership)),
             children = SnapshotViews.dashboard(ready, today, nowMs).children,
             nowMs = nowMs,
             zone = zone,
@@ -214,7 +226,9 @@ object AlertPlanner {
             val sorted = own.sortedBy { it.seq }
             for ((index, e) in sorted.withIndex()) {
                 if (e.seq <= mark) continue
-                if (e.kind in INTEGRITY_KINDS) alerts += Alert.Integrity(child.name, e.kind, e.atMs, child.id, durationOf(e))
+                if (e.kind in INTEGRITY_KINDS || e.kind in ZONE_KINDS) {
+                    alerts += Alert.Integrity(child.name, e.kind, e.atMs, child.id, durationOf(e), e.zoneName)
+                }
                 val open = OPENERS[e.kind] ?: continue
                 // Resolved only when the pair's latest earlier event is the open one: a repeated resume says nothing.
                 val before = sorted.subList(0, index).lastOrNull { it.kind == open || it.kind == e.kind }

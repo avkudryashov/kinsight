@@ -56,4 +56,10 @@
     <string name="alert_advice_data_gap">No se registró tiempo de pantalla durante este periodo. Si ocurre a menudo, revisa los ajustes de batería del teléfono del menor.</string>
     <string name="alert_advice_clock_changed">No hay que hacer nada: Kinsight mantiene las horas correctas tras un cambio de hora.</string>
     <string name="alert_advice_event">Abre Kinsight para ver qué ha cambiado.</string>
+    <string name="alert_zone_exit">%1$s salió de «%2$s»</string>
+    <string name="alert_zone_exit_unnamed">%1$s salió de una zona segura</string>
+    <string name="alert_zone_enter">%1$s llegó a «%2$s»</string>
+    <string name="alert_zone_enter_unnamed">%1$s llegó a una zona segura</string>
+    <string name="alert_advice_zone_exit">Abre Kinsight para ver dónde está el teléfono ahora.</string>
+    <string name="alert_advice_zone_enter">No tienes que hacer nada.</string>
 </resources>

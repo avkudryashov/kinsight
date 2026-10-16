@@ -61,4 +61,10 @@
     <string name="alert_advice_data_gap">No screen time was recorded for this time. If it happens often, check the battery settings on the child\'s phone.</string>
     <string name="alert_advice_clock_changed">Nothing to do: Kinsight keeps the hours right after a clock change.</string>
     <string name="alert_advice_event">Open Kinsight to see what changed.</string>
+    <string name="alert_zone_exit">%1$s left “%2$s”</string>
+    <string name="alert_zone_exit_unnamed">%1$s left a safe zone</string>
+    <string name="alert_zone_enter">%1$s arrived at “%2$s”</string>
+    <string name="alert_zone_enter_unnamed">%1$s arrived at a safe zone</string>
+    <string name="alert_advice_zone_exit">Open Kinsight to see where the phone is now.</string>
+    <string name="alert_advice_zone_enter">Nothing to do.</string>
 </resources>

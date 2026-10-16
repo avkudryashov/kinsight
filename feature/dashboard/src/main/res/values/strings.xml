@@ -59,4 +59,7 @@
     <string name="dash_new_parent_body">Every parent of your family group sees it. Settings → Who sees my data lists everyone.</string>
     <string name="dash_new_parent_ok">Got it</string>
     <string name="dash_searching">Looking for your family\'s phones…</string>
+    <string name="dash_place_in_zone">In the zone “%1$s”, %2$s</string>
+    <string name="dash_place_in_unknown">In a safe zone, %1$s</string>
+    <string name="dash_place_outside">Outside the safe zones, %1$s</string>
 </resources>

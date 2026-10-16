@@ -430,7 +430,7 @@ class AlertPlannerTest {
         assertEquals(AlertLevel.TRANSPARENCY, AlertPlanner.level(Alert.NewParent("Dad", dad.id)))
         assertEquals(AlertLevel.SUMMARY, AlertPlanner.level(Alert.Summary(false, emptyList())))
         assertEquals(AlertLevel.THRESHOLD, AlertPlanner.level(Alert.Threshold(kid.id, "Kid", ThresholdTarget.Total, null, 2, 1)))
-        assertEquals(setOf(StateEvent.Kind.CLOCK_CHANGED, StateEvent.Kind.DATA_GAP), AlertPlanner.MINOR_KINDS)
+        assertEquals(setOf(StateEvent.Kind.CLOCK_CHANGED, StateEvent.Kind.DATA_GAP, StateEvent.Kind.ZONE_ENTER), AlertPlanner.MINOR_KINDS)
     }
 
     @Test
@@ -454,5 +454,23 @@ class AlertPlannerTest {
             listOf(StateEvent.Kind.NOTIFICATION_HIDDEN),
             AlertPlanner.openProblems(input(events = listOf(e(1, StateEvent.Kind.NOTIFICATION_HIDDEN), e(2, StateEvent.Kind.BLUETOOTH_OFF)), markers = told(2))).map { it.kind },
         )
+    }
+
+    @Test
+    fun aChildsZoneEventsAreAnnouncedWithTheZoneLeavingLoudly() {
+        val exit = EventView(kid.id, 5, StateEvent.Kind.ZONE_EXIT, at(10, 11), 0, at(10, 11), 0, zoneId = "aa".repeat(16), zoneName = "Home")
+        val enter = EventView(kid.id, 6, StateEvent.Kind.ZONE_ENTER, at(10, 12), 0, at(10, 12), 0, zoneId = "aa".repeat(16), zoneName = null)
+        val plan = AlertPlanner.plan(input(events = listOf(exit, enter)))
+        assertEquals(
+            listOf(
+                Alert.Integrity("Kid", StateEvent.Kind.ZONE_EXIT, at(10, 11), kid.id, null, "Home"),
+                Alert.Integrity("Kid", StateEvent.Kind.ZONE_ENTER, at(10, 12), kid.id, null, null),
+            ),
+            plan.alerts.filterIsInstance<Alert.Integrity>(),
+        )
+        assertEquals(AlertLevel.IMPORTANT, AlertPlanner.level(plan.alerts[0]))
+        assertEquals(AlertLevel.MINOR, AlertPlanner.level(plan.alerts[1]))
+        assertTrue(AlertPlanner.plan(input(events = listOf(exit, enter), markers = plan.markers)).alerts.none { it is Alert.Integrity })
+        assertTrue(StateEvent.Kind.ZONE_EXIT !in AlertPlanner.INTEGRITY_KINDS, "zone news is not an integrity signal (IntegrityFastSync)")
     }
 }

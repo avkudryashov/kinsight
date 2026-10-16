@@ -59,4 +59,7 @@
     <string name="dash_new_parent_body">Lo ven todos los adultos de tu grupo familiar. En Ajustes → Quién ve mis datos aparecen todos.</string>
     <string name="dash_new_parent_ok">Entendido</string>
     <string name="dash_searching">Buscando los teléfonos de tu familia…</string>
+    <string name="dash_place_in_zone">En la zona «%1$s», %2$s</string>
+    <string name="dash_place_in_unknown">En una zona segura, %1$s</string>
+    <string name="dash_place_outside">Fuera de las zonas seguras, %1$s</string>
 </resources>

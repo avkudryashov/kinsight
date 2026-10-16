@@ -66,6 +66,7 @@ import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.DashboardState
 import app.kinsight.core.data.DeviceUsage
 import app.kinsight.core.data.MemberView
+import app.kinsight.core.data.PlaceStatus
 import app.kinsight.core.data.Role as MemberRole
 import app.kinsight.core.data.ServiceStatus
 import app.kinsight.core.data.Sharing
@@ -476,6 +477,7 @@ private fun DeviceCard(u: DeviceUsage, nowMs: Long, noContactMs: Long, onClick: 
                 Text(stringResource(R.string.dash_no_data_today), style = MaterialTheme.typography.titleLarge)
             }
             u.updatedMs?.let { DataAt(it, nowMs, u.childZoneId) }
+            u.place?.let { Place(it, nowMs) }
             if (u.today.hasData) comparison(u)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             BarChart(values = bars, labels = emptyList(), summary = summary, height = 40.dp)
             status(u, nowMs, noContactMs)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
@@ -496,6 +498,17 @@ private fun DataAt(updatedMs: Long, nowMs: Long, childZoneId: String?) {
         color = if (stale) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.testTag("dash_data_at"),
     )
+}
+
+/** Spec §8: where a child is, on a parent's card; the time is the child's last word. */
+@Composable
+private fun Place(p: PlaceStatus, nowMs: Long) {
+    val ago = relativeTime(p.atMs, nowMs)
+    val text = when (p) {
+        is PlaceStatus.InZone -> p.zoneName?.let { stringResource(R.string.dash_place_in_zone, it, ago) } ?: stringResource(R.string.dash_place_in_unknown, ago)
+        is PlaceStatus.Outside -> stringResource(R.string.dash_place_outside, ago)
+    }
+    Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("dash_place"))
 }
 
 /** U2: «usual by this time» with hourly detail, whole days only late in the day, else nothing. */

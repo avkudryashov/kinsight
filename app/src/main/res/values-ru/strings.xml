@@ -56,4 +56,10 @@
     <string name="alert_advice_data_gap">За это время экранное время не записано. Если это повторяется, проверьте настройки батареи на телефоне ребёнка.</string>
     <string name="alert_advice_clock_changed">Ничего делать не нужно: Kinsight учитывает перевод часов.</string>
     <string name="alert_advice_event">Откройте Kinsight, чтобы посмотреть, что изменилось.</string>
+    <string name="alert_zone_exit">%1$s: выход из зоны «%2$s»</string>
+    <string name="alert_zone_exit_unnamed">%1$s: выход из безопасной зоны</string>
+    <string name="alert_zone_enter">%1$s: вход в зону «%2$s»</string>
+    <string name="alert_zone_enter_unnamed">%1$s: вход в безопасную зону</string>
+    <string name="alert_advice_zone_exit">Откройте Kinsight, чтобы увидеть, где телефон сейчас.</string>
+    <string name="alert_advice_zone_enter">Ничего делать не нужно.</string>
 </resources>

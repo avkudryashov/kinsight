@@ -166,4 +166,21 @@ class AlertTextTest {
         assertEquals(NotificationManager.IMPORTANCE_DEFAULT, channel.importance)
         assertTrue(channel.description.orEmpty().isNotBlank())
     }
+
+    @Test
+    fun zoneAlertsNameTheZone() {
+        val exit = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.ZONE_EXIT, 1_000, zoneName = "Home"))
+        assertEquals("Kid left “Home”", exit.title)
+        assertEquals(AlertChannels.IMPORTANT, exit.channel)
+        assertTrue(exit.body, exit.body.lines().last().startsWith("Open Kinsight"))
+        val enter = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.ZONE_ENTER, 1_000))
+        assertEquals("Kid arrived at a safe zone", enter.title)
+        assertEquals(AlertChannels.EVENTS, enter.channel)
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun zoneAlertsInRussianStayNeutral() {
+        assertEquals("Kid: выход из зоны «Дом»", AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.ZONE_EXIT, 1_000, zoneName = "Дом")).title)
+    }
 }
