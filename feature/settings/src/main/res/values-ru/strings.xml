@@ -152,4 +152,6 @@
     <string name="set_location_always">Родители видят, где этот телефон, и получают уведомление, когда он покидает безопасную зону.</string>
     <string name="set_location_allow">Разрешить</string>
     <string name="set_location_allow_always">Разрешать всегда</string>
+    <string name="set_zones">Безопасные зоны</string>
+    <string name="set_zones_body">Места, которые задали родители</string>
 </resources>

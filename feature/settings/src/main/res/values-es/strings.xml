@@ -148,4 +148,6 @@
     <string name="set_location_always">Tus padres ven dónde está este teléfono y reciben un aviso cuando sale de una zona segura.</string>
     <string name="set_location_allow">Permitir</string>
     <string name="set_location_allow_always">Permitir siempre</string>
+    <string name="set_zones">Zonas seguras</string>
+    <string name="set_zones_body">Los lugares que marcaron tus padres</string>
 </resources>

@@ -263,6 +263,7 @@ private fun MainScaffold(appVersion: String, openDevice: StateFlow<String?>, onD
                         onBattery = { nav.navigate(BatteryDest) },
                         onDiagnostics = { context.startActivity(Intent(context, DiagnosticsActivity::class.java)) },
                         onNewPhone = { nav.navigate(InviteDest(Role.PARENT.name, transfer = true)) }, // spec §7.3
+                        onZones = { nav.navigate(ZonesDest) }, // spec §8.1: the child sees the zones
                     )
                 }
                 composable<DeviceDest> { e ->

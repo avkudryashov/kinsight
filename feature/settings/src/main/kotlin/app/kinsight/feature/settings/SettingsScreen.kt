@@ -96,6 +96,7 @@ fun SettingsRoute(
     onBattery: () -> Unit,
     onDiagnostics: () -> Unit,
     onNewPhone: () -> Unit = {},
+    onZones: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val vm: SettingsViewModel = viewModel {
@@ -113,7 +114,8 @@ fun SettingsRoute(
     val background = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { locationChanged() }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         vm.refreshStatus()
-        locationState = LocationPermissions.state(context) // back from Android's settings page
+        // Back from Android's settings page: a grant or revoke made there starts or stops tracking now (Y4 review Minor 8).
+        if (LocationPermissions.state(context) != locationState) locationChanged()
     }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
@@ -140,6 +142,7 @@ fun SettingsRoute(
                 LocationPermissions.State.ALWAYS -> Unit
             }
         },
+        onZones = onZones,
     )
 }
 
@@ -180,6 +183,8 @@ fun SettingsScreen(
     /** Spec §8, §12: the child's location access, shown on a child's phone while the cloud is on; null hides the row. */
     location: LocationPermissions.State? = null,
     onLocationAccess: (LocationPermissions.State) -> Unit = {},
+    /** Spec §8.1 «Ребёнок видит список зон»: the read-only list of the family's safe zones, next to the location row. */
+    onZones: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val ready = ui.group as? GroupState.Ready
@@ -351,6 +356,13 @@ fun SettingsScreen(
                             Text(stringResource(if (location == LocationPermissions.State.NONE) R.string.set_location_allow else R.string.set_location_allow_always))
                         }
                     }
+                    ListItem(
+                        headlineContent = { Text(stringResource(R.string.set_zones)) },
+                        supportingContent = { Text(stringResource(R.string.set_zones_body)) },
+                        trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
+                        modifier = Modifier.clickable(onClickLabel = stringResource(R.string.set_open), role = SemanticsRole.Button, onClick = onZones)
+                            .testTag("set_zones"),
+                    )
                 }
             }
         }

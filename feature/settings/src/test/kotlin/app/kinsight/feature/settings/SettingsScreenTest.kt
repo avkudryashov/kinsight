@@ -10,6 +10,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasTestTag
@@ -891,5 +892,31 @@ class SettingsScreenTest {
     fun withoutTheCloudThereIsNoLocationRow() {
         showChildLocation(null, mutableListOf())
         rule.onNodeWithTag("set_location").assertDoesNotExist()
+    }
+
+    /** Spec §8.1 «Ребёнок видит список зон» (Y4 final review Important 3): the child opens the zones from its settings. */
+    @Test
+    fun aChildOpensTheSafeZonesFromTheLocationRow() {
+        var opened = 0
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                SettingsScreen(
+                    SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1L), Prefs(), running),
+                    "0.4.0", onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
+                    onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {}, onResetIdentity = {}, nowMs = NOW,
+                    location = LocationPermissions.State.ALWAYS, onZones = { opened++ },
+                )
+            }
+        }
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_zones"))
+        rule.onNodeWithTag("set_zones").assertTextContains("Safe zones")
+        rule.onNodeWithTag("set_zones").performClick()
+        assertEquals(1, opened)
+    }
+
+    @Test
+    fun withoutTheCloudThereIsNoZonesRow() {
+        showChildLocation(null, mutableListOf())
+        rule.onNodeWithTag("set_zones").assertDoesNotExist()
     }
 }

@@ -148,4 +148,6 @@
     <string name="set_location_always">Your parents see where this phone is and are told when it leaves a safe zone.</string>
     <string name="set_location_allow">Allow</string>
     <string name="set_location_allow_always">Allow all the time</string>
+    <string name="set_zones">Safe zones</string>
+    <string name="set_zones_body">The places your parents set</string>
 </resources>
