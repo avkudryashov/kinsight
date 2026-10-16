@@ -11,6 +11,8 @@ import androidx.work.ListenableWorker
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
+import androidx.work.WorkInfo
+import kotlinx.coroutines.flow.first
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -24,6 +26,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.TimeUnit
 
 /** Process-wide cloud wiring next to AppGraph: the build's Yandex client, the one run lock, the debug Disk switch. */
@@ -118,10 +121,39 @@ object CloudWork {
      * Spec §8.1: a zone event or an outside point goes to the Disk at once (after a run in flight). Only enqueues work
      * (rulings L8): the location engine calls it and must never wait for, or run, the cloud itself.
      */
-    fun uploadSoon(context: Context): Job = whenOn(context) { runNow(context, UPLOAD_POLICY) }
+    fun uploadSoon(context: Context): Job = whenOn(context) { upload(context) }
 
-    /** What was just signed is uploaded by a run of its own after any run in flight, never dropped as a duplicate. */
+    /** What was just signed is uploaded by a run of its own after a run in flight, never dropped as a duplicate. */
     val UPLOAD_POLICY = ExistingWorkPolicy.APPEND_OR_REPLACE
+
+    /** One upload decision at a time: two ticks never both see no pending run and both queue one. */
+    private val uploadLock = Mutex()
+
+    /**
+     * What [uploadSoon] does once it knows the cloud is on (Y4 final review Important 2): at most one pending run. A run
+     * not started yet (ENQUEUED, waiting on its network or a backoff, or BLOCKED behind one in flight) reads everything
+     * signed by the time it starts, so it is kept; only a RUNNING one gets one run of its own appended behind it.
+     */
+    suspend fun upload(context: Context) {
+        uploadLock.withLock {
+            val states = WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(NOW).first().map { it.state }
+            uploadPolicy(states)?.let { runNow(context, it) }
+        }
+    }
+
+    /** The policy of a new upload run given the states of the unique [NOW] work, or null to keep the pending one. */
+    fun uploadPolicy(states: List<WorkInfo.State>): ExistingWorkPolicy? =
+        if (states.any { it == WorkInfo.State.ENQUEUED || it == WorkInfo.State.BLOCKED }) null else UPLOAD_POLICY
+
+    /**
+     * Set by the app (next to SyncGraph.onSessionFinished): an alerts pass soon. Asked after a cloud run that brought
+     * entries of others, so a zone exit read from the Disk is told at the cloud cadence, not the hourly pass (spec §9).
+     */
+    @Volatile
+    var onReceived: ((Context) -> Unit)? = null
+
+    /** Y4 final review Important 1: only a synced run that brought entries of others asks for an alerts pass. */
+    fun alertsNeeded(outcome: CloudRunOutcome): Boolean = outcome.run == CloudRun.SYNCED && outcome.received > 0
 
     /** Spec §9: a follow-up is queued only after a run that read the Disk, while a child is outside ([needed] is asked then). */
     suspend fun followNext(run: CloudRun, needed: suspend () -> Boolean): Boolean = run == CloudRun.SYNCED && needed()
@@ -168,7 +200,7 @@ object CloudWork {
     }
 
     /** The returned job lets a test wait for the check; callers do not need it. */
-    private fun whenOn(context: Context, block: () -> Unit): Job {
+    private fun whenOn(context: Context, block: suspend () -> Unit): Job {
         val g = AppGraph.get(context.applicationContext)
         return enqueueIfOn(g.scope, g.cloud::isOn, block)
     }
@@ -177,7 +209,7 @@ object CloudWork {
      * [whenOn] without the Context: launched on [scope], so the caller never waits; [isOn] (CloudRunner.isOn) reads the
      * group and membership only and takes no runLock, so a cloud run in flight never holds the enqueue back (rulings L8).
      */
-    internal fun enqueueIfOn(scope: CoroutineScope, isOn: suspend () -> Boolean, block: () -> Unit): Job =
+    internal fun enqueueIfOn(scope: CoroutineScope, isOn: suspend () -> Boolean, block: suspend () -> Unit): Job =
         scope.launch {
             try {
                 if (isOn()) block()
@@ -196,8 +228,11 @@ class CloudWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         val follow = inputData.getBoolean(CloudWork.KEY_FOLLOW, false)
         return CloudWork.outcome {
             val g = AppGraph.get(applicationContext)
-            val run = g.cloud.run(trigger)
+            val outcome = g.cloud.runCounted(trigger)
+            val run = outcome.run
             Log.i(TAG, "cloud run $trigger: $run")
+            // Entries of others came in (a zone exit above all): an alerts pass now, like after a Bluetooth session.
+            if (CloudWork.alertsNeeded(outcome)) CloudWork.onReceived?.invoke(applicationContext)
             if (run == CloudRun.OFF) CloudWork.cancel(applicationContext)
             // After the run (never inside its runLock): a child takes the zones this run brought (spec §8.1)...
             LocationGraph.refresh(applicationContext)

@@ -56,6 +56,25 @@ class CloudRunnerTest {
         assertNull(mom.cloudState.current().problem)
     }
 
+    /** Y4 final review Important 1: the run tells how many entries of others it brought, so alerts follow (spec §9). */
+    @Test
+    fun aRunTellsWhetherItBroughtEntriesOfOthers() = runBlocking<Unit> {
+        family()
+        mom.ownStorage()
+        kid.learnsStorageFrom(mom)
+        assertEquals(CloudRun.SYNCED, mom.runner(disk).runCounted(CloudTrigger.NOW).run)
+        kid.ownSummary("2026-10-13", 60_000)
+        assertEquals(CloudRun.SYNCED, kid.runner(disk).run(CloudTrigger.NOW))
+        val runner = mom.runner(disk)
+        val first = runner.runCounted(CloudTrigger.NOW)
+        assertEquals(CloudRun.SYNCED, first.run)
+        assertTrue(first.received > 0)
+        assertTrue(CloudWork.alertsNeeded(first))
+        val again = runner.runCounted(CloudTrigger.NOW)
+        assertEquals(CloudRunOutcome(CloudRun.SYNCED, 0), again)
+        assertFalse(CloudWork.alertsNeeded(again))
+    }
+
     private suspend fun TestDevice.beat(): app.kinsight.core.model.DecodedEntry {
         var e: app.kinsight.core.model.DecodedEntry? = null
         check(pipeline.appendOwn { a -> listOf(a.create { it.copy(heartbeat = Heartbeat(app_version = "t", protocol_version = 3)) }.also { e = it }) })

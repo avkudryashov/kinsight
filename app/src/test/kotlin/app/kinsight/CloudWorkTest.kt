@@ -10,6 +10,7 @@ import androidx.work.WorkManager
 import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.CloudGraph
 import app.kinsight.core.data.CloudWork
+import app.kinsight.notifications.AlertsWork
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -86,6 +87,29 @@ class CloudWorkTest {
         assertEquals(ExistingWorkPolicy.APPEND_OR_REPLACE, CloudWork.TOKEN_POLICY)
         assertEquals(1, wm.getWorkInfosForUniqueWork(CloudWork.PERIODIC).get().count { it.state != WorkInfo.State.CANCELLED })
         CloudWork.cancel(app)
+    }
+
+    /**
+     * Y4 final review Important 2: a child outside its zones asks for an upload every 5 minutes. Offline the run waits on
+     * its network constraint; the ticks never pile more runs behind it (288 is a day of ticks), the waiting one reads all.
+     */
+    @Test
+    fun offlineTicksLeaveAtMostOneQueuedUpload() = runBlocking<Unit> {
+        val wm = WorkManager.getInstance(app)
+        repeat(288) { CloudWork.upload(app) }
+        val pending = wm.getWorkInfosForUniqueWork(CloudWork.NOW).get().filter { !it.state.isFinished }
+        assertEquals(1, pending.size)
+        assertEquals(WorkInfo.State.ENQUEUED, pending.single().state)
+        CloudWork.cancel(app)
+    }
+
+    /** Y4 final review Important 1: the app hooks a cloud run that brought entries of others to an alerts pass soon. */
+    @Test
+    fun aRunThatBroughtEntriesAsksForAnAlertsPass() {
+        val wm = WorkManager.getInstance(app)
+        wm.cancelUniqueWork(AlertsWork.SOON).result.get()
+        CloudWork.onReceived!!.invoke(app)
+        assertTrue(wm.getWorkInfosForUniqueWork(AlertsWork.SOON).get().any { it.state != WorkInfo.State.CANCELLED })
     }
 
     /** R14/R15: the wipe and every cloud run of the process take one lock, or a run could write the old group's keys back. */

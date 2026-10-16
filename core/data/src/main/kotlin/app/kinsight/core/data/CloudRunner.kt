@@ -37,6 +37,9 @@ enum class CloudTrigger { PERIODIC, NOW }
 
 enum class CloudRun { OFF, SKIPPED, SYNCED, NO_ACCESS, UNAUTHORIZED, STORAGE_FULL, RETRY }
 
+/** A run and how many entries of others it brought (Y4 final review: a zone exit raises its alert at once, spec §9). */
+data class CloudRunOutcome(val run: CloudRun, val received: Int)
+
 /**
  * One cloud run of this device (spec §9, §11): nothing without a storage owner; a child's periodic run only when its own
  * log moved or an hour passed; an admin first rotates the group key for a member without the newest one (Y1 review);
@@ -118,7 +121,17 @@ class CloudRunner(
      * (LocalReset holds the same lock across it) finds no group and does nothing, so it cannot write the old group's
      * keys back. Lock order: runLock, then the pipeline lock (the rotation's appendOwn), as in LocalReset.
      */
-    suspend fun run(trigger: CloudTrigger): CloudRun = runLock.withLock { runLocked(trigger) }
+    suspend fun run(trigger: CloudTrigger): CloudRun = runCounted(trigger).run
+
+    /** [run], with the number of entries of others the sync brought (read under the same [runLock] hold). */
+    suspend fun runCounted(trigger: CloudTrigger): CloudRunOutcome = runLock.withLock {
+        received = 0
+        val run = runLocked(trigger)
+        CloudRunOutcome(run, received)
+    }
+
+    /** Entries of others the current run's sync brought; written and read only under [runLock]. */
+    private var received = 0
 
     private suspend fun runLocked(trigger: CloudTrigger): CloudRun {
         val group = withContext(io) { groups.read() } ?: return CloudRun.OFF
@@ -189,6 +202,7 @@ class CloudRunner(
                 ownedStorageId = ownedStorage,
             ).also { cached = key to it }
         val result = sync.run()
+        if (result is CloudResult.Synced) received = result.received
         observeOwner(store, membership, now)
         val after = Membership.compute(group.groupId, store.membershipEntries())
         if (!isOwner && after != null) {

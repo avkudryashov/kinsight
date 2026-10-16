@@ -46,6 +46,8 @@ open class KinsightApplication : Application() {
         CloudWork.keepScheduled(this)
         AlertsWork.schedule(this)
         KinsightWidget.links = WidgetLinks(open = MainActivity::open, openDevice = MainActivity::openDevice)
+        // Y4 final review: a cloud run that brought entries of others (a zone exit) gets its alerts pass at once (spec §9).
+        CloudWork.onReceived = { AlertsWork.runSoon(it) }
         SyncGraph.onSessionFinished = {
             AlertsWork.runSoon(it)
             CloudWork.keepScheduled(it)

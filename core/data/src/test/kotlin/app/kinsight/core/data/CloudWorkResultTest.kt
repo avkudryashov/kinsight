@@ -41,4 +41,27 @@ class CloudWorkResultTest {
         assertEquals(true, CloudWork.followNext(CloudRun.SYNCED) { true })
         assertEquals(false, CloudWork.followNext(CloudRun.SYNCED) { false })
     }
+
+    /**
+     * Y4 final review Important 2: an upload keeps a run that has not started (it reads everything signed by then) and
+     * queues one run of its own only behind a run in flight, so offline ticks never pile up runs.
+     */
+    @Test
+    fun anUploadQueuesAtMostOneRunBehindTheOneInFlight() {
+        val s = androidx.work.WorkInfo.State.entries.associateBy { it.name }
+        assertEquals(CloudWork.UPLOAD_POLICY, CloudWork.uploadPolicy(emptyList()))
+        assertEquals(CloudWork.UPLOAD_POLICY, CloudWork.uploadPolicy(listOf(s.getValue("SUCCEEDED"), s.getValue("CANCELLED"))))
+        assertEquals(CloudWork.UPLOAD_POLICY, CloudWork.uploadPolicy(listOf(s.getValue("RUNNING"))))
+        assertEquals(null, CloudWork.uploadPolicy(listOf(s.getValue("ENQUEUED"))))
+        assertEquals(null, CloudWork.uploadPolicy(listOf(s.getValue("RUNNING"), s.getValue("BLOCKED"))))
+        assertEquals(null, CloudWork.uploadPolicy(listOf(s.getValue("FAILED"), s.getValue("ENQUEUED"))))
+    }
+
+    /** Y4 final review Important 1: a run that brought entries of others asks for an alerts pass (a zone exit, spec §9). */
+    @Test
+    fun onlyARunThatReceivedEntriesAsksForAlerts() {
+        assertEquals(true, CloudWork.alertsNeeded(CloudRunOutcome(CloudRun.SYNCED, received = 3)))
+        assertEquals(false, CloudWork.alertsNeeded(CloudRunOutcome(CloudRun.SYNCED, received = 0)))
+        for (run in CloudRun.entries - CloudRun.SYNCED) assertEquals(false, CloudWork.alertsNeeded(CloudRunOutcome(run, received = 0)), run.name)
+    }
 }
