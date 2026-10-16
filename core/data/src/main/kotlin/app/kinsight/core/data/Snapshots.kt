@@ -58,6 +58,10 @@ sealed interface GroupSnapshot {
         val categoryOverrides: List<DecodedEntry> = emptyList(),
         /** Live StorageHandover entries (spec §7.1), read through OwnerLifecycle. */
         val handovers: List<DecodedEntry> = emptyList(),
+        /** LOCATION entries (spec §8), at most 48 h of them; read through LocationReadModel. */
+        val locations: List<DecodedEntry> = emptyList(),
+        /** Live SafeZone entries (spec §8.1); read through SafeZones. */
+        val safeZones: List<DecodedEntry> = emptyList(),
     ) : GroupSnapshot {
         val removed: Boolean get() = self !in membership.active
     }
@@ -169,6 +173,8 @@ class Snapshots(
             peerSeen = peerSeen,
             categoryOverrides = store.categoryOverrides(),
             handovers = store.storageHandovers(),
+            locations = store.locations(),
+            safeZones = store.safeZones(),
         )
     }
 

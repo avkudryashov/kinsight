@@ -82,7 +82,8 @@ object SnapshotViews {
         val members = members(s, nowMs)
         val self = members.first { it.isSelf }
         val byAuthor = UsageReadModel.summaries(s.summaries)
-        val events = UsageReadModel.events(s.events).groupBy { it.author }
+        val names = SafeZones.names(s.safeZones, s.membership)
+        val events = UsageReadModel.events(s.events, names).groupBy { it.author }
         fun usage(m: MemberView) = UsageReadModel.usage(
             m, byAuthor[m.id], events[m.id].orEmpty(), today, nowMs = nowMs, noContactMs = noContactMs,
             details = details[m.id]?.let { UsageReadModel.details(it)[m.id] },
@@ -90,7 +91,13 @@ object SnapshotViews {
         return DashboardState(
             self = self,
             selfUsage = if (self.role == Role.CHILD) usage(self) else null,
-            children = if (self.role == Role.PARENT) members.filter { it.role == Role.CHILD }.map(::usage) else emptyList(),
+            children = if (self.role == Role.PARENT) {
+                members.filter { it.role == Role.CHILD }.map { m ->
+                    usage(m).copy(place = LocationReadModel.status(s.locations, s.events, m.id, names))
+                }
+            } else {
+                emptyList()
+            },
             parents = members.filter { it.role == Role.PARENT && !it.isSelf },
         )
     }
@@ -113,7 +120,7 @@ object SnapshotViews {
             member = view(s, member, nowMs),
             byDate = UsageReadModel.summaries(s.summaries)[id],
             catalog = UsageReadModel.catalogOf(s.catalog, id),
-            events = UsageReadModel.events(s.events).filter { it.author == id },
+            events = UsageReadModel.events(s.events, SafeZones.names(s.safeZones, s.membership)).filter { it.author == id },
             range = range,
             today = today,
             departed = departed != null,

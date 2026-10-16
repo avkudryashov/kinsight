@@ -140,6 +140,9 @@ data class EventView(
     val shiftMs: Long,
     /** The author's first SHARING_* event, and a resume: sharing began here (consent), it was not resumed. */
     val firstSharing: Boolean = false,
+    /** ZONE_ENTER / ZONE_EXIT: the zone's hex id and its name (null when unknown here). */
+    val zoneId: String? = null,
+    val zoneName: String? = null,
 ) {
     /** When it happened, the same for the event list and the alert: an interval's start, else the signing time. */
     val atMs: Long get() = if (fromMs > 0) fromMs else createdMs
@@ -161,6 +164,8 @@ data class DeviceUsage(
     val comparison: TodayComparison? = null,
     /** The zone_id of the child's latest summary (untrusted, may not parse): its own clock next to «Данные на …» (U3). */
     val childZoneId: String? = null,
+    /** On a parent's card: where the child is (spec §8), null without location data. */
+    val place: PlaceStatus? = null,
 )
 
 /** What a dashboard card compares today with (U2, audit 2026-10-11): never a part day against whole days. */

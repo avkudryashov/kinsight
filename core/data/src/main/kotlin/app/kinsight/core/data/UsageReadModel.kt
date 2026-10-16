@@ -173,7 +173,7 @@ object UsageReadModel {
         largest.setValue(largest.value + total - cats.values.sum())
     }
 
-    fun events(entries: List<DecodedEntry>): List<EventView> {
+    fun events(entries: List<DecodedEntry>, zoneNames: Map<String, String> = emptyMap()): List<EventView> {
         val sharingKinds = WireConstants.SHARING_KINDS
         val firstSharing = entries.filter { it.body.state_event?.kind in sharingKinds }
             .groupBy { it.author }
@@ -181,7 +181,11 @@ object UsageReadModel {
         return entries.mapNotNull { e ->
             e.body.state_event?.let {
                 val first = it.kind == StateEvent.Kind.SHARING_RESUMED && firstSharing[e.author] == e.seq
-                EventView(e.author, e.seq, it.kind, it.from_ms, it.to_ms, e.body.created_at_ms, it.clock_shift_ms, first)
+                val zone = it.zone_id.takeIf { z -> z.size == 16 }?.hex()
+                EventView(
+                    e.author, e.seq, it.kind, it.from_ms, it.to_ms, e.body.created_at_ms, it.clock_shift_ms, first,
+                    zoneId = zone, zoneName = zone?.let(zoneNames::get),
+                )
             }
         }
     }

@@ -8,6 +8,7 @@ import app.kinsight.core.model.proto.AppCatalog
 import app.kinsight.core.model.proto.AppTotal
 import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.model.proto.UsageSummary
+import app.kinsight.core.model.zoneEventEntry
 import okio.ByteString.Companion.toByteString
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -490,5 +491,19 @@ class UsageReadModelTest {
         assertFalse(UsageReadModel.collects(Sharing.Left, localConsent = true))
         assertTrue(UsageReadModel.collects(null, localConsent = true), "no snapshot of this device yet: the local consent")
         assertFalse(UsageReadModel.collects(null, localConsent = false))
+    }
+
+    @Test
+    fun zoneEventsCarryTheirZoneName() {
+        val keys = app.kinsight.core.model.DeviceKeys.generate()
+        val g = app.kinsight.core.model.GroupGenesis.create(keys, "Mom")
+        val a = app.kinsight.core.model.EntryAuthor(g.groupId, keys, lastSeq = 1)
+        val zone = ByteArray(16) { 0x0b }
+        val e = a.zoneEventEntry(zone, entered = false, atMs = 5_000)
+        val v = UsageReadModel.events(listOf(e), mapOf("0b".repeat(16) to "School")).single()
+        assertEquals("0b".repeat(16), v.zoneId)
+        assertEquals("School", v.zoneName)
+        assertEquals(5_000L, v.atMs)
+        assertEquals(null, UsageReadModel.events(listOf(e)).single().zoneName)
     }
 }
