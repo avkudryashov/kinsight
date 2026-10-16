@@ -13,6 +13,7 @@ import app.kinsight.core.model.proto.Heartbeat
 import app.kinsight.core.model.proto.Location
 import app.kinsight.core.model.proto.SafeZone
 import app.kinsight.core.model.proto.StateEvent
+import app.kinsight.core.model.parentPinEntry
 import app.kinsight.core.model.storageHandoverEntry
 import app.kinsight.core.sync.categoryOverride
 import app.kinsight.core.sync.detail
@@ -279,6 +280,25 @@ class KinsightMigrationTest {
         assertNull(db.entryDao().get(a, old.seq), "the older handover is superseded")
         assertEquals(EntryKinds.STORAGE_HANDOVER, db.entryDao().get(a, newer.seq)!!.kind)
         assertEquals("$a/handover", db.entryDao().get(a, newer.seq)!!.supersedeKey)
+        db.close()
+    }
+
+    @Test
+    fun migratesV3GivingAStoredUnknownParentPinItsKind() = runTest {
+        val keys = DeviceKeys.generate()
+        val genesis = GroupGenesis.create(keys, "Mom")
+        val author = EntryAuthor(genesis.groupId, keys, lastSeq = 1)
+        val old = author.parentPinEntry(ByteArray(16) { 1 }, ByteArray(32) { 2 }, 19_456, 2, rank = 1)
+        val newer = author.parentPinEntry(ByteArray(16) { 3 }, ByteArray(32) { 4 }, 19_456, 2, rank = 2)
+        val v3 = File(dir, "v3p.db").absolutePath
+        // A released build (schema 3) could not decode the payload: kind 0, no supersede key.
+        ExportedSchema.create(v3, 3) { c -> for (e in listOf(old, newer)) insertV3(c, e, kind = EntryKinds.UNKNOWN, key = null) }
+        val db = KinsightDatabaseFactory.open(HostContext(), v3)
+        val a = keys.deviceId.hex
+        assertNull(db.entryDao().get(a, old.seq), "the older PIN is superseded")
+        assertEquals(EntryKinds.PARENT_PIN, db.entryDao().get(a, newer.seq)!!.kind)
+        assertEquals("$a/pin", db.entryDao().get(a, newer.seq)!!.supersedeKey)
+        assertEquals(listOf(newer), RoomEntryStore(db, genesis.groupId).parentPins())
         db.close()
     }
 

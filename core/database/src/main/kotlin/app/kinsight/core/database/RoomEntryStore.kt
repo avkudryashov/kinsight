@@ -103,6 +103,9 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
     /** The live SafeZone entries (spec §8.1), one per author and zone; read through core/data SafeZones. */
     suspend fun safeZones(): List<DecodedEntry> = entryDao.bytesOfKind(EntryKinds.SAFE_ZONE).map(DecodedEntry::decode)
 
+    /** The live ParentPin entries (spec §10), one per author; read through core/data ParentPins. */
+    suspend fun parentPins(): List<DecodedEntry> = entryDao.bytesOfKind(EntryKinds.PARENT_PIN).map(DecodedEntry::decode)
+
     override suspend fun prune(policy: SyncPolicy): Unit = db.write {
         for (bytes in entryDao.bytesWithUsageDate() + entryDao.bytesOfKind(EntryKinds.LOCATION)) {
             val e = DecodedEntry.decode(bytes)
