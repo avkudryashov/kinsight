@@ -43,8 +43,9 @@ class OnboardingScreensTest {
         rule.onNodeWithText("every parent in your family group (currently Mom) and parents who join later", substring = true).assertExists()
         rule.onNodeWithText("Your parents will see", substring = true).assertExists()
         rule.onNodeWithText("last 7 days of screen time", substring = true).performScrollTo().assertIsDisplayed()
-        rule.onNodeWithText("If you hide it, sharing pauses", substring = true).performScrollTo().assertIsDisplayed()
-        rule.onNodeWithText("Your family will see the pause", substring = true).performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("through that Disk", substring = true).performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("If you hide it, your family sees", substring = true).performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("only a parent can change it", substring = true).performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("Play Protect", substring = true).performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("Not now").assertExists()
         rule.onNodeWithTag("onb_agree").performClick()
@@ -89,6 +90,16 @@ class OnboardingScreensTest {
         rule.onNodeWithText("Не сейчас").assertExists()
     }
 
+    @Test
+    @Config(qualifiers = "ru")
+    fun russianConsentNamesTheDiskAndTheLocation() {
+        rule.setContent { KinsightTheme(dynamicColor = false) { ConsentScreen("Мама", onAgree = {}, onNotNow = {}) } }
+        rule.onNodeWithText("Где:", substring = true).assertExists()
+        rule.onNodeWithText("Кто меняет: только родитель", substring = true).assertExists()
+        rule.onNodeWithTag("onb_consent_more").performScrollTo().performClick()
+        rule.onNodeWithText("в зашифрованном виде через Яндекс Диск", substring = true).performScrollTo().assertIsDisplayed()
+    }
+
     private fun showChildNotificationsStep() = rule.setContent {
         KinsightTheme(dynamicColor = false) {
             DisclosureScreen(
@@ -102,17 +113,17 @@ class OnboardingScreensTest {
     }
 
     @Test
-    fun theChildNotificationsStepSaysSharingPausesWithoutThem() {
+    fun theChildNotificationsStepSaysTheFamilySeesThemOff() {
         showChildNotificationsStep()
-        rule.onNodeWithText("While notifications are off, sharing stays paused and your family sees it as paused", substring = true)
+        rule.onNodeWithText("your family will see that the notification is off on this phone", substring = true)
             .performScrollTo().assertIsDisplayed()
     }
 
     @Test
     @Config(qualifiers = "ru")
-    fun russianChildNotificationsStepSaysSharingPausesWithoutThem() {
+    fun russianChildNotificationsStepSaysTheFamilySeesThemOff() {
         showChildNotificationsStep()
-        rule.onNodeWithText("Пока уведомления запрещены, обмен стоит на паузе и семья видит его приостановленным", substring = true)
+        rule.onNodeWithText("семья увидит, что на этом телефоне уведомление выключено", substring = true)
             .performScrollTo().assertIsDisplayed()
     }
 
@@ -209,11 +220,12 @@ class OnboardingScreensTest {
     }
 
     @Test
-    fun consentLeadsWithThreePointsAndHidesTheDetailsUntilAsked() {
+    fun consentLeadsWithFourPointsAndHidesTheDetailsUntilAsked() {
         rule.setContent { KinsightTheme(dynamicColor = false) { ConsentScreen("Mom", onAgree = {}, onNotNow = {}) } }
         rule.onNodeWithText("What is seen:", substring = true).assertExists()
         rule.onNodeWithText("Who sees it: every parent of your family group (now Mom)", substring = true).assertExists()
-        rule.onNodeWithText("How to stop:", substring = true).assertExists()
+        rule.onNodeWithText("Where:", substring = true).assertExists()
+        rule.onNodeWithText("Who changes it:", substring = true).assertExists()
         rule.onNodeWithText("Play Protect", substring = true).assertDoesNotExist()
         rule.onNodeWithTag("onb_consent_more").performScrollTo().performClick()
         rule.onNodeWithText("Play Protect", substring = true).performScrollTo().assertIsDisplayed()

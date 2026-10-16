@@ -204,6 +204,7 @@ fun DashboardScreen(
             // Not the user's fault nor fixable here: a neutral note, never the error banner.
             updateText?.let { text -> item { UpdateNotice(text) } }
             if (child && ui.newParents.isNotEmpty()) item { NewParentBanner(ui.newParents, onAcknowledgeParents) }
+            if (child && ui.consentOutdated) item { ReconsentCard(onConsent) }
             if (child) {
                 item { ChildTransparencyRow(d.parents, d.selfUsage?.sharing ?: Sharing.Never, ui.sharingFailed, onPause, onResume, onConsent) }
                 d.selfUsage?.let { u -> item { DeviceCard(u, nowMs, noContactMs) { onOpenDevice(u.member.id) } } }
@@ -273,6 +274,23 @@ internal enum class SyncAttention {
             s.state == ServiceState.RADIO_ERROR -> RADIO_ERROR
             s.notificationHidden -> NOTIFICATION_HIDDEN
             else -> null
+        }
+    }
+}
+
+/** Roadmap Y5: a child that agreed to the Bluetooth-only text sees what changed before anything goes through the Disk. */
+@Composable
+private fun ReconsentCard(onOpen: () -> Unit) {
+    Card(
+        Modifier.fillMaxWidth().testTag("dash_reconsent"),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        ),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.dash_reconsent_body))
+            Button(onOpen, Modifier.testTag("dash_reconsent_open")) { Text(stringResource(R.string.dash_reconsent_open)) }
         }
     }
 }

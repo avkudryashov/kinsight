@@ -638,6 +638,12 @@ class SettingsRepository(
         onConsentUpgraded()
     }
 
+    /**
+     * «Принимаю» on the consent screen (ruling P5): a child that agreed to an older text only moves the version
+     * ([upgradeConsent] keeps the first consent time and the sharing switch), any other consent is [consentAndShare].
+     */
+    suspend fun agreeToConsent() = if (settings.current().consentOutdated) upgradeConsent() else consentAndShare()
+
     suspend fun setSharing(on: Boolean) = pipeline.setSharing(on)
 
     suspend fun setRetention(detailDays: Int, summaryDays: Int) {

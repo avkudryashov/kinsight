@@ -560,4 +560,20 @@ class DashboardScreenTest {
         show(DashboardUi(DashboardState(mom, null, listOf(out), listOf(dad)), running, true))
         rule.onNodeWithTag("dash_place", useUnmergedTree = true).assertTextContains("Outside the safe zones", substring = true)
     }
+
+    @Test
+    fun aChildWithAnOldConsentIsAskedToSeeWhatChanged() {
+        var consent = false
+        show(childUi(Sharing.On).copy(consentOutdated = true), onConsent = { consent = true })
+        rule.onNodeWithText("through a parent's Yandex Disk", substring = true).assertExists()
+        rule.onNodeWithTag("dash_reconsent_open").performClick()
+        rule.waitForIdle()
+        assertTrue(consent)
+    }
+
+    @Test
+    fun aCurrentConsentShowsNoCard() {
+        show(childUi(Sharing.On))
+        rule.onNodeWithTag("dash_reconsent").assertDoesNotExist()
+    }
 }

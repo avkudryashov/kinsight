@@ -62,4 +62,6 @@
     <string name="dash_place_in_zone">En la zona «%1$s», %2$s</string>
     <string name="dash_place_in_unknown">En una zona segura, %1$s</string>
     <string name="dash_place_outside">Fuera de las zonas seguras, %1$s</string>
+    <string name="dash_reconsent_body">Ahora Kinsight también puede enviar tu tiempo de pantalla y dónde está este teléfono a través del Yandex Disk de un adulto de la familia. Mira qué ha cambiado y decide.</string>
+    <string name="dash_reconsent_open">Ver qué cambia</string>
 </resources>

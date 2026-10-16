@@ -33,6 +33,8 @@ data class DashboardUi(
     val sharingFailed: Boolean = false,
     /** On a child's phone: parents it has not acknowledged yet (U7 banner). */
     val newParents: List<MemberView> = emptyList(),
+    /** On a child's phone: it agreed to an older consent text (UsageSettings.consentOutdated); Overview asks it to look. */
+    val consentOutdated: Boolean = false,
 )
 
 class DashboardViewModel(
@@ -49,9 +51,15 @@ class DashboardViewModel(
     // Overview is still news here.
     private val acknowledged = settings.acknowledgedParents.catch { emit(null) }
 
-    val ui: StateFlow<DashboardUi> = combine(usage.dashboard, service.status, noContactHours, sharingFailed, acknowledged) { d, s, h, f, ack ->
+    // A read failure shows no re-consent card.
+    private val childFlags = combine(acknowledged, settings.usageSettings.map { it.consentOutdated }.catch { emit(false) }) { ack, old -> ack to old }
+
+    val ui: StateFlow<DashboardUi> = combine(usage.dashboard, service.status, noContactHours, sharingFailed, childFlags) { d, s, h, f, (ack, old) ->
         val parents = d?.takeIf { it.self.role == Role.CHILD }?.parents // a child's phone only
-        DashboardUi(d, s, loaded = true, noContactHours = h, sharingFailed = f, newParents = parents?.let { NewParents.of(it, ack) }.orEmpty())
+        DashboardUi(
+            d, s, loaded = true, noContactHours = h, sharingFailed = f, newParents = parents?.let { NewParents.of(it, ack) }.orEmpty(),
+            consentOutdated = parents != null && old,
+        )
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUi())
 

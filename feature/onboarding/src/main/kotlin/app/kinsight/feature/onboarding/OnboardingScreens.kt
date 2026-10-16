@@ -19,6 +19,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Button
@@ -143,10 +144,11 @@ internal fun ParentInfoScreen(onNext: () -> Unit) = Page(
 }
 
 /**
- * Research §6.3, a child's phone only (U13): the child's line, then three short points with icons that carry the
- * prominent disclosure (what is seen and counted in the background, every parent including later ones, the open
- * pause and the always-on notification), the privacy policy link, then «More details» with every earlier paragraph
- * word for word (who receives it, the 7-day backlog, privacy, the pause, Play Protect, «Not now»). Explicit «Agree» /
+ * Research §6.3, a child's phone only (U13): the child's line, then four short points with icons that carry the
+ * prominent disclosure (what is seen and counted in the background, who: every parent including later ones, where:
+ * the location through a parent's Yandex Disk, who changes it: only a parent, with the always-on notification), the
+ * privacy policy link, then «More details» with every earlier paragraph word for word (who receives it over Bluetooth
+ * and the Disk, the 7-day backlog, privacy, who changes sharing, Play Protect, «Not now»). Explicit «Agree» /
  * «Not now»; nothing is read before «Agree».
  */
 @Composable
@@ -165,6 +167,7 @@ fun ConsentScreen(recipients: String, onAgree: () -> Unit, onNotNow: () -> Unit,
             Icons.Filled.Person,
             if (recipients.isBlank()) stringResource(R.string.onb_consent_point_who_group) else stringResource(R.string.onb_consent_point_who, recipients),
         )
+        ConsentPoint(Icons.Filled.LocationOn, stringResource(R.string.onb_consent_point_where))
         ConsentPoint(Icons.Filled.Notifications, stringResource(R.string.onb_consent_point_pause))
         TextButton(onPrivacyPolicy, Modifier.testTag("onb_privacy")) { Text(stringResource(R.string.onb_privacy_policy)) }
         val moreState = stringResource(if (more) R.string.onb_consent_expanded else R.string.onb_consent_collapsed)

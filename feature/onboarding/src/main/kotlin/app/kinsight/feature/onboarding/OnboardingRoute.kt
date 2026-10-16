@@ -257,7 +257,8 @@ fun OnboardingRoute(
 /**
  * Settings → «Делиться» turned on without a recorded consent: the same consent screen, recipients = the parents of
  * the group; «Согласен» records consent and turns sharing on. A child's phone only: on an adult's phone, or without
- * a group, it closes at once and records nothing.
+ * a group, it closes at once and records nothing. Also the new consent of a child that agreed to an older text
+ * (Overview's card): only the version moves, the first consent time stays (ruling P5).
  */
 @Composable
 fun ConsentRoute(onDone: () -> Unit) {
@@ -280,7 +281,8 @@ fun ConsentRoute(onDone: () -> Unit) {
             scope.launch {
                 failed = false
                 try {
-                    graph.settingsRepository.consentAndShare()
+                    // Roadmap Y5: a child that agreed to the older text agrees to this one; sharing stays as it was.
+                    graph.settingsRepository.agreeToConsent()
                     onDone()
                 } catch (e: CancellationException) {
                     throw e
