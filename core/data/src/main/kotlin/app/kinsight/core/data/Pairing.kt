@@ -16,7 +16,7 @@ import app.kinsight.core.model.grantAdminEntry
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.PairReject
 import app.kinsight.core.sync.ByteStream
-import app.kinsight.core.sync.PROTOCOL_VERSION
+import app.kinsight.core.sync.CLOUD_PROTOCOL_VERSION
 import app.kinsight.core.sync.WelcomeCloud
 import app.kinsight.core.sync.pairing.GuestResult
 import app.kinsight.core.sync.pairing.HostDecision
@@ -377,7 +377,7 @@ class PairingCoordinator(
             // older generation than the group's newest rotation is one the next admin cloud run rotates again for).
             // Spec §7.3: a transfer only to a joiner that can take the role (Y3 or later) and only with a refresh token in hand;
             // otherwise this is a plain parent add.
-            var handed = cloudWelcome(before, group, withRefresh = transferOwner && joiner.protocolVersion >= PROTOCOL_VERSION)
+            var handed = cloudWelcome(before, group, withRefresh = transferOwner && joiner.protocolVersion >= CLOUD_PROTOCOL_VERSION)
             val inForce = before.storageOwner
             var transfer = handed?.refreshToken != null && inForce != null
             if (transfer && !recordTransfer(group, joiner.id, inForce!!)) {

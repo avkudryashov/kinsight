@@ -47,6 +47,12 @@ const val PROTOCOL_VERSION = 3
  */
 const val MIN_PROTOCOL_VERSION = 2
 
+/**
+ * The first version whose builds carry the cloud (spec §6, §7). Only a joiner that speaks it is handed the refresh token
+ * (§7.3); a member on an older build never holds a token, so a token revoke does not wait for its Heartbeat.
+ */
+const val CLOUD_PROTOCOL_VERSION = 3
+
 sealed interface SessionResult {
     /** [protocolVersion]: the version both sides agreed on in Hello. */
     data class Completed(val peer: DeviceId, val received: Int, val sentBatches: Int, val protocolVersion: Int) : SessionResult {

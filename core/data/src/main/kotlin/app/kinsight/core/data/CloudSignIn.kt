@@ -11,6 +11,7 @@ import app.kinsight.core.model.Membership
 import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.StorageOwnerState
 import app.kinsight.core.model.storageHandoverEntry
+import app.kinsight.core.sync.CLOUD_PROTOCOL_VERSION
 import app.kinsight.core.transport.ble.GroupConfig
 import app.kinsight.core.transport.ble.GroupStore
 import app.kinsight.core.transport.cloud.CloudPaths
@@ -468,13 +469,12 @@ class CloudSignIn(
     /** A member whose newest Heartbeat says protocol below 3 could not take the cloud entries. No Heartbeat: no refusal. */
     private suspend fun oldAppInGroup(store: RoomEntryStore, m: MembershipState, self: DeviceId): Boolean {
         val newest = store.heartbeats().groupBy { it.author }.mapValues { (_, beats) -> beats.maxBy { it.seq } }
-        return m.active.keys.any { id -> id != self && (newest[id]?.body?.heartbeat?.protocol_version ?: MIN_CLOUD_PROTOCOL) < MIN_CLOUD_PROTOCOL }
+        return m.active.keys.any { id -> id != self && (newest[id]?.body?.heartbeat?.protocol_version ?: CLOUD_PROTOCOL_VERSION) < CLOUD_PROTOCOL_VERSION }
     }
 
     companion object {
         /** A sign-in left open longer than this must start again. */
         const val PENDING_MS = 10L * 60 * 1000
-        private const val MIN_CLOUD_PROTOCOL = 3
 
         /** The outcomes that leave this phone with a fresh owner token. */
         private val SIGNED_IN = setOf(CloudEnableResult.ENABLED, CloudEnableResult.RESTORED, CloudEnableResult.TAKEN_OVER)

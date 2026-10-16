@@ -147,6 +147,22 @@ class CloudLifecycleTest {
         assertEquals(1, revokes(), "revoked once")
     }
 
+    /** Final review, Important 1: a kid's phone on a build older than the cloud never uses a token and is not waited for. */
+    @Test
+    fun aPhoneOnAnOldBuildDoesNotHoldUpTheRevoke() = runBlocking<Unit> {
+        family()
+        mom.ownStorage(token = "AT")
+        val g = mom.groups.read()!!
+        val storage = ByteArray(16) { 1 }
+        assertNotNull(OwnerRecords.claim(mom.appendOwn, mom.store(), mom.keys, mom.cloudSecrets.ring(g), storage, 2, "AT2", mom.now + YEAR))
+        mom.cloudSecrets.saveOwner(g.groupId, 2, storage, TokenSet("AT2", "RT", mom.now + YEAR))
+        mom.cloudSecrets.retire(g.groupId, 1, "AT")
+        mom.store().applyBatch(listOf(dad.beat(2), kid.beat(0, protocol = 2)))
+        mom.runner(disks::disk, http).run(CloudTrigger.NOW)
+        assertEquals(1, revokes())
+        assertTrue(mom.cloudSecrets.retired(g.groupId).isEmpty())
+    }
+
     /** Rulings Q3: the claim names a fresh token and every departure its signer knows of. */
     @Test
     fun aClaimNamesAFreshTokenAndTheKnownDepartures() = runBlocking<Unit> {

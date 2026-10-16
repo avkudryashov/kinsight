@@ -104,10 +104,10 @@ fun TestDevice.runner(disk: (suspend () -> String) -> DiskApi, http: FakeOAuthHt
     config = { TEST_CLOUD }, oauth = { c -> YandexOAuth(c.clientId, c.clientSecret, http = http, clock = { now }) }, afterSync = afterSync,
 )
 
-/** This phone's Heartbeat saying it syncs with [storageGeneration] (spec §7), signed into its own log. */
-suspend fun TestDevice.beat(storageGeneration: Long): DecodedEntry {
+/** This phone's Heartbeat saying it syncs with [storageGeneration] (spec §7), signed into its own log; [protocol] below 3: an old build. */
+suspend fun TestDevice.beat(storageGeneration: Long, protocol: Int = 3): DecodedEntry {
     var e: DecodedEntry? = null
-    check(pipeline.appendOwn { a -> listOf(a.create { it.copy(heartbeat = Heartbeat(app_version = "test", protocol_version = 3, storage_generation = storageGeneration)) }.also { e = it }) })
+    check(pipeline.appendOwn { a -> listOf(a.create { it.copy(heartbeat = Heartbeat(app_version = "test", protocol_version = protocol, storage_generation = storageGeneration)) }.also { e = it }) })
     return e!!
 }
 

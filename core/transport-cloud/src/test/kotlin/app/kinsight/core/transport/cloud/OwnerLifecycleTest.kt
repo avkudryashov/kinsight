@@ -44,8 +44,8 @@ class OwnerLifecycleTest {
 
     private fun state(vararg more: DecodedEntry): MembershipState = Membership.compute(gid, base + mom1 + more)!!
 
-    private fun beat(keys: DeviceKeys, generation: Long, seq: Long = 200) =
-        at(keys, 1_000, seq).create { it.copy(heartbeat = Heartbeat(app_version = "t", protocol_version = 3, storage_generation = generation)) }
+    private fun beat(keys: DeviceKeys, generation: Long, seq: Long = 200, protocol: Int = 3) =
+        at(keys, 1_000, seq).create { it.copy(heartbeat = Heartbeat(app_version = "t", protocol_version = protocol, storage_generation = generation)) }
 
     @Test
     fun aDepartureAfterTheOwnerRecordExposesTheTokenUntilTheRenewal() {
@@ -205,5 +205,17 @@ class OwnerLifecycleTest {
         assertNull(OwnerLifecycle.leaveBlock(m, momKeys.deviceId, beats))
         val sameDisk = state(at(dadKeys, 30).storageOwnerEntry(dadKeys.deviceId, s1, 2))
         assertNull(OwnerLifecycle.leaveBlock(sameDisk, momKeys.deviceId, emptyList()), "§7.3: the same Disk, nothing to wait for")
+    }
+
+    /** Final review, Important 1: a build older than the cloud (protocol 2) never holds a token, so it is not waited for. */
+    @Test
+    fun aMemberOnAnOldBuildDoesNotHoldUpTheSwitch() {
+        val m = state(at(dadKeys, 30).storageOwnerEntry(dadKeys.deviceId, s2, 2))
+        val old = listOf(beat(dadKeys, 2), beat(kidKeys, 0, protocol = 2))
+        assertTrue(OwnerLifecycle.allSwitched(m, old, 1, momKeys.deviceId))
+        assertNull(OwnerLifecycle.leaveBlock(m, momKeys.deviceId, old), "the former owner may leave")
+        val updated = listOf(beat(dadKeys, 2), beat(kidKeys, 0, seq = 200, protocol = 2), beat(kidKeys, 1, seq = 201))
+        assertFalse(OwnerLifecycle.allSwitched(m, updated, 1, momKeys.deviceId), "once updated, its newest Heartbeat counts")
+        assertFalse(OwnerLifecycle.allSwitched(m, listOf(beat(dadKeys, 2)), 1, momKeys.deviceId), "no Heartbeat yet: still waited for")
     }
 }

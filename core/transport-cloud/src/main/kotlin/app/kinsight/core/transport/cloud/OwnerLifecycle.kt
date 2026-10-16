@@ -6,6 +6,7 @@ import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.StorageOwnerState
 import app.kinsight.core.model.proto.StateEvent
+import app.kinsight.core.sync.CLOUD_PROTOCOL_VERSION
 import okio.ByteString.Companion.toByteString
 
 /** Rulings Q14: [owner]'s newest seq this device has seen, and when (this device's clock) it first saw it. */
@@ -112,10 +113,17 @@ object OwnerLifecycle {
         e.author == by && e.body.membership_op?.add?.sign_public_key?.let { pk -> pk.size == 32 && DeviceId.fromSignPublicKey(pk.toByteArray()) == id } == true
     }
 
-    /** True when every active member but [self] reports, in its newest Heartbeat, a storage generation above [generation]. */
+    /**
+     * True when every active member but [self] reports, in its newest Heartbeat, a storage generation above [generation].
+     * A member whose newest Heartbeat speaks a protocol older than [CLOUD_PROTOCOL_VERSION] is not waited for: that build
+     * has no cloud code and never uses a token. A member without any Heartbeat yet still is.
+     */
     fun allSwitched(m: MembershipState, heartbeats: List<DecodedEntry>, generation: Long, self: DeviceId): Boolean {
         val newest = heartbeats.filter { it.kind == EntryKind.HEARTBEAT }.groupBy { it.author }.mapValues { (_, b) -> b.maxBy { it.seq } }
-        return m.active.keys.filter { it != self }.all { id -> (newest[id]?.body?.heartbeat?.storage_generation ?: 0L) > generation }
+        return m.active.keys.filter { it != self }.all { id ->
+            val beat = newest[id]?.body?.heartbeat
+            beat != null && (beat.protocol_version < CLOUD_PROTOCOL_VERSION || beat.storage_generation > generation)
+        }
     }
 
     /**
