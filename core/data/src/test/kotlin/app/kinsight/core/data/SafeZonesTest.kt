@@ -6,6 +6,7 @@ import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.addMember
 import app.kinsight.core.model.grantAdminEntry
+import app.kinsight.core.model.leaveGroupEntry
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.removeMemberEntry
 import app.kinsight.core.model.safeZoneEntry
@@ -56,12 +57,32 @@ class SafeZonesTest {
     }
 
     @Test
-    fun childrenAndDepartedParentsNeverSetAZone() {
+    fun childrenNeverSetAZone() {
         val kids = kid.safeZoneEntry(home, "Kid's", 1, 2, 150, rank = 9)
         val dads = dad.safeZoneEntry(ByteArray(16) { 2 }, "Club", 1, 2, 150, rank = 1)
         assertEquals(listOf("Club"), SafeZones.effective(listOf(kids, dads), membership()).map { it.name })
-        ops += mom.removeMemberEntry(dadKeys.deviceId, lastSeq = 5)
-        assertEquals(emptyList(), SafeZones.effective(listOf(kids, dads), membership()))
+        assertEquals(mapOf("02".repeat(16) to "Club"), SafeZones.names(listOf(kids, dads), membership()))
+    }
+
+    @Test
+    fun zonesAndNamesSurviveTheCreatorsLeaving() {
+        val club = dad.safeZoneEntry(ByteArray(16) { 2 }, "Club", 1, 2, 150, rank = 1)
+        val made = dad.safeZoneEntry(home, "Home", 1, 2, 150, rank = 1)
+        val gone = dad.safeZoneEntry(home, "Home", 1, 2, 150, rank = 2, deleted = true)
+        ops += dad.leaveGroupEntry() // spec §7.3: the old phone leaves after the move
+        val late = dad.safeZoneEntry(ByteArray(16) { 4 }, "Park", 1, 2, 150, rank = 1) // after its cut: never counts
+        val all = listOf(club, made, gone, late)
+        assertEquals(listOf("Club"), SafeZones.effective(all, membership()).map { it.name }, "the tombstone still hides Home")
+        assertEquals(mapOf("02".repeat(16) to "Club", homeHex to "Home"), SafeZones.names(all, membership()))
+    }
+
+    @Test
+    fun zonesAndNamesSurviveARemovalUpToItsCut() {
+        val club = dad.safeZoneEntry(ByteArray(16) { 2 }, "Club", 1, 2, 150, rank = 1)
+        val edit = dad.safeZoneEntry(ByteArray(16) { 2 }, "Club 2", 1, 2, 300, rank = 2)
+        ops += mom.removeMemberEntry(dadKeys.deviceId, lastSeq = club.seq) // spec §7.4: a lost phone
+        assertEquals(listOf(150), SafeZones.effective(listOf(club, edit), membership()).map { it.radiusM }, "the edit is past the cut")
+        assertEquals(mapOf("02".repeat(16) to "Club"), SafeZones.names(listOf(club, edit), membership()))
     }
 
     @Test
@@ -69,8 +90,11 @@ class SafeZonesTest {
         ops += mom.addMember(granKeys.sign.publicKey, granKeys.dh.publicKey, "Gran", DeviceRole.PARENT)
         val grans = gran.safeZoneEntry(ByteArray(16) { 3 }, "Park", 1, 2, 150, rank = 1)
         assertEquals(emptyList(), SafeZones.effective(listOf(grans), membership()))
+        assertEquals(emptyMap(), SafeZones.names(listOf(grans), membership()))
         ops += mom.grantAdminEntry(granKeys.deviceId)
         assertEquals(listOf("Park"), SafeZones.effective(listOf(grans), membership()).map { it.name })
+        ops += gran.leaveGroupEntry()
+        assertEquals(listOf("Park"), SafeZones.effective(listOf(grans), membership()).map { it.name }, "an admin when it left")
     }
 
     @Test
