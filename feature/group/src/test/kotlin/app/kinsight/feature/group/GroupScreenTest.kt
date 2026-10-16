@@ -145,7 +145,7 @@ class GroupScreenTest {
 
     @Test
     fun whileLeavingLeaveIsDisabledAndProgressShown() {
-        val self = kid.copy(isSelf = true)
+        val self = dad.copy(isSelf = true)
         show(self, listOf(self, mom.copy(isSelf = false)), leaving = true)
         rule.onNodeWithTag("grp_list").performScrollToNode(hasTestTag("grp_leave"))
         rule.onNodeWithTag("grp_leave").assertIsNotEnabled()
@@ -194,7 +194,7 @@ class GroupScreenTest {
     @Test
     fun aMemberWhoMayLeaveConfirmsFirst() {
         var left = false
-        val self = kid.copy(isSelf = true)
+        val self = dad.copy(isSelf = true)
         show(self, listOf(self, mom.copy(isSelf = false)), onLeave = { left = true })
         rule.onNodeWithTag("grp_list").performScrollToNode(hasTestTag("grp_leave"))
         rule.onNodeWithTag("grp_leave").assertIsEnabled().performClick()
@@ -205,6 +205,15 @@ class GroupScreenTest {
         rule.onNodeWithTag("grp_confirm").assertTextEquals("Leave").performClick()
         rule.waitForIdle()
         assertTrue(left)
+    }
+
+    @Test
+    fun aChildCannotLeaveFromItsOwnPhone() {
+        val self = kid.copy(isSelf = true)
+        show(self, listOf(self, mom.copy(isSelf = false)))
+        rule.onNodeWithTag("grp_list").performScrollToNode(hasTestTag("grp_leave_child"))
+        rule.onNodeWithTag("grp_leave").assertDoesNotExist()
+        rule.onNodeWithText("A parent can remove this phone", substring = true).assertExists()
     }
 
     @Test

@@ -57,7 +57,6 @@ class DashboardScreenTest {
 
     private fun show(
         ui: DashboardUi,
-        onPause: () -> Unit = {},
         onStart: () -> Unit = {},
         onResume: () -> Unit = {},
         onConsent: () -> Unit = {},
@@ -69,7 +68,7 @@ class DashboardScreenTest {
     ) = rule.setContent {
         KinsightTheme(dynamicColor = false) {
             DashboardScreen(
-                ui, now, onOpenDevice, onPause = onPause, onResume = onResume, onConsent = onConsent, onStart = onStart,
+                ui, now, onOpenDevice, onResume = onResume, onConsent = onConsent, onStart = onStart,
                 onSyncNow = onSyncNow, onInviteChild = onInviteChild, onOpenSettings = onOpenSettings,
                 onAcknowledgeParents = onAcknowledgeParents,
             )
@@ -82,19 +81,13 @@ class DashboardScreenTest {
     }
 
     @Test
-    fun childHeaderNamesTheParentsAndPauseTakesTwoTaps() {
-        var paused = false
+    fun childHeaderNamesTheParentsAndOnlyAParentChangesSharing() {
         val self = kid.copy(isSelf = true)
-        show(DashboardUi(DashboardState(self, usage(self, 30, 30), emptyList(), listOf(mom.copy(isSelf = false), dad)), running, true), onPause = { paused = true })
+        show(DashboardUi(DashboardState(self, usage(self, 30, 30), emptyList(), listOf(mom.copy(isSelf = false), dad)), running, true))
         rule.onNodeWithText("Mom, Dad", substring = true).assertExists()
-        rule.onNodeWithText("your parents are told", substring = true).assertExists()
-        rule.onNodeWithTag("dash_pause").performClick()
-        rule.waitForIdle()
-        assertFalse(paused)
-        rule.onNodeWithText("sent when you resume", substring = true).assertExists()
-        rule.onNodeWithTag("dash_pause_confirm").performClick()
-        rule.waitForIdle()
-        assertTrue(paused)
+        rule.onNodeWithTag("dash_parent_only").assertExists()
+        rule.onNodeWithText("Only a parent can change sharing", substring = true).assertExists()
+        rule.onNodeWithTag("dash_pause").assertDoesNotExist()
     }
 
     @Test
@@ -134,7 +127,7 @@ class DashboardScreenTest {
     fun childSeesTheTransparencyRowAndItsOwnCardButNoThisPhone() {
         show(childUi(Sharing.On))
         rule.onNodeWithText("Your screen time is visible to: Mom").assertExists()
-        rule.onNodeWithTag("dash_pause").assertExists()
+        rule.onNodeWithTag("dash_parent_only").assertExists()
         rule.onNodeWithText("Kid").assertExists()
         rule.onNodeWithText("This phone").assertDoesNotExist()
         rule.onNodeWithTag("dash_sync_now").assertDoesNotExist()
@@ -235,7 +228,7 @@ class DashboardScreenTest {
             KinsightTheme(dynamicColor = false) {
                 DashboardScreen(
                     DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), emptyList()), current, true), now, {},
-                    onPause = {}, onResume = {}, onConsent = {}, onStart = {}, onSyncNow = {}, onInviteChild = {}, onOpenSettings = {},
+                    onResume = {}, onConsent = {}, onStart = {}, onSyncNow = {}, onInviteChild = {}, onOpenSettings = {},
                 )
             }
         }
@@ -359,17 +352,6 @@ class DashboardScreenTest {
         show(DashboardUi(DashboardState(mom, null, listOf(quiet), emptyList()), running, true, noContactHours = 24))
         rule.onNodeWithText("No contact", substring = true).assertDoesNotExist()
         rule.onNodeWithTag("dash_data_at", useUnmergedTree = true).assertExists()
-    }
-
-    @Test
-    fun cancellingThePauseDialogDoesNotPause() {
-        var paused = false
-        show(childUi(Sharing.On), onPause = { paused = true })
-        rule.onNodeWithTag("dash_pause").performClick()
-        rule.onNodeWithText("Cancel").performClick()
-        rule.waitForIdle()
-        assertFalse(paused)
-        rule.onNodeWithTag("dash_pause_confirm").assertDoesNotExist()
     }
 
     @Test
@@ -524,7 +506,7 @@ class DashboardScreenTest {
         KinsightTheme(dynamicColor = false) {
             DashboardScreen(
                 DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), emptyList()), service(), true), now, {},
-                onPause = {}, onResume = {}, onConsent = {}, onStart = {}, onSyncNow = {}, onInviteChild = {}, onOpenSettings = {},
+                onResume = {}, onConsent = {}, onStart = {}, onSyncNow = {}, onInviteChild = {}, onOpenSettings = {},
                 wallClock = { now },
             )
         }

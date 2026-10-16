@@ -3,10 +3,7 @@
     <string name="dash_title">Overview</string>
     <string name="dash_shared_with">Your screen time is visible to: %1$s</string>
     <string name="dash_shared_with_nobody">No parent is in the group yet.</string>
-    <string name="dash_pause_hint">You can pause sharing at any time, but your parents are told when you do.</string>
-    <string name="dash_pause">Pause sharing</string>
-    <string name="dash_pause_title">Pause sharing?</string>
-    <string name="dash_pause_body">Your family will see the pause. Time during the pause is still counted on this phone and will be sent when you resume.</string>
+    <string name="dash_parent_only">Only a parent can change sharing: from their phone, or with the parent PIN in Settings.</string>
     <string name="dash_cancel">Cancel</string>
     <string name="dash_paused_since">Sharing has been paused since %1$s.</string>
     <string name="dash_resume">Resume sharing</string>

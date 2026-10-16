@@ -22,6 +22,7 @@
     <string name="grp_leave_title">¿Salir del grupo familiar?</string>
     <string name="grp_leave_body">Se avisará a todos los miembros del grupo de que este teléfono ha salido. Se borrarán los datos del grupo en este teléfono. Los datos que ya están en sus teléfonos se conservan hasta que termine su periodo de conservación. Para volver hace falta una invitación nueva.</string>
     <string name="grp_leave_sole_admin">Eres el único administrador. Primero haz administrador a otro adulto o elimina los demás teléfonos.</string>
+    <string name="grp_leave_child">Un adulto de la familia puede quitar este teléfono del grupo desde su teléfono, o desconectarlo aquí en Ajustes con el PIN de los adultos.</string>
     <string name="grp_leaving">Saliendo: avisando a tu familia…</string>
     <string name="grp_confirm_remove">Eliminar</string>
     <string name="grp_confirm_leave">Salir</string>

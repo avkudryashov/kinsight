@@ -72,7 +72,6 @@ import app.kinsight.core.data.ServiceStatus
 import app.kinsight.core.data.Sharing
 import app.kinsight.core.data.TodayComparison
 import app.kinsight.core.data.UsageReadModel
-import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.BarChart
 import app.kinsight.core.designsystem.component.EmptyState
 import app.kinsight.core.designsystem.component.dataMoment
@@ -113,15 +112,15 @@ fun DashboardRoute(onOpenDevice: (DeviceId) -> Unit, onConsent: () -> Unit, onIn
         }
     }
     DashboardScreen(
-        ui, now, onOpenDevice, vm::pause, vm::resume, onConsent, vm::start, vm::syncNow, onInviteChild, onOpenSettings,
+        ui, now, onOpenDevice, vm::resume, onConsent, vm::start, vm::syncNow, onInviteChild, onOpenSettings,
         onAcknowledgeParents = vm::acknowledgeParents,
     )
 }
 
 /**
  * Spec §9.2 and §9.6, reshaped by user feedback 2026-10-10 (the Family Link / Screen Time pattern): a parent's home
- * shows its children only (and an invite while there are none); a child's shows one «who sees my data» row with the
- * two-tap open pause, then its own card. This phone's sync status lives in Settings; Overview shows it only as a
+ * shows its children only (and an invite while there are none); a child's shows one «who sees my data» row
+ * (only a parent changes sharing, spec §10), then its own card. This phone's sync status lives in Settings; Overview shows it only as a
  * banner when the service needs the user, so the move never hides a problem. Pull to refresh runs «Sync now».
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -130,7 +129,6 @@ fun DashboardScreen(
     ui: DashboardUi,
     nowMs: Long,
     onOpenDevice: (DeviceId) -> Unit,
-    onPause: () -> Unit,
     onResume: () -> Unit,
     onConsent: () -> Unit,
     onStart: () -> Unit,
@@ -206,7 +204,7 @@ fun DashboardScreen(
             if (child && ui.newParents.isNotEmpty()) item { NewParentBanner(ui.newParents, onAcknowledgeParents) }
             if (child && ui.consentOutdated) item { ReconsentCard(onConsent) }
             if (child) {
-                item { ChildTransparencyRow(d.parents, d.selfUsage?.sharing ?: Sharing.Never, ui.sharingFailed, onPause, onResume, onConsent) }
+                item { ChildTransparencyRow(d.parents, d.selfUsage?.sharing ?: Sharing.Never, ui.sharingFailed, onResume, onConsent) }
                 d.selfUsage?.let { u -> item { DeviceCard(u, nowMs, noContactMs) { onOpenDevice(u.member.id) } } }
             } else if (d.children.isEmpty()) {
                 item {
@@ -416,11 +414,9 @@ private fun ChildTransparencyRow(
     parents: List<MemberView>,
     sharing: Sharing,
     failed: Boolean,
-    onPause: () -> Unit,
     onResume: () -> Unit,
     onConsent: () -> Unit,
 ) {
-    var ask by remember { mutableStateOf(false) }
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
@@ -429,10 +425,11 @@ private fun ChildTransparencyRow(
                 style = MaterialTheme.typography.titleSmall,
             )
             when (sharing) {
-                Sharing.On -> {
-                    Text(stringResource(R.string.dash_pause_hint), style = MaterialTheme.typography.bodySmall)
-                    OutlinedButton({ ask = true }, Modifier.testTag("dash_pause")) { Text(stringResource(R.string.dash_pause)) }
-                }
+                Sharing.On -> Text(
+                    stringResource(R.string.dash_parent_only),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.testTag("dash_parent_only"),
+                )
                 is Sharing.Paused -> {
                     Text(stringResource(R.string.dash_paused_since, dateTime(sharing.sinceMs)), style = MaterialTheme.typography.bodySmall)
                     Button(onResume, Modifier.testTag("dash_resume")) { Text(stringResource(R.string.dash_resume)) }
@@ -451,21 +448,6 @@ private fun ChildTransparencyRow(
                 )
             }
         }
-    }
-    if (ask) {
-        AlertDialog(
-            onDismissRequest = { ask = false },
-            modifier = Modifier.dialogTestTags(), // its own window: the root flag does not reach it
-            title = { Text(stringResource(R.string.dash_pause_title)) },
-            text = { Text(stringResource(R.string.dash_pause_body)) },
-            confirmButton = {
-                TextButton({
-                    ask = false
-                    onPause()
-                }, Modifier.testTag("dash_pause_confirm")) { Text(stringResource(R.string.dash_pause)) }
-            },
-            dismissButton = { TextButton({ ask = false }, Modifier.testTag("dash_pause_cancel")) { Text(stringResource(R.string.dash_cancel)) } },
-        )
     }
 }
 

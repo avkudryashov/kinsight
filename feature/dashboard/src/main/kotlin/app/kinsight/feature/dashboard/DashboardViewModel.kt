@@ -77,9 +77,6 @@ class DashboardViewModel(
         }
     }
 
-    /** Signs SHARING_PAUSED (a consenting child only; the pipeline refuses otherwise): the family is told. */
-    fun pause() = setSharing(false)
-
     fun resume() = setSharing(true)
 
     private fun setSharing(on: Boolean) {

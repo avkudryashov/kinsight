@@ -31,7 +31,7 @@ private fun usage(m: MemberView) = DeviceUsage(
 @Composable
 private fun Frame(ui: DashboardUi) = PreviewTheme {
     DashboardScreen(
-        ui, NOW, {}, onPause = {}, onResume = {}, onConsent = {}, onStart = {}, onSyncNow = {}, onInviteChild = {}, onOpenSettings = {},
+        ui, NOW, {}, onResume = {}, onConsent = {}, onStart = {}, onSyncNow = {}, onInviteChild = {}, onOpenSettings = {},
         wallClock = { NOW },
     )
 }

@@ -3,10 +3,7 @@
     <string name="dash_title">Vista general</string>
     <string name="dash_shared_with">Ven tu tiempo de pantalla: %1$s</string>
     <string name="dash_shared_with_nobody">Todavía no hay ningún adulto en el grupo.</string>
-    <string name="dash_pause_hint">Puedes pausar el intercambio cuando quieras, pero los adultos de tu familia reciben un aviso.</string>
-    <string name="dash_pause">Pausar el intercambio</string>
-    <string name="dash_pause_title">¿Pausar el intercambio?</string>
-    <string name="dash_pause_body">Tu familia verá la pausa. El tiempo de la pausa se sigue contando en este teléfono y se enviará cuando reanudes el intercambio.</string>
+    <string name="dash_parent_only">Solo un adulto de la familia puede cambiar el intercambio: desde su teléfono o con el PIN de los adultos en Ajustes.</string>
     <string name="dash_cancel">Cancelar</string>
     <string name="dash_paused_since">El intercambio está en pausa desde %1$s.</string>
     <string name="dash_resume">Reanudar el intercambio</string>

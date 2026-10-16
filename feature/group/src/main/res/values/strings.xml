@@ -22,6 +22,7 @@
     <string name="grp_leave_title">Leave the family group?</string>
     <string name="grp_leave_body">Everyone in the group will be told that this phone left. The group\'s data on this phone will be deleted. Data already on their phones stays until their retention ends. Coming back needs a new invitation.</string>
     <string name="grp_leave_sole_admin">You are the only admin. Make another parent an admin first, or remove the other phones.</string>
+    <string name="grp_leave_child">A parent can remove this phone from the family on their own phone, or disconnect it here in Settings with the parent PIN.</string>
     <string name="grp_leaving">Leaving: telling your family…</string>
     <string name="grp_confirm_remove">Remove</string>
     <string name="grp_confirm_leave">Leave</string>

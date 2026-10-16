@@ -188,17 +188,27 @@ fun GroupScreen(
                     CircularProgressIndicator()
                     Text(stringResource(R.string.grp_leaving), color = MaterialTheme.colorScheme.onSurface)
                 }
-                OutlinedButton(
-                    onClick = { pending = GroupAction.Leave },
-                    enabled = canLeave && !leaving,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                    modifier = Modifier.fillMaxWidth().testTag("grp_leave"),
-                ) { Text(stringResource(R.string.grp_leave)) }
-                if (!canLeave) {
+                if (self.role != Role.CHILD) {
+                    OutlinedButton(
+                        onClick = { pending = GroupAction.Leave },
+                        enabled = canLeave && !leaving,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier.fillMaxWidth().testTag("grp_leave"),
+                    ) { Text(stringResource(R.string.grp_leave)) }
+                    if (!canLeave) {
+                        Text(
+                            stringResource(R.string.grp_leave_sole_admin),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    // Spec §10: leaving is switching everything off, so a child's phone cannot do it by itself.
                     Text(
-                        stringResource(R.string.grp_leave_sole_admin),
+                        stringResource(R.string.grp_leave_child),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("grp_leave_child"),
                     )
                 }
             }
