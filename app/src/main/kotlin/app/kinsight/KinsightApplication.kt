@@ -9,6 +9,7 @@ import app.kinsight.core.data.CloudSessionHandoff
 import app.kinsight.core.data.CloudWork
 import app.kinsight.core.data.IntegrityFastSync
 import app.kinsight.core.data.ResetStatus
+import app.kinsight.core.location.LocationGraph
 import app.kinsight.core.transport.ble.BlePermissions
 import app.kinsight.core.transport.ble.SyncGraph
 import app.kinsight.core.usage.UsageGraph
@@ -28,7 +29,7 @@ import kotlinx.coroutines.launch
  * collection, the integrity alerts, the cloud job while the cloud is on (spec §9), and the checks only a fresh process can make: the «share» switch reconciled with
  * the last signed SHARING_* (spec §7), an identity reset cut short (finished first), a join interrupted after the welcome finished, force stops since the last
  * start (with or without a group: the baseline), a revoked «Nearby devices», and the one-time move of a parent's local
- * category overrides into the shared log (stage 5c). Each check runs on its own, so one
+ * category overrides into the shared log (stage 5c), and the child's location tracking (registered again at every start). Each check runs on its own, so one
  * failing does not skip the others. Open only so the JVM tests can start WorkManager first (TestKinsightApplication).
  */
 open class KinsightApplication : Application() {
@@ -38,6 +39,8 @@ open class KinsightApplication : Application() {
         SyncGraph.install(this)
         SyncGraph.cloudHandoff = { ctx, group, store, keys -> CloudSessionHandoff(AppGraph.get(ctx).cloudSecrets, group, store, keys.deviceId) }
         SyncGraph.cloudGeneration = { AppGraph.get(it).cloudState.current().syncedGeneration ?: 0L }
+        // Spec §8: the child's tracking reads and signs through the family (core/data FamilyLocation).
+        LocationGraph.host = { AppGraph.get(it).familyLocation }
         IntegrityFastSync.install(this)
         UsageWork.schedule(this)
         CloudWork.keepScheduled(this)
@@ -46,6 +49,7 @@ open class KinsightApplication : Application() {
         SyncGraph.onSessionFinished = {
             AlertsWork.runSoon(it)
             CloudWork.keepScheduled(it)
+            LocationGraph.refresh(it) // a session may have brought new zones
             // Rulings Q14: the session may have brought the storage owner's new entries.
             val graph = AppGraph.get(it)
             graph.scope.launch { attempt("owner heard") { graph.cloud.noteOwnerHeard() } }
@@ -68,6 +72,8 @@ open class KinsightApplication : Application() {
             attempt("sharing reconcile") { UsageGraph.pipeline(app).reconcileSharing() }
             attempt("join recovery") { AppGraph.get(app).pairing.finishInterruptedJoin() }
             attempt("force stops") { SyncGraph.checkForceStops(app) }
+            // Alerts and the tick do not survive a force stop: a fresh process registers them again.
+            attempt("location") { LocationGraph.refresh(app, rearm = true).join() }
             attempt("nearby permission") { SyncGraph.onNearbyPermission(app, BlePermissions.missing(app).isEmpty()) }
             // Stage 5c: a parent's local category choices of 5a become shared entries, once (idempotent, crash-safe).
             attempt("category migration") { AppGraph.get(app).usage.migrateLocalCategories() }

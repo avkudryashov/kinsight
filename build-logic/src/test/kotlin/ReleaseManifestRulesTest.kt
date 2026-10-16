@@ -52,16 +52,30 @@ class ReleaseManifestRulesTest {
                 permissions = """
                     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
                     <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
-                    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-                    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-                    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
                     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
                     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
                     <uses-permission-sdk-23 android:name="android.permission.USE_EXACT_ALARM" />
                 """,
             ),
         )
-        assertEquals(8, v.size, v.toString())
+        assertEquals(5, v.size, v.toString())
+    }
+
+    /** Spec §12: location for the safe zones; the service of type location ships. */
+    @Test
+    fun locationIsAllowedForSafeZones() {
+        val v = ReleaseManifestRules.violations(
+            manifest(
+                permissions = """
+                    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+                    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+                    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+                    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+                """,
+                application = """<service android:name="app.kinsight.core.location.LocationService" android:foregroundServiceType="location" android:exported="false" />""",
+            ),
+        )
+        assertEquals(emptyList(), v)
     }
 
     @Test
