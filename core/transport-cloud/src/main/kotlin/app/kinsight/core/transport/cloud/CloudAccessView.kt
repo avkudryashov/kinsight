@@ -8,6 +8,7 @@ import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.MembershipState
+import app.kinsight.core.model.StorageOwnerState
 import app.kinsight.core.model.proto.CloudAccess
 import app.kinsight.core.model.proto.CloudGrant
 import app.kinsight.core.sync.EntryStore
@@ -62,12 +63,41 @@ object CloudAccessView {
         val access = entries.filter { it.author == owner.deviceId && it.kind == EntryKind.CLOUD_ACCESS }
             .maxByOrNull { it.seq }?.body?.cloud_access ?: return null
         if (access.generation != owner.generation || access.storage_id != owner.storageId) return null
+        return open(membership.groupId, owner, access, ring)
+    }
+
+    /**
+     * [owner]'s newest CLOUD_ACCESS entry for [owner]'s own generation and storage (any StorageOwner op, an older one
+     * too), paging through [owner]'s log only; null when there is none. [open] decrypts it.
+     */
+    suspend fun newestFor(store: EntryStore, owner: StorageOwnerState, page: Int = PAGE): DecodedEntry? {
+        var newest: DecodedEntry? = null
+        var after = 0L
+        while (true) {
+            val entries = store.entriesAfter(owner.deviceId, after, page)
+            if (entries.isEmpty()) break
+            entries.lastOrNull { e ->
+                e.kind == EntryKind.CLOUD_ACCESS && e.body.cloud_access?.let { it.generation == owner.generation && it.storage_id == owner.storageId } == true
+            }?.let { newest = it }
+            after = entries.last().seq
+        }
+        return newest
+    }
+
+    /** The access [entry] grants for [owner]'s generation and storage, decrypted with [ring]; null when it does not open. */
+    fun open(groupId: GroupId, owner: StorageOwnerState, entry: DecodedEntry, ring: Map<Int, ByteArray>): StorageAccess? {
+        val access = entry.body.cloud_access ?: return null
+        if (entry.author != owner.deviceId || access.generation != owner.generation || access.storage_id != owner.storageId) return null
+        return open(groupId, owner, access, ring)
+    }
+
+    private fun open(groupId: GroupId, owner: StorageOwnerState, access: CloudAccess, ring: Map<Int, ByteArray>): StorageAccess? {
         val groupKey = ring[access.key_epoch] ?: return null
         val storageId = owner.storageId.toByteArray()
         val grant = try {
             val plain = Primitives.chachaOpen(
                 GroupKey.accessKey(groupKey), access.nonce.toByteArray(),
-                aad(membership.groupId, owner.generation, storageId, access.key_epoch), access.ciphertext.toByteArray(),
+                aad(groupId, owner.generation, storageId, access.key_epoch), access.ciphertext.toByteArray(),
             )
             CloudGrant.ADAPTER.decode(plain)
         } catch (e: CryptoException) {

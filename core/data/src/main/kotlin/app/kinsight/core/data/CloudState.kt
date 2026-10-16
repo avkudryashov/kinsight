@@ -30,7 +30,9 @@ enum class CloudProblem { UNAUTHORIZED, NO_ACCESS, STORAGE_FULL, NETWORK, RENEW_
  * [refreshCheckMs]: the owner's last token check (spec §6 «Продление», weekly); [tokenSinceMs]: when the owner's token
  * was last refreshed, or first checked here (rulings Q9: refreshed at 30 days of age); [ownerHeard]: when this device
  * last saw the storage owner's log grow, on its own clock (rulings Q14, for «Владелец недоступен»); [transfer]: the owner's
- * transfer invite this phone welcomed (spec §7.3), until the new phone's StorageOwner arrives and this phone leaves.
+ * transfer invite this phone welcomed (spec §7.3), until the new phone's StorageOwner arrives and this phone leaves;
+ * [olderAccessGeneration]: the newest older storage generation whose CloudAccess token this parent dealt with (taken for
+ * the revoke or found in use), so a token once revoked is never taken from the log again.
  */
 data class CloudState(
     val lastRunMs: Long? = null,
@@ -41,6 +43,7 @@ data class CloudState(
     val ownerHeard: OwnerHeard? = null,
     val tokenSinceMs: Long? = null,
     val transfer: OwnerTransferRecord? = null,
+    val olderAccessGeneration: Long? = null,
 ) {
     /** This device's time of the last sighting of the tracked owner (rulings Q14), or null when none is tracked. */
     val ownerHeardAtMs: Long? get() = ownerHeard?.heardAtMs
@@ -61,6 +64,7 @@ class CloudStateStore(private val store: DataStore<Preferences>) {
             ownerHeard(p),
             p[TOKEN_SINCE],
             transfer(p),
+            p[OLDER_ACCESS],
         )
     }
 
@@ -104,6 +108,11 @@ class CloudStateStore(private val store: DataStore<Preferences>) {
     private fun ownerHeard(p: Preferences): OwnerHeard? {
         val id = p[OWNER_ID]?.let { runCatching { DeviceId(it) }.getOrNull() } ?: return null
         return OwnerHeard(id, p[OWNER_SEQ] ?: return null, p[OWNER_HEARD] ?: return null)
+    }
+
+    /** Final review, Important 3: the CloudAccess token of storage [generation] was dealt with (CloudRunner). */
+    suspend fun markOlderAccess(generation: Long) {
+        store.edit { p -> if ((p[OLDER_ACCESS] ?: 0L) < generation) p[OLDER_ACCESS] = generation }
     }
 
     /** Spec §7.3: this phone welcomed [r]'s target with the owner's tokens; replaces any earlier record. */
@@ -153,6 +162,7 @@ class CloudStateStore(private val store: DataStore<Preferences>) {
         private val TRANSFER_TOKEN_ID = stringPreferencesKey("transfer_token_id")
         private val TRANSFER_GENERATION = longPreferencesKey("transfer_generation")
         private val TRANSFER_UNTIL = longPreferencesKey("transfer_until_ms")
+        private val OLDER_ACCESS = longPreferencesKey("older_access_generation")
 
         /** [file] must end with ".preferences_pb". */
         fun create(file: File, scope: CoroutineScope): CloudStateStore = CloudStateStore(

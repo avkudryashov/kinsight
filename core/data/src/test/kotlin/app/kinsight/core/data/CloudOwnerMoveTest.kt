@@ -4,13 +4,16 @@ import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.proto.Heartbeat
+import app.kinsight.core.sync.HandedAccess
 import app.kinsight.core.transport.cloud.CloudAccessView
 import app.kinsight.core.transport.cloud.CloudPaths
 import app.kinsight.core.transport.cloud.DiskApi
 import app.kinsight.core.transport.cloud.DiskException
+import app.kinsight.core.transport.cloud.GroupKey
 import app.kinsight.core.transport.cloud.InMemoryDisk
 import app.kinsight.core.transport.cloud.OwnerLifecycle
 import app.kinsight.core.transport.cloud.StorageMove
+import app.kinsight.core.transport.cloud.TokenSet
 import kotlinx.coroutines.runBlocking
 import okio.ByteString.Companion.toByteString
 import kotlin.test.AfterTest
@@ -381,5 +384,61 @@ class CloudOwnerMoveTest {
         assertNull(s.start("Pixel", SignInMode.TAKE_OVER))
         dad.now = heard + week + 1
         assertNotNull(dad.signIn(http, disks::disk).start("Pixel", SignInMode.TAKE_OVER))
+    }
+
+    /**
+     * Final review, Important 3: Mom's phone is lost. Dad removes it and pairs her new phone, which cannot open her old
+     * CloudAccess (sealed under a key generation it never got) and signs in afresh. Dad's access came only from the log,
+     * never handed: he still revokes the lost phone's token, once every phone switched.
+     */
+    @Test
+    fun aParentWithAccessFromTheLogRevokesTheLostOwnersToken() = runBlocking<Unit> {
+        val pixel = TestDevice()
+        try {
+            mom.group.createGroup("Mom")
+            dad.joinAsAdminOf(mom)
+            kid.joinGroupOf(mom)
+            val g = mom.groups.read()!!
+            val year = 365L * 24 * 60 * 60 * 1000
+            val before = membershipOf(mom)
+            check(mom.appendOwn { a -> listOf(GroupKey.rotate(a, before)) }) // key generation 1
+            val storage = ByteArray(16) { 1 }
+            assertNotNull(OwnerRecords.claim(mom.appendOwn, mom.store(), mom.keys, mom.cloudSecrets.ring(g), storage, 1, "AT", mom.now + year))
+            mom.cloudSecrets.saveOwner(g.groupId, 1, storage, TokenSet("AT", "RT", mom.now + year))
+            StorageMove.writeStorageId(momDisk, g.groupId, storage)
+            dad.store().storeMembership(mom.store().membershipEntries())
+            dadHoldsMomsLog()
+            OwnerRecords.writeKey(dad.keys, membershipOf(dad), dad.cloudSecrets.ring(g)) // as a sync absorbs the rotation
+            val newDisk = InMemoryDisk()
+            val accounts = AccountDisks(mapOf("AT" to momDisk, "NEW" to newDisk))
+            val oauth = FakeOAuthHttp(accessToken = "NEW")
+            assertEquals(CloudRun.SYNCED, dad.runner(accounts::disk, oauth).run(CloudTrigger.NOW))
+            assertNull(dad.cloudSecrets.tokens(), "Dad's access is the log's CloudAccess only")
+            dadRemovesMom()
+            assertEquals(CloudRun.SYNCED, dad.runner(accounts::disk, oauth).run(CloudTrigger.NOW)) // rotates for the removal
+            pixel.joinAsAdminOf(dad, name = "Pixel")
+            val s = pixel.signIn(oauth, accounts::disk)
+            assertNotNull(s.start("Pixel", SignInMode.TAKE_OVER), "${s.state.value}")
+            assertEquals(CloudEnableResult.TAKEN_OVER, s.finish("1234567"))
+            assertTrue(pixel.cloudSecrets.retired(g.groupId).isEmpty(), "the new phone could not open the lost phone's access")
+            // The new owner's records and its token reach Dad over Bluetooth.
+            dad.store().storeMembership(pixel.store().membershipEntries())
+            dad.store().applyBatch(pixel.store().entriesAfter(pixel.keys.deviceId, 0, 10_000))
+            val owner = membershipOf(dad).storageOwner!!
+            assertEquals(pixel.keys.deviceId to 2L, owner.deviceId to owner.generation)
+            assertTrue(dad.cloudSecrets.saveHanded(g.groupId, HandedAccess(2, owner.storageId.toByteArray(), "NEW", pixel.now + year), keep = true))
+            val revokes = { oauth.urls.count { it.endsWith("/revoke_token") } }
+            assertEquals(CloudRun.SYNCED, dad.runner(accounts::disk, oauth).run(CloudTrigger.NOW))
+            assertEquals(listOf(1L to "AT"), dad.cloudSecrets.retired(g.groupId).map { it.generation to it.accessToken })
+            assertEquals(0, revokes(), "the kid and the new phone have not switched yet")
+            dad.store().applyBatch(listOf(kid.beat(2), pixel.beat(2)))
+            assertEquals(CloudRun.SYNCED, dad.runner(accounts::disk, oauth).run(CloudTrigger.NOW))
+            assertEquals(1, revokes())
+            assertEquals("AT", oauth.forms.last()["access_token"])
+            assertEquals(CloudRun.SYNCED, dad.runner(accounts::disk, oauth).run(CloudTrigger.NOW))
+            assertEquals(1, revokes(), "revoked once, never taken from the log again")
+        } finally {
+            pixel.close()
+        }
     }
 }

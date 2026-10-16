@@ -161,6 +161,7 @@ class CloudRunner(
             // Spec §7: a handed token of an older generation goes once the new storage's access opens here (rulings Q13);
             // a parent keeps it for the revoke, a child never retires.
             dropFollowed(store, group.groupId, membership, ring, keep = !me.isChild)
+            if (!me.isChild) retireOlderAccess(store, membership, ring)
         }
         // Spec §7.1 «переключаются при следующей синхронизации» (fix round 1): no access of the current generation opens
         // yet (the new StorageOwner came over Bluetooth, the CloudAccess did not), so the older handed token still held
@@ -190,7 +191,10 @@ class CloudRunner(
         val result = sync.run()
         observeOwner(store, membership, now)
         val after = Membership.compute(group.groupId, store.membershipEntries())
-        if (!isOwner && after != null) dropFollowed(store, group.groupId, after, ring, keep = !me.isChild)
+        if (!isOwner && after != null) {
+            dropFollowed(store, group.groupId, after, ring, keep = !me.isChild)
+            if (!me.isChild) retireOlderAccess(store, after, ring)
+        }
         // The old token's run revokes nothing: it is still in use and must not be dropped as such.
         if (result is CloudResult.Synced && access != null && after != null) afterSynced(store, group.groupId, after, k, ring, access.accessToken)
         return when (result) {
@@ -220,6 +224,18 @@ class CloudRunner(
      */
     private suspend fun dropFollowed(store: RoomEntryStore, groupId: GroupId, m: MembershipState, ring: GroupKeyRing, keep: Boolean) {
         if (CloudAccessView.current(store, m, ring.keys()) != null) secrets.retireStale(groupId, m, keep = keep)
+    }
+
+    /**
+     * Final review, Important 3: once the storage generation moved on, a parent keeps the previous generation's
+     * CloudAccess token for the revoke too (its vault may hold none: its access came from the log). Before the sync too,
+     * while the ring still holds that CloudAccess's key. Once per generation ([CloudState.olderAccessGeneration]), so a
+     * token revoked and dropped is never taken again.
+     */
+    private suspend fun retireOlderAccess(store: RoomEntryStore, m: MembershipState, ring: GroupKeyRing) {
+        val older = OwnerLifecycle.previousOwner(m) ?: return
+        if (older.generation <= (state.current().olderAccessGeneration ?: 0L)) return
+        if (secrets.retireOlderAccess(store, m, older, ring)) state.markOlderAccess(older.generation)
     }
 
     /** The handed token of an older storage generation of [groupId] still in the vault, or null. */

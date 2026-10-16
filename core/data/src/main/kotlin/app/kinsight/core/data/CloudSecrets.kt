@@ -10,6 +10,7 @@ import app.kinsight.core.keystore.RetiredTokenFile
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.MembershipState
+import app.kinsight.core.model.StorageOwnerState
 import app.kinsight.core.sync.EntryStore
 import app.kinsight.core.sync.HandedAccess
 import app.kinsight.core.sync.PendingRevoke
@@ -236,6 +237,26 @@ class CloudSecrets(
         if (keep) retire(groupId, held.storageGeneration, held.accessToken)
         withContext(io) { vault.delete() }
         true
+    }
+
+    /**
+     * Spec §7.1, §7.4 (final review, Important 3): the access token of [older], a StorageOwner op before the one in force,
+     * as its newest CloudAccess opens here, kept for the revoke. A parent whose access came from the log holds nothing in
+     * its vault, yet the token may be known to a departed phone (a lost owner's) that the new owner could not read it
+     * for. Never one still in use (Task 7): the same token id as the op in force (spec §7.3, rulings Q3), the token of the
+     * CloudAccess in force or the one in this phone's vault. True when [older] is dealt with: retired, in use, or its
+     * CloudAccess sealed under a key this ring no longer holds (it never comes back); false while none is in the log yet.
+     */
+    suspend fun retireOlderAccess(store: EntryStore, membership: MembershipState, older: StorageOwnerState, ring: GroupKeyRing): Boolean {
+        val owner = membership.storageOwner ?: return false
+        if (older.generation >= owner.generation) return false
+        if (older.tokenId.size > 0 && older.tokenId == owner.tokenId) return true
+        val entry = CloudAccessView.newestFor(store, older) ?: return false
+        val keys = ring.keys()
+        val old = CloudAccessView.open(membership.groupId, older, entry, keys) ?: return true
+        val inUse = setOfNotNull(CloudAccessView.current(store, membership, keys)?.accessToken, tokens()?.takeIf { it.groupHex == membership.groupId.hex }?.accessToken)
+        if (old.accessToken !in inUse) retire(membership.groupId, older.generation, old.accessToken)
+        return true
     }
 
     /** Null when the file is unreadable (logged). */
