@@ -70,7 +70,7 @@ fun LocationRoute(id: DeviceId, onZones: () -> Unit, onBack: () -> Unit) {
 fun LocationScreen(child: ChildLocation, nowMs: Long, onZones: () -> Unit, onBack: () -> Unit) =
     Screen(stringResource(R.string.loc_title, child.member.name), onBack) { padding ->
         val context = LocalContext.current
-        fun time(ms: Long) = DateUtils.formatDateTime(context, ms, DateUtils.FORMAT_SHOW_TIME)
+        fun time(ms: Long) = DateUtils.formatDateTime(context, ms, timeFlags(ms, nowMs))
         // Rulings L1: the last point in whatever maps app the parent has; Kinsight itself fetches no tiles. Hidden
         // when nothing on the phone opens a geo: link.
         val mapIntent = remember(child.last, context) {
@@ -136,4 +136,14 @@ private fun statusText(s: PlaceStatus?, nowMs: Long): String = when (s) {
 internal fun geoUri(latE7: Int, lonE7: Int): String {
     val c = String.format(Locale.ROOT, "%.7f,%.7f", latE7 / 1e7, lonE7 / 1e7)
     return "geo:$c?q=$c"
+}
+
+/** A time of today shows the time only; an older one (a point may be up to 48 h old) shows its date too (Y4 review Minor 4). */
+internal fun timeFlags(ms: Long, nowMs: Long, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): Int {
+    fun day(t: Long) = java.time.Instant.ofEpochMilli(t).atZone(zone).toLocalDate()
+    return if (day(ms) == day(nowMs)) {
+        DateUtils.FORMAT_SHOW_TIME
+    } else {
+        DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH
+    }
 }

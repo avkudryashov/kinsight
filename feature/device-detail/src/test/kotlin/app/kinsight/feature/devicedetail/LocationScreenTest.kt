@@ -123,4 +123,17 @@ class LocationScreenTest {
     @Test
     fun theGeoLinkKeepsFullPrecisionWithDots() =
         assertEquals("geo:40.4168123,-3.7038001?q=40.4168123,-3.7038001", geoUri(404_168_123, -37_038_001))
+
+    /** Y4 review Minor 4: a last point from an earlier day carries its date, today's only its time. */
+    @Test
+    fun aPointFromAnEarlierDayShowsItsDate() {
+        val zone = java.time.ZoneId.systemDefault()
+        val yesterday = java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate().minusDays(1).atTime(12, 0).atZone(zone).toInstant().toEpochMilli()
+        val old = GeoPoint(404_120_000, -37_080_000, 15, yesterday)
+        show(ChildLocation(kid, PlaceStatus.Outside(old, old.timeMs), old, listOf(old), listOf(home), emptyList()))
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val date = android.text.format.DateUtils.formatDateTime(app, yesterday, android.text.format.DateUtils.FORMAT_SHOW_DATE or android.text.format.DateUtils.FORMAT_ABBREV_MONTH)
+        rule.onNodeWithTag("loc_last").assertTextContains(date, substring = true)
+        assertEquals(android.text.format.DateUtils.FORMAT_SHOW_TIME, timeFlags(now - 5 * min, now, zone))
+    }
 }
