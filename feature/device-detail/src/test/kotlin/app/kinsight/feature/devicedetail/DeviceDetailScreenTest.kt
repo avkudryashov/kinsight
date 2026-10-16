@@ -606,11 +606,36 @@ class DeviceDetailScreenTest {
         assertEquals(1, opened)
     }
 
+    private fun showWithLocation(d: DeviceDetail, onLocation: (() -> Unit)?) = rule.setContent {
+        KinsightTheme(dynamicColor = false) {
+            DeviceDetailScreen(d, onPeriod = {}, onAllApps = {}, onBack = {}, thresholds = emptyList(), onLocation = onLocation)
+        }
+    }
+
     @Test
     fun withoutOnLocationThereIsNoLocationEntry() {
-        // A child's phone (and a parent shown) gets no entry: the route passes null there.
-        show(detail)
-        list.performScrollToNode(hasTestTag("det_event_5"))
+        // A child's phone gets no entry: the route passes null there. The entry would follow the limits row.
+        showWithLocation(detail, onLocation = null)
+        list.performScrollToNode(hasTestTag("det_thresholds"))
+        rule.onNodeWithTag("det_thresholds").assertExists()
         rule.onNodeWithTag("det_location").assertDoesNotExist()
+    }
+
+    @Test
+    fun aParentShownOrAChildWhoLeftHasNoLocationEntry() {
+        val shown = mutableStateOf(detail.copy(member = kid.copy(role = Role.PARENT)))
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                DeviceDetailScreen(shown.value, onPeriod = {}, onAllApps = {}, onBack = {}, thresholds = emptyList(), onLocation = {})
+            }
+        }
+        rule.onNodeWithTag("det_location").assertDoesNotExist()
+        shown.value = detail.copy(sharing = Sharing.Left)
+        rule.waitForIdle()
+        list.performScrollToNode(hasTestTag("det_app_pkg.1"))
+        rule.onNodeWithTag("det_location").assertDoesNotExist()
+        shown.value = detail // the control: the same list does show it for a sharing child
+        rule.waitForIdle()
+        list.performScrollToNode(hasTestTag("det_location"))
     }
 }

@@ -1,5 +1,8 @@
 package app.kinsight.feature.devicedetail
 
+import app.kinsight.core.data.GeoPoint
+import app.kinsight.core.data.ZoneView
+import app.kinsight.core.model.DeviceId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -40,5 +43,22 @@ class MapProjectionTest {
     fun nothingToShowIsNull() {
         assertNull(MapProjection.fit(emptyList(), w, h, pad))
         assertNull(MapProjection.fit(listOf(Triple(0, 0, 0)), 30f, 30f, pad))
+    }
+
+    @Test
+    fun theLastPointsAccuracyHaloFitsInsideThePadding() {
+        val home = ZoneView("aa".repeat(16), "Home", 404_168_000, -37_038_000, 150, DeviceId("aa".repeat(16)))
+        val route = listOf(GeoPoint(404_168_000, -37_030_000, 10, 1L))
+        val last = GeoPoint(404_168_000, -37_020_000, 120, 2L) // the east edge of everything
+        val p = MapProjection.fit(mapCircles(listOf(home), route, last), w, h, pad)!!
+        val halo = p.px(last.accuracyM.toDouble())
+        assertTrue(p.x(last.lonE7) + halo <= w - pad + 0.5f, "halo inside on the right")
+        assertTrue(p.y(last.latE7) - halo >= pad - 0.5f && p.y(last.latE7) + halo <= h - pad + 0.5f, "halo inside vertically")
+    }
+
+    @Test
+    fun aVagueLastPointDoesNotZoomTheMapOut() {
+        val last = GeoPoint(0, 0, 50_000, 1L)
+        assertEquals(MAX_HALO_M, mapCircles(emptyList(), emptyList(), last).single().third)
     }
 }

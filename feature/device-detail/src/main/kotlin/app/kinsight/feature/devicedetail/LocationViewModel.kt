@@ -25,12 +25,19 @@ private class RepositoryLocationSource(private val location: LocationRepository,
     override fun groupReady() = usage.groupReady
 }
 
+/** The screen's view and whether a null one means «no such device»: one value, so they never disagree for a frame. */
+data class LocationState(val child: ChildLocation? = null, val loaded: Boolean = false)
+
 class LocationViewModel internal constructor(source: LocationSource) : ViewModel() {
     constructor(location: LocationRepository, usage: UsageRepository, id: DeviceId) : this(RepositoryLocationSource(location, usage, id))
 
-    val child: StateFlow<ChildLocation?> = source.child().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
-    /** The first view arrived while the group is readable: a null child is then «no such device». */
-    val loaded: StateFlow<Boolean> = combine(source.child().map { true }.onStart { emit(false) }, source.groupReady()) { l, r -> l && r }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    /**
+     * One collection of the child's view; [LocationState.loaded] once the first view arrived while the group is
+     * readable (a null child is then «no such device»).
+     */
+    val state: StateFlow<LocationState> = combine(
+        source.child().map { LocationState(it, loaded = true) }.onStart { emit(LocationState()) },
+        source.groupReady(),
+    ) { s, ready -> s.copy(loaded = s.loaded && ready) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LocationState())
 }

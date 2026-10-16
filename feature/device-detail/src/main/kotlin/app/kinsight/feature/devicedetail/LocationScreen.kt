@@ -28,7 +28,10 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.ChildLocation
@@ -42,19 +45,22 @@ import java.util.Locale
 fun LocationRoute(id: DeviceId, onZones: () -> Unit, onBack: () -> Unit) {
     val graph = AppGraph.get(LocalContext.current)
     val vm: LocationViewModel = viewModel(key = "location-${id.hex}") { LocationViewModel(graph.location, graph.usage, id) }
-    val child by vm.child.collectAsStateWithLifecycle()
-    val loaded by vm.loaded.collectAsStateWithLifecycle()
+    val state by vm.state.collectAsStateWithLifecycle()
+    // «5 min ago» ticks only while the screen is in front; a return refreshes «now» at once (as DeviceDetailRoute).
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(60_000)
-            now = System.currentTimeMillis()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                now = System.currentTimeMillis()
+                delay(60_000)
+            }
         }
     }
-    val c = child
+    val c = state.child
     when {
         c != null -> LocationScreen(c, now, onZones, onBack)
-        loaded -> MissingDevice(onBack)
+        state.loaded -> MissingDevice(onBack)
         else -> Loading()
     }
 }
