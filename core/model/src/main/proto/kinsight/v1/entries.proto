@@ -34,6 +34,7 @@ message EntryBody {
     Location location = 18;           // protocol 3: one fix of a child's position
     SafeZone safe_zone = 19;          // protocol 3: a parent's safe zone
     StorageHandover storage_handover = 20;  // protocol 3: the storage owner asks a parent to take the storage (spec §7.1)
+    ParentPin parent_pin = 21;              // protocol 3: the parents' PIN for a child's phone, as a slow hash (spec §10)
   }
 }
 
@@ -232,4 +233,15 @@ message SafeZone {
   uint32 radius_m = 5;
   bool deleted = 6;
   int64 rank = 7;       // as CategoryOverride.rank: orders an edit after the version it replaces
+}
+
+// Spec §10 «по PIN на телефоне ребёнка»: the PIN that opens a child's settings, set by an admin parent. Only its slow hash:
+// Argon2id (RFC 9106, version 0x13, 1 lane, 32 bytes) of the PIN's ASCII digits with [salt]; never the PIN. One live
+// entry per author (supersede key <author>/pin); the effective one is an admin parent's with the highest (rank, author).
+message ParentPin {
+  bytes salt = 1;          // 16 random bytes
+  bytes hash = 2;          // 32 bytes
+  uint32 memory_kib = 3;   // Argon2 memory cost
+  uint32 iterations = 4;   // Argon2 passes
+  int64 rank = 5;          // as CategoryOverride.rank: a new PIN outranks the one it replaces
 }

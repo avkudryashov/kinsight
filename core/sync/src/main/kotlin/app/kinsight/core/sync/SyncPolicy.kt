@@ -39,7 +39,10 @@ data class SyncPolicy(
         /** Spec §8: LOCATION entries older than the current day plus a margin, 48 h, go at prune and on receipt. */
         const val LOCATION_RETENTION_MS = 48L * 60 * 60 * 1000
 
-        /** Parent-signed kinds a child takes as well (R5 of the cloud plan): storage access, and the safe zones it watches (spec §8.1). */
-        val FROM_PARENTS_TO_ALL: Set<EntryKind> = setOf(EntryKind.CLOUD_ACCESS, EntryKind.SAFE_ZONE)
+        /**
+         * Parent-signed kinds a child takes as well (R5 of the cloud plan): storage access, the safe zones it watches (spec
+         * §8.1) and the parents' PIN it checks (spec §10).
+         */
+        val FROM_PARENTS_TO_ALL: Set<EntryKind> = setOf(EntryKind.CLOUD_ACCESS, EntryKind.SAFE_ZONE, EntryKind.PARENT_PIN)
     }
 }

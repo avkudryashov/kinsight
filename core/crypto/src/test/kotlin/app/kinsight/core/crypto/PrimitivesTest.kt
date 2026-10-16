@@ -71,4 +71,21 @@ class PrimitivesTest {
         val alice = X25519.generate()
         assertFailsWith<CryptoException> { X25519.agree(alice.privateKey, ByteArray(32)) }
     }
+
+    @Test
+    fun argon2idMatchesTheReferenceVector() {
+        // phc-winner-argon2 test vector: Argon2id version 0x13, t = 2, m = 2^16 KiB, p = 1, "password", "somesalt".
+        assertEquals(
+            "09316115d5cf24ed5a15a31a3ba326e5cf32edc24702987c02b6566f61913cf7",
+            Primitives.argon2id("password".encodeToByteArray(), "somesalt".encodeToByteArray(), memoryKib = 65_536, iterations = 2).toHex(),
+        )
+    }
+
+    @Test
+    fun argon2idDependsOnTheSalt() {
+        val a = Primitives.argon2id("2468".encodeToByteArray(), ByteArray(16) { 1 }, memoryKib = 8_192, iterations = 1)
+        val b = Primitives.argon2id("2468".encodeToByteArray(), ByteArray(16) { 2 }, memoryKib = 8_192, iterations = 1)
+        assertEquals(32, a.size)
+        assertFalse(a.contentEquals(b))
+    }
 }

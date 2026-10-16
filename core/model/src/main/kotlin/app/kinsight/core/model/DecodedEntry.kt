@@ -9,7 +9,7 @@ import java.time.format.DateTimeParseException
 
 enum class EntryKind {
     USAGE_SUMMARY, USAGE_DETAIL, APP_CATALOG, STATE_EVENT, HEARTBEAT, MEMBERSHIP_OP, CATEGORY_OVERRIDE,
-    CLOUD_ACCESS, LOCATION, SAFE_ZONE, STORAGE_HANDOVER, UNKNOWN,
+    CLOUD_ACCESS, LOCATION, SAFE_ZONE, STORAGE_HANDOVER, PARENT_PIN, UNKNOWN,
 }
 
 class EntryFormatException(message: String, cause: Throwable? = null) : Exception(message, cause)
@@ -40,6 +40,7 @@ class DecodedEntry private constructor(
         body.location != null -> EntryKind.LOCATION
         body.safe_zone != null -> EntryKind.SAFE_ZONE
         body.storage_handover != null -> EntryKind.STORAGE_HANDOVER
+        body.parent_pin != null -> EntryKind.PARENT_PIN
         else -> EntryKind.UNKNOWN
     }
 
@@ -52,6 +53,7 @@ class DecodedEntry private constructor(
         EntryKind.CLOUD_ACCESS -> "${author.hex}/access"
         EntryKind.SAFE_ZONE -> "${author.hex}/zone/${body.safe_zone!!.zone_id.hex()}"
         EntryKind.STORAGE_HANDOVER -> "${author.hex}/handover"
+        EntryKind.PARENT_PIN -> "${author.hex}/pin"
         else -> null
     }
 
