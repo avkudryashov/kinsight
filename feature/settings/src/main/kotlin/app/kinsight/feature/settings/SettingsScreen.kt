@@ -111,6 +111,7 @@ fun SettingsRoute(
     val locationChanged: () -> Unit = {
         locationState = LocationPermissions.state(context)
         LocationGraph.refresh(context, rearm = true)
+        AppGraph.get(context).launchLocationCheck()
     }
     val foreground = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { locationChanged() }
     val background = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { locationChanged() }
@@ -213,8 +214,12 @@ fun SettingsScreen(
     }
     val child = role == Role.CHILD
     // Spec §10: on a child's phone nothing about sharing changes without the parent PIN; it opens Settings for a while.
+    // The view model clears unlockedUntilMs on a monotonic clock; the wall-clock compare can only end it sooner.
     val unlocked = child && (ui.lock.unlockedUntilMs ?: Long.MIN_VALUE) > nowMs
-    val childLocked = child && !unlocked
+    // Fail closed: until the group is read this phone may be a child's, so neither the child's switches nor the adult
+    // actions are shown.
+    val loading = ui.group is GroupState.Loading
+    val childLocked = (child && !unlocked) || loading
     var askPin by rememberSaveable { mutableStateOf(false) }
     var setPin by rememberSaveable { mutableStateOf(false) }
     var advanced by rememberSaveable { mutableStateOf(false) }
@@ -229,7 +234,8 @@ fun SettingsScreen(
             askPin = false
         } else {
             advanced = false
-            if (!keyError) ask = null
+            // A storage error keeps its way out (the disconnect and the retention it shows); sharing questions close.
+            if (!keyError || ask == Ask.PAUSE || ask == Ask.STOP) ask = null
         }
     }
     val retentionSection: LazyListScope.() -> Unit = {
@@ -421,7 +427,7 @@ fun SettingsScreen(
                     .testTag("set_transparency"),
             )
         }
-        if (!child) retentionSection()
+        if (!child && !loading) retentionSection()
         if (role == Role.PARENT) {
             section(R.string.set_notifications) {
                 Text(stringResource(R.string.set_summaries))
@@ -463,7 +469,7 @@ fun SettingsScreen(
                 }) { Text(stringResource(R.string.set_language)) }
             }
             TextButton(onPrivacyPolicy, Modifier.testTag("set_privacy")) { Text(stringResource(R.string.set_privacy)) }
-            if (!child) adultActions()
+            if (!child && !loading) adultActions()
             Text(stringResource(R.string.set_version, appVersion), style = MaterialTheme.typography.bodySmall)
         }
         // U22: on a child's phone what is for adults waits under «Advanced», and only while a parent unlocked it (spec §10);
@@ -518,7 +524,7 @@ fun SettingsScreen(
         CloudHandoverDialog(ui.cloud.handoverTargets, onPick = { onCloudHandover(it); handover = false }, onDismiss = { handover = false })
     }
     // A right PIN unlocks, so childLocked turns false and the dialog closes by itself.
-    if (askPin && childLocked) UnlockDialog(ui.lock, nowMs, onUnlock = onUnlock, onDismiss = { askPin = false })
+    if (askPin && childLocked) UnlockDialog(ui.lock, onUnlock = onUnlock, onDismiss = { askPin = false })
     if (setPin) {
         SetPinDialog(
             onSave = {

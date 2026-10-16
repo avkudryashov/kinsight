@@ -169,4 +169,5 @@
     <string name="set_pin_save">Save</string>
     <string name="set_pin_saved">PIN saved.</string>
     <string name="set_pin_failed">Could not save the PIN.</string>
+    <string name="set_pin_check_failed">Could not check the PIN. Try again.</string>
 </resources>

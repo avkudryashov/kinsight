@@ -33,7 +33,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 
@@ -116,7 +118,7 @@ class SettingsViewModelTest {
         var saveResult = PinSave.SAVED
 
         override suspend fun unlock(pin: String): PinCheck {
-            calls += "unlock"
+            call("unlock")
             return pinResult
         }
 
@@ -263,7 +265,7 @@ class SettingsViewModelTest {
 
     @Test
     fun theRightPinOpensTheChildsSettingsForFiveMinutes() = runTest {
-        val vm = SettingsViewModel(actions, clock = { 1_000L })
+        val vm = SettingsViewModel(actions, clock = { 1_000L }, elapsed = { testScheduler.currentTime })
         backgroundScope.launch { vm.ui.collect {} }
         actions.pinResult = PinCheck.WRONG
         vm.unlock("0000")
@@ -272,7 +274,7 @@ class SettingsViewModelTest {
         assertNull(vm.ui.value.lock.unlockedUntilMs)
         actions.pinResult = PinCheck.OK
         vm.unlock("2468")
-        advanceUntilIdle()
+        runCurrent() // advanceUntilIdle would run the unlock's whole five minutes
         assertEquals(1_000L + SettingsViewModel.UNLOCK_MS, vm.ui.value.lock.unlockedUntilMs)
         vm.lock()
         advanceUntilIdle()
@@ -303,5 +305,53 @@ class SettingsViewModelTest {
         vm.setPin("2468")
         advanceUntilIdle()
         assertEquals(PinSave.FAILED, vm.ui.value.lock.pinSaved)
+    }
+
+    /** Review Important 1: the unlock ends on the monotonic clock, by itself, and its state is cleared. */
+    @Test
+    fun theUnlockEndsByItselfAfterFiveMinutes() = runTest {
+        val vm = SettingsViewModel(actions, clock = { 1_000L }, elapsed = { testScheduler.currentTime })
+        backgroundScope.launch { vm.ui.collect {} }
+        actions.pinResult = PinCheck.OK
+        vm.unlock("2468")
+        runCurrent()
+        advanceTimeBy(SettingsViewModel.UNLOCK_MS - 1)
+        runCurrent()
+        assertEquals(1_000L + SettingsViewModel.UNLOCK_MS, vm.ui.value.lock.unlockedUntilMs)
+        advanceTimeBy(2)
+        runCurrent()
+        assertNull(vm.ui.value.lock.unlockedUntilMs)
+        assertNull(vm.ui.value.lock.lastCheck)
+    }
+
+    /** Review Important 1: setting the phone's clock back neither stretches an unlock nor brings one back. */
+    @Test
+    fun aClockSetBackKeepsNoUnlock() = runTest {
+        var wall = 1_000_000_000L
+        val vm = SettingsViewModel(actions, clock = { wall }, elapsed = { testScheduler.currentTime })
+        backgroundScope.launch { vm.ui.collect {} }
+        actions.pinResult = PinCheck.OK
+        vm.unlock("2468")
+        runCurrent()
+        wall -= 24 * 60 * 60_000L
+        advanceTimeBy(SettingsViewModel.UNLOCK_MS + 1)
+        runCurrent()
+        assertNull(vm.ui.value.lock.unlockedUntilMs)
+        wall -= 24 * 60 * 60_000L
+        advanceUntilIdle()
+        assertNull(vm.ui.value.lock.unlockedUntilMs)
+    }
+
+    /** Review Minor 5: a try that could not be checked is not said as «no PIN». */
+    @Test
+    fun anUnlockThatThrowsIsSaidAsNotChecked() = runTest {
+        val vm = SettingsViewModel(actions)
+        backgroundScope.launch { vm.ui.collect {} }
+        actions.fail = "unlock"
+        vm.unlock("2468")
+        advanceUntilIdle()
+        assertTrue(vm.ui.value.lock.checkFailed)
+        assertNull(vm.ui.value.lock.lastCheck)
+        assertNull(vm.ui.value.lock.unlockedUntilMs)
     }
 }

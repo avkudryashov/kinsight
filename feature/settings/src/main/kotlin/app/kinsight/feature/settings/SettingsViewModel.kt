@@ -1,5 +1,6 @@
 package app.kinsight.feature.settings
 
+import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -26,6 +27,8 @@ import app.kinsight.core.data.UsageRepository
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.usage.UsageSettings
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -62,7 +65,9 @@ data class SettingsUi(
 
 /**
  * The child's settings lock and the parent's PIN (spec §10) as the screen shows them. [unlockedUntilMs]: a right PIN
- * opened a child's settings until then. [lastCheck], [pinSaved]: the outcome of the last try and of the last PIN save.
+ * opened a child's settings until about then (wall clock); the view model times the unlock on a monotonic clock and sets
+ * it back to null when the time is up, so moving the phone's clock back never keeps the settings open. [lastCheck],
+ * [pinSaved]: the outcome of the last try and of the last PIN save. [checkFailed]: the last try could not be checked.
  * Never the PIN itself.
  */
 data class LockUi(
@@ -70,6 +75,7 @@ data class LockUi(
     val unlockedUntilMs: Long? = null,
     val lastCheck: PinCheck? = null,
     val pinSaved: PinSave? = null,
+    val checkFailed: Boolean = false,
 )
 
 /** What the settings screen needs from core/data; a seam for tests. */
@@ -203,6 +209,8 @@ private class RepositoryActions(
 class SettingsViewModel internal constructor(
     private val actions: SettingsActions,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** Monotonic, counts deep sleep, cannot be set by the user: it alone ends an unlock. */
+    private val elapsed: () -> Long = SystemClock::elapsedRealtime,
 ) : ViewModel() {
     constructor(
         group: GroupRepository,
@@ -232,7 +240,11 @@ class SettingsViewModel internal constructor(
     private val unlockedUntil = MutableStateFlow<Long?>(null)
     private val lastCheck = MutableStateFlow<PinCheck?>(null)
     private val pinSaved = MutableStateFlow<PinSave?>(null)
-    private val lockPart = combine(actions.childLock, unlockedUntil, lastCheck, pinSaved) { s, u, c, p -> LockUi(s, u, c, p) }
+    private val checkFailed = MutableStateFlow(false)
+    private var expiry: Job? = null
+    private val lockPart = combine(actions.childLock, unlockedUntil, lastCheck, pinSaved, checkFailed) { s, u, c, p, f ->
+        LockUi(s, u, c, p, f)
+    }
 
     val ui: StateFlow<SettingsUi> = combine(data, _error, actions.resetStatus, cloudPart, lockPart) { d, e, r, (cloud, signIn), lock ->
         val resetFailed = r is ResetStatus.Failed && r.kind == ResetKind.NEW_IDENTITY
@@ -311,6 +323,7 @@ class SettingsViewModel internal constructor(
 
     /** A PIN typed on a child's phone; the PIN goes to ChildLock only, never into state or a log. */
     fun unlock(pin: String) {
+        checkFailed.value = false
         viewModelScope.launch {
             val r = try {
                 actions.unlock(pin)
@@ -318,17 +331,30 @@ class SettingsViewModel internal constructor(
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "unlock failed: ${e.javaClass.simpleName}")
-                PinCheck.NO_PIN
+                checkFailed.value = true
+                null
             }
             lastCheck.value = r
-            if (r == PinCheck.OK) unlockedUntil.value = clock() + UNLOCK_MS
+            if (r == PinCheck.OK) {
+                unlockedUntil.value = clock() + UNLOCK_MS
+                val end = elapsed() + UNLOCK_MS
+                expiry?.cancel()
+                // Rechecked every RECHECK_MS: a coroutine delay stops while the phone sleeps, elapsedRealtime does not.
+                expiry = viewModelScope.launch {
+                    while (elapsed() < end) delay(minOf(end - elapsed(), RECHECK_MS))
+                    lock()
+                }
+            }
         }
     }
 
-    /** «Закрыть настройки», or the screen's own timeout. */
+    /** «Закрыть настройки», or the end of [UNLOCK_MS] on the monotonic clock. */
     fun lock() {
+        expiry?.cancel()
+        expiry = null
         unlockedUntil.value = null
         lastCheck.value = null
+        checkFailed.value = false
     }
 
     /** An admin parent's new family PIN (spec §10). A save that threw is said as [PinSave.FAILED] (rulings P6). */
@@ -365,5 +391,8 @@ class SettingsViewModel internal constructor(
 
         /** How long a right parent PIN keeps a child's settings open. */
         const val UNLOCK_MS = 5 * 60_000L
+
+        /** How often a running unlock looks at the monotonic clock. */
+        private const val RECHECK_MS = 1_000L
     }
 }

@@ -39,9 +39,10 @@ private fun PinField(value: String, onValue: (String) -> Unit, label: Int, tag: 
 
 /** Spec §10 «по PIN на телефоне ребёнка»: the parent types the PIN; the outcome of the last try is said under it. */
 @Composable
-internal fun UnlockDialog(lock: LockUi, nowMs: Long, onUnlock: (String) -> Unit, onDismiss: () -> Unit) {
+internal fun UnlockDialog(lock: LockUi, onUnlock: (String) -> Unit, onDismiss: () -> Unit) {
     var pin by remember { mutableStateOf("") }
-    val waitUntil = lock.status.waitUntilMs?.takeIf { it > nowMs }
+    // ChildLock.status drops the wait itself when it ends; the screen's 30 s tick would keep OK off too long.
+    val waitUntil = lock.status.waitUntilMs
     val context = LocalContext.current
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -52,6 +53,7 @@ internal fun UnlockDialog(lock: LockUi, nowMs: Long, onUnlock: (String) -> Unit,
                 PinField(pin, { pin = it }, R.string.set_pin_title, "set_pin_field")
                 val note = when {
                     waitUntil != null -> stringResource(R.string.set_pin_wait, DateUtils.formatDateTime(context, waitUntil, DateUtils.FORMAT_SHOW_TIME))
+                    lock.checkFailed -> stringResource(R.string.set_pin_check_failed)
                     lock.lastCheck == PinCheck.WRONG -> stringResource(R.string.set_pin_wrong)
                     lock.lastCheck == PinCheck.NO_PIN -> stringResource(R.string.set_parent_unlock_no_pin)
                     else -> null

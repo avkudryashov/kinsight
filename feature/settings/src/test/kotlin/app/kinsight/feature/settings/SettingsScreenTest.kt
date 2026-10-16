@@ -1016,4 +1016,50 @@ class SettingsScreenTest {
         show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running, lock = lock))
         rule.onNodeWithTag("set_list").performScrollToNode(hasText("Could not save the PIN."))
     }
+
+    /** Ruling (fix round 1): while the group loads this phone may be a child's, so Settings stay locked. */
+    @Test
+    fun whileTheGroupLoadsNothingCanBeChanged() {
+        show(SettingsUi(GroupState.Loading, UsageSettings(sharing = true, consentAtMs = 1), Prefs(), running))
+        rule.onNodeWithTag("set_sync_now").assertExists()
+        rule.onNodeWithTag("set_stop").assertDoesNotExist()
+        rule.onNodeWithTag("set_share").assertDoesNotExist()
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_privacy"))
+        rule.onNodeWithTag("set_reset").assertDoesNotExist()
+        rule.onNodeWithTag("set_detail_30").assertDoesNotExist()
+        rule.onNodeWithTag("set_advanced").assertDoesNotExist()
+        rule.onNodeWithText("Diagnostics").assertDoesNotExist()
+    }
+
+    /** Review Minor 3: when the settings lock, a question the unlock opened closes with them. */
+    @Test
+    fun aLockClosesAPauseQuestion() {
+        var ui by mutableStateOf(childUi.copy(lock = unlocked))
+        var shared: Boolean? = null
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                SettingsScreen(
+                    ui, "0.4.0", onSharing = { shared = it }, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {},
+                    onRetention = { _, _ -> }, onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {},
+                    onResetIdentity = {}, nowMs = NOW,
+                )
+            }
+        }
+        rule.onNodeWithTag("set_share").performClick()
+        rule.onNodeWithTag("set_pause_confirm").assertExists()
+        ui = ui.copy(lock = locked)
+        rule.waitForIdle()
+        rule.onNodeWithTag("set_pause_confirm").assertDoesNotExist()
+        assertEquals(null, shared)
+    }
+
+    /** Review Minor 5: a try that could not be checked says so, not «no PIN». */
+    @Test
+    fun aPinThatCouldNotBeCheckedIsSaid() {
+        show(childUi.copy(lock = locked.copy(checkFailed = true)))
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_parent_unlock"))
+        rule.onNodeWithTag("set_parent_unlock").performClick()
+        rule.onNodeWithText("Could not check the PIN. Try again.").assertExists()
+        rule.onNodeWithText("has not set a PIN yet", substring = true).assertDoesNotExist()
+    }
 }
