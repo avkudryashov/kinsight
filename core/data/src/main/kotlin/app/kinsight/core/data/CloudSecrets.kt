@@ -145,7 +145,7 @@ class CloudSecrets(
      * owner, an access taken from the log). The one rule for the transfer invite ([welcome]) and for offering it
      * ([CloudStatus.canTransfer]); a sign-in by the owner stores a refresh token again.
      */
-    suspend fun transferTokens(groupId: GroupId, membership: MembershipState, self: DeviceId): CloudTokens? {
+    internal suspend fun transferTokens(groupId: GroupId, membership: MembershipState, self: DeviceId): CloudTokens? {
         val owner = membership.storageOwner?.takeIf { it.deviceId == self } ?: return null
         val storageId = owner.storageId.toByteArray()
         return tokens()?.takeIf {

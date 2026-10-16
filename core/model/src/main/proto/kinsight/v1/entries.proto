@@ -182,7 +182,7 @@ message StorageOwner {
   // Empty in ops written before Y3: such an op counts as its own token.
   bytes token_id = 4;
   // Device ids of the departed members (RemoveMember or LEFT_GROUP) the signer knew of when the token was issued,
-  // at most 64; copied unchanged with the token. A departure missing here may know the token (spec §7.4).
+  // at most 256; copied unchanged with the token. A departure missing here may know the token (spec §7.4).
   repeated bytes departed = 5;
 }
 
