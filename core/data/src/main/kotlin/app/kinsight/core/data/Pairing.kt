@@ -324,10 +324,16 @@ class PairingCoordinator(
                                 Log.w(TAG, "after adding ${outcome.joiner.id}: $e") // the AddMember is stored: still Added
                             }
                             val transferred = outcome.ownerRoleTaken && transferTo == outcome.joiner.id
+                            // The new phone said it did not take the role: no StorageOwner of its own will come.
+                            if (outcome.ownerRoleRefused) dropTransfer(group, outcome.joiner.id)
                             synchronized(lock) { move(InviteState.Added(outcome.joiner.displayName, ownerTransferred = transferred)) }
                             sessionJob.cancel() // ends open()'s timer; this coroutine is the last one
                         }
-                        is HostOutcome.Rejected -> backToShowing()
+                        is HostOutcome.Rejected -> {
+                            // Refused after decide recorded the transfer (the expiry re-check): no tokens went out.
+                            outcome.joiner?.let { dropTransfer(group, it.id) }
+                            backToShowing()
+                        }
                     }
                 } catch (e: CancellationException) {
                     throw e
@@ -351,7 +357,11 @@ class PairingCoordinator(
                     // Spec §7.3: the refresh token goes again only to the joiner this session's admin confirmed and made
                     // an admin, never to a member that merely holds an AddMember under the same keys.
                     bound = joiner.id
-                    return welcome(before, group, withRefresh = transferTo == joiner.id)
+                    // A dropped record (a refusal or a reject) is written again before the token goes out once more.
+                    val self = keys().deviceId
+                    val again = transferTo == joiner.id &&
+                        before.storageOwner?.takeIf { it.deviceId == self }?.let { recordTransfer(group, joiner.id, it) } == true
+                    return welcome(before, group, withRefresh = again)
                 }
                 Precheck.AskAdmin -> Unit
             }
@@ -409,6 +419,18 @@ class PairingCoordinator(
         private suspend fun canTransfer(k: DeviceKeys, group: GroupConfig, membership: MembershipState?): Boolean {
             if (membership == null || role != Role.PARENT || membership.storageOwner?.deviceId != k.deviceId) return false
             return cloud?.welcome(group, RoomEntryStore(db, group.groupId), membership, k.deviceId, withRefresh = true)?.refreshToken != null
+        }
+
+        /** The transfer to [target] did not happen after all: its record goes (only a record for [target]). */
+        private suspend fun dropTransfer(group: GroupConfig, target: DeviceId) {
+            if (transferTo != target) return
+            try {
+                ownerTransfer?.cancel(group.groupId, target)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "owner transfer record not dropped: ${e.javaClass.simpleName}") // it expires by itself
+            }
         }
 
         /** False when the record could not be written: then no refresh token goes out (the old phone could not leave). */

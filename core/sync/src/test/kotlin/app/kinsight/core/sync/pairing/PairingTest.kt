@@ -504,7 +504,9 @@ class PairingTest {
                 guest(parentInvite, name = "Pixel").join(s, onOwnerHandover = { called = true; answer })
             })
             assertIs<GuestResult.Joined>(g.getOrThrow())
-            assertFalse(assertIs<HostOutcome.Welcomed>(h.getOrThrow()).ownerRoleTaken)
+            val outcome = assertIs<HostOutcome.Welcomed>(h.getOrThrow())
+            assertFalse(outcome.ownerRoleTaken)
+            assertTrue(outcome.ownerRoleRefused, "an explicit PairAck(false) either way")
             assertEquals(admin, called, "only a kept refresh token asks the guest to take the role")
         }
     }
@@ -521,7 +523,9 @@ class PairingTest {
             GuestResult.Rejected(PairReject.Reason.REASON_UNSPECIFIED)
         })
         g.getOrThrow()
-        assertFalse(assertIs<HostOutcome.Welcomed>(h.getOrThrow()).ownerRoleTaken)
+        val outcome = assertIs<HostOutcome.Welcomed>(h.getOrThrow())
+        assertFalse(outcome.ownerRoleTaken)
+        assertFalse(outcome.ownerRoleRefused, "no answer is no refusal: the role may still arrive")
     }
 
     @Test

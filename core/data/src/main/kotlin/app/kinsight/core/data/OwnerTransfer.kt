@@ -60,7 +60,7 @@ class OwnerTransfer(
     private val groups: GroupStore,
     private val keys: suspend () -> DeviceKeys,
     private val state: CloudStateStore,
-    /** GroupRepository.leaveAndForget, joined: LEFT_GROUP, a session to carry it, then the identity reset under runLock. */
+    /** GroupRepository.leaveAndForget: LEFT_GROUP, a session to carry it, then the identity reset under runLock. */
     private val leave: suspend () -> Unit,
     private val clock: () -> Long = System::currentTimeMillis,
     private val io: CoroutineDispatcher = Dispatchers.IO,
@@ -70,6 +70,12 @@ class OwnerTransfer(
     /** The welcome to [target] goes out now: the record lives [RECORD_MS] unless the target's StorageOwner comes first. */
     suspend fun record(groupId: GroupId, target: DeviceId, inForce: StorageOwnerState) =
         state.recordTransfer(OwnerTransfers.record(groupId, target, inForce, clock() + RECORD_MS))
+
+    /** The transfer to [target] did not happen (the new phone refused the role, or the welcome never went out). */
+    suspend fun cancel(groupId: GroupId, target: DeviceId) {
+        val r = state.current().transfer ?: return
+        if (r.groupHex == groupId.hex && r.target == target) state.clearTransfer(r)
+    }
 
     /** Null without a live record; [OwnerTransferPhase.DONE] once the transfer completed (the leave has been run). */
     suspend fun check(): OwnerTransferPhase? {

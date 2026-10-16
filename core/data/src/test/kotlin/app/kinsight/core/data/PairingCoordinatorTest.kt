@@ -774,20 +774,59 @@ class PairingCoordinatorTest {
     fun anIncompleteTransferLeavesTheOldPhoneTheOwner() = runBlocking<Unit> {
         mom.group.createGroup("Mom")
         mom.ownStorage(token = "AT")
-        // The new phone cannot store the welcome (an identity reset turned up): it never signs the role.
+        // The new phone cannot store the welcome (an identity reset turned up): it never signs the role and says so.
         val (added, joined) = transferByQr(beforeConfirm = { kid.resetMarker.set() })
         assertEquals(JoinState.Failed(PairFailure.IDENTITY), joined)
         assertEquals(InviteState.Added("Pixel", ownerTransferred = false), added)
-        assertEquals(OwnerTransferPhase.PENDING, momTransfer.check())
+        assertNull(momTransfer.check(), "PairAck(false): no StorageOwner of the new phone will come, the record goes")
+        assertNull(mom.cloudState.current().transfer)
+        assertNull(momStatus().ownerTransfer)
         val g = mom.groups.read()!!
         assertEquals(mom.keys.deviceId, Membership.compute(g.groupId, mom.store().membershipEntries())!!.storageOwner!!.deviceId)
+        assertTrue(mom.cloudSecrets.tokens()!!.owner)
+    }
+
+    @Test
+    fun aLostAckKeepsTheTransferRecordForAWeek() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        mom.ownStorage(token = "AT")
+        val session = momPairing.invite(scope, Role.PARENT, "Mom", transferOwner = true)
+        val qr = Invite.parse(assertIs<InviteState.Showing>(session.state.awaitFirst { it is InviteState.Showing || it is InviteState.Failed }).uri)
+        // A Y3 guest that takes the welcome and hangs up before its PairAck (the link dropped).
+        val stream = air.dial(qr.advertTag, 5.seconds)
+        val ch = SecureChannel.initiate(stream, kid.keys.dh, PairingProtocol.prologue(qr.groupId, qr.token))
+        val proof = kid.keys.sign.sign(PairingProtocol.proofMessage(qr.token, kid.keys.dh.publicKey))
+        val request = PairRequest(qr.token.toByteString(), kid.keys.sign.publicKey.toByteString(), "Pixel", proof.toByteString(), protocol_version = 3)
+        ch.send(PairMessage.ADAPTER.encode(PairMessage(request = request)))
+        assertNotNull(PairMessage.ADAPTER.decode(ch.receive()).pending)
+        session.state.awaitFirst { it is InviteState.Confirm }
+        session.confirm()
+        assertEquals("RT", assertNotNull(PairMessage.ADAPTER.decode(ch.receive()).welcome).refresh_token)
+        ch.close()
+        assertEquals(InviteState.Added("Pixel", ownerTransferred = false), session.state.awaitFirst { it is InviteState.Added })
+        assertEquals(OwnerTransferPhase.PENDING, momTransfer.check())
         momClock += Invite.LIFETIME_MS + 1
         assertEquals(OwnerTransferPhase.PENDING, momTransfer.check(), "a lost PairAck does not end the record with the invite")
         momClock += OwnerTransfer.RECORD_MS
         assertNull(momTransfer.check(), "7 days without the new StorageOwner: the record goes")
         assertNull(mom.cloudState.current().transfer)
-        assertNull(momStatus().ownerTransfer)
-        assertEquals(g.groupId, mom.groups.read()?.groupId, "nothing else happens: the old phone stays in the group")
+        assertEquals(mom.groups.read()!!.groupId, qr.groupId, "nothing else happens: the old phone stays in the group")
+        assertTrue(mom.cloudSecrets.tokens()!!.owner)
+    }
+
+    @Test
+    fun aTransferWelcomeRefusedAfterTheRecordDropsIt() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        mom.ownStorage(token = "AT")
+        val session = momPairing.invite(scope, Role.PARENT, "Mom", transferOwner = true)
+        val qr = Invite.parse(assertIs<InviteState.Showing>(session.state.awaitFirst { it is InviteState.Showing || it is InviteState.Failed }).uri)
+        val join = kidPairing.join(scope, qr, "Pixel", consent = false)
+        session.state.awaitFirst { it is InviteState.Confirm }
+        momClock += Invite.LIFETIME_MS + 1 // the admin confirms too late: the host's expiry re-check refuses the welcome
+        session.confirm()
+        assertEquals(JoinState.Failed(PairFailure.EXPIRED), join.state.awaitFirst { it is JoinState.Joined || it is JoinState.Failed })
+        session.state.awaitFirst { it is InviteState.Showing } // the host is done with the refusal
+        assertNull(mom.cloudState.current().transfer, "no tokens went out: no transfer to wait for")
         assertTrue(mom.cloudSecrets.tokens()!!.owner)
     }
 

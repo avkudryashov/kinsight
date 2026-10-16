@@ -66,8 +66,10 @@ sealed interface HostOutcome {
     /**
      * [ownerRoleTaken]: the welcome carried the owner's refresh token (spec §7.3) and the guest acknowledged that it
      * stored the welcome and signed the StorageOwner. False for every other welcome, and when no acknowledgement came.
+     * [ownerRoleRefused]: the guest answered such a welcome with PairAck(false): it did not take the role (no answer is
+     * neither, the role may still arrive).
      */
-    class Welcomed(val joiner: Joiner, val ownerRoleTaken: Boolean = false) : HostOutcome
+    class Welcomed(val joiner: Joiner, val ownerRoleTaken: Boolean = false, val ownerRoleRefused: Boolean = false) : HostOutcome
 
     class Rejected(val reason: PairReject.Reason, val joiner: Joiner?) : HostOutcome
 }
@@ -171,9 +173,9 @@ class PairingHost(
                     if (clock() > expiresAtMs) return reject(ch, PairReject.Reason.EXPIRED, joiner)
                     if (!bind(joiner.dhPublicKey)) return reject(ch, PairReject.Reason.BAD_TOKEN, joiner)
                     sendWelcome(ch, d)
-                    val taken = refreshOf(d.cloud) != null && awaitAck(ch)
+                    val ack = if (refreshOf(d.cloud) != null) awaitAck(ch) else null
                     PairingProtocol.linger(ch)
-                    HostOutcome.Welcomed(joiner, ownerRoleTaken = taken)
+                    HostOutcome.Welcomed(joiner, ownerRoleTaken = ack == true, ownerRoleRefused = ack == false)
                 }
             }
         } finally {
@@ -217,13 +219,16 @@ class PairingHost(
         const val RETIRED_OVERHEAD = 16
     }
 
-    /** Spec §7.3: true only when the guest answers the transfer welcome with PairAck(owner_role_taken) in time. */
-    private suspend fun awaitAck(ch: SecureChannel): Boolean = try {
-        withTimeoutOrNull(PairingProtocol.ACK_TIMEOUT) { PairingProtocol.receive(ch).ack?.owner_role_taken == true } ?: false
+    /**
+     * Spec §7.3: the guest's PairAck to the transfer welcome in time, true when it took the role; null without one (no
+     * answer in time, a hang-up or another message: the role was not confirmed, yet it may still have been signed).
+     */
+    private suspend fun awaitAck(ch: SecureChannel): Boolean? = try {
+        withTimeoutOrNull(PairingProtocol.ACK_TIMEOUT) { PairingProtocol.receive(ch).ack?.owner_role_taken }
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        false // the guest hung up or sent something else: the role was not confirmed
+        null
     }
 
     /** Spec §7.3: the refresh token goes only with the access it belongs to, and only when well formed. */
