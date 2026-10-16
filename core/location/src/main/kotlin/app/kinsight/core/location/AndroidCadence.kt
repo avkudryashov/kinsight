@@ -23,38 +23,52 @@ class AndroidCadence(context: Context) : Cadence {
     private val app = context.applicationContext
     private val alarms = app.getSystemService(AlarmManager::class.java)
 
-    override fun startService(): Boolean = try {
-        app.startForegroundService(Intent(app, LocationService::class.java))
-        true
-    } catch (e: ForegroundServiceStartNotAllowedException) {
-        Log.w(TAG, "location service not allowed from the background") // spec §14, Android 12+ / 14+
-        false
-    } catch (e: SecurityException) {
-        Log.w(TAG, "location service refused: ${e.javaClass.simpleName}")
-        false
+    /** Not called again while the service is already in the foreground (the tick follows every 5 minutes). */
+    override fun startService(): Boolean {
+        LocationService.wanted = true
+        if (LocationService.foreground) return true
+        return try {
+            app.startForegroundService(Intent(app, LocationService::class.java))
+            true
+        } catch (e: ForegroundServiceStartNotAllowedException) {
+            Log.w(TAG, "location service not allowed from the background") // spec §14, Android 12+ / 14+
+            false
+        } catch (e: SecurityException) {
+            Log.w(TAG, "location service refused: ${e.javaClass.simpleName}")
+            false
+        }
     }
 
+    /**
+     * Only a service already in the foreground is stopped from here; one still starting goes foreground and then stops
+     * itself (LocationService), never «startForegroundService() did not then call startForeground()».
+     */
     override fun stopService() {
-        app.stopService(Intent(app, LocationService::class.java))
+        LocationService.wanted = false
+        if (LocationService.foreground) {
+            LocationService.foreground = false
+            app.stopService(Intent(app, LocationService::class.java))
+        }
     }
 
     override fun armTick(delayMs: Long) {
-        alarms.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + delayMs, tick())
+        alarms.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + delayMs, tick()!!)
     }
 
     override fun cancelTick() {
-        alarms.cancel(tick())
+        tick(PendingIntent.FLAG_NO_CREATE)?.let(alarms::cancel)
     }
 
     override fun schedulePeriodic() = LocationWork.schedule(app)
 
     override fun cancelPeriodic() = LocationWork.cancel(app)
 
-    private fun tick() = PendingIntent.getBroadcast(
+    /** One PendingIntent (same request code and flags): arming again replaces the pending tick (ruling L6). */
+    private fun tick(mode: Int = PendingIntent.FLAG_UPDATE_CURRENT): PendingIntent? = PendingIntent.getBroadcast(
         app,
         REQUEST_TICK,
         Intent(app, LocationTickReceiver::class.java),
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        mode or PendingIntent.FLAG_IMMUTABLE,
     )
 
     private companion object {

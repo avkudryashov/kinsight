@@ -9,15 +9,26 @@ import android.net.Uri
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.testing.WorkManagerTestInitHelper
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import java.util.concurrent.atomic.AtomicInteger
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import app.kinsight.core.model.proto.Location as WireLocation
@@ -29,8 +40,10 @@ class AndroidAdaptersTest {
     private val alarms get() = shadowOf(app.getSystemService(AlarmManager::class.java))
 
     @Before
-    fun workManager() {
+    fun setUp() {
         WorkManagerTestInitHelper.initializeTestWorkManager(app)
+        LocationService.wanted = false
+        LocationService.foreground = false
     }
 
     @Test
@@ -158,5 +171,63 @@ class AndroidAdaptersTest {
         var asked = false
         assertNull(runBlocking { AndroidFixSource(app) { _, _, _ -> asked = true }.fix(1_000L) })
         assertEquals(false, asked)
+    }
+
+    @Test
+    fun aStopBeforeTheServiceStartsLetsItGoForegroundAndThenStopItself() {
+        // An exit at once followed by an entry (a flap at a zone border): never stopped before startForeground.
+        val cadence = AndroidCadence(app)
+        assertTrue(cadence.startService())
+        cadence.stopService()
+        assertEquals(LocationService::class.java.name, shadowOf(app).nextStartedService?.component?.className)
+        assertNull(shadowOf(app).nextStoppedService)
+        val service = Robolectric.buildService(LocationService::class.java).create().startCommand(0, 1).get()
+        assertNotNull(shadowOf(service).lastForegroundNotification)
+        assertTrue(shadowOf(service).isStoppedBySelf)
+        assertFalse(LocationService.foreground)
+    }
+
+    @Test
+    fun aWantedServiceIsStartedOnceAndStoppedFromOutsideOnceForeground() {
+        val cadence = AndroidCadence(app)
+        cadence.startService()
+        assertNotNull(shadowOf(app).nextStartedService)
+        val service = Robolectric.buildService(LocationService::class.java).create().startCommand(0, 1).get()
+        assertNotNull(shadowOf(service).lastForegroundNotification)
+        assertFalse(shadowOf(service).isStoppedBySelf)
+        assertTrue(LocationService.foreground)
+        // The next 5-minute tick finds it running: no second start.
+        assertTrue(cadence.startService())
+        assertNull(shadowOf(app).nextStartedService)
+        cadence.stopService()
+        assertEquals(LocationService::class.java.name, shadowOf(app).nextStoppedService?.component?.className)
+        assertFalse(LocationService.foreground)
+        // Started again after the stop: a new start, not skipped.
+        cadence.startService()
+        assertNotNull(shadowOf(app).nextStartedService)
+    }
+
+    @Test
+    fun aBroadcastIsReleasedWhenItsWorkEndsOrItsBudgetRunsOut() = runBlocking {
+        val scope = CoroutineScope(Dispatchers.Default)
+        val quick = AtomicInteger()
+        val work = Job()
+        Broadcasts.finishWithin(scope, work, budgetMs = 60_000L) { quick.incrementAndGet() }
+        work.complete()
+        assertEquals(1, quick.get())
+
+        val slow = CompletableDeferred<Unit>()
+        val finished = AtomicInteger()
+        val stuck = Job()
+        Broadcasts.finishWithin(scope, stuck, budgetMs = 50L) {
+            finished.incrementAndGet()
+            slow.complete(Unit)
+        }
+        withTimeout(5_000L) { slow.await() }
+        assertFalse(stuck.isCancelled) // the work itself goes on
+        stuck.complete()
+        delay(20L)
+        assertEquals(1, finished.get())
+        assertTrue(Broadcasts.RECEIVER_BUDGET_MS < 60_000L - LocationEngine.FIX_TIMEOUT_MS)
     }
 }

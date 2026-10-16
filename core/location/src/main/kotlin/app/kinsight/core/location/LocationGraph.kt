@@ -21,7 +21,7 @@ object LocationGraph {
     @Volatile
     private var engine: LocationEngine? = null
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    internal val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     fun engine(context: Context): LocationEngine? {
         engine?.let { return it }
@@ -51,7 +51,10 @@ object LocationGraph {
 
     fun refresh(context: Context, rearm: Boolean = false): Job = launch(context, "refresh") { it.refresh(rearm) }
 
-    /** LocalReset, under the cloud runLock: every alert, the service, the tick, the check and the state go. */
+    /**
+     * LocalReset, under the cloud runLock: every alert, the service, the tick, the check and the state go. Without a
+     * host there is no engine and nothing is undone, so the app installs [host] before a reset can run.
+     */
     suspend fun forget(context: Context) {
         engine(context)?.forget()
     }

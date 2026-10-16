@@ -14,6 +14,10 @@ import android.util.Log
  * Spec §8.1 «Вне зон: служба FOREGROUND_SERVICE_LOCATION с уведомлением». It only holds the foreground state and the
  * notification; the points come from the tick (LocationTickReceiver), which goes on without it. If Android refuses the
  * location type here (spec §14, a start from the background on Android 14+), it stops at once and the tick carries on.
+ *
+ * Start and stop meet through [wanted] and [foreground]: a service started with startForegroundService must reach
+ * startForeground before anything stops it, or Android crashes the app. So it always goes foreground first and then
+ * stops itself when it is no longer wanted; [AndroidCadence] stops it from outside only once it is foreground.
  */
 class LocationService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
@@ -26,9 +30,22 @@ class LocationService : Service() {
             startForeground(NOTIFICATION_ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
         } catch (e: Exception) {
             Log.w(TAG, "location service refused: ${e.javaClass.simpleName}")
-            stopSelf(startId)
+            foreground = false
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        // Written before reading [wanted], the mirror of AndroidCadence.stopService: one of the two sides sees the other.
+        foreground = true
+        if (!wanted) {
+            foreground = false
+            stopSelf()
         }
         return START_NOT_STICKY
+    }
+
+    override fun onDestroy() {
+        foreground = false
+        super.onDestroy()
     }
 
     private fun notification(): Notification {
@@ -48,5 +65,13 @@ class LocationService : Service() {
         const val CHANNEL_ID = "kinsight-location"
         private const val NOTIFICATION_ID = 41
         private const val TAG = "KinsightLocation"
+
+        /** The engine wants the service (outside every zone). */
+        @Volatile
+        internal var wanted = false
+
+        /** The service has called startForeground and is not being stopped: safe to stop from outside. */
+        @Volatile
+        internal var foreground = false
     }
 }

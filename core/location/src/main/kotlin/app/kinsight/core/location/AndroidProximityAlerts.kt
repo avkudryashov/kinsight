@@ -25,14 +25,17 @@ class AndroidProximityAlerts(context: Context) : ProximityAlerts {
     }
 
     override fun unregister(zoneId: String) {
-        lm.removeProximityAlert(intent(zoneId))
+        // No PendingIntent means no alert to remove (none was registered, or a reboot dropped both).
+        intent(zoneId, PendingIntent.FLAG_NO_CREATE)?.let(lm::removeProximityAlert)
     }
 
-    internal fun intent(zoneId: String): PendingIntent = PendingIntent.getBroadcast(
+    internal fun intent(zoneId: String): PendingIntent = intent(zoneId, PendingIntent.FLAG_UPDATE_CURRENT)!!
+
+    private fun intent(zoneId: String, mode: Int): PendingIntent? = PendingIntent.getBroadcast(
         app,
         0,
         Intent(app, ZoneAlertReceiver::class.java).setData(ZoneAlertReceiver.uri(zoneId)),
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+        mode or PendingIntent.FLAG_MUTABLE,
     )
 
     private companion object {
