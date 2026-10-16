@@ -5,7 +5,7 @@
     <string name="set_role_parent">Телефон родителя</string>
     <string name="set_admin">администратор</string>
     <string name="set_share">Обмен экранным временем</string>
-    <string name="set_share_body">Со всеми родителями вашей семейной группы. Поставить на паузу можно в любой момент, но не тайком: пауза подписывается этим телефоном, и родители о ней узнают.</string>
+    <string name="set_share_body">Со всеми родителями вашей семейной группы. Пауза подписывается этим телефоном, и родители о ней узнают.</string>
     <string name="set_not_shared">Ваше экранное время никому не передаётся. Телефон родителя никогда не отправляет данные о себе.</string>
     <string name="set_pause_title">Поставить обмен на паузу?</string>
     <string name="set_pause_body">Семья увидит паузу. Время за паузу продолжит считаться на этом телефоне и будет отправлено, когда вы снимете паузу.</string>
@@ -69,10 +69,10 @@
     <string name="tr_nobody">пока никто</string>
     <string name="tr_seen">на связи %1$s</string>
     <string name="tr_not_seen">ещё не был на связи</string>
-    <string name="tr_child_what">Что отправляется: экранное время по дням и по приложениям, время по часам, число разблокировок, названия и значки приложений, а также события: паузы, остановка синхронизации, скрытое уведомление.</string>
+    <string name="tr_child_what">Что отправляется: экранное время по дням и по приложениям, время по часам, число разблокировок, названия и значки приложений, а также события: паузы, остановка синхронизации, скрытое уведомление, выключенный доступ к истории использования или местоположению. С синхронизацией через Яндекс Диск родителя ещё и где этот телефон: последнее место, путь за сегодня и когда он выходит из безопасной зоны или входит в неё.</string>
     <string name="tr_child_sharing_on">Обмен включён.</string>
     <string name="tr_child_sharing_off">Обмен выключен: новое не отправляется, и семья это видит.</string>
-    <string name="tr_child_how">Пауза: Обзор → «Поставить на паузу» или переключатель «Обмен экранным временем» в настройках. Полная остановка синхронизации: «Остановить» в уведомлении или в настройках. Семья видит и то и другое.</string>
+    <string name="tr_child_how">Изменить обмен может только родитель: со своего телефона или по PIN родителя в настройках на этом телефоне. Если что-то выключить в настройках Android, семья это увидит.</string>
     <string name="tr_child_keep">Телефоны родителей хранят данные столько, сколько указано в их настройках (по умолчанию 90 дней подробно и год итогов по дням).</string>
     <string name="tr_parent_own">Этот телефон никому не передаёт своё экранное время.</string>
     <string name="tr_parent_sync">Он хранит данные ваших детей и синхронизирует их с другими родителями: %1$s.</string>
@@ -154,4 +154,23 @@
     <string name="set_location_allow_always">Разрешать всегда</string>
     <string name="set_zones">Безопасные зоны</string>
     <string name="set_zones_body">Места, которые задали родители</string>
+    <string name="set_parent_unlock">Изменить настройки</string>
+    <string name="set_parent_unlock_body">Только родитель, по PIN родителя</string>
+    <string name="set_parent_unlock_no_pin">Родитель ещё не задал PIN. Его задают в настройках Kinsight на телефоне родителя.</string>
+    <string name="set_pin_title">PIN родителя</string>
+    <string name="set_pin_ok">Открыть</string>
+    <string name="set_pin_wrong">Неверный PIN</string>
+    <string name="set_pin_wait">Слишком много попыток. Попробуйте после %1$s.</string>
+    <string name="set_unlocked">Настройки открыты для родителя на 5 минут.</string>
+    <string name="set_lock">Закрыть настройки</string>
+    <string name="set_pin_section">PIN для телефонов детей</string>
+    <string name="set_pin_none">PIN не задан: на телефоне ребёнка его настройки изменить нельзя.</string>
+    <string name="set_pin_set_body">Телефон ребёнка спрашивает этот PIN, прежде чем дать изменить свои настройки. Новый PIN дойдёт до телефонов детей при следующей синхронизации.</string>
+    <string name="set_pin_set">Задать PIN</string>
+    <string name="set_pin_change">Сменить PIN</string>
+    <string name="set_pin_new">Новый PIN, от 4 до 8 цифр</string>
+    <string name="set_pin_repeat">Повторите PIN</string>
+    <string name="set_pin_save">Сохранить</string>
+    <string name="set_pin_saved">PIN сохранён.</string>
+    <string name="set_pin_failed">Не удалось сохранить PIN.</string>
 </resources>

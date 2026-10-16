@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -70,6 +71,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.GroupState
+import app.kinsight.core.data.PinSave
 import app.kinsight.core.data.Role
 import app.kinsight.core.data.ServiceStatus
 import app.kinsight.core.data.SignInState
@@ -101,7 +103,7 @@ fun SettingsRoute(
     val context = LocalContext.current
     val vm: SettingsViewModel = viewModel {
         val g = AppGraph.get(context)
-        SettingsViewModel(g.group, g.settingsRepository, g.service, g.reset, g.usage, g.cloudRepository)
+        SettingsViewModel(g.group, g.settingsRepository, g.service, g.reset, g.usage, g.cloudRepository, g.childLock)
     }
     val ui by vm.ui.collectAsStateWithLifecycle()
     // Back from Android's usage access screen: the row goes away at once, not on the next 30 s tick (U1).
@@ -143,6 +145,9 @@ fun SettingsRoute(
             }
         },
         onZones = onZones,
+        onUnlock = vm::unlock,
+        onLock = vm::lock,
+        onSetPin = vm::setPin,
     )
 }
 
@@ -185,6 +190,10 @@ fun SettingsScreen(
     onLocationAccess: (LocationPermissions.State) -> Unit = {},
     /** Spec §8.1 «Ребёнок видит список зон»: the read-only list of the family's safe zones, next to the location row. */
     onZones: () -> Unit = {},
+    /** Spec §10: the parent PIN typed on a child's phone; «Закрыть настройки»; an admin parent's new PIN. */
+    onUnlock: (String) -> Unit = {},
+    onLock: () -> Unit = {},
+    onSetPin: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val ready = ui.group as? GroupState.Ready
@@ -203,11 +212,26 @@ fun SettingsScreen(
         }
     }
     val child = role == Role.CHILD
+    // Spec §10: on a child's phone nothing about sharing changes without the parent PIN; it opens Settings for a while.
+    val unlocked = child && (ui.lock.unlockedUntilMs ?: Long.MIN_VALUE) > nowMs
+    val childLocked = child && !unlocked
+    var askPin by rememberSaveable { mutableStateOf(false) }
+    var setPin by rememberSaveable { mutableStateOf(false) }
     var advanced by rememberSaveable { mutableStateOf(false) }
     // A storage error sends the user to Diagnostics and the disconnect button: on a child's phone they must be in sight.
     // The same precedence as the sync line: Advanced opens for a key error only when the line says so.
     val keyError = syncState(ui.service) == SyncStateLine.KEY_ERROR
     val open = advanced || keyError
+    // A right PIN closes the PIN dialog; a lock (the button or the time running out) closes a question the unlock
+    // opened, so it cannot be answered once the settings are closed. A storage error keeps its way out.
+    LaunchedEffect(childLocked) {
+        if (!childLocked) {
+            askPin = false
+        } else {
+            advanced = false
+            if (!keyError) ask = null
+        }
+    }
     val retentionSection: LazyListScope.() -> Unit = {
         section(R.string.set_retention) {
             Text(stringResource(R.string.set_retention_detail))
@@ -282,7 +306,7 @@ fun SettingsScreen(
                     // Wraps at 360 dp or with large fonts instead of squeezing the labels.
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onSyncNow, Modifier.testTag("set_sync_now")) { Text(stringResource(R.string.set_sync_now)) }
-                        OutlinedButton({ ask = Ask.STOP }, Modifier.testTag("set_stop")) { Text(stringResource(R.string.set_stop)) }
+                        if (!childLocked) OutlinedButton({ ask = Ask.STOP }, Modifier.testTag("set_stop")) { Text(stringResource(R.string.set_stop)) }
                     }
                 }
                 // U1: a consenting child whose phone cannot count; the same check as Overview's banner (the signed
@@ -294,7 +318,7 @@ fun SettingsScreen(
                         Text(stringResource(R.string.set_open_usage_access))
                     }
                 }
-                if (child) Text(stringResource(R.string.set_pause_vs_stop), style = MaterialTheme.typography.bodySmall)
+                if (child && !childLocked) Text(stringResource(R.string.set_pause_vs_stop), style = MaterialTheme.typography.bodySmall)
                 if (role == Role.PARENT) Text(stringResource(R.string.set_not_shared), style = MaterialTheme.typography.bodyMedium)
             }
         }
@@ -313,7 +337,8 @@ fun SettingsScreen(
             }
         }
         when (role) {
-            Role.CHILD -> item {
+            // A consent never given may still be given while locked: agreeing switches nothing off.
+            Role.CHILD -> if (!childLocked || ui.usage.consentAtMs == null) item {
                 ListItem(
                     headlineContent = { Text(stringResource(R.string.set_share)) },
                     supportingContent = { Text(stringResource(R.string.set_share_body)) },
@@ -366,6 +391,26 @@ fun SettingsScreen(
                 }
             }
         }
+        if (child) {
+            item {
+                if (childLocked) {
+                    ListItem(
+                        headlineContent = { Text(stringResource(R.string.set_parent_unlock)) },
+                        supportingContent = {
+                            Text(stringResource(if (ui.lock.status.pinSet) R.string.set_parent_unlock_body else R.string.set_parent_unlock_no_pin))
+                        },
+                        leadingContent = { Icon(Icons.Filled.Lock, contentDescription = null) },
+                        modifier = Modifier.clickable(enabled = ui.lock.status.pinSet, role = SemanticsRole.Button) { askPin = true }
+                            .testTag("set_parent_unlock"),
+                    )
+                } else {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(stringResource(R.string.set_unlocked), style = MaterialTheme.typography.bodyMedium)
+                        OutlinedButton(onLock, Modifier.testTag("set_lock")) { Text(stringResource(R.string.set_lock)) }
+                    }
+                }
+            }
+        }
         item {
             // U21: the row is the button (no separate «Open» under it).
             ListItem(
@@ -396,6 +441,20 @@ fun SettingsScreen(
                 }) { Text(stringResource(R.string.set_notification_settings)) }
             }
         }
+        if (role == Role.PARENT && ui.lock.status.canSetPin) {
+            section(R.string.set_pin_section) {
+                Text(stringResource(if (ui.lock.status.pinSet) R.string.set_pin_set_body else R.string.set_pin_none))
+                OutlinedButton({ setPin = true }, Modifier.testTag("set_pin_set")) {
+                    Text(stringResource(if (ui.lock.status.pinSet) R.string.set_pin_change else R.string.set_pin_set))
+                }
+                when (ui.lock.pinSaved) {
+                    PinSave.SAVED -> Text(stringResource(R.string.set_pin_saved))
+                    PinSave.INVALID, PinSave.NOT_ALLOWED, PinSave.FAILED ->
+                        Text(stringResource(R.string.set_pin_failed), color = MaterialTheme.colorScheme.error)
+                    null -> Unit
+                }
+            }
+        }
         section(R.string.set_device) {
             TextButton(onBattery) { Text(stringResource(R.string.set_battery)) }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -407,8 +466,9 @@ fun SettingsScreen(
             if (!child) adultActions()
             Text(stringResource(R.string.set_version, appVersion), style = MaterialTheme.typography.bodySmall)
         }
-        // U22: on a child's phone what is for adults waits under «Advanced».
-        if (child) {
+        // U22: on a child's phone what is for adults waits under «Advanced», and only while a parent unlocked it (spec §10);
+        // a storage error still opens it by itself, it is the way out of a broken phone.
+        if (child && (unlocked || keyError)) {
             item {
                 val state = stringResource(if (open) R.string.set_expanded else R.string.set_collapsed)
                 ListItem(
@@ -456,6 +516,17 @@ fun SettingsScreen(
     if (ui.signIn !is SignInState.Idle) CloudSignInDialog(ui.signIn, onCloudCode, onCloudSignIn, onCloudDismiss)
     if (handover && ui.cloud.handoverTargets.isNotEmpty()) {
         CloudHandoverDialog(ui.cloud.handoverTargets, onPick = { onCloudHandover(it); handover = false }, onDismiss = { handover = false })
+    }
+    // A right PIN unlocks, so childLocked turns false and the dialog closes by itself.
+    if (askPin && childLocked) UnlockDialog(ui.lock, nowMs, onUnlock = onUnlock, onDismiss = { askPin = false })
+    if (setPin) {
+        SetPinDialog(
+            onSave = {
+                onSetPin(it)
+                setPin = false
+            },
+            onDismiss = { setPin = false },
+        )
     }
 }
 

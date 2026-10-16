@@ -6,6 +6,8 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.kinsight.core.data.CloudStatus
 import app.kinsight.core.data.GroupState
+import app.kinsight.core.data.PinCheck
+import app.kinsight.core.data.PinSave
 import app.kinsight.core.data.Prefs
 import app.kinsight.core.data.ResetKind
 import app.kinsight.core.data.ResetStatus
@@ -108,6 +110,19 @@ class SettingsViewModelTest {
         override suspend fun requestHandover(to: DeviceId): Boolean {
             call("handover:${to.hex}")
             return handoverAccepted
+        }
+
+        var pinResult = PinCheck.NO_PIN
+        var saveResult = PinSave.SAVED
+
+        override suspend fun unlock(pin: String): PinCheck {
+            calls += "unlock"
+            return pinResult
+        }
+
+        override suspend fun setPin(pin: String): PinSave {
+            call("setPin")
+            return saveResult
         }
     }
 
@@ -244,5 +259,49 @@ class SettingsViewModelTest {
         vm.requestHandover(DeviceId("bb".repeat(16)))
         advanceUntilIdle()
         assertNull(vm.ui.value.error)
+    }
+
+    @Test
+    fun theRightPinOpensTheChildsSettingsForFiveMinutes() = runTest {
+        val vm = SettingsViewModel(actions, clock = { 1_000L })
+        backgroundScope.launch { vm.ui.collect {} }
+        actions.pinResult = PinCheck.WRONG
+        vm.unlock("0000")
+        advanceUntilIdle()
+        assertEquals(PinCheck.WRONG, vm.ui.value.lock.lastCheck)
+        assertNull(vm.ui.value.lock.unlockedUntilMs)
+        actions.pinResult = PinCheck.OK
+        vm.unlock("2468")
+        advanceUntilIdle()
+        assertEquals(1_000L + SettingsViewModel.UNLOCK_MS, vm.ui.value.lock.unlockedUntilMs)
+        vm.lock()
+        advanceUntilIdle()
+        assertNull(vm.ui.value.lock.unlockedUntilMs)
+        assertEquals(listOf("unlock", "unlock"), actions.calls)
+    }
+
+    @Test
+    fun aSavedPinIsSaid() = runTest {
+        val vm = SettingsViewModel(actions)
+        backgroundScope.launch { vm.ui.collect {} }
+        vm.setPin("2468")
+        advanceUntilIdle()
+        assertEquals(PinSave.SAVED, vm.ui.value.lock.pinSaved)
+    }
+
+    /** Rulings P6: a save that could not be done, or that threw, is said as FAILED. */
+    @Test
+    fun aPinSaveThatFailsIsSaid() = runTest {
+        val vm = SettingsViewModel(actions)
+        backgroundScope.launch { vm.ui.collect {} }
+        actions.saveResult = PinSave.FAILED
+        vm.setPin("2468")
+        advanceUntilIdle()
+        assertEquals(PinSave.FAILED, vm.ui.value.lock.pinSaved)
+        actions.saveResult = PinSave.SAVED
+        actions.fail = "setPin"
+        vm.setPin("2468")
+        advanceUntilIdle()
+        assertEquals(PinSave.FAILED, vm.ui.value.lock.pinSaved)
     }
 }

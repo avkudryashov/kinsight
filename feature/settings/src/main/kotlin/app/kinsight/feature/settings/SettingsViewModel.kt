@@ -3,11 +3,15 @@ package app.kinsight.feature.settings
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.kinsight.core.data.ChildLock
+import app.kinsight.core.data.ChildLockStatus
 import app.kinsight.core.data.CloudRepository
 import app.kinsight.core.data.CloudStatus
 import app.kinsight.core.data.GroupRepository
 import app.kinsight.core.data.GroupState
 import app.kinsight.core.data.LocalReset
+import app.kinsight.core.data.PinCheck
+import app.kinsight.core.data.PinSave
 import app.kinsight.core.data.Prefs
 import app.kinsight.core.data.ResetKind
 import app.kinsight.core.data.ResetStatus
@@ -52,6 +56,20 @@ data class SettingsUi(
     val cloud: CloudStatus = CloudStatus(),
     /** The sign-in dialog: shown unless [SignInState.Idle]. */
     val signIn: SignInState = SignInState.Idle,
+    /** Spec §10: the child's settings lock and the parent's PIN. */
+    val lock: LockUi = LockUi(),
+)
+
+/**
+ * The child's settings lock and the parent's PIN (spec §10) as the screen shows them. [unlockedUntilMs]: a right PIN
+ * opened a child's settings until then. [lastCheck], [pinSaved]: the outcome of the last try and of the last PIN save.
+ * Never the PIN itself.
+ */
+data class LockUi(
+    val status: ChildLockStatus = ChildLockStatus(),
+    val unlockedUntilMs: Long? = null,
+    val lastCheck: PinCheck? = null,
+    val pinSaved: PinSave? = null,
 )
 
 /** What the settings screen needs from core/data; a seam for tests. */
@@ -105,6 +123,13 @@ internal interface SettingsActions {
     fun finishCloudSignIn(input: String) = Unit
 
     fun dismissCloudSignIn() = Unit
+
+    /** Spec §10: the family PIN and this phone's wait (ChildLock.status). */
+    val childLock: Flow<ChildLockStatus> get() = flowOf(ChildLockStatus())
+
+    suspend fun unlock(pin: String): PinCheck = PinCheck.NO_PIN
+
+    suspend fun setPin(pin: String): PinSave = PinSave.NOT_ALLOWED
 }
 
 private class RepositoryActions(
@@ -114,6 +139,7 @@ private class RepositoryActions(
     private val reset: LocalReset,
     usageRepo: UsageRepository,
     private val cloudRepo: CloudRepository,
+    private val lock: ChildLock,
 ) : SettingsActions {
     override val group = group.state
     override val usage = settings.usageSettings
@@ -161,6 +187,12 @@ private class RepositoryActions(
 
     /** Closes the dialog only: a pending sign-in stays, so an app link arriving later still completes it. */
     override fun dismissCloudSignIn() = cloudRepo.dismissSignIn()
+
+    override val childLock = lock.status
+
+    override suspend fun unlock(pin: String) = lock.unlock(pin)
+
+    override suspend fun setPin(pin: String) = lock.setPin(pin)
 }
 
 /**
@@ -168,7 +200,10 @@ private class RepositoryActions(
  * user's Stop, only [startSync] does. The identity reset runs in LocalReset on the app scope and its status is
  * app-wide, so leaving the screen mid-wipe neither cancels it nor loses its failure. Every failure is shown.
  */
-class SettingsViewModel internal constructor(private val actions: SettingsActions) : ViewModel() {
+class SettingsViewModel internal constructor(
+    private val actions: SettingsActions,
+    private val clock: () -> Long = System::currentTimeMillis,
+) : ViewModel() {
     constructor(
         group: GroupRepository,
         settings: SettingsRepository,
@@ -176,7 +211,8 @@ class SettingsViewModel internal constructor(private val actions: SettingsAction
         reset: LocalReset,
         usage: UsageRepository,
         cloud: CloudRepository,
-    ) : this(RepositoryActions(group, settings, service, reset, usage, cloud))
+        childLock: ChildLock,
+    ) : this(RepositoryActions(group, settings, service, reset, usage, cloud, childLock))
 
     private val _error = MutableStateFlow<SettingsError?>(null)
 
@@ -193,9 +229,17 @@ class SettingsViewModel internal constructor(private val actions: SettingsAction
 
     private val cloudPart = combine(actions.cloud, actions.signIn) { c, s -> c to s }
 
-    val ui: StateFlow<SettingsUi> = combine(data, _error, actions.resetStatus, cloudPart) { d, e, r, (cloud, signIn) ->
+    private val unlockedUntil = MutableStateFlow<Long?>(null)
+    private val lastCheck = MutableStateFlow<PinCheck?>(null)
+    private val pinSaved = MutableStateFlow<PinSave?>(null)
+    private val lockPart = combine(actions.childLock, unlockedUntil, lastCheck, pinSaved) { s, u, c, p -> LockUi(s, u, c, p) }
+
+    val ui: StateFlow<SettingsUi> = combine(data, _error, actions.resetStatus, cloudPart, lockPart) { d, e, r, (cloud, signIn), lock ->
         val resetFailed = r is ResetStatus.Failed && r.kind == ResetKind.NEW_IDENTITY
-        d.copy(error = e ?: SettingsError.RESET.takeIf { resetFailed }, resetting = r is ResetStatus.Running, cloud = cloud, signIn = signIn)
+        d.copy(
+            error = e ?: SettingsError.RESET.takeIf { resetFailed }, resetting = r is ResetStatus.Running, cloud = cloud, signIn = signIn,
+            lock = lock,
+        )
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUi())
 
@@ -265,6 +309,43 @@ class SettingsViewModel internal constructor(private val actions: SettingsAction
     /** Closes the dialog; a pending sign-in stays, so the app link still completes it (CloudSignIn.dismiss). */
     fun dismissCloudSignIn() = actions.dismissCloudSignIn()
 
+    /** A PIN typed on a child's phone; the PIN goes to ChildLock only, never into state or a log. */
+    fun unlock(pin: String) {
+        viewModelScope.launch {
+            val r = try {
+                actions.unlock(pin)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "unlock failed: ${e.javaClass.simpleName}")
+                PinCheck.NO_PIN
+            }
+            lastCheck.value = r
+            if (r == PinCheck.OK) unlockedUntil.value = clock() + UNLOCK_MS
+        }
+    }
+
+    /** «Закрыть настройки», or the screen's own timeout. */
+    fun lock() {
+        unlockedUntil.value = null
+        lastCheck.value = null
+    }
+
+    /** An admin parent's new family PIN (spec §10). A save that threw is said as [PinSave.FAILED] (rulings P6). */
+    fun setPin(pin: String) {
+        pinSaved.value = null
+        viewModelScope.launch {
+            pinSaved.value = try {
+                actions.setPin(pin)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "setPin failed: ${e.javaClass.simpleName}")
+                PinSave.FAILED
+            }
+        }
+    }
+
     private fun attempt(onFailure: SettingsError, what: String, block: suspend () -> Unit) {
         _error.value = null
         viewModelScope.launch {
@@ -279,7 +360,10 @@ class SettingsViewModel internal constructor(private val actions: SettingsAction
         }
     }
 
-    private companion object {
-        const val TAG = "KinsightSettings"
+    companion object {
+        private const val TAG = "KinsightSettings"
+
+        /** How long a right parent PIN keeps a child's settings open. */
+        const val UNLOCK_MS = 5 * 60_000L
     }
 }

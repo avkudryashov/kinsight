@@ -22,15 +22,19 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.unit.Density
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import app.kinsight.core.data.ChildLockStatus
 import app.kinsight.core.data.CloudEnableResult
 import app.kinsight.core.data.CloudProblem
 import app.kinsight.core.data.CloudStatus
 import app.kinsight.core.data.GroupState
 import app.kinsight.core.data.MemberView
 import app.kinsight.core.data.OwnerTransferPhase
+import app.kinsight.core.data.PinCheck
+import app.kinsight.core.data.PinSave
 import app.kinsight.core.data.Prefs
 import app.kinsight.core.data.Role
 import app.kinsight.core.data.ServiceStatus
@@ -67,6 +71,8 @@ class SettingsScreenTest {
     private val stopped = ServiceStatus(ServiceState.STOPPED, true, null, emptyList(), false, null)
     private val parent = mom.copy(isSelf = true)
     private val calls = mutableListOf<String>()
+    private val locked = LockUi(ChildLockStatus(pinSet = true))
+    private val unlocked = LockUi(ChildLockStatus(pinSet = true), unlockedUntilMs = NOW + 60_000)
 
     private fun show(
         ui: SettingsUi,
@@ -83,6 +89,9 @@ class SettingsScreenTest {
         onCloudTakeOver: () -> Unit = {},
         onCloudHandover: (DeviceId) -> Unit = {},
         onNewPhone: () -> Unit = {},
+        onUnlock: (String) -> Unit = {},
+        onLock: () -> Unit = {},
+        onSetPin: (String) -> Unit = {},
     ) = rule.setContent {
         KinsightTheme(dynamicColor = false) {
             SettingsScreen(
@@ -92,6 +101,7 @@ class SettingsScreenTest {
                 onResetIdentity = onReset, onSyncNow = { calls += "syncNow" }, onPrivacyPolicy = onPrivacyPolicy, nowMs = nowMs,
                 onCloudSignIn = onCloudSignIn, onCloudCode = onCloudCode, onCloudDismiss = onCloudDismiss,
                 onCloudTakeOver = onCloudTakeOver, onCloudHandover = onCloudHandover, onNewPhone = onNewPhone,
+                onUnlock = onUnlock, onLock = onLock, onSetPin = onSetPin,
             )
         }
     }
@@ -108,7 +118,7 @@ class SettingsScreenTest {
     // The sync section is the first section: its nodes exist without scrolling the list.
     @Test
     fun theSyncSectionTopsSettingsAndSyncsNow() {
-        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), Prefs(), running.copy(lastSyncMs = NOW - 5 * 60_000)))
+        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), Prefs(), running.copy(lastSyncMs = NOW - 5 * 60_000), lock = unlocked))
         rule.onNodeWithText("Sync on this phone").assertExists()
         rule.onNodeWithText("Last sync: 5 minutes ago").assertExists()
         rule.onNodeWithTag("set_stop").assertExists()
@@ -154,7 +164,7 @@ class SettingsScreenTest {
     @Test
     fun childTurnsSharingOffOnlyAfterTheBackfillNotice() {
         var shared: Boolean? = null
-        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1), Prefs(), running), onSharing = { shared = it })
+        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1), Prefs(), running, lock = unlocked), onSharing = { shared = it })
         rule.onNodeWithText("your parents are told", substring = true).assertExists()
         rule.onNodeWithTag("set_share").performClick()
         assertEquals(null, shared)
@@ -202,7 +212,7 @@ class SettingsScreenTest {
 
     @Test
     fun stopAsksFirstAndStartOnlyOnTheButton() {
-        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), Prefs(), running))
+        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), Prefs(), running, lock = unlocked))
         rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_stop"))
         rule.onNodeWithTag("set_stop").performClick()
         assertEquals(emptyList<String>(), calls)
@@ -263,7 +273,7 @@ class SettingsScreenTest {
         }
         rule.onNodeWithText("all parents in your family group", substring = true).assertExists()
         rule.onNodeWithText("Mom", substring = true).assertExists()
-        rule.onNodeWithText("by hour", substring = true).performScrollTo().assertExists()
+        rule.onNodeWithText("time per hour", substring = true).performScrollTo().assertExists()
     }
 
     @Test
@@ -378,7 +388,7 @@ class SettingsScreenTest {
 
     @Test
     fun aChildsAdultItemsWaitUnderAdvanced() {
-        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1), Prefs(), running))
+        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1), Prefs(), running, lock = unlocked))
         rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_advanced"))
         rule.onNodeWithTag("set_reset").assertDoesNotExist()
         rule.onNodeWithTag("set_detail_30").assertDoesNotExist()
@@ -407,7 +417,7 @@ class SettingsScreenTest {
     fun aStorageErrorBehindAMissingPermissionLeavesAdvancedClosed() {
         val blocked = running.copy(state = ServiceState.STORAGE_ERROR, missingPermissions = listOf("android.permission.BLUETOOTH_SCAN"))
         assertEquals(SyncStateLine.NO_PERMISSION, syncState(blocked))
-        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1), Prefs(), blocked))
+        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1), Prefs(), blocked, lock = unlocked))
         rule.onNodeWithText("Secure storage problem", substring = true).assertDoesNotExist()
         rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_advanced"))
         rule.onNodeWithTag("set_advanced").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Collapsed"))
@@ -424,7 +434,7 @@ class SettingsScreenTest {
     @Test
     @Config(qualifiers = "ru")
     fun theAdvancedToggleSaysItsStateInRussian() {
-        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1), Prefs(), running))
+        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1), Prefs(), running, lock = unlocked))
         rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_advanced"))
         rule.onNodeWithTag("set_advanced").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Свёрнуто"))
         rule.onNodeWithTag("set_advanced").performClick()
@@ -440,14 +450,14 @@ class SettingsScreenTest {
 
     @Test
     fun aChildIsToldPauseFromStop() {
-        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1), Prefs(), running))
+        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1), Prefs(), running, lock = unlocked))
         rule.onNodeWithText("Pause: your time is kept", substring = true).assertExists()
     }
 
     @Test
     @Config(qualifiers = "ru")
     fun russianTermsFollowTheGlossary() {
-        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1), Prefs(), running))
+        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1), Prefs(), running, lock = unlocked))
         rule.onNodeWithText("Обмен экранным временем").assertExists()
         rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_advanced"))
         rule.onNodeWithText("Дополнительно").assertExists()
@@ -918,5 +928,92 @@ class SettingsScreenTest {
     fun withoutTheCloudThereIsNoZonesRow() {
         showChildLocation(null, mutableListOf())
         rule.onNodeWithTag("set_zones").assertDoesNotExist()
+    }
+
+    private val childUi = SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1), Prefs(), running)
+
+    @Test
+    fun aLockedChildPhoneHasNoSwitches() {
+        val pins = mutableListOf<String>()
+        show(childUi.copy(lock = locked), onUnlock = { pins += it })
+        rule.onNodeWithTag("set_share").assertDoesNotExist()
+        rule.onNodeWithTag("set_stop").assertDoesNotExist()
+        rule.onNodeWithTag("set_sync_now").assertExists()
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_parent_unlock"))
+        rule.onNodeWithTag("set_advanced").assertDoesNotExist()
+        rule.onNodeWithTag("set_reset").assertDoesNotExist()
+        rule.onNodeWithTag("set_parent_unlock").performClick()
+        rule.onNodeWithTag("set_pin_field").performTextInput("2468")
+        rule.onNodeWithTag("set_pin_ok").performClick()
+        assertEquals(listOf("2468"), pins)
+    }
+
+    @Test
+    fun anUnlockedChildPhoneShowsTheSwitchesUntilItLocksOrTimesOut() {
+        var locks = 0
+        show(childUi.copy(lock = unlocked), onLock = { locks++ })
+        rule.onNodeWithTag("set_share").assertExists()
+        rule.onNodeWithTag("set_stop").assertExists()
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_lock"))
+        rule.onNodeWithTag("set_lock").performClick()
+        assertEquals(1, locks)
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_advanced"))
+    }
+
+    @Test
+    fun anUnlockEndsWhenItsTimeIsUp() {
+        show(childUi.copy(lock = unlocked), nowMs = NOW + 60_000)
+        rule.onNodeWithTag("set_share").assertDoesNotExist()
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_parent_unlock"))
+    }
+
+    @Test
+    fun aWrongPinIsSaidInTheDialog() {
+        show(childUi.copy(lock = locked.copy(lastCheck = PinCheck.WRONG)))
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_parent_unlock"))
+        rule.onNodeWithTag("set_parent_unlock").performClick()
+        rule.onNodeWithText("Wrong PIN").assertExists()
+    }
+
+    @Test
+    fun withoutAPinTheUnlockRowSaysWhereItIsSet() {
+        show(childUi.copy(lock = LockUi()))
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_parent_unlock"))
+        rule.onNodeWithText("has not set a PIN yet", substring = true).assertExists()
+        rule.onNodeWithTag("set_parent_unlock").assertIsNotEnabled()
+    }
+
+    @Test
+    fun anAdminParentSetsThePinTypedTwice() {
+        val set = mutableListOf<String>()
+        show(
+            SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running, lock = LockUi(ChildLockStatus(canSetPin = true))),
+            onSetPin = { set += it },
+        )
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_pin_set"))
+        rule.onNodeWithText("No PIN yet", substring = true).assertExists()
+        rule.onNodeWithTag("set_pin_set").performClick()
+        rule.onNodeWithTag("set_pin_new").performTextInput("2468")
+        rule.onNodeWithTag("set_pin_repeat").performTextInput("2469")
+        rule.onNodeWithTag("set_pin_save").assertIsNotEnabled()
+        rule.onNodeWithTag("set_pin_repeat").performTextClearance()
+        rule.onNodeWithTag("set_pin_repeat").performTextInput("2468")
+        rule.onNodeWithTag("set_pin_save").assertIsEnabled().performClick()
+        assertEquals(listOf("2468"), set)
+    }
+
+    @Test
+    fun aParentWhoIsNotAnAdminHasNoPinSection() {
+        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running))
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_reset"))
+        rule.onNodeWithTag("set_pin_set").assertDoesNotExist()
+    }
+
+    /** Rulings P6: a PIN that could not be saved is said, in red, under the button. */
+    @Test
+    fun aPinThatCouldNotBeSavedIsSaid() {
+        val lock = LockUi(ChildLockStatus(canSetPin = true), pinSaved = PinSave.FAILED)
+        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running, lock = lock))
+        rule.onNodeWithTag("set_list").performScrollToNode(hasText("Could not save the PIN."))
     }
 }
