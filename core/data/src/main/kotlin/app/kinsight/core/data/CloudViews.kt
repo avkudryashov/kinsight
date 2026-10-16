@@ -2,6 +2,7 @@ package app.kinsight.core.data
 
 import android.util.Log
 import app.kinsight.core.model.DeviceId
+import app.kinsight.core.transport.cloud.OwnerLeaveBlock
 import app.kinsight.core.transport.cloud.OwnerLifecycle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -42,6 +43,11 @@ data class CloudStatus(
      * Nothing to tap in either; null otherwise.
      */
     val ownerTransfer: OwnerTransferPhase? = null,
+    /**
+     * This phone owned an older storage and not every phone has switched to the new one yet (OwnerLeaveBlock.SWITCHING):
+     * leaving and the reset wait, or the retired token would be lost before it is revoked.
+     */
+    val cloudSwitching: Boolean = false,
 )
 
 object CloudViews {
@@ -82,6 +88,7 @@ object CloudViews {
             handoverPendingTo = handoverTo?.takeIf { selfIsOwner }?.let { m.active[it]?.displayName },
             handoverNeeded = targets.isNotEmpty(),
             ownerTransfer = transfer,
+            cloudSwitching = OwnerLifecycle.leaveBlock(m, r.self, r.heartbeats) == OwnerLeaveBlock.SWITCHING,
         )
     }
 }

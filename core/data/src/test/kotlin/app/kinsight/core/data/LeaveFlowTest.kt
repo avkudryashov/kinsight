@@ -198,10 +198,13 @@ class LeaveFlowTest {
             // Dad took the storage to his Disk (Task 8 does this through the sign-in).
             checkNotNull(OwnerRecords.claim(dad.appendOwn, dad.store(), dad.keys, dad.cloudSecrets.ring(g), ByteArray(16) { 2 }, 2, "DAD1", dad.now + 1))
             mom.store().storeMembership(dad.store().membershipEntries())
+            // The settings reset waits for the same window (CloudStatus.cloudSwitching).
+            assertTrue(CloudViews.status(mom.snapshots.load(emptyMap()), CloudState(), available = true).cloudSwitching)
             withTimeout(5_000) { mom.group.leaveAndForget().join() }
             assertEquals(LeaveError.CLOUD_SWITCHING, mom.group.leaveError.value)
             mom.group.dismissLeaveError()
             mom.store().applyBatch(listOf(dad.beat(2), kid.beat(2)))
+            assertFalse(CloudViews.status(mom.snapshots.load(emptyMap()), CloudState(), available = true).cloudSwitching)
             mom.sessions.value = SessionProgress(finished = 1, syncing = false)
             val job = mom.group.leaveAndForget()
             mom.awaitBaseline()

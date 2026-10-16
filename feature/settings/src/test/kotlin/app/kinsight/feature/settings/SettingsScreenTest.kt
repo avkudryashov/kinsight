@@ -28,6 +28,7 @@ import app.kinsight.core.data.CloudProblem
 import app.kinsight.core.data.CloudStatus
 import app.kinsight.core.data.GroupState
 import app.kinsight.core.data.MemberView
+import app.kinsight.core.data.OwnerTransferPhase
 import app.kinsight.core.data.Prefs
 import app.kinsight.core.data.Role
 import app.kinsight.core.data.ServiceStatus
@@ -769,5 +770,49 @@ class SettingsScreenTest {
         for (tag in listOf("set_cloud_take_over", "set_cloud_handover", "set_cloud_new_phone", "set_cloud_owner_gone", "set_cloud_restore")) {
             rule.onNodeWithTag(tag, useUnmergedTree = true).assertDoesNotExist()
         }
+    }
+
+    @Test
+    fun theOldPhoneSeesTheRoleMoveAndThenLeavesByItself() {
+        var transfer by mutableStateOf(OwnerTransferPhase.PENDING)
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                val ui = ownerUi().let { it.copy(cloud = it.cloud.copy(ownerTransfer = transfer)) }
+                SettingsScreen(
+                    ui, "0.4.0", onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {},
+                    onRetention = { _, _ -> }, onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {},
+                    onResetIdentity = {}, nowMs = NOW,
+                )
+            }
+        }
+        scrollToCloud()
+        rule.onNodeWithTag("set_cloud_transfer", useUnmergedTree = true).assertTextEquals("The owner role is moving to the new phone.")
+        rule.onNodeWithTag("set_cloud_new_phone").assertDoesNotExist() // one transfer at a time
+        transfer = OwnerTransferPhase.DONE
+        rule.waitForIdle()
+        rule.onNodeWithTag("set_cloud_transfer", useUnmergedTree = true)
+            .assertTextEquals("The new phone is the owner now. This phone leaves the group by itself.")
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun theRoleMoveInRussian() {
+        show(ownerUi().let { it.copy(cloud = it.cloud.copy(ownerTransfer = OwnerTransferPhase.PENDING)) })
+        scrollToCloud()
+        rule.onNodeWithTag("set_cloud_transfer", useUnmergedTree = true).assertTextEquals("Роль владельца переносится на новый телефон.")
+    }
+
+    @Test
+    fun theResetWaitsWhileTheStorageMoves() {
+        val former = CloudStatus(available = true, on = true, ownerName = "Dad", cloudSwitching = true)
+        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running, cloud = former))
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_reset"))
+        rule.onNodeWithTag("set_reset").assertIsNotEnabled()
+        rule.onNodeWithTag("set_reset_switching", useUnmergedTree = true)
+            .assertTextEquals(
+                "The storage is moving to another Disk. You can disconnect this phone once every phone has switched to it. " +
+                    "A phone that no longer syncs can be removed from the group.",
+            )
+        rule.onNodeWithTag("set_reset_handover").assertDoesNotExist()
     }
 }

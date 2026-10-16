@@ -142,4 +142,7 @@
     <string name="set_cloud_err_not_allowed">Сейчас забрать хранилище нельзя.</string>
     <string name="set_cloud_leave_off">Синхронизация через Яндекс Диск отключится. Данные останутся на телефонах, Bluetooth продолжит работать.</string>
     <string name="set_reset_handover">Сначала передайте хранилище другому родителю (Яндекс Диск, выше).</string>
+    <string name="set_cloud_transfer_pending">Роль владельца переносится на новый телефон.</string>
+    <string name="set_cloud_transfer_done">Новый телефон теперь владелец. Этот телефон выйдет из группы сам.</string>
+    <string name="set_reset_switching">Хранилище переезжает на другой Диск. Отключить этот телефон можно, когда все телефоны переключатся на него. Телефон, который больше не синхронизируется, можно исключить из группы.</string>
 </resources>

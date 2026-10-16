@@ -25,6 +25,7 @@ import app.kinsight.core.data.CloudEnableResult
 import app.kinsight.core.data.CloudProblem
 import app.kinsight.core.data.CloudStatus
 import app.kinsight.core.data.MemberView
+import app.kinsight.core.data.OwnerTransferPhase
 import app.kinsight.core.data.SignInState
 import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.isJustNow
@@ -86,13 +87,22 @@ internal fun LazyListScope.cloudSection(
                                 Text(stringResource(if (s.handoverFrom != null) R.string.set_cloud_take_over else R.string.set_cloud_i_am_owner))
                             }
                         }
+                        // Spec §7.3 «0 нажатий»: the new phone takes the role, then this one leaves by itself.
+                        s.ownerTransfer?.let { t ->
+                            Text(
+                                stringResource(if (t == OwnerTransferPhase.PENDING) R.string.set_cloud_transfer_pending else R.string.set_cloud_transfer_done),
+                                modifier = Modifier.testTag("set_cloud_transfer"),
+                            )
+                        }
                         if (s.selfIsOwner) {
                             s.handoverPendingTo?.let { Text(stringResource(R.string.set_cloud_handover_pending, it)) }
                             if (s.handoverTargets.isNotEmpty()) {
                                 OutlinedButton(onHandover, Modifier.testTag("set_cloud_handover")) { Text(stringResource(R.string.set_cloud_handover)) }
                             }
-                            // Spec §7.3: the owner's new phone by QR.
-                            OutlinedButton(onNewPhone, Modifier.testTag("set_cloud_new_phone")) { Text(stringResource(R.string.set_cloud_new_phone)) }
+                            // Spec §7.3: the owner's new phone by QR; one transfer at a time.
+                            if (s.ownerTransfer == null) {
+                                OutlinedButton(onNewPhone, Modifier.testTag("set_cloud_new_phone")) { Text(stringResource(R.string.set_cloud_new_phone)) }
+                            }
                         }
                     }
                 }

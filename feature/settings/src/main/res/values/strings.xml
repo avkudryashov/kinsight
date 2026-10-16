@@ -138,4 +138,7 @@
     <string name="set_cloud_err_not_allowed">The storage cannot be taken over right now.</string>
     <string name="set_cloud_leave_off">Sync through Yandex Disk turns off. The data stays on the phones, and Bluetooth goes on working.</string>
     <string name="set_reset_handover">First hand the storage to another parent (Yandex Disk, above).</string>
+    <string name="set_cloud_transfer_pending">The owner role is moving to the new phone.</string>
+    <string name="set_cloud_transfer_done">The new phone is the owner now. This phone leaves the group by itself.</string>
+    <string name="set_reset_switching">The storage is moving to another Disk. You can disconnect this phone once every phone has switched to it. A phone that no longer syncs can be removed from the group.</string>
 </resources>

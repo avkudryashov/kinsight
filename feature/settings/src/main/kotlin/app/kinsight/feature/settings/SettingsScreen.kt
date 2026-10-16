@@ -194,7 +194,7 @@ fun SettingsScreen(
         TextButton(onDiagnostics) { Text(stringResource(R.string.set_diagnostics)) }
         OutlinedButton(
             onClick = { ask = Ask.RESET },
-            enabled = !ui.resetting && !ui.cloud.handoverNeeded,
+            enabled = !ui.resetting && !ui.cloud.handoverNeeded && !ui.cloud.cloudSwitching,
             colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
             modifier = Modifier.fillMaxWidth().testTag("set_reset"),
         ) { Text(stringResource(if (ui.resetting) R.string.set_resetting else R.string.set_reset)) }
@@ -205,6 +205,14 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.testTag("set_reset_handover"),
+            )
+        } else if (ui.cloud.cloudSwitching) {
+            // The same wait as leaving (OwnerLeaveBlock.SWITCHING): a wipe now would lose the old token before its revoke.
+            Text(
+                stringResource(R.string.set_reset_switching),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("set_reset_switching"),
             )
         }
     }
