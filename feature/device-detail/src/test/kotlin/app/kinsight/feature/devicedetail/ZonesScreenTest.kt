@@ -1,13 +1,19 @@
 package app.kinsight.feature.devicedetail
 
 import androidx.compose.ui.test.assertHasNoClickAction
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.kinsight.core.data.GeoPoint
 import app.kinsight.core.data.MemberView
@@ -96,6 +102,72 @@ class ZonesScreenTest {
         show(ZonesState(listOf(home), canEdit = true, children = emptyList()), failed = ZoneSave.NOT_ALLOWED)
         rule.onNodeWithTag("zone_${home.id}").performClick()
         rule.onNodeWithTag("zone_failed").assertExists()
+    }
+
+    @Test
+    fun anOffStopRadiusSurvivesARename() {
+        val odd = home.copy(radiusM = 175)
+        show(ZonesState(listOf(odd), canEdit = true, children = emptyList()))
+        rule.onNodeWithTag("zone_${odd.id}").performClick()
+        rule.onNodeWithText("Radius: 175 m").assertExists()
+        rule.onNodeWithTag("zone_name").performTextReplacement("Home 2")
+        rule.onNodeWithTag("zone_save").performScrollTo().performClick()
+        assertEquals(ZoneDraft(odd.id, "Home 2", odd.latE7, odd.lonE7, 175), saved.last())
+    }
+
+    @Test
+    fun theDraftSurvivesARecreation() {
+        val restore = StateRestorationTester(rule)
+        restore.setContent {
+            KinsightTheme(dynamicColor = false) {
+                ZonesScreen(
+                    ZonesState(emptyList(), canEdit = true, children = emptyList()), null,
+                    onSave = { d, done -> saved += d; done() },
+                    onDelete = {}, onHere = {}, onDismissError = {}, onBack = {},
+                )
+            }
+        }
+        rule.onNodeWithTag("zones_add").performClick()
+        rule.onNodeWithTag("zone_name").performTextInput("Club")
+        rule.onNodeWithTag("zone_coords").performTextInput("40.41680, -3.70380")
+        restore.emulateSavedInstanceStateRestore()
+        rule.onNodeWithTag("zone_name").assertTextContains("Club")
+        rule.onNodeWithTag("zone_save").performScrollTo().performClick()
+        assertEquals(ZoneDraft(null, "Club", 404_168_000, -37_038_000, DEFAULT_RADIUS_M), saved.last())
+    }
+
+    @Test
+    fun aPendingMyLocationIsAskedAgainAfterARecreation() {
+        val restore = StateRestorationTester(rule)
+        val asks = mutableListOf<(Pair<Int, Int>?) -> Unit>()
+        restore.setContent {
+            KinsightTheme(dynamicColor = false) {
+                ZonesScreen(
+                    ZonesState(emptyList(), canEdit = true, children = emptyList()), null,
+                    onSave = { d, done -> saved += d; done() },
+                    onDelete = {}, onHere = { asks += it }, onDismissError = {}, onBack = {},
+                )
+            }
+        }
+        rule.onNodeWithTag("zones_add").performClick()
+        rule.onNodeWithTag("zone_name").performTextInput("Park")
+        rule.onNodeWithTag("zone_here").performClick()
+        restore.emulateSavedInstanceStateRestore()
+        rule.waitForIdle()
+        assertEquals(2, asks.size)
+        rule.runOnIdle { asks.last()(404_100_000 to -37_100_000) }
+        rule.onNodeWithTag("zone_save").performScrollTo().performClick()
+        assertEquals(ZoneDraft(null, "Park", 404_100_000, -37_100_000, DEFAULT_RADIUS_M), saved.last())
+    }
+
+    @Test
+    fun unreadableCoordinatesAreMarkedAndAChildsPointClearsThem() {
+        show(ZonesState(emptyList(), canEdit = true, children = listOf(kid to kidPoint)))
+        rule.onNodeWithTag("zones_add").performClick()
+        rule.onNodeWithTag("zone_coords").performTextInput("40,4168 -3,7038")
+        rule.onNodeWithTag("zone_coords").assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Error))
+        rule.onNodeWithTag("zone_from_${kid.id.hex}").performClick()
+        rule.onNodeWithTag("zone_coords").assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.Error))
     }
 
     @Test

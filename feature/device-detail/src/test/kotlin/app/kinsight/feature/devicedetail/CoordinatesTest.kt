@@ -21,6 +21,11 @@ class CoordinatesTest {
         assertNull(Coordinates.parse("0, 181"))
         assertNull(Coordinates.parse("home"))
         assertNull(Coordinates.parse("NaN, 1"))
+        assertNull(Coordinates.parse("40,4168; -3,7038"))
+        assertNull(Coordinates.parse("1, 2, 3"))
+        assertNull(Coordinates.parse("1e1, 1"))
+        assertNull(Coordinates.parse("40.4f, 1"))
+        assertNull(Coordinates.parse("Infinity, 1"))
     }
 
     @Test

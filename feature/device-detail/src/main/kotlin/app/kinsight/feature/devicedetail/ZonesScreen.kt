@@ -23,11 +23,14 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -60,14 +63,25 @@ fun ZonesRoute(onBack: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     val failed by vm.failed.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    // The callback cannot outlive a recreation; the editor asks again (ZoneEditor's hereAsked), so only the facts that
+    // a permission dialog is up ([asking]) and its unclaimed answer ([answered]) are saved.
     var waiting by remember { mutableStateOf<((Pair<Int, Int>?) -> Unit)?>(null) }
+    var asking by rememberSaveable { mutableStateOf(false) }
+    var answered by rememberSaveable { mutableStateOf<Boolean?>(null) }
     fun fixNow(done: (Pair<Int, Int>?) -> Unit) {
         scope.launch { done(LocationGraph.fixOnce(context)?.let { it.latE7 to it.lonE7 }) }
     }
+    fun answer(granted: Boolean, done: (Pair<Int, Int>?) -> Unit) = if (granted) fixNow(done) else done(null)
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
-        val done = waiting ?: return@rememberLauncherForActivityResult
-        waiting = null
-        if (result[android.Manifest.permission.ACCESS_FINE_LOCATION] == true) fixNow(done) else done(null)
+        asking = false
+        val granted = result[android.Manifest.permission.ACCESS_FINE_LOCATION] == true
+        val done = waiting
+        if (done == null) {
+            answered = granted
+        } else {
+            waiting = null
+            answer(granted, done)
+        }
     }
     val s = state ?: run {
         Loading()
@@ -78,11 +92,20 @@ fun ZonesRoute(onBack: () -> Unit) {
         onSave = { d, done -> vm.save(d, done) },
         onDelete = vm::delete,
         onHere = { done ->
-            if (LocationPermissions.foregroundGranted(context)) {
-                fixNow(done)
-            } else {
-                waiting = done
-                permission.launch(LocationPermissions.FOREGROUND)
+            val got = answered
+            when {
+                got != null -> {
+                    answered = null
+                    answer(got, done)
+                }
+                LocationPermissions.foregroundGranted(context) -> fixNow(done)
+                else -> {
+                    waiting = done
+                    if (!asking) {
+                        asking = true
+                        permission.launch(LocationPermissions.FOREGROUND)
+                    }
+                }
             }
         },
         onDismissError = vm::dismissError,
@@ -104,7 +127,11 @@ fun ZonesScreen(
     onDismissError: () -> Unit,
     onBack: () -> Unit,
 ) {
-    var editing by remember { mutableStateOf<ZoneDraft?>(null) }
+    var editing by rememberSaveable(stateSaver = DRAFT_SAVER) { mutableStateOf<ZoneDraft?>(null) }
+    fun open(d: ZoneDraft) {
+        onDismissError() // an earlier failure is not this editor's
+        editing = d
+    }
     val draft = editing
     if (draft != null) {
         ZoneEditor(
@@ -112,7 +139,10 @@ fun ZonesScreen(
             onSave = { d -> onSave(d) { editing = null } },
             onDelete = draft.id?.let { id -> { onDelete(id); editing = null } },
             onHere = onHere,
-            onCancel = { editing = null },
+            onCancel = {
+                onDismissError()
+                editing = null
+            },
         )
         return
     }
@@ -133,7 +163,7 @@ fun ZonesScreen(
             if (!state.canEdit) item(key = "parents_only") { Text(stringResource(R.string.zones_parents_only)) }
             if (state.zones.isEmpty()) item(key = "empty") { Text(stringResource(R.string.zones_empty), Modifier.testTag("zones_empty")) }
             items(state.zones, key = { it.id }) { z ->
-                val edit = if (state.canEdit) Modifier.clickable { editing = ZoneDraft(z.id, z.name, z.latE7, z.lonE7, z.radiusM) } else Modifier
+                val edit = if (state.canEdit) Modifier.clickable { open(ZoneDraft(z.id, z.name, z.latE7, z.lonE7, z.radiusM)) } else Modifier
                 ListItem(
                     headlineContent = { Text(z.name) },
                     supportingContent = { Text(stringResource(R.string.zones_radius, z.radiusM)) },
@@ -142,7 +172,7 @@ fun ZonesScreen(
             }
             if (state.canEdit) {
                 item(key = "add") {
-                    Button({ editing = ZoneDraft(null, "", 0, 0, DEFAULT_RADIUS_M) }, Modifier.testTag("zones_add")) {
+                    Button({ open(ZoneDraft(null, "", 0, 0, DEFAULT_RADIUS_M)) }, Modifier.testTag("zones_add")) {
                         Text(stringResource(R.string.zones_add))
                     }
                 }
@@ -161,12 +191,30 @@ internal fun ZoneEditor(
     onHere: ((Pair<Int, Int>?) -> Unit) -> Unit,
     onCancel: () -> Unit,
 ) = Screen(stringResource(if (initial.id == null) R.string.zone_new_title else R.string.zone_edit_title), onCancel) { padding ->
-    var name by remember { mutableStateOf(initial.name) }
-    var center by remember { mutableStateOf(if (initial.id != null) initial.latE7 to initial.lonE7 else null) }
-    var coords by remember { mutableStateOf("") }
-    var radius by remember { mutableIntStateOf(ZONE_RADII.indexOfFirst { it >= initial.radiusM }.takeIf { it >= 0 } ?: ZONE_RADII.lastIndex) }
-    var hereFailed by remember { mutableStateOf(false) }
-    var askDelete by remember { mutableStateOf(false) }
+    // An existing zone keeps an off-stop radius (another version may have written it): it becomes a stop here.
+    val stops = remember(initial.radiusM) { (ZONE_RADII + initial.radiusM).distinct().sorted() }
+    var name by rememberSaveable { mutableStateOf(initial.name) }
+    var center by rememberSaveable(stateSaver = CENTER_SAVER) { mutableStateOf(if (initial.id != null) initial.latE7 to initial.lonE7 else null) }
+    var coords by rememberSaveable { mutableStateOf("") }
+    var radiusM by rememberSaveable { mutableIntStateOf(initial.radiusM) }
+    var hereFailed by rememberSaveable { mutableStateOf(false) }
+    var hereAsked by rememberSaveable { mutableStateOf(false) }
+    var askDelete by rememberSaveable { mutableStateOf(false) }
+    val radius = stops.indexOf(radiusM).coerceAtLeast(0)
+    fun askHere() {
+        hereAsked = true
+        onHere { got ->
+            hereAsked = false
+            if (got != null) {
+                center = got
+                coords = ""
+            } else {
+                hereFailed = true
+            }
+        }
+    }
+    // A recreation drops the pending callback: ask again (the route does not open a second permission dialog).
+    LaunchedEffect(Unit) { if (hereAsked) askHere() }
     Column(
         Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -180,11 +228,14 @@ internal fun ZoneEditor(
             modifier = Modifier.testTag("zone_center"),
         )
         children.forEach { (m, p) ->
-            OutlinedButton({ center = p.latE7 to p.lonE7 }, Modifier.testTag("zone_from_${m.id.hex}")) { Text(stringResource(R.string.zone_from_child, m.name)) }
+            OutlinedButton({
+                center = p.latE7 to p.lonE7
+                coords = ""
+            }, Modifier.testTag("zone_from_${m.id.hex}")) { Text(stringResource(R.string.zone_from_child, m.name)) }
         }
         OutlinedButton({
             hereFailed = false
-            onHere { got -> if (got != null) center = got else hereFailed = true }
+            askHere()
         }, Modifier.testTag("zone_here")) { Text(stringResource(R.string.zone_here)) }
         if (hereFailed) Text(stringResource(R.string.zone_here_failed), color = MaterialTheme.colorScheme.error)
         OutlinedTextField(
@@ -195,19 +246,20 @@ internal fun ZoneEditor(
             },
             label = { Text(stringResource(R.string.zone_coords)) },
             placeholder = { Text(stringResource(R.string.zone_coords_hint)) },
+            isError = coords.isNotBlank() && Coordinates.parse(coords) == null,
             singleLine = true,
             modifier = Modifier.fillMaxWidth().testTag("zone_coords"),
         )
-        Text(stringResource(R.string.zone_radius_value, ZONE_RADII[radius]))
+        Text(stringResource(R.string.zone_radius_value, radiusM))
         Slider(
-            radius.toFloat(), { radius = it.roundToInt().coerceIn(0, ZONE_RADII.lastIndex) },
-            valueRange = 0f..ZONE_RADII.lastIndex.toFloat(), steps = ZONE_RADII.size - 2,
+            radius.toFloat(), { radiusM = stops[it.roundToInt().coerceIn(0, stops.lastIndex)] },
+            valueRange = 0f..stops.lastIndex.toFloat(), steps = stops.size - 2,
             modifier = Modifier.testTag("zone_radius"),
         )
         // A refused save keeps the editor open, so the failure shows here too.
         if (failed != null) Text(stringResource(R.string.zone_failed), Modifier.testTag("zone_failed"), color = MaterialTheme.colorScheme.error)
         Button(
-            { center?.let { (lat, lon) -> onSave(ZoneDraft(initial.id, name.trim(), lat, lon, ZONE_RADII[radius])) } },
+            { center?.let { (lat, lon) -> onSave(ZoneDraft(initial.id, name.trim(), lat, lon, radiusM)) } },
             enabled = SafeZoneRules.nameOk(name.trim()) && center != null,
             modifier = Modifier.testTag("zone_save"),
         ) { Text(stringResource(R.string.zone_save)) }
@@ -228,3 +280,14 @@ internal fun ZoneEditor(
         )
     }
 }
+
+/** The open draft across a recreation; it stays in this phone's saved UI state only, like the text on screen. */
+private val DRAFT_SAVER = listSaver<ZoneDraft?, Any>(
+    save = { d -> d?.let { listOf(it.id.orEmpty(), it.name, it.latE7, it.lonE7, it.radiusM) }.orEmpty() },
+    restore = { l -> if (l.isEmpty()) null else ZoneDraft((l[0] as String).ifEmpty { null }, l[1] as String, l[2] as Int, l[3] as Int, l[4] as Int) },
+)
+
+private val CENTER_SAVER = listSaver<Pair<Int, Int>?, Int>(
+    save = { c -> c?.toList().orEmpty() },
+    restore = { l -> if (l.isEmpty()) null else l[0] to l[1] },
+)

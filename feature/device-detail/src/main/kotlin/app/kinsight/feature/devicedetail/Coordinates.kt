@@ -7,9 +7,12 @@ import kotlin.math.roundToInt
 internal object Coordinates {
     private val SPLIT = Regex("""\s*[,;\s]\s*""")
 
+    /** Plain dot decimals only: `toDoubleOrNull` would also take "1e1", "40.4f" or "Infinity". */
+    private val NUMBER = Regex("""[+-]?\d{1,3}(\.\d+)?""")
+
     fun parse(text: String): Pair<Int, Int>? {
         val parts = text.trim().split(SPLIT).filter { it.isNotEmpty() }
-        if (parts.size != 2) return null
+        if (parts.size != 2 || !parts.all(NUMBER::matches)) return null
         val lat = parts[0].toDoubleOrNull() ?: return null
         val lon = parts[1].toDoubleOrNull() ?: return null
         if (lat !in -90.0..90.0 || lon !in -180.0..180.0) return null
