@@ -21,6 +21,8 @@ class SettingsStore(private val store: DataStore<Preferences>) {
             detailRetentionDays = p[DETAIL_DAYS] ?: DEFAULTS.detailRetentionDays,
             summaryRetentionDays = p[SUMMARY_DAYS] ?: DEFAULTS.summaryRetentionDays,
             consentAtMs = p[CONSENT_AT],
+            consentVersion = p[CONSENT_VERSION]
+                ?: if (p[CONSENT_AT] != null) UsageSettings.LEGACY_CONSENT_VERSION else UsageSettings.CONSENT_VERSION,
         )
     }
 
@@ -41,8 +43,20 @@ class SettingsStore(private val store: DataStore<Preferences>) {
         }
     }
 
-    suspend fun recordConsent(atMs: Long) {
-        store.edit { it[CONSENT_AT] = atMs }
+    /** «Принимаю» on the consent screen of [version] (the current text unless a test says otherwise). */
+    suspend fun recordConsent(atMs: Long, version: Int = UsageSettings.CONSENT_VERSION) {
+        store.edit {
+            it[CONSENT_AT] = atMs
+            it[CONSENT_VERSION] = version
+        }
+    }
+
+    /**
+     * A child that agreed to an older text agreed to the current one: the version moves, the consent time stays (the
+     * integrity trackers count their intervals from it). Without a consent nothing is recorded.
+     */
+    suspend fun upgradeConsent(version: Int = UsageSettings.CONSENT_VERSION) {
+        store.edit { if (it[CONSENT_AT] != null) it[CONSENT_VERSION] = version }
     }
 
     /** A wiped group or a new identity: sharing off, consent forgotten, default retention. No event is signed. */
@@ -57,6 +71,7 @@ class SettingsStore(private val store: DataStore<Preferences>) {
         private val DETAIL_DAYS = intPreferencesKey("detail_retention_days")
         private val SUMMARY_DAYS = intPreferencesKey("summary_retention_days")
         private val CONSENT_AT = longPreferencesKey("consent_at_ms")
+        private val CONSENT_VERSION = intPreferencesKey("consent_version")
 
         /** [file] must end with ".preferences_pb"; one active instance per file in a process. */
         fun create(file: File, scope: CoroutineScope): SettingsStore =

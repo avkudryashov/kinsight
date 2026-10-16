@@ -21,9 +21,9 @@ import kotlinx.coroutines.withContext
 
 /**
  * The family side of the child's tracking (core/location's [LocationHost], spec §8): this phone tracks only as an active
- * CHILD that consented and shares, in a group with a storage owner (the cloud is on); the zones are the family's
- * effective ones ([SafeZones]); events and reports are signed through the one [appendOwn] (the pipeline lock); [upload]
- * asks for a cloud run at once. [followNeeded] is the parent's side of spec §9.
+ * CHILD that consented to the current text and shares, in a group with a storage owner (the cloud is on); the zones are
+ * the family's effective ones ([SafeZones]); events and reports are signed through the one [appendOwn] (the pipeline
+ * lock); [upload] asks for a cloud run at once. [followNeeded] is the parent's side of spec §9.
  *
  * Rulings L6/L8: nothing here takes the cloud runLock (the engine is called after a run, and a run may be in flight while
  * an alert fires), and [upload] only enqueues work, it never runs the cloud itself.
@@ -71,7 +71,7 @@ class FamilyLocation(
         val m = Membership.compute(group.groupId, store.membershipEntries()) ?: return null
         val me = m.active[keys().deviceId] ?: return null
         val s = settings.current()
-        if (!me.isChild || m.storageOwner == null || s.consentAtMs == null || !s.sharing) return null
+        if (!me.isChild || m.storageOwner == null || s.consentAtMs == null || s.consentOutdated || !s.sharing) return null
         return store to m
     }
 

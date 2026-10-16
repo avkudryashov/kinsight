@@ -9,6 +9,7 @@ import app.kinsight.core.transport.cloud.DiskApi
 import app.kinsight.core.transport.cloud.DiskException
 import app.kinsight.core.transport.cloud.DiskItem
 import app.kinsight.core.transport.cloud.InMemoryDisk
+import app.kinsight.core.usage.UsageSettings
 import kotlinx.coroutines.runBlocking
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -268,5 +269,23 @@ class CloudRunnerTest {
         val line = mom.runner(disk).describe()
         assertTrue(line.startsWith("cloud=on") && "self=owner" in line && "access=yes" in line, line)
         assertFalse("SECRET" in line, line)
+    }
+
+    /** Roadmap Y5, privacy policy §13: nothing new goes before the child agreed to the text that names the Disk. */
+    @Test
+    fun anOldConsentKeepsTheChildOffTheDiskUntilItAgreesAgain() = runBlocking<Unit> {
+        family()
+        mom.ownStorage()
+        kid.learnsStorageFrom(mom)
+        kid.settings.recordConsent(kid.now, version = UsageSettings.LEGACY_CONSENT_VERSION)
+        val day = kid.ownSummary("2026-10-13", 60_000)
+        assertEquals(CloudRun.SKIPPED, kid.runner(disk).run(CloudTrigger.NOW))
+        assertTrue(disk.files("app:").keys.none { it.contains(kid.keys.deviceId.hex) }, "nothing of the child's on the Disk")
+        assertTrue(kid.runner(disk).isOn(), "the worker stays scheduled")
+        kid.settings.upgradeConsent()
+        assertEquals(kid.now, kid.settings.current().consentAtMs, "the first consent time stays")
+        assertEquals(CloudRun.SYNCED, kid.runner(disk).run(CloudTrigger.NOW))
+        assertEquals(CloudRun.SYNCED, mom.runner(disk).run(CloudTrigger.NOW))
+        assertTrue(day in mom.store().liveEntries())
     }
 }

@@ -141,6 +141,11 @@ class CloudRunner(
         var membership = Membership.compute(group.groupId, store.membershipEntries()) ?: return CloudRun.OFF
         val me = membership.active[self] ?: return CloudRun.OFF
         val owner = membership.storageOwner ?: return CloudRun.OFF
+        if (me.isChild && settings.current().consentOutdated) {
+            // Roadmap Y5, privacy policy §13: a child that agreed to the Bluetooth-only text sends nothing through the Disk
+            // until it agreed to the text that names it. SKIPPED keeps the schedule for the run after its «Принимаю».
+            return CloudRun.SKIPPED
+        }
         val now = clock()
         val cursors = RoomCloudCursorStore(db) { Log.w(TAG, it) }
         if (me.isChild && trigger == CloudTrigger.PERIODIC) {

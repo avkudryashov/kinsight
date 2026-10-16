@@ -10,6 +10,7 @@ import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.safeZoneEntry
 import app.kinsight.core.transport.cloud.InMemoryDisk
+import app.kinsight.core.usage.UsageSettings
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.atomic.AtomicInteger
@@ -172,5 +173,15 @@ class FamilyLocationTest {
         } finally {
             kid.cloudSecrets.runLock.unlock()
         }
+    }
+
+    @Test
+    fun anOldConsentTracksNothingUntilTheChildAgreesAgain() = runBlocking<Unit> {
+        family()
+        kid.settings.recordConsent(kid.now, version = UsageSettings.LEGACY_CONSENT_VERSION)
+        kid.pipeline.setSharing(true)
+        assertNull(host(kid).zones(), "the Bluetooth-only text never mentioned the location")
+        kid.settings.upgradeConsent()
+        assertEquals(emptyList(), host(kid).zones())
     }
 }

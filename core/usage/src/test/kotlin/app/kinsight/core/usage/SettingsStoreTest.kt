@@ -1,5 +1,8 @@
 package app.kinsight.core.usage
 
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -13,7 +16,9 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class SettingsStoreTest {
     private val dir = Files.createTempDirectory("kinsight-settings").toFile()
@@ -66,5 +71,31 @@ class SettingsStoreTest {
         assertEquals(1_234L, store.current().consentAtMs)
         store.reset()
         assertEquals(UsageSettings(), store.current())
+    }
+
+    @Test
+    fun aConsentStoredBeforeVersionsIsTheOldTextAndAnUpgradeKeepsItsTime() = runTest {
+        val scope = CoroutineScope(Dispatchers.IO + SupervisorJob()).also { scopes += it }
+        // A file written by a build before Y5: the consent time only.
+        val raw = PreferenceDataStoreFactory.create(scope = scope, produceFile = { file })
+        raw.edit { it[longPreferencesKey("consent_at_ms")] = 1_000L }
+        val s = SettingsStore(raw)
+        assertEquals(UsageSettings.LEGACY_CONSENT_VERSION, s.current().consentVersion)
+        assertTrue(s.current().consentOutdated)
+        s.upgradeConsent()
+        assertEquals(UsageSettings(consentAtMs = 1_000L, consentVersion = UsageSettings.CONSENT_VERSION), s.current())
+        assertFalse(s.current().consentOutdated)
+    }
+
+    @Test
+    fun aNewConsentIsTheCurrentTextAndNoConsentIsNeverOutdated() = runTest {
+        val s = store()
+        s.upgradeConsent()
+        assertNull(s.current().consentAtMs, "an upgrade without a consent records nothing")
+        assertFalse(s.current().consentOutdated)
+        s.recordConsent(2_000L)
+        assertEquals(UsageSettings.CONSENT_VERSION, s.current().consentVersion)
+        s.recordConsent(3_000L, version = UsageSettings.LEGACY_CONSENT_VERSION)
+        assertTrue(s.current().consentOutdated)
     }
 }

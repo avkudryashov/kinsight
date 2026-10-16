@@ -133,7 +133,13 @@ class Graph internal constructor(app: Context) {
     val location = LocationRepository(snapshots, ownAppend)
     val service = ServiceRepository(SyncGraph.snapshot, transport, { BlePermissions.missing(app) }, sync, usageAccess = { AppOpsUsageAccess(app).granted() })
     val pruner = Pruner(db, groups, settings, keys)
-    val settingsRepository = SettingsRepository(settings, prefs, pipeline, pruner::prune)
+    val settingsRepository = SettingsRepository(
+        settings, prefs, pipeline, pruner::prune,
+        onConsentUpgraded = {
+            CloudWork.uploadSoon(app)
+            LocationGraph.refresh(app, rearm = true)
+        },
+    )
 
     /** The one CloudRunner of the process (R15): the worker and the debug hooks run it; it shares the wipe's lock (R14). */
     val cloud = CloudRunner(

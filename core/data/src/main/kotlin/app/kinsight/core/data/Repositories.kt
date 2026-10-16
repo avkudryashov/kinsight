@@ -614,6 +614,8 @@ class SettingsRepository(
     private val pipeline: UsagePipeline,
     private val prune: suspend () -> Unit,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** After [upgradeConsent]: the app asks for a cloud run and a location refresh at once. */
+    private val onConsentUpgraded: () -> Unit = {},
 ) {
     val usageSettings: Flow<UsageSettings> = settings.settings
     val appPrefs: Flow<Prefs> = prefs.prefs
@@ -628,6 +630,12 @@ class SettingsRepository(
     suspend fun consentAndShare() {
         settings.recordConsent(clock())
         pipeline.setSharing(true)
+    }
+
+    /** «Принимаю» on the consent screen of a child that agreed to an older text: only the version moves (roadmap Y5). */
+    suspend fun upgradeConsent() {
+        settings.upgradeConsent()
+        onConsentUpgraded()
     }
 
     suspend fun setSharing(on: Boolean) = pipeline.setSharing(on)
