@@ -1,0 +1,5 @@
+<resources>
+    <string name="loc_channel">Местоположение</string>
+    <string name="loc_notification_title">Вы вне безопасных зон</string>
+    <string name="loc_notification_body">Kinsight передаёт местоположение этого телефона семье каждые 5 минут.</string>
+</resources>
