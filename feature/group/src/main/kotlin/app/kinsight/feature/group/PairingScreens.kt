@@ -83,7 +83,10 @@ private fun Centered(content: @Composable () -> Unit) {
     ) { content() }
 }
 
-/** Spec §9.5: the QR fills the width, a countdown to its expiry; the admin confirms the joiner in a dialog. */
+/**
+ * Spec §9.5: the QR fills the width, a countdown to its expiry; the admin confirms the joiner in a dialog. [transfer]:
+ * the storage owner's invite of its own new phone (spec §7.3); the old phone then leaves the group by itself.
+ */
 @Composable
 fun InviteScreen(
     state: InviteState,
@@ -94,6 +97,7 @@ fun InviteScreen(
     onRetry: () -> Unit,
     onClose: () -> Unit,
     confirming: Boolean = false,
+    transfer: Boolean = false,
 ) = Centered {
     Text(
         stringResource(R.string.inv_title, roleLabel(role)),
@@ -104,6 +108,7 @@ fun InviteScreen(
     when (state) {
         InviteState.Starting -> CircularProgressIndicator()
         is InviteState.Showing -> {
+            if (transfer) Text(stringResource(R.string.inv_transfer_hint), textAlign = TextAlign.Center) // spec §7.3
             InviteQr(state.uri, state.expiresAtMs, nowMs)
             state.problem?.let { RadioProblemText(it) }
         }
@@ -142,7 +147,11 @@ fun InviteScreen(
             )
         }
         is InviteState.Added -> {
-            Text(stringResource(R.string.inv_added, state.name), textAlign = TextAlign.Center)
+            // Only a transfer the new phone confirmed says so (Task 10 ruling 2); otherwise it was a plain add.
+            Text(
+                if (state.ownerTransferred) stringResource(R.string.inv_added_transfer, state.name) else stringResource(R.string.inv_added, state.name),
+                textAlign = TextAlign.Center,
+            )
             Button(onClose, Modifier.testTag("inv_done")) { Text(stringResource(R.string.inv_done)) }
         }
         InviteState.Expired -> {
@@ -286,17 +295,17 @@ internal fun SecureWindow() {
  * background) closes it and its radio; coming back opens a fresh code. A configuration change keeps it.
  */
 @Composable
-fun InviteRoute(role: Role, onClose: () -> Unit) {
+fun InviteRoute(role: Role, transfer: Boolean = false, onClose: () -> Unit) {
     val context = LocalContext.current
-    val vm: InviteViewModel = viewModel(key = "invite-$role") {
+    val vm: InviteViewModel = viewModel(key = "invite-$role-$transfer") {
         val g = AppGraph.get(context)
-        InviteViewModel(g.pairing, g.prefs, role)
+        InviteViewModel(g.pairing, g.prefs, role, transfer)
     }
-    InviteRoute(vm, role, onClose)
+    InviteRoute(vm, role, onClose, transfer)
 }
 
 @Composable
-internal fun InviteRoute(vm: InviteViewModel, role: Role, onClose: () -> Unit) {
+internal fun InviteRoute(vm: InviteViewModel, role: Role, onClose: () -> Unit, transfer: Boolean = false) {
     val activity = LocalActivity.current
     val state by vm.state.collectAsStateWithLifecycle()
     val confirming by vm.confirming.collectAsStateWithLifecycle()
@@ -319,6 +328,7 @@ internal fun InviteRoute(vm: InviteViewModel, role: Role, onClose: () -> Unit) {
             onClose()
         },
         confirming = confirming,
+        transfer = transfer,
     )
 }
 

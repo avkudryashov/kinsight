@@ -260,6 +260,7 @@ private fun MainScaffold(appVersion: String, openDevice: StateFlow<String?>, onD
                         onTransparency = { nav.navigate(TransparencyDest) },
                         onBattery = { nav.navigate(BatteryDest) },
                         onDiagnostics = { context.startActivity(Intent(context, DiagnosticsActivity::class.java)) },
+                        onNewPhone = { nav.navigate(InviteDest(Role.PARENT.name, transfer = true)) }, // spec §7.3
                     )
                 }
                 composable<DeviceDest> { e ->
@@ -283,7 +284,10 @@ private fun MainScaffold(appVersion: String, openDevice: StateFlow<String?>, onD
                     val range = DetailRange(Period.valueOf(r.period), LocalDate.parse(r.start), LocalDate.parse(r.end))
                     AppDetailRoute(DeviceId(r.id), r.packageName, range, onBack = { nav.popBackStack() })
                 }
-                composable<InviteDest> { e -> InviteRoute(Role.valueOf(e.toRoute<InviteDest>().role), onClose = { nav.popBackStack() }) }
+                composable<InviteDest> { e ->
+                    val d = e.toRoute<InviteDest>()
+                    InviteRoute(Role.valueOf(d.role), transfer = d.transfer, onClose = { nav.popBackStack() })
+                }
                 composable<TransparencyDest> { TransparencyRoute(onBack = { nav.popBackStack() }) }
                 composable<ConsentDest> { ConsentRoute(onDone = { nav.popBackStack() }) }
                 composable<BatteryDest> { BatteryGuideRoute(onDone = { nav.popBackStack() }) }

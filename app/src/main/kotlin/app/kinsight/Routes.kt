@@ -23,7 +23,8 @@ import kotlinx.serialization.Serializable
 /** The daily limits of child [id] (spec §9.7, stage 5b), a parent's phone only. */
 @Serializable data class ThresholdsDest(val id: String)
 
-@Serializable data class InviteDest(val role: String)
+/** [transfer]: the storage owner's invite of its own new phone (spec §7.3), always for a parent. */
+@Serializable data class InviteDest(val role: String, val transfer: Boolean = false)
 
 @Serializable object TransparencyDest
 

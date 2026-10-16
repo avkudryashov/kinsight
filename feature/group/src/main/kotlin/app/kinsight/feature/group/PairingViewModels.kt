@@ -42,8 +42,9 @@ internal fun interface JoinStarter {
     fun start(scope: CoroutineScope, invite: Invite, name: String, consent: Boolean, freshIdentity: Boolean): JoinHandle
 }
 
-private fun PairingCoordinator.opener() = InviteOpener { scope, role, adminName ->
-    val s = invite(scope, role, adminName)
+/** [transfer]: the storage owner's invite of its own new phone (spec §7.3, [PairingCoordinator.invite] transferOwner). */
+private fun PairingCoordinator.opener(transfer: Boolean = false) = InviteOpener { scope, role, adminName ->
+    val s = invite(scope, role, adminName, transferOwner = transfer)
     object : InviteHandle {
         override val state = s.state
 
@@ -77,8 +78,8 @@ class InviteViewModel internal constructor(
     private val adminName: suspend () -> String,
     private val role: Role,
 ) : ViewModel() {
-    constructor(pairing: PairingCoordinator, prefs: AppPrefs, role: Role) : this(
-        pairing.opener(),
+    constructor(pairing: PairingCoordinator, prefs: AppPrefs, role: Role, transfer: Boolean = false) : this(
+        pairing.opener(transfer),
         { prefs.current().deviceName?.takeIf { it.isNotBlank() } ?: FALLBACK_ADMIN_NAME },
         role,
     )

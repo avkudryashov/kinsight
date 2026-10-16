@@ -322,4 +322,31 @@ class PairingScreensTest {
         rule.onNodeWithTag("join_code").assertDoesNotExist()
         rule.onNodeWithText("same code", substring = true).assertDoesNotExist()
     }
+
+    @Test
+    fun aTransferInviteSaysWhatHappensAndThatTheOldPhoneLeavesByItself() {
+        var state by mutableStateOf<InviteState>(InviteState.Showing(uri, now + 60_000))
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) { InviteScreen(state, Role.PARENT, now, {}, {}, {}, {}, transfer = true) }
+        }
+        rule.onNodeWithText("becomes the owner of the family's storage", substring = true).assertExists()
+        state = InviteState.Added("Pixel", ownerTransferred = true)
+        rule.waitForIdle()
+        rule.onNodeWithText("“Pixel” now holds the family's storage", substring = true).assertExists()
+        rule.onNodeWithText("leaves the group by itself", substring = true).assertExists()
+        rule.onNodeWithText("Leave the group", substring = true).assertDoesNotExist() // nothing to tap (spec §7.3)
+    }
+
+    @Test
+    fun aTransferTheNewPhoneDidNotTakeShowsAPlainAdd() {
+        invite(InviteState.Added("Pixel", ownerTransferred = false), role = Role.PARENT)
+        rule.onNodeWithText("“Pixel” is in the group", substring = true).assertExists()
+        rule.onNodeWithText("family's storage", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun aPlainInviteHasNoTransferHint() {
+        invite(InviteState.Showing(uri, now + 60_000), role = Role.PARENT)
+        rule.onNodeWithText("family's storage", substring = true).assertDoesNotExist()
+    }
 }
