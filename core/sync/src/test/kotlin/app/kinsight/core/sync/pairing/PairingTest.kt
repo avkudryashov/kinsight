@@ -16,6 +16,7 @@ import app.kinsight.core.sync.ByteStream
 import app.kinsight.core.sync.HandedAccess
 import app.kinsight.core.sync.MemoryPipe
 import app.kinsight.core.sync.PROTOCOL_VERSION
+import app.kinsight.core.sync.PendingRevoke
 import app.kinsight.core.sync.SecureChannel
 import app.kinsight.core.sync.WelcomeCloud
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -444,11 +445,35 @@ class PairingTest {
         val access = "\u20ac".repeat(HandedAccess.MAX_TOKEN_CHARS)
         val refresh = "\u20ad".repeat(HandedAccess.MAX_TOKEN_CHARS)
         assertEquals(3 * HandedAccess.MAX_TOKEN_CHARS, refresh.encodeToByteArray().size)
-        val cloud = WelcomeCloud(0, null, HandedAccess(1, ByteArray(16) { 3 }, access, 99), refreshToken = refresh)
+        // And the most retired tokens a welcome carries (final review, Important 2).
+        val retired = (1..PendingRevoke.MAX).map { n -> PendingRevoke(n.toLong(), "\u20ae".repeat(PendingRevoke.MAX_BYTES / PendingRevoke.MAX / 3)) }
+        val cloud = WelcomeCloud(0, null, HandedAccess(1, ByteArray(16) { 3 }, access, 99), refreshToken = refresh, retired = retired)
         val (_, g) = pair({ parentHost().serve(it, transfer(makeAdmin = true, cloud, others)) }, { guest(parentInvite, name = "Pixel").join(it) })
         val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
         assertEquals(access, joined.cloud!!.access!!.accessToken)
         assertEquals(refresh, joined.cloud!!.refreshToken)
+        assertEquals(PendingRevoke.MAX, joined.cloud!!.retired.size)
+    }
+
+    /** Final review, Important 2: the old owner's pending revokes go with the refresh token only, with their generations. */
+    @Test
+    fun aTransferWelcomeHandsThePendingRevokes() = runTest {
+        val cloud = WelcomeCloud(0, null, HandedAccess(1, ByteArray(16) { 3 }, "AT", 99), refreshToken = "RT", retired = listOf(PendingRevoke(1, "OLD")))
+        val (_, g) = pair({ parentHost().serve(it, transfer(makeAdmin = true, cloud)) }, { guest(parentInvite, name = "Pixel").join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertEquals(listOf(1L to "OLD"), joined.cloud!!.retired.map { it.generation to it.accessToken })
+        assertFalse("OLD" in joined.cloud.toString())
+        val (_, plain) = pair({ parentHost().serve(it, transfer(makeAdmin = false, cloud)) }, { guest(parentInvite, name = "Pixel").join(it) })
+        assertEquals(emptyList(), assertIs<GuestResult.Joined>(plain.getOrThrow()).cloud!!.retired, "no refresh token kept: none")
+    }
+
+    @Test
+    fun onlyTheNewestWellFormedRevokesFitAWelcome() {
+        val many = (1..PendingRevoke.MAX + 2).map { PendingRevoke(it.toLong(), "T$it") }
+        assertEquals((3..PendingRevoke.MAX + 2).map { "T$it" }, PendingRevoke.fitting(many).map { it.accessToken })
+        assertEquals(listOf("ok"), PendingRevoke.fitting(listOf(PendingRevoke(0, "zero"), PendingRevoke(1, ""), PendingRevoke(2, "ok"))).map { it.accessToken })
+        val big = "x".repeat(HandedAccess.MAX_TOKEN_CHARS)
+        assertEquals(PendingRevoke.MAX_BYTES / HandedAccess.MAX_TOKEN_CHARS, PendingRevoke.fitting(List(PendingRevoke.MAX) { PendingRevoke(1, big) }).size)
     }
 
     @Test

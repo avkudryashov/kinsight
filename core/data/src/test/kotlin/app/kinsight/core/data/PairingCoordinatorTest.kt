@@ -881,4 +881,53 @@ class PairingCoordinatorTest {
         assertTrue(momId in m.departed)
         assertFalse(OwnerLifecycle.tokenExposed(m))
     }
+
+    /**
+     * Final review, Important 2: Mom removed a phone and signed in again (its old token waits for the revoke), then moves to
+     * her new phone by QR before the other kid switched. The new phone takes over the pending revoke; the old one leaves.
+     */
+    @Test
+    fun aTransferHandsThePendingRevokeToTheNewPhone() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        kid2.joinGroupOf(mom)
+        mom.ownStorage(token = "AT", tokenId = ByteArray(16) { 9 })
+        val g = mom.groups.read()!!
+        val lost = DeviceKeys.generate()
+        check(mom.pipeline.appendOwn { a -> listOf(a.addMember(lost.sign.publicKey, lost.dh.publicKey, "Tablet", DeviceRole.CHILD)) })
+        check(mom.pipeline.appendOwn { a -> listOf(a.removeMemberEntry(lost.deviceId, 0)) })
+        // What the sign-in after the removal leaves (§7.4): generation 2 with a new token, the old one retired.
+        val storage = ByteArray(16) { 1 }
+        val year = 365 * 86_400_000L
+        assertNotNull(OwnerRecords.claim(mom.appendOwn, mom.store(), mom.keys, mom.cloudSecrets.ring(g), storage, 2, "AT2", mom.now + year))
+        mom.cloudSecrets.saveOwner(g.groupId, 2, storage, TokenSet("AT2", "RT2", mom.now + year))
+        mom.cloudSecrets.retire(g.groupId, 1, "AT")
+        assertEquals(InviteState.Added("Pixel", ownerTransferred = true) to JoinState.Joined, transferByQr())
+        val handed = kid.cloudSecrets.retired(g.groupId)
+        assertEquals(listOf(1L to "AT"), handed.map { it.generation to it.accessToken }, "the pending revoke went with the role")
+        // The old phone sees the new owner and leaves by itself, its own copy of the list with it.
+        val momId = mom.keys.deviceId
+        mom.onKeyWipe = {
+            runBlocking {
+                val momStore = RoomEntryStore(mom.db, g.groupId)
+                kid.store().storeMembership(momStore.membershipEntries())
+                kid.store().applyBatch(momStore.liveEntries().filter { it.author == momId })
+            }
+        }
+        mom.store().storeMembership(kid.store().membershipEntries())
+        mom.store().applyBatch(kid.store().liveEntries().filter { it.author == kid.keys.deviceId })
+        assertEquals(OwnerTransferPhase.DONE, momTransfer.check())
+        assertNull(mom.groups.read())
+        // The new phone revokes the removed phone's token once the other kid reports the new storage generation.
+        val http = FakeOAuthHttp()
+        val disks = AccountDisks(mapOf("AT2" to InMemoryDisk()))
+        kid.store().storeMembership(kid2.store().membershipEntries())
+        assertEquals(CloudRun.SYNCED, kid.runner(disks::disk, http).run(CloudTrigger.NOW))
+        assertTrue(http.urls.none { it.endsWith("/revoke_token") }, "the other kid has not switched yet")
+        kid2.store().storeMembership(kid.store().membershipEntries())
+        kid.store().applyBatch(listOf(kid2.beat(3)))
+        assertEquals(CloudRun.SYNCED, kid.runner(disks::disk, http).run(CloudTrigger.NOW))
+        assertEquals(1, http.urls.count { it.endsWith("/revoke_token") })
+        assertEquals("AT", http.forms.last()["access_token"])
+        assertTrue(kid.cloudSecrets.retired(g.groupId).isEmpty())
+    }
 }

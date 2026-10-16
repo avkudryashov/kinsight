@@ -12,6 +12,7 @@ import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.MembershipState
 import app.kinsight.core.sync.EntryStore
 import app.kinsight.core.sync.HandedAccess
+import app.kinsight.core.sync.PendingRevoke
 import app.kinsight.core.sync.WelcomeCloud
 import app.kinsight.core.transport.ble.GroupConfig
 import app.kinsight.core.transport.cloud.CloudAccessView
@@ -110,8 +111,9 @@ class CloudSecrets(
      * What an admin hands a joiner (spec §6 «Раздача»): its newest group key generation and, only when this device owns
      * the storage («владелец передаёт access_token»), the access it holds. Another parent's joiner gets the token at its
      * next Bluetooth meeting with the owner. [withRefresh]: the owner's transfer invite to its own new phone (spec §7.3)
-     * also hands the refresh token of the access it hands; no other welcome does (spec §6: the refresh token stays on the
-     * owner).
+     * also hands the refresh token of the access it hands, and the tokens this phone still has to revoke (spec §7.1, §7.4:
+     * it leaves right after, so the new owner revokes them); no other welcome does (spec §6: the refresh token stays on
+     * the owner).
      */
     suspend fun welcome(group: GroupConfig, store: EntryStore, membership: MembershipState, self: DeviceId, withRefresh: Boolean = false): WelcomeCloud {
         val ring = ring(group)
@@ -128,7 +130,12 @@ class CloudSecrets(
         } else {
             null
         }
-        return WelcomeCloud(if (key == null) 0 else epoch, key, access, refresh)
+        val retired = if (refresh == null) {
+            emptyList()
+        } else {
+            retired(group.groupId).filter { it.accessToken != access!!.accessToken }.map { PendingRevoke(it.generation, it.accessToken) }
+        }
+        return WelcomeCloud(if (key == null) 0 else epoch, key, access, refresh, retired)
     }
 
     /**

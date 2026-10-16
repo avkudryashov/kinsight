@@ -40,10 +40,47 @@ class HandedAccess(val storageGeneration: Long, val storageId: ByteArray, val ac
  * What pairing hands a new member for the cloud (spec §5, §6 «Раздача»): the newest group key generation the admin holds
  * ([groupKey] null: generation 0, the discovery key), the storage access, present only when the inviting admin is the
  * storage owner (only the owner hands the token), and, only in the owner's transfer invite to its new phone (spec §7.3),
- * the [refreshToken]. Secret: never logged.
+ * the [refreshToken] and the old owner's [retired] tokens still waiting for their revoke. Secret: never logged.
  */
-class WelcomeCloud(val keyEpoch: Int, val groupKey: ByteArray?, val access: HandedAccess?, val refreshToken: String? = null) {
-    override fun toString() = "WelcomeCloud(keyEpoch=$keyEpoch, access=$access, refresh=${refreshToken != null})"
+class WelcomeCloud(
+    val keyEpoch: Int,
+    val groupKey: ByteArray?,
+    val access: HandedAccess?,
+    val refreshToken: String? = null,
+    val retired: List<PendingRevoke> = emptyList(),
+) {
+    override fun toString() = "WelcomeCloud(keyEpoch=$keyEpoch, access=$access, refresh=${refreshToken != null}, retired=${retired.size})"
+}
+
+/**
+ * An access token a former holder no longer uses, revoked once every phone reports a storage generation above
+ * [generation] (spec §7.1, §7.4). Secret: never log [accessToken].
+ */
+class PendingRevoke(val generation: Long, val accessToken: String) {
+    override fun toString() = "PendingRevoke(generation=$generation)"
+
+    companion object {
+        /** At most this many go in a transfer welcome (the old owner keeps no more, RetiredTokenFile.MAX). */
+        const val MAX = 8
+
+        /** Their tokens' UTF-8 bytes in one welcome, so its first frame stays below SecureChannel.MAX_PLAINTEXT. */
+        const val MAX_BYTES = 16 * 1024
+
+        /** The newest of [all] that fit a welcome: well formed, at most [MAX] and [MAX_BYTES] together. */
+        fun fitting(all: List<PendingRevoke>): List<PendingRevoke> {
+            val out = ArrayDeque<PendingRevoke>()
+            var bytes = 0
+            for (r in all.asReversed()) {
+                if (out.size == MAX) break
+                if (r.generation < 1 || r.accessToken.length !in 1..HandedAccess.MAX_TOKEN_CHARS) continue
+                val size = r.accessToken.encodeToByteArray().size
+                if (bytes + size > MAX_BYTES) break
+                bytes += size
+                out.addFirst(r)
+            }
+            return out.toList()
+        }
+    }
 }
 
 /**

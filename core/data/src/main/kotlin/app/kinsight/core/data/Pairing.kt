@@ -604,7 +604,7 @@ class PairingCoordinator(
 
         /**
          * Signs StorageOwner(generation + 1, the same storage) and its CloudAccess, then keeps the handed access and refresh
-         * token as the owner's (spec §6: the refresh token only on the owner). The same token goes on, so the op keeps the
+         * token as the owner's (spec §6: the refresh token only on the owner) and the old owner's pending revokes. The same token goes on, so the op keeps the
          * token id and the departed list of the op in force (rulings Q3). True once the StorageOwner is signed. Best
          * effort: a failure before the append leaves this phone a member and the old phone the owner (the refresh token is
          * not kept); a failure of the vault write after it leaves this phone the owner without its tokens, to be restored
@@ -632,6 +632,8 @@ class PairingCoordinator(
                     } else {
                         signed = true
                         secrets.saveOwner(invite.groupId, generation, a.storageId, TokenSet(a.accessToken, refresh, a.expiresAtMs))
+                        // Spec §7.1, §7.4: the old phone leaves with its retired list; this phone revokes them instead.
+                        for (r in c.retired) secrets.retire(invite.groupId, r.generation, r.accessToken)
                     }
                 }
             } catch (e: CancellationException) {

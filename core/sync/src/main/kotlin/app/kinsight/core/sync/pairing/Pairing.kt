@@ -19,6 +19,7 @@ import app.kinsight.core.model.proto.PairWelcome
 import app.kinsight.core.sync.ByteStream
 import app.kinsight.core.sync.HandedAccess
 import app.kinsight.core.sync.PROTOCOL_VERSION
+import app.kinsight.core.sync.PendingRevoke
 import app.kinsight.core.sync.SecureChannel
 import app.kinsight.core.sync.WelcomeCloud
 import kotlinx.coroutines.withTimeoutOrNull
@@ -211,6 +212,9 @@ class PairingHost(
     private companion object {
         /** Tags, lengths and the varint fields of a PairWelcome page beyond its entries. */
         const val FIELD_OVERHEAD = 64
+
+        /** Per retired token: its tag and length, and its generation's tag and varint. */
+        const val RETIRED_OVERHEAD = 16
     }
 
     /** Spec §7.3: true only when the guest answers the transfer welcome with PairAck(owner_role_taken) in time. */
@@ -231,12 +235,16 @@ class PairingHost(
         var page = mutableListOf<ByteArray>()
         var size = 0
         // The first page also carries the discovery key and the cloud fields (an access token and, in a transfer, a
-        // refresh token of up to 4096 chars each, so up to 12 KB of UTF-8 each, a char being at most 3 bytes): its entries
-        // get that much less room, which keeps every frame below SecureChannel.MAX_PLAINTEXT.
+        // refresh token of up to 4096 chars each, so up to 12 KB of UTF-8 each, a char being at most 3 bytes, and the
+        // retired tokens, up to PendingRevoke.MAX_BYTES): its entries get that much less room, which keeps every frame
+        // below SecureChannel.MAX_PLAINTEXT.
         val refresh = refreshOf(w.cloud)
+        // Spec §7.1, §7.4: the old owner's pending revokes go with the refresh token only.
+        val retired = if (refresh == null) emptyList() else PendingRevoke.fitting(w.cloud!!.retired)
         val firstExtra = w.discoveryKey.size + (w.cloud?.let { c ->
             (c.groupKey?.size ?: 0) + (c.access?.let { it.storageId.size + it.accessToken.encodeToByteArray().size } ?: 0)
-        } ?: 0) + (refresh?.encodeToByteArray()?.size ?: 0) + FIELD_OVERHEAD
+        } ?: 0) + (refresh?.encodeToByteArray()?.size ?: 0) +
+            retired.sumOf { it.accessToken.encodeToByteArray().size + RETIRED_OVERHEAD } + FIELD_OVERHEAD
         for (e in w.membership) {
             val budget = if (pages.isEmpty()) PairingProtocol.PAGE_BYTES - firstExtra else PairingProtocol.PAGE_BYTES
             if (page.isNotEmpty() && size + e.size > budget) {
@@ -263,6 +271,8 @@ class PairingHost(
                 access_token = access?.accessToken.orEmpty(),
                 access_expires_at_ms = access?.expiresAtMs ?: 0,
                 refresh_token = refresh?.takeIf { first }.orEmpty(),
+                retired_tokens = if (first) retired.map { it.accessToken } else emptyList(),
+                retired_generations = if (first) retired.map { it.generation } else emptyList(),
             )
             PairingProtocol.send(ch, PairMessage(welcome = welcome))
         }
@@ -380,7 +390,8 @@ class PairingGuest(
      * Access is kept only when it names the membership's storage and the inviting admin is that storage's owner (only the
      * owner hands the token), whether or not the key was kept. Joining does not depend on it (the device then waits for
      * the access over Bluetooth). The refresh token (spec §7.3, the owner's new phone) is kept only with that access and
-     * only when the welcome made this phone an admin.
+     * only when the welcome made this phone an admin; the old owner's pending revokes only with the refresh token, and
+     * none when they are malformed (a count that differs from their generations').
      */
     private fun cloudOf(first: PairWelcome, state: MembershipState): WelcomeCloud {
         val epoch = first.key_epoch
@@ -392,6 +403,12 @@ class PairingGuest(
         val refresh = first.refresh_token.takeIf {
             it.isNotEmpty() && it.length <= HandedAccess.MAX_TOKEN_CHARS && access != null && state.active[keys.deviceId]?.isAdmin == true
         }
-        return WelcomeCloud(if (groupKey == null) 0 else epoch, groupKey, access, refresh)
+        val retired = if (refresh == null || first.retired_tokens.size != first.retired_generations.size) {
+            emptyList()
+        } else {
+            val all = first.retired_tokens.zip(first.retired_generations) { t, g -> PendingRevoke(g, t) }
+            PendingRevoke.fitting(all).takeIf { it.size == all.size }.orEmpty().filter { it.accessToken != access!!.accessToken }
+        }
+        return WelcomeCloud(if (groupKey == null) 0 else epoch, groupKey, access, refresh, retired)
     }
 }
