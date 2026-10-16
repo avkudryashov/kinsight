@@ -15,6 +15,7 @@ import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -452,9 +453,12 @@ class SettingsScreenTest {
     }
 
 
-    private fun ownerUi(problem: CloudProblem? = null) = SettingsUi(
+    private fun ownerUi(problem: CloudProblem? = null, canTransfer: Boolean = true) = SettingsUi(
         GroupState.Ready(group, parent, listOf(parent, kid.copy(isSelf = false))), UsageSettings(), Prefs(), running,
-        cloud = CloudStatus(available = true, on = true, ownerName = "Mom", selfIsOwner = true, lastSyncMs = NOW - 5 * 60_000, problem = problem),
+        cloud = CloudStatus(
+            available = true, on = true, ownerName = "Mom", selfIsOwner = true, lastSyncMs = NOW - 5 * 60_000, problem = problem,
+            canTransfer = canTransfer,
+        ),
     )
 
     private fun scrollToCloud() = rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_cloud"))
@@ -682,6 +686,35 @@ class SettingsScreenTest {
         rule.onNodeWithText("Dad").performClick()
         assertEquals(dadView.id, picked)
         rule.onNodeWithTag("set_cloud_handover_to").assertDoesNotExist()
+    }
+
+    @Test
+    fun anOwnerWithoutARefreshTokenRestoresAccessBeforeMovingToANewPhone() {
+        var signIns = 0
+        show(ownerUi(canTransfer = false), onCloudSignIn = { signIns++ })
+        scrollToCloud()
+        rule.onNodeWithTag("set_cloud_new_phone").assertDoesNotExist()
+        rule.onNodeWithTag("set_cloud_new_phone_restore", useUnmergedTree = true)
+            .assertTextEquals("To move to a new phone, first restore access to the Disk: sign in to Yandex on this phone.")
+        rule.onNodeWithTag("set_cloud_restore").assertTextEquals("Sign in to Yandex").performClick()
+        assertEquals(1, signIns)
+    }
+
+    @Test
+    fun aDeadTokenShowsOneSignInEvenWithoutARefreshToken() {
+        show(ownerUi(problem = CloudProblem.UNAUTHORIZED, canTransfer = false))
+        scrollToCloud()
+        rule.onNodeWithTag("set_cloud_new_phone_restore", useUnmergedTree = true).assertExists()
+        assertEquals(1, rule.onAllNodesWithTag("set_cloud_restore").fetchSemanticsNodes().size)
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun theRestoreBeforeMovingInRussian() {
+        show(ownerUi(canTransfer = false))
+        scrollToCloud()
+        rule.onNodeWithTag("set_cloud_new_phone_restore", useUnmergedTree = true)
+            .assertTextEquals("Чтобы перенести на новый телефон, сначала восстановите доступ к Диску: войдите в Яндекс на этом телефоне.")
     }
 
     @Test

@@ -124,11 +124,26 @@ class CloudSecrets(
             ?.let { HandedAccess(it.generation, it.storageId, it.accessToken, it.expiresAtMs) }
         // Spec §7.3: only the owner's transfer invite hands the refresh token, and only with its own access.
         val refresh = if (withRefresh && access != null) {
-            tokens()?.takeIf { it.owner && it.groupHex == group.groupId.hex && it.accessToken == access.accessToken }?.refreshToken
+            transferTokens(group.groupId, membership, self)?.takeIf { it.accessToken == access.accessToken }?.refreshToken
         } else {
             null
         }
         return WelcomeCloud(if (key == null) 0 else epoch, key, access, refresh)
+    }
+
+    /**
+     * Spec §7.3: the owner's own tokens of the access in force (this group, the StorageOwner's generation and storage)
+     * when they hold a refresh token, so a transfer invite can hand it; null on any other phone or without one (a Y2-era
+     * owner, an access taken from the log). The one rule for the transfer invite ([welcome]) and for offering it
+     * ([CloudStatus.canTransfer]); a sign-in by the owner stores a refresh token again.
+     */
+    suspend fun transferTokens(groupId: GroupId, membership: MembershipState, self: DeviceId): CloudTokens? {
+        val owner = membership.storageOwner?.takeIf { it.deviceId == self } ?: return null
+        val storageId = owner.storageId.toByteArray()
+        return tokens()?.takeIf {
+            it.owner && it.groupHex == groupId.hex && it.storageGeneration == owner.generation && it.storageId.contentEquals(storageId) &&
+                !it.refreshToken.isNullOrEmpty()
+        }
     }
 
     /** The joiner's side, before its group file is written: a ring for the new group and the handed access, nothing older. */

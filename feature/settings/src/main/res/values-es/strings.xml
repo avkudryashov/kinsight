@@ -141,4 +141,5 @@
     <string name="set_cloud_transfer_pending">El papel de propietario se está pasando al teléfono nuevo.</string>
     <string name="set_cloud_transfer_done">El teléfono nuevo ya es el propietario. Este teléfono sale del grupo por sí solo.</string>
     <string name="set_reset_switching">El almacenamiento se está mudando a otro Disk. Podrás desconectar este teléfono cuando todos los teléfonos se hayan cambiado a él. Si un teléfono ya no se sincroniza, elimínalo del grupo.</string>
+    <string name="set_cloud_new_phone_restore">Para pasar a un teléfono nuevo, primero restablece el acceso al Disco: inicia sesión en Yandex en este teléfono.</string>
 </resources>

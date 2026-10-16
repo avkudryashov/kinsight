@@ -74,7 +74,8 @@ internal fun LazyListScope.cloudSection(
                             Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("set_cloud_problem"))
                         }
                         // Spec §7.4: the same sign-in renews an exposed token.
-                        if ((s.problem == CloudProblem.UNAUTHORIZED || s.problem == CloudProblem.RENEW_ACCESS) && s.selfIsOwner) {
+                        val restore = (s.problem == CloudProblem.UNAUTHORIZED || s.problem == CloudProblem.RENEW_ACCESS) && s.selfIsOwner
+                        if (restore) {
                             OutlinedButton(onSignIn, Modifier.testTag("set_cloud_restore")) { Text(stringResource(R.string.set_cloud_sign_in)) }
                         }
                         // Spec §7.1, §7.2: the parent asked to take the storage, or any admin parent once the owner is gone.
@@ -99,9 +100,17 @@ internal fun LazyListScope.cloudSection(
                             if (s.handoverTargets.isNotEmpty()) {
                                 OutlinedButton(onHandover, Modifier.testTag("set_cloud_handover")) { Text(stringResource(R.string.set_cloud_handover)) }
                             }
-                            // Spec §7.3: the owner's new phone by QR; one transfer at a time.
+                            // Spec §7.3: the owner's new phone by QR; one transfer at a time. The QR hands the refresh token,
+                            // so an owner without one restores access first (that sign-in stores it).
                             if (s.ownerTransfer == null) {
-                                OutlinedButton(onNewPhone, Modifier.testTag("set_cloud_new_phone")) { Text(stringResource(R.string.set_cloud_new_phone)) }
+                                if (s.canTransfer) {
+                                    OutlinedButton(onNewPhone, Modifier.testTag("set_cloud_new_phone")) { Text(stringResource(R.string.set_cloud_new_phone)) }
+                                } else {
+                                    Text(stringResource(R.string.set_cloud_new_phone_restore), modifier = Modifier.testTag("set_cloud_new_phone_restore"))
+                                    if (!restore) {
+                                        OutlinedButton(onSignIn, Modifier.testTag("set_cloud_restore")) { Text(stringResource(R.string.set_cloud_sign_in)) }
+                                    }
+                                }
                             }
                         }
                     }

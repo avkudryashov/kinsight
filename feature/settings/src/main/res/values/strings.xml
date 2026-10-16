@@ -141,4 +141,5 @@
     <string name="set_cloud_transfer_pending">The owner role is moving to the new phone.</string>
     <string name="set_cloud_transfer_done">The new phone is the owner now. This phone leaves the group by itself.</string>
     <string name="set_reset_switching">The storage is moving to another Disk. You can disconnect this phone once every phone has switched to it. A phone that no longer syncs can be removed from the group.</string>
+    <string name="set_cloud_new_phone_restore">To move to a new phone, first restore access to the Disk: sign in to Yandex on this phone.</string>
 </resources>

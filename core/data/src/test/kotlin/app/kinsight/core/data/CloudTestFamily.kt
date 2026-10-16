@@ -41,7 +41,7 @@ suspend fun TestDevice.joinAsAdminOf(admin: TestDevice, name: String = "Dad") {
 suspend fun TestDevice.ownStorage(
     storageId: ByteArray = ByteArray(16) { 1 },
     token: String = "AT",
-    refresh: String = "RT",
+    refresh: String? = "RT",
     expiresAtMs: Long = now + YEAR_MS,
     tokenId: ByteArray = ByteArray(0), // rulings Q3: a real sign-in names its token (16 random bytes)
 ) {

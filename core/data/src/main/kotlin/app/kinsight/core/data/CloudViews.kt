@@ -48,11 +48,26 @@ data class CloudStatus(
      * leaving and the reset wait, or the retired token would be lost before it is revoked.
      */
     val cloudSwitching: Boolean = false,
+    /**
+     * Spec §7.3: this owner may move the storage to a new phone by QR: its vault holds the refresh token of the access in
+     * force ([CloudSecrets.transferTokens], the transfer invite's own rule). False for an owner without one: it restores
+     * access to the Disk first (that sign-in stores a refresh token).
+     */
+    val canTransfer: Boolean = false,
 )
 
 object CloudViews {
-    /** [nowMs]: this phone's clock, against the time it last heard the owner (rulings Q14). */
-    fun status(s: GroupSnapshot, state: CloudState, available: Boolean, nowMs: Long = System.currentTimeMillis()): CloudStatus {
+    /**
+     * [nowMs]: this phone's clock, against the time it last heard the owner (rulings Q14). [holdsTransferToken]: the
+     * caller's vault read for [s] (CloudViews.holdsTransferToken), so this stays a pure view.
+     */
+    fun status(
+        s: GroupSnapshot,
+        state: CloudState,
+        available: Boolean,
+        nowMs: Long = System.currentTimeMillis(),
+        holdsTransferToken: Boolean = false,
+    ): CloudStatus {
         val r = s as? GroupSnapshot.Ready ?: return CloudStatus(available = available)
         val me = r.membership.active[r.self] ?: return CloudStatus(available = available)
         val transfer = OwnerTransfers.phase(state.transfer, r.groupId, r.membership, nowMs)
@@ -89,7 +104,21 @@ object CloudViews {
             handoverNeeded = targets.isNotEmpty(),
             ownerTransfer = transfer,
             cloudSwitching = OwnerLifecycle.leaveBlock(m, r.self, r.heartbeats) == OwnerLeaveBlock.SWITCHING,
+            canTransfer = selfIsOwner && holdsTransferToken,
         )
+    }
+
+    /** Spec §7.3: this phone owns the storage of [s] and holds the refresh token a transfer invite hands. */
+    suspend fun holdsTransferToken(secrets: CloudSecrets, s: GroupSnapshot): Boolean {
+        val r = s as? GroupSnapshot.Ready ?: return false
+        return try {
+            secrets.transferTokens(r.groupId, r.membership, r.self) != null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("KinsightCloud", "cloud tokens unreadable: ${e.javaClass.simpleName}")
+            false // the button stays hidden; the transfer invite itself refuses too
+        }
     }
 }
 
@@ -102,8 +131,14 @@ class CloudRepository(
     private val config: () -> CloudConfig,
     /** The app scope (AppGraph.scope): a finish outlives the screen, like the app link's. */
     private val scope: CoroutineScope,
+    /** For [CloudStatus.canTransfer]; null: never offered. */
+    private val secrets: CloudSecrets? = null,
 ) {
-    val status: Flow<CloudStatus> = combine(snapshots.snapshots, state.state) { s, st -> CloudViews.status(s, st, config().configured) }
+    // The vault is read again on every change; a sign-in that stores a refresh token also appends to the log.
+    val status: Flow<CloudStatus> = combine(snapshots.snapshots, state.state) { s, st ->
+        val holds = secrets?.let { CloudViews.holdsTransferToken(it, s) } == true
+        CloudViews.status(s, st, config().configured, holdsTransferToken = holds)
+    }
 
     val signInState: StateFlow<SignInState> = signIn.state
 

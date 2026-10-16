@@ -119,7 +119,7 @@ class Graph internal constructor(app: Context) {
         disk = CloudGraph::disk,
         onEnabled = { CloudWork.runSoon(app) },
     )
-    val cloudRepository = CloudRepository(snapshots, cloudState, cloudSignIn, prefs, config = { CloudGraph.config }, scope = scope)
+    val cloudRepository = CloudRepository(snapshots, cloudState, cloudSignIn, prefs, config = { CloudGraph.config }, scope = scope, secrets = cloudSecrets)
 
     init {
         // Only while a transfer record exists: every membership change is checked (OwnerTransfer.check).
