@@ -103,7 +103,8 @@ private val SWIPE_THRESHOLD = 72.dp
 /**
  * [onAllApps] opens the full list of the range on screen; [onOpenApp] (a package name and the range on screen) opens
  * one app on the same period, its rows are clickable only when it is given; [onThresholds] opens the child's limits
- * (offered on a parent's phone only).
+ * (offered on a parent's phone only); [onLocation] opens the child's location and safe zones (a parent's phone only, as
+ * the limits).
  */
 @Composable
 fun DeviceDetailRoute(
@@ -112,6 +113,7 @@ fun DeviceDetailRoute(
     onBack: () -> Unit,
     onOpenApp: ((String, DetailRange) -> Unit)? = null,
     onThresholds: () -> Unit = {},
+    onLocation: (() -> Unit)? = null,
 ) {
     val graph = AppGraph.get(LocalContext.current)
     val vm: DeviceDetailViewModel = viewModel(key = "detail-${id.hex}") { DeviceDetailViewModel(graph.usage, id, createSavedStateHandle()) }
@@ -141,6 +143,7 @@ fun DeviceDetailRoute(
             thresholds = thresholds,
             onThresholds = onThresholds,
             nowMs = now,
+            onLocation = onLocation.takeIf { thresholds != null },
         )
         loaded -> MissingDevice(onBack)
         else -> Loading()
@@ -219,7 +222,8 @@ internal fun SectionTitle(text: String) =
  * ruling), only its events. [detailRetentionDays] is how long hourly detail is kept, for the «unavailable» text.
  * [thresholds] (a parent's phone only, else null) adds the «Limits» entry with their count ([onThresholds]) and draws
  * the total's limit: a line on the WEEK and MONTH charts, a line of text under a DAY's total (its chart is clock
- * hours, which follows the total right away).
+ * hours, which follows the total right away). [onLocation] (a parent's phone, a child shown) opens the child's location
+ * and safe zones.
  */
 @Composable
 fun DeviceDetailScreen(
@@ -235,6 +239,7 @@ fun DeviceDetailScreen(
     thresholds: List<ThresholdRule>? = null,
     onThresholds: () -> Unit = {},
     nowMs: Long = System.currentTimeMillis(),
+    onLocation: (() -> Unit)? = null,
 ) = Screen(detail.member.name, onBack) { padding ->
     val child = detail.member.role == Role.CHILD
     val totalLimit = thresholds?.firstOrNull { it.target == ThresholdTarget.Total }?.limitMs
@@ -315,6 +320,15 @@ fun DeviceDetailScreen(
                             )
                         },
                         modifier = Modifier.heightIn(min = 48.dp).clickable(onClick = onThresholds).testTag("det_thresholds"),
+                    )
+                }
+            }
+            if (onLocation != null && child && detail.sharing != Sharing.Left) {
+                item(key = "location") {
+                    ListItem(
+                        headlineContent = { Text(stringResource(R.string.loc_entry)) },
+                        supportingContent = { Text(stringResource(R.string.loc_entry_body)) },
+                        modifier = Modifier.heightIn(min = 48.dp).clickable(onClick = onLocation).testTag("det_location"),
                     )
                 }
             }

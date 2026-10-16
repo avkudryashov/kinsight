@@ -40,11 +40,11 @@ fun eventText(e: EventView): String {
         StateEvent.Kind.NOTIFICATION_SHOWN -> timed(R.string.det_ev_notification_shown, R.string.det_ev_notification_shown_open)
         StateEvent.Kind.NEARBY_PERMISSION_OFF -> timed(R.string.det_ev_nearby_off, R.string.det_ev_nearby_off_open)
         StateEvent.Kind.APP_FORCE_STOPPED -> timed(R.string.det_ev_force_stopped, R.string.det_ev_force_stopped_open)
-        // Protocol 3 kinds: shown like an unknown one until the location UI exists.
+        StateEvent.Kind.ZONE_ENTER -> e.zoneName?.let { stringResource(R.string.det_ev_zone_enter, it) } ?: stringResource(R.string.det_ev_zone_enter_unknown)
+        StateEvent.Kind.ZONE_EXIT -> e.zoneName?.let { stringResource(R.string.det_ev_zone_exit, it) } ?: stringResource(R.string.det_ev_zone_exit_unknown)
+        // Y5 kinds (tamper signals, spec §10): shown like an unknown one until Y5 gives them a line.
         StateEvent.Kind.LOCATION_PERMISSION_OFF,
         StateEvent.Kind.LOCATION_DISABLED,
-        StateEvent.Kind.ZONE_ENTER,
-        StateEvent.Kind.ZONE_EXIT,
         StateEvent.Kind.KIND_UNSPECIFIED -> stringResource(R.string.det_ev_unknown)
     }
 }

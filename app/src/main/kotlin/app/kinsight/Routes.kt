@@ -26,6 +26,9 @@ import kotlinx.serialization.Serializable
 /** The family's safe zones (spec §8.1): a parent edits them, a child's phone lists them. */
 @Serializable object ZonesDest
 
+/** The location and safe zones of child [id] (spec §8, §12), a parent's phone only. */
+@Serializable data class LocationDest(val id: String)
+
 /** [transfer]: the storage owner's invite of its own new phone (spec §7.3), always for a parent. */
 @Serializable data class InviteDest(val role: String, val transfer: Boolean = false)
 

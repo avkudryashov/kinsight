@@ -96,11 +96,8 @@ class DeviceDetailScreenTest {
 
     private val list get() = rule.onNodeWithTag("det_list")
 
-    // The location kinds (protocol 3) have no text of their own yet: they read as unknown.
-    private val shownKinds = StateEvent.Kind.entries - setOf(
-        StateEvent.Kind.LOCATION_PERMISSION_OFF, StateEvent.Kind.LOCATION_DISABLED,
-        StateEvent.Kind.ZONE_ENTER, StateEvent.Kind.ZONE_EXIT,
-    )
+    // Y5 kinds have no text of their own yet: they read as unknown.
+    private val shownKinds = StateEvent.Kind.entries - setOf(StateEvent.Kind.LOCATION_PERMISSION_OFF, StateEvent.Kind.LOCATION_DISABLED)
 
     /** Every kind's line in the current locale, in Kind.entries order. */
     private fun allEventTexts(): List<String> {
@@ -580,5 +577,40 @@ class DeviceDetailScreenTest {
         rule.onNodeWithText("Its data is not on this phone", substring = true).assertExists()
         rule.onNodeWithTag("det_missing_back").performClick()
         assertEquals(1, back)
+    }
+
+    @Test
+    fun zoneEventsNameTheirZone() {
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                Column {
+                    Text(eventText(event.copy(kind = StateEvent.Kind.ZONE_EXIT, zoneName = "Home")))
+                    Text(eventText(event.copy(kind = StateEvent.Kind.ZONE_ENTER)))
+                }
+            }
+        }
+        rule.onNodeWithText("Left the zone “Home”").assertExists()
+        rule.onNodeWithText("Entered a safe zone").assertExists()
+    }
+
+    @Test
+    fun aParentOpensTheChildsLocation() {
+        var opened = 0
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                DeviceDetailScreen(detail, onPeriod = {}, onAllApps = {}, onBack = {}, thresholds = emptyList(), onLocation = { opened++ })
+            }
+        }
+        rule.onNodeWithTag("det_list").performScrollToNode(hasTestTag("det_location"))
+        rule.onNodeWithTag("det_location").performClick()
+        assertEquals(1, opened)
+    }
+
+    @Test
+    fun withoutOnLocationThereIsNoLocationEntry() {
+        // A child's phone (and a parent shown) gets no entry: the route passes null there.
+        show(detail)
+        list.performScrollToNode(hasTestTag("det_event_5"))
+        rule.onNodeWithTag("det_location").assertDoesNotExist()
     }
 }

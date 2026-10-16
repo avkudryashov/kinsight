@@ -166,4 +166,29 @@
     <string name="zone_delete_body">Телефоны детей перестанут проверять эту зону.</string>
     <string name="zone_cancel">Отмена</string>
     <string name="zone_failed">Не удалось сохранить зону. Попробуйте ещё раз.</string>
+    <string name="loc_entry">Местоположение и безопасные зоны</string>
+    <string name="loc_entry_body">Где телефон сейчас и маршрут за сегодня</string>
+    <string name="loc_title">%1$s: местоположение</string>
+    <string name="loc_in_zone">В зоне «%1$s» (%2$s)</string>
+    <string name="loc_in_unknown_zone">В безопасной зоне (%1$s)</string>
+    <string name="loc_outside">Вне безопасных зон (%1$s)</string>
+    <string name="loc_no_data">Местоположения пока нет. Оно появится, когда телефон отправит первую точку через Диск.</string>
+    <string name="loc_last_point">Последняя точка: %1$s, точность %2$d м (%3$s)</string>
+    <string name="loc_events">События зон за сегодня</string>
+    <string name="loc_no_events">Сегодня событий зон не было</string>
+    <string name="loc_zones">Безопасные зоны: %1$d</string>
+    <string name="loc_map_description">Карта безопасных зон и маршрута за сегодня</string>
+    <string name="loc_open_map">Открыть на карте</string>
+    <string name="det_map_scale_m">%1$d м</string>
+    <string name="det_map_scale_km">%1$d км</string>
+    <string name="det_ev_zone_enter">Вход в зону «%1$s»</string>
+    <string name="det_ev_zone_exit">Выход из зоны «%1$s»</string>
+    <string name="det_ev_zone_enter_unknown">Вход в безопасную зону</string>
+    <string name="det_ev_zone_exit_unknown">Выход из безопасной зоны</string>
+    <plurals name="loc_route_points">
+        <item quantity="one">Маршрут за сегодня: %d точка</item>
+        <item quantity="few">Маршрут за сегодня: %d точки</item>
+        <item quantity="many">Маршрут за сегодня: %d точек</item>
+        <item quantity="other">Маршрут за сегодня: %d точки</item>
+    </plurals>
 </resources>
