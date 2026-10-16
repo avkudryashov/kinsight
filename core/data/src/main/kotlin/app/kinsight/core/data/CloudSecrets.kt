@@ -245,7 +245,8 @@ class CloudSecrets(
      * its vault, yet the token may be known to a departed phone (a lost owner's) that the new owner could not read it
      * for. Never one still in use (Task 7): the same token id as the op in force (spec §7.3, rulings Q3), the token of the
      * CloudAccess in force or the one in this phone's vault. True when [older] is dealt with: retired, in use, or its
-     * CloudAccess sealed under a key this ring no longer holds (it never comes back); false while none is in the log yet.
+     * CloudAccess sealed under a key generation below every one the ring keeps (pruned, it never comes back); false
+     * while none is in the log yet or the ring may still get its key (the sync absorbs it), so a later call retries.
      */
     suspend fun retireOlderAccess(store: EntryStore, membership: MembershipState, older: StorageOwnerState, ring: GroupKeyRing): Boolean {
         val owner = membership.storageOwner ?: return false
@@ -253,7 +254,12 @@ class CloudSecrets(
         if (older.tokenId.size > 0 && older.tokenId == owner.tokenId) return true
         val entry = CloudAccessView.newestFor(store, older) ?: return false
         val keys = ring.keys()
-        val old = CloudAccessView.open(membership.groupId, older, entry, keys) ?: return true
+        val old = CloudAccessView.open(membership.groupId, older, entry, keys)
+        if (old == null) {
+            // Below every key the ring keeps: pruned for good. Otherwise the key may still come (a sync absorbs it).
+            val epoch = entry.body.cloud_access?.key_epoch ?: return true
+            return epoch !in keys && epoch < (keys.keys.minOrNull() ?: Int.MAX_VALUE)
+        }
         val inUse = setOfNotNull(
             CloudAccessView.current(store, membership, keys)?.accessToken,
             tokens()?.takeIf { it.groupHex == membership.groupId.hex }?.accessToken,

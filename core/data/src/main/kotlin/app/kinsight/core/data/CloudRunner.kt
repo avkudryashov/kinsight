@@ -229,8 +229,8 @@ class CloudRunner(
     /**
      * Final review, Important 3: once the storage generation moved on, a parent keeps the previous generation's
      * CloudAccess token for the revoke too (its vault may hold none: its access came from the log). Before the sync too,
-     * while the ring still holds that CloudAccess's key. Once per generation ([CloudState.olderAccessGeneration]), so a
-     * token revoked and dropped is never taken again.
+     * while the ring still holds that CloudAccess's key, and after it, once the sync absorbed a key the ring lacked.
+     * Marked once dealt with ([CloudState.olderAccessGeneration]), so a token revoked and dropped is never taken again.
      */
     private suspend fun retireOlderAccess(store: RoomEntryStore, m: MembershipState, ring: GroupKeyRing) {
         val older = OwnerLifecycle.previousOwner(m) ?: return

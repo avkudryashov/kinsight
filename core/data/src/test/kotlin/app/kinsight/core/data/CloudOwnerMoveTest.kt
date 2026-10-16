@@ -441,4 +441,34 @@ class CloudOwnerMoveTest {
             pixel.close()
         }
     }
+
+    /**
+     * Re-review: Dad's ring lacks the key generation Mom's CloudAccess is sealed under until his sync absorbs it. Another
+     * parent moved the storage meanwhile; Dad still retires Mom's token in that same run, after the sync.
+     */
+    @Test
+    fun aKeyAbsorbedInTheSyncStillRetiresTheOlderAccess() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        dad.joinAsAdminOf(mom)
+        kid.joinAsAdminOf(mom, name = "Grandma") // a third parent, who moves the storage
+        val g = mom.groups.read()!!
+        val year = 365L * 24 * 60 * 60 * 1000
+        val before = membershipOf(mom)
+        check(mom.appendOwn { a -> listOf(GroupKey.rotate(a, before)) }) // key generation 1, sealed to all, absorbed by nobody yet
+        assertNotNull(OwnerRecords.claim(mom.appendOwn, mom.store(), mom.keys, mom.cloudSecrets.ring(g), ByteArray(16) { 1 }, 1, "AT", mom.now + year))
+        kid.store().storeMembership(mom.store().membershipEntries())
+        kid.store().applyBatch(mom.store().entriesAfter(mom.keys.deviceId, 0, 10_000))
+        val moved = ByteArray(16) { 2 }
+        assertNotNull(OwnerRecords.claim(kid.appendOwn, kid.store(), kid.keys, kid.cloudSecrets.ring(g), moved, 2, "G2", kid.now + year))
+        dad.store().storeMembership(kid.store().membershipEntries())
+        dadHoldsMomsLog()
+        dad.store().applyBatch(kid.store().entriesAfter(kid.keys.deviceId, 0, 10_000))
+        assertFalse(1 in dad.cloudSecrets.ring(g).keys(), "Dad's ring lacks generation 1 before his sync")
+        assertTrue(dad.cloudSecrets.saveHanded(g.groupId, HandedAccess(2, moved, "G2", kid.now + year), keep = true))
+        val newDisk = InMemoryDisk()
+        val oauth = FakeOAuthHttp(accessToken = "G2")
+        assertEquals(CloudRun.SYNCED, dad.runner(AccountDisks(mapOf("G2" to newDisk))::disk, oauth).run(CloudTrigger.NOW))
+        assertTrue(1 in dad.cloudSecrets.ring(g).keys(), "the sync absorbed it")
+        assertEquals(listOf(1L to "AT"), dad.cloudSecrets.retired(g.groupId).map { it.generation to it.accessToken })
+    }
 }
