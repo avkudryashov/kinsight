@@ -36,7 +36,9 @@ data class DeferredPack(val epoch: Int, val failedKey: String? = null, val membe
  * covered by their name without reading the generation), pruned to the last listing. [lastCompactionMs]: wall clock of the
  * last compaction. [ownPacks]: names of the own packs on the Disk to the key each is sealed with. [deferred]: packs that
  * could not be opened yet (unknown author, key generation or key), same keys as [seen]; retried once the ring holds a key
- * that may open them, and they keep their generation in the ring.
+ * that may open them, and they keep their generation in the ring. [locationDue]: own packs that carry LOCATION entries
+ * to the wall clock time when every one of them is past the 48 h retention (spec §8); the pack is re-sealed once then,
+ * without them, and leaves the map ("location-clean"). A pack not in the map carries none.
  */
 data class CloudCursor(
     val uploadedUpTo: Long = 0,
@@ -44,6 +46,7 @@ data class CloudCursor(
     val lastCompactionMs: Long = 0,
     val ownPacks: Map<String, KeyId> = emptyMap(),
     val deferred: Map<String, DeferredPack> = emptyMap(),
+    val locationDue: Map<String, Long> = emptyMap(),
 )
 
 interface CloudCursorStore {
@@ -63,10 +66,12 @@ class InMemoryCursorStore(var cursor: CloudCursor = CloudCursor()) : CloudCursor
 
 /**
  * The cursor at rest (Y2: one Room row). Version byte, then the fields in declaration order, maps as a count and their
- * entries. [decode] throws IOException for anything it did not write, including a cut or longer buffer.
+ * entries. [decode] throws IOException for anything it did not write, including a cut or longer buffer. Version 1 (before
+ * Y4) has no [CloudCursor.locationDue]: no own pack carried a LOCATION entry then, so it decodes to an empty map.
  */
 object CloudCursorCodec {
-    private const val VERSION = 1
+    private const val VERSION = 2
+    private const val VERSION_1 = 1
     private const val MAX_ITEMS = 1_000_000
 
     fun encode(c: CloudCursor): ByteArray {
@@ -93,6 +98,11 @@ object CloudCursorCodec {
                 o.writeOptional(v.failedKey)
                 o.writeOptional(v.membershipHash)
             }
+            o.writeInt(c.locationDue.size)
+            for ((k, v) in c.locationDue) {
+                o.writeUTF(k)
+                o.writeLong(v)
+            }
         }
         return bytes.toByteArray()
     }
@@ -100,14 +110,16 @@ object CloudCursorCodec {
     fun decode(bytes: ByteArray): CloudCursor {
         val input = ByteArrayInputStream(bytes)
         val i = DataInputStream(input)
-        if (i.readUnsignedByte() != VERSION) throw IOException("unknown cloud cursor version")
+        val version = i.readUnsignedByte()
+        if (version != VERSION && version != VERSION_1) throw IOException("unknown cloud cursor version")
         val uploaded = i.readLong()
         val compaction = i.readLong()
         val seen = (0 until i.count()).associate { i.readUTF() to i.readInt() }
         val own = (0 until i.count()).associate { i.readUTF() to KeyId(i.readInt(), i.readUTF()) }
         val deferred = (0 until i.count()).associate { i.readUTF() to DeferredPack(i.readInt(), i.readOptional(), i.readOptional()) }
+        val due = if (version == VERSION_1) emptyMap() else (0 until i.count()).associate { i.readUTF() to i.readLong() }
         if (input.available() != 0) throw IOException("trailing bytes in cloud cursor")
-        return CloudCursor(uploaded, seen, compaction, own, deferred)
+        return CloudCursor(uploaded, seen, compaction, own, deferred, due)
     }
 
     private fun DataInputStream.count(): Int = readInt().also { if (it !in 0..MAX_ITEMS) throw IOException("bad count $it") }

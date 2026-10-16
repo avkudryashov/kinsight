@@ -113,7 +113,7 @@ class CloudSync(
         val written = cursor.ownPacks.filterValues { !it.kept }
         if (cursor.uploadedUpTo > 0 && (cursor.ownPacks.isEmpty() || written.keys.any { it !in ownNames })) {
             log("own packs up to ${cursor.uploadedUpTo} are gone: uploading the whole log again")
-            cursor = cursor.copy(uploadedUpTo = 0, ownPacks = cursor.ownPacks - written.keys)
+            cursor = cursor.copy(uploadedUpTo = 0, ownPacks = cursor.ownPacks - written.keys, locationDue = cursor.locationDue - written.keys)
             cursors.save(cursor)
         }
         rotationEntry = membership.effectiveEntries.firstOrNull { it.body.membership_op?.rotate?.epoch == GroupKey.currentEpoch(membership) && it.body.membership_op?.rotate?.epoch != 0 }
@@ -121,7 +121,8 @@ class CloudSync(
         val (uploaded, afterUpload) = upload(epoch, cursor)
         // A full Disk still lets us read the others.
         val afterCompaction = if (storageFull) afterUpload else compactIfDue(epoch, afterUpload, forceCompaction)
-        val (received, afterDownload) = download(listing, membership, afterCompaction)
+        val afterExpiry = if (storageFull) afterCompaction else expireLocations(epoch, afterCompaction)
+        val (received, afterDownload) = download(listing, membership, afterExpiry)
         cursors.save(afterDownload)
         return if (storageFull) CloudResult.StorageFull else CloudResult.Synced(uploaded, received)
     }
@@ -196,7 +197,7 @@ class CloudSync(
                 storageFull = true
                 break
             }
-            cursor = cursor.copy(uploadedUpTo = range.last, ownPacks = cursor.ownPacks + (name to keyId))
+            cursor = cursor.copy(uploadedUpTo = range.last, ownPacks = cursor.ownPacks + (name to keyId), locationDue = cursor.locationDue.due(name, entries))
             cursors.save(cursor)
             packs++
         }
@@ -208,33 +209,91 @@ class CloudSync(
     /**
      * Own live entries with seq in [from]..[upTo], cut into packs of at most [maxPackEntries] entries and
      * [MAX_PACK_BYTES]; consecutive ranges, the last ending at [upTo]. Own seqs up to [upTo] are accounted for here, so a
-     * seq of the range without an entry is superseded or pruned: dead, as the signed range states.
+     * seq of the range without an entry is superseded or pruned: dead, as the signed range states. Spec §8: a LOCATION
+     * past the 48 h retention never goes into a pack (the local prune may not have run yet), and a pack holds LOCATION
+     * entries of at most [LOCATION_SPAN_MS] of fix times, so its one re-seal ([expireLocations]) finds them all expired
+     * within that span of the first.
      */
     private suspend fun chunks(from: Long, upTo: Long): List<Pair<LongRange, List<DecodedEntry>>> {
+        val all = live(from, upTo)
+        val out = mutableListOf<Pair<LongRange, List<DecodedEntry>>>()
+        var start = from
+        var current = mutableListOf<DecodedEntry>()
+        var bytes = 0
+        var firstFix: Long? = null
+        for (e in all) {
+            val fix = e.body.location?.fix_time_ms
+            val tooLong = fix != null && firstFix != null && kotlin.math.abs(fix - firstFix) > LOCATION_SPAN_MS
+            if (current.isNotEmpty() && (current.size >= maxPackEntries || bytes + e.bytes.size > MAX_PACK_BYTES || tooLong)) {
+                out += (start..current.last().seq) to current
+                start = current.last().seq + 1
+                current = mutableListOf()
+                bytes = 0
+                firstFix = null
+            }
+            current += e
+            bytes += e.bytes.size
+            if (firstFix == null) firstFix = fix
+        }
+        out += (start..upTo) to current
+        return out
+    }
+
+    /** Own entries with seq in [from]..[upTo] that may go to the Disk: all but a LOCATION past retention (spec §8). */
+    private suspend fun live(from: Long, upTo: Long): List<DecodedEntry> {
+        val now = clock()
         val all = mutableListOf<DecodedEntry>()
         var after = from - 1
         while (after < upTo) {
             val page = store.entriesAfter(self, after, PAGE)
             if (page.isEmpty()) break
-            all += page.filter { it.seq <= upTo }
+            all += page.filter { it.seq <= upTo && !expiredLocation(it, now) }
             after = page.last().seq
         }
-        val out = mutableListOf<Pair<LongRange, List<DecodedEntry>>>()
-        var start = from
-        var current = mutableListOf<DecodedEntry>()
-        var bytes = 0
-        for (e in all) {
-            if (current.isNotEmpty() && (current.size >= maxPackEntries || bytes + e.bytes.size > MAX_PACK_BYTES)) {
-                out += (start..current.last().seq) to current
-                start = current.last().seq + 1
-                current = mutableListOf()
-                bytes = 0
+        return all
+    }
+
+    /** SyncPolicy.isExpired for LOCATION, on this sync's clock: older than the retention, or that far in the future. */
+    private fun expiredLocation(e: DecodedEntry, now: Long): Boolean {
+        val fix = e.body.location?.fix_time_ms ?: return false
+        return fix < now - SyncPolicy.LOCATION_RETENTION_MS || fix > now + SyncPolicy.LOCATION_RETENTION_MS
+    }
+
+    /** [this] with own pack [name]'s re-seal time for [entries]: when the newest LOCATION is past retention, or none. */
+    private fun Map<String, Long>.due(name: String, entries: List<DecodedEntry>): Map<String, Long> {
+        val newest = entries.mapNotNull { it.body.location?.fix_time_ms }.maxOrNull() ?: return this - name
+        return this + (name to newest + SyncPolicy.LOCATION_RETENTION_MS + LOCATION_MARGIN_MS)
+    }
+
+    /**
+     * Spec §8 on the Disk (Y4 final review Important 4): every own pack whose LOCATION entries are all past retention is
+     * re-sealed once, with its signed range kept and those entries left out (readers treat a missing seq of a signed range
+     * as dead, like a pruned one), and leaves [CloudCursor.locationDue]. Only a child signs LOCATION, so only a child's
+     * packs are ever due. Every run, not only at the daily compaction: a big pack the merge never takes is cleaned too.
+     * A full Disk keeps the rest due for the next run.
+     */
+    private suspend fun expireLocations(epoch: Int, start: CloudCursor): CloudCursor {
+        val now = clock()
+        val due = start.locationDue.filter { (name, at) -> at <= now && start.ownPacks[name]?.kept == false }.keys.sorted()
+        // A pack forgotten since (merged away, or kept) is no longer ours to clean.
+        val stale = start.locationDue.keys.filter { it !in start.ownPacks || start.ownPacks.getValue(it).kept }
+        var cursor = if (stale.isEmpty()) start else start.copy(locationDue = start.locationDue - stale.toSet()).also { cursors.save(it) }
+        if (due.isEmpty()) return cursor
+        val groupKey = ring.keys().getValue(epoch)
+        val current = keyId(epoch)
+        for (name in due) {
+            val range = CloudPaths.parsePack(name) ?: continue
+            val entries = live(range.first, range.last)
+            try {
+                uploadPack(name, PackCodec.seal(keys, groupId, entries, range.first, range.last, epoch, groupKey, now, keyUpdates(epoch)))
+            } catch (e: DiskException.StorageFull) {
+                storageFull = true
+                break
             }
-            current += e
-            bytes += e.bytes.size
+            cursor = cursor.copy(ownPacks = cursor.ownPacks + (name to current), locationDue = cursor.locationDue.due(name, entries))
+            cursors.save(cursor)
         }
-        out += (start..upTo) to current
-        return out
+        return cursor
     }
 
     /**
@@ -255,6 +314,7 @@ class CloudSync(
         var membership = start
         var lifted = held
         var ownPacks = cursor.ownPacks
+        var due = cursor.locationDue
         val dir = CloudPaths.deviceDir(groupId, self)
         for (p in sorted) {
             val bytes = try {
@@ -268,6 +328,8 @@ class CloudSync(
                     membership = ingest(outcome.pack, membership).first
                     lifted = maxOf(lifted, outcome.pack.to)
                     ownPacks = ownPacks + (p.name to KeyId(outcome.pack.epoch, GroupKey.fingerprint(keys.getValue(outcome.pack.epoch))))
+                    // Its LOCATION entries leave the Disk like those of a pack sealed here (spec §8).
+                    due = due.due(p.name, outcome.pack.entries.mapNotNull { runCatching { DecodedEntry.decode(it) }.getOrNull() })
                 }
                 // The signature is checked before the key: the range is ours even when we cannot read it. Kept as it is.
                 is PackOutcome.KeyUnknown -> {
@@ -284,7 +346,7 @@ class CloudSync(
         if (lifted <= held) return cursor
         store.completeAuthor(self, lifted)
         log("own log found on the Disk up to $lifted, held $held: those seqs are not reused (A-4)")
-        return cursor.copy(uploadedUpTo = maxOf(cursor.uploadedUpTo, lifted), ownPacks = ownPacks).also { cursors.save(it) }
+        return cursor.copy(uploadedUpTo = maxOf(cursor.uploadedUpTo, lifted), ownPacks = ownPacks, locationDue = due).also { cursors.save(it) }
     }
 
     /** The ranges of [cursor]'s kept own packs (A-4): never sealed by us. */
@@ -354,6 +416,7 @@ class CloudSync(
         val groupKey = ring.keys().getValue(epoch)
         val planned = ownChunks(from, start.uploadedUpTo, start).map { (r, entries) -> CloudPaths.packName(r.first, r.last) to (r to entries) }
         val written = mutableMapOf<String, KeyId>()
+        val writtenDue = mutableMapOf<String, List<DecodedEntry>>()
         try {
             for ((name, chunk) in planned) {
                 // A merge keeps a tail file whose range comes out the same, but only one recorded with the current key: an
@@ -362,6 +425,7 @@ class CloudSync(
                 val (range, entries) = chunk
                 uploadPack(name, PackCodec.seal(keys, groupId, entries, range.first, range.last, epoch, groupKey, now, keyUpdates(epoch)))
                 written[name] = current
+                writtenDue[name] = entries
             }
         } catch (e: DiskException.StorageFull) {
             // Nothing is deleted and the cursor stays: compaction is retried at the next run, reading still goes on.
@@ -370,7 +434,10 @@ class CloudSync(
         }
         val obsolete = replacedNames - planned.map { it.first }.toSet()
         // After a full re-seal every own pack on the Disk is one just written.
-        val compacted = done.copy(ownPacks = if (full) kept + written else start.ownPacks + written - obsolete)
+        val ownPacks = if (full) kept + written else start.ownPacks + written - obsolete
+        var due = start.locationDue.filterKeys { it in ownPacks }
+        for ((name, entries) in writtenDue) due = due.due(name, entries)
+        val compacted = done.copy(ownPacks = ownPacks, locationDue = due)
         cursors.save(compacted) // forgotten before deleted: a lost delete leaves a stray file, never a missing own name
         for (name in obsolete) {
             try {
@@ -618,6 +685,12 @@ class CloudSync(
         const val PAGE = 500
         const val MAX_ROUNDS = 3
         const val COMPACTION_INTERVAL_MS = 24L * 60 * 60 * 1000
+
+        /** The fix times one own pack's LOCATION entries span at most (spec §8: each leaves the Disk soon after 48 h). */
+        const val LOCATION_SPAN_MS = 60L * 60 * 1000
+
+        /** After its newest LOCATION is past retention, a pack is re-sealed this much later (a clock step, a late run). */
+        const val LOCATION_MARGIN_MS = 60L * 60 * 1000
 
         /** [CloudCursor.seen] value of a pack that did not open and never will. */
         const val REJECTED = -1

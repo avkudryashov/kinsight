@@ -18,6 +18,7 @@ class CloudCursorCodecTest {
                 "j/k/l" to DeferredPack(-1, membershipHash = "0123456789abcdef"),
                 "m/n/o" to DeferredPack(3),
             ),
+            locationDue = mapOf(CloudPaths.packName(1, 41) to 1_760_172_800_000L),
         )
         assertEquals(c, CloudCursorCodec.decode(CloudCursorCodec.encode(c)))
         assertEquals(CloudCursor(), CloudCursorCodec.decode(CloudCursorCodec.encode(CloudCursor())))
@@ -29,5 +30,15 @@ class CloudCursorCodecTest {
         assertFailsWith<IOException> { CloudCursorCodec.decode(byteArrayOf(9, 0, 0, 0)) }
         val good = CloudCursorCodec.encode(CloudCursor(uploadedUpTo = 3, seen = mapOf("x" to 1)))
         assertFailsWith<IOException> { CloudCursorCodec.decode(good.copyOf(good.size - 1)) }
+    }
+
+    /** A cursor written before Y4 (version 1) reads with no location-bearing own pack. */
+    @Test
+    fun aVersionOneCursorReadsWithoutLocationDue() {
+        val c = CloudCursor(uploadedUpTo = 7, ownPacks = mapOf(CloudPaths.packName(1, 7) to KeyId(0, "00ff")))
+        val v2 = CloudCursorCodec.encode(c)
+        // Version 1 is version 2 without the trailing empty locationDue count.
+        val v1 = v2.copyOf(v2.size - 4).also { it[0] = 1 }
+        assertEquals(c, CloudCursorCodec.decode(v1))
     }
 }
