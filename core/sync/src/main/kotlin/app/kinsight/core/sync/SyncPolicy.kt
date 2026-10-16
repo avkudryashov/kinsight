@@ -29,7 +29,7 @@ data class SyncPolicy(
     fun acceptsFromPeers(e: DecodedEntry): Boolean = showOthers || e.author == self || e.kind in FROM_PARENTS_TO_ALL
 
     companion object {
-        /** Parent-signed kinds a child takes as well (R5 of the cloud plan): storage access now, safe zones in Y4. */
-        val FROM_PARENTS_TO_ALL: Set<EntryKind> = setOf(EntryKind.CLOUD_ACCESS)
+        /** Parent-signed kinds a child takes as well (R5 of the cloud plan): storage access, and the safe zones it watches (spec §8.1). */
+        val FROM_PARENTS_TO_ALL: Set<EntryKind> = setOf(EntryKind.CLOUD_ACCESS, EntryKind.SAFE_ZONE)
     }
 }

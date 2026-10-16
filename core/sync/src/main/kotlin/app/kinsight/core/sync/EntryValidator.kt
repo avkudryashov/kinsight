@@ -41,6 +41,8 @@ class EntryValidator(
         if (e.kind == EntryKind.CATEGORY_OVERRIDE) CategoryOverrideRules.violation(e, membership)?.let { return Verdict.Skipped(it) }
         if (e.kind == EntryKind.CLOUD_ACCESS) CloudAccessRules.violation(e, membership)?.let { return Verdict.Skipped(it) }
         if (e.kind == EntryKind.STORAGE_HANDOVER) StorageHandoverRules.violation(e, membership)?.let { return Verdict.Skipped(it) }
+        if (e.kind == EntryKind.LOCATION) LocationRules.violation(e, membership)?.let { return Verdict.Skipped(it) }
+        if (e.kind == EntryKind.SAFE_ZONE) SafeZoneRules.violation(e, membership)?.let { return Verdict.Skipped(it) }
         if (!policy.acceptsFromPeers(e)) return Verdict.Unwanted
         if (alreadyAccounted) return Verdict.Duplicate
         if (policy.isExpired(e)) return Verdict.Expired

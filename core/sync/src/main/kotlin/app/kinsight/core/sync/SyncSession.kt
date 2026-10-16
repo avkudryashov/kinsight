@@ -257,7 +257,7 @@ class SyncSession internal constructor(
         // Spec §6 «Раздача» between paired devices (protocol 3): one CloudHandoff each way, empty when there is nothing.
         // A protocol 2 peer never sees it. Who may hand what (only the storage owner) is the handoff's decision. A local
         // fault in the handoff is contained (logged without the token); a peer breaking the order still fails the session.
-        if (agreed >= 3) {
+        if (agreed >= CLOUD_PROTOCOL_VERSION) {
             val offer = handoff?.let { h -> contained("offer to ${peer.id.hex}") { h.offer(peer, membership) } }
             send(
                 ch,
