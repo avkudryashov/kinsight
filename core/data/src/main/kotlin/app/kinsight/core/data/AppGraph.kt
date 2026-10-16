@@ -73,8 +73,12 @@ class Graph internal constructor(app: Context) {
         runLock = cloudSecrets.runLock,
         scope = scope,
     )
-    /** Spec §7.3: the old phone leaves by itself once its transfer invite's new phone holds the owner role. */
-    val ownerTransfer = OwnerTransfer(db, groups, keys, cloudState, leave = { group.leaveAndForget().join() })
+    /**
+     * Spec §7.3: the old phone leaves by itself once its transfer invite's new phone holds the owner role. The leave is
+     * launched, not joined (final review, Minor 1): the check runs in a snapshot collector, which must not wait out the
+     * leave's session; leaveAndForget dedupes a second call while the first runs.
+     */
+    val ownerTransfer = OwnerTransfer(db, groups, keys, cloudState, leave = { group.leaveAndForget() })
     val pairing = PairingCoordinator(
         link = AndroidPairingLink(app),
         db = db,
