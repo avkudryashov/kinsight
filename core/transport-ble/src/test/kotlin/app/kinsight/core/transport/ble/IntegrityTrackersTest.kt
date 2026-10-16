@@ -318,4 +318,59 @@ class IntegrityTrackersTest {
         assertEquals(listOf(Triple(StateEvent.Kind.SYNC_STOPPED, 1_000_000L, 1_010_000L)), recorded)
         assertNull(state.stoppedAtMs())
     }
+
+    private val location = LocationWatch(state, record, clock = { now })
+    private val openGate = GateState.Open(0L)
+
+    @Test
+    fun locationRevokedIsReportedAtOnceAndClosedWhenBack() = runBlocking<Unit> {
+        assertFalse(location.onCheck(openGate, access = false, enabled = true), "never granted: nothing was revoked")
+        assertFalse(location.onCheck(openGate, access = true, enabled = true))
+        now += 60_000
+        assertTrue(location.onCheck(openGate, access = false, enabled = true))
+        assertEquals(listOf(Triple(StateEvent.Kind.LOCATION_PERMISSION_OFF, 1_060_000L, 1_060_000L)), recorded)
+        assertFalse(location.onCheck(openGate, access = false, enabled = true), "reported once")
+        now += 60_000
+        assertTrue(location.onCheck(openGate, access = true, enabled = true))
+        assertEquals(Triple(StateEvent.Kind.LOCATION_PERMISSION_OFF, 1_060_000L, 1_120_000L), recorded.last())
+        assertNull(state.locationAccessOffSinceMs())
+    }
+
+    @Test
+    fun locationOffInTheSystemIsReportedAtOnceAndClosedWhenOn() = runBlocking<Unit> {
+        assertTrue(location.onCheck(openGate, access = true, enabled = false))
+        now += 5_000
+        assertTrue(location.onCheck(openGate, access = true, enabled = true))
+        assertEquals(
+            listOf(
+                Triple(StateEvent.Kind.LOCATION_DISABLED, 1_000_000L, 1_000_000L),
+                Triple(StateEvent.Kind.LOCATION_DISABLED, 1_000_000L, 1_005_000L),
+            ),
+            recorded,
+        )
+    }
+
+    @Test
+    fun aClosingGateClosesAnOpenLocationProblemAndForgetsTheBaseline() = runBlocking<Unit> {
+        location.onCheck(openGate, access = true, enabled = false)
+        now += 1_000
+        assertTrue(location.onCheck(GateState.Closed, access = true, enabled = false), "the cloud went off, say")
+        assertEquals(Triple(StateEvent.Kind.LOCATION_DISABLED, 1_000_000L, 1_001_000L), recorded.last())
+        assertNull(state.locationDisabledSinceMs())
+        recorded.clear()
+        assertFalse(location.onCheck(openGate, access = false, enabled = true), "the access baseline went with the gate")
+        assertEquals(emptyList(), recorded)
+    }
+
+    @Test
+    fun anUnknownGateOrARefusalKeepsTheLocationStateForTheNextCheck() = runBlocking<Unit> {
+        location.onCheck(openGate, access = true, enabled = true)
+        assertFalse(location.onCheck(GateState.Unknown, access = false, enabled = false))
+        assertEquals(emptyList(), recorded)
+        accept = false
+        assertFalse(location.onCheck(openGate, access = true, enabled = false))
+        assertNull(state.locationDisabledSinceMs(), "a refused event keeps no «since»")
+        accept = true
+        assertTrue(location.onCheck(openGate, access = true, enabled = false))
+    }
 }

@@ -7,6 +7,7 @@ import app.kinsight.core.database.KinsightDatabaseFactory
 import app.kinsight.core.keystore.CloudFiles
 import app.kinsight.core.keystore.DeviceIdentity
 import app.kinsight.core.location.LocationGraph
+import app.kinsight.core.location.LocationPermissions
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.transport.ble.AndroidPairingLink
 import app.kinsight.core.transport.ble.BlePermissions
@@ -16,6 +17,7 @@ import app.kinsight.core.usage.UsageGraph
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collectLatest
@@ -35,6 +37,8 @@ object AppGraph {
 }
 
 class Graph internal constructor(app: Context) {
+    private val appContext: Context = app
+
     /** App-wide work that must outlive a screen (leaving the group). */
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val db = KinsightDatabaseFactory.shared(app)
@@ -158,6 +162,35 @@ class Graph internal constructor(app: Context) {
         onEnabled = { CloudWork.runSoon(app) },
     )
     val cloudRepository = CloudRepository(snapshots, cloudState, cloudSignIn, prefs, config = { CloudGraph.config }, scope = scope, secrets = cloudSecrets)
+
+    /**
+     * Spec §10 on a child's phone: location access and the system switch (LocationWatch), at every cloud worker run, on
+     * the system broadcast, at start and back from the location row. A recorded event is signed and uploaded at once.
+     * Never under the cloud runLock (it takes the transport state lock, then the pipeline lock).
+     */
+    suspend fun checkLocationState() {
+        val recorded = SyncGraph.onLocationState(
+            appContext,
+            familyLocation.watchGate(),
+            access = LocationPermissions.state(appContext) == LocationPermissions.State.ALWAYS,
+            enabled = LocationPermissions.systemEnabled(appContext),
+        )
+        if (recorded) {
+            pipeline.collectAndPublish()
+            CloudWork.uploadSoon(appContext)
+        }
+    }
+
+    /** [checkLocationState] on the app scope; a failure is logged by class name. */
+    fun launchLocationCheck(): Job = scope.launch {
+        try {
+            checkLocationState()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("KinsightLocation", "location state check failed: ${e.javaClass.simpleName}")
+        }
+    }
 
     init {
         // Only while a transfer record exists: every membership change is checked (OwnerTransfer.check).

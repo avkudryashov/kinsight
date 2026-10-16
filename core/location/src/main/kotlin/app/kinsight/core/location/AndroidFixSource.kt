@@ -27,6 +27,9 @@ object LocationPermissions {
         context.checkSelfPermission(BACKGROUND) == PackageManager.PERMISSION_GRANTED -> State.ALWAYS
         else -> State.WHILE_IN_USE
     }
+
+    /** Spec §10 «LocationManager.isLocationEnabled»: location is on in the system settings. */
+    fun systemEnabled(context: Context): Boolean = context.getSystemService(LocationManager::class.java)?.isLocationEnabled ?: false
 }
 
 object Providers {

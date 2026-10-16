@@ -9,6 +9,7 @@ import app.kinsight.core.model.proto.Location
 import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.safeZoneEntry
+import app.kinsight.core.transport.ble.GateState
 import app.kinsight.core.transport.cloud.InMemoryDisk
 import app.kinsight.core.usage.UsageSettings
 import kotlinx.coroutines.runBlocking
@@ -183,5 +184,19 @@ class FamilyLocationTest {
         assertNull(host(kid).zones(), "the Bluetooth-only text never mentioned the location")
         kid.settings.upgradeConsent()
         assertEquals(emptyList(), host(kid).zones())
+    }
+
+    @Test
+    fun theWatchGateIsTheTrackingGateWithoutThePermission() = runBlocking<Unit> {
+        family()
+        assertEquals(GateState.Closed, host(kid).watchGate(), "no consent yet")
+        consent()
+        assertEquals(GateState.Open(kid.now), host(kid).watchGate())
+        assertEquals(GateState.Closed, host(mom).watchGate(), "a parent is never watched")
+        kid.identityBroken = IllegalStateException("keystore")
+        assertEquals(GateState.Unknown, host(kid).watchGate(), "a passing failure changes nothing")
+        kid.identityBroken = null
+        kid.pipeline.setSharing(false)
+        assertEquals(GateState.Closed, host(kid).watchGate())
     }
 }

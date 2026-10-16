@@ -13,8 +13,10 @@ import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.inZoneEntry
 import app.kinsight.core.model.locationEntry
 import app.kinsight.core.model.zoneEventEntry
+import app.kinsight.core.transport.ble.GateState
 import app.kinsight.core.transport.ble.GroupStore
 import app.kinsight.core.usage.SettingsStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -62,6 +64,19 @@ class FamilyLocation(
             )
         }
         return appended && open
+    }
+
+    /**
+     * Spec §10, for LocationWatch: open while this phone should share its location (the tracking gate; the permission is
+     * what is watched, so it is not part of it), from its consent; closed when that is certain; unknown when the group
+     * file or the identity cannot be read now, so a passing failure never closes an open problem.
+     */
+    suspend fun watchGate(): GateState = try {
+        if (withContext(io) { tracking() } != null) GateState.Open(settings.current().consentAtMs ?: 0L) else GateState.Closed
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        GateState.Unknown
     }
 
     /** This phone's group store and membership while it may track (an active consenting, sharing CHILD; cloud on), else null. */
