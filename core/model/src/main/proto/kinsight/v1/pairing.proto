@@ -32,6 +32,9 @@ message PairWelcome {
   bytes storage_id = 7;
   string access_token = 8 [(kinsight.v1.redacted) = true];
   int64 access_expires_at_ms = 9;
+  // Spec §6, §7.3: the owner's refresh token, only in the owner's transfer invite to its new phone (with the access above);
+  // empty otherwise. The guest keeps it only together with the owner's access, and only when this welcome made it an admin.
+  string refresh_token = 10 [(kinsight.v1.redacted) = true];
 }
 
 message PairReject {

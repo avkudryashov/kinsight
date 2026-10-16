@@ -381,4 +381,72 @@ class PairingTest {
         val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
         assertEquals(token, joined.cloud!!.access!!.accessToken)
     }
+
+    private val parentInvite = Invite.create(genesis.groupId, adminKeys, DeviceRole.PARENT, "Mom")
+
+    private fun parentHost() = PairingHost(parentInvite, adminKeys.dh, now + Invite.LIFETIME_MS, clock = { now })
+
+    /** The owner's transfer welcome (spec §7.3): its storage, the joiner as a parent, made an admin when [makeAdmin]. */
+    private fun transfer(makeAdmin: Boolean, cloud: WelcomeCloud, extra: List<ByteArray> = emptyList()): suspend (Joiner) -> HostDecision = { j ->
+        val owner = admin.storageOwnerEntry(adminKeys.deviceId, ByteArray(16) { 3 }, 1)
+        val add = admin.addMember(j.signPublicKey, j.dhPublicKey, j.displayName, DeviceRole.PARENT)
+        val grant = if (makeAdmin) listOf(admin.grantAdminEntry(j.id).bytes) else emptyList()
+        HostDecision.Welcome(discoveryKey, listOf(genesis.entry.bytes, owner.bytes) + extra + add.bytes + grant, cloud)
+    }
+
+    private val handed = WelcomeCloud(0, null, HandedAccess(1, ByteArray(16) { 3 }, "AT", 99), refreshToken = "RT")
+
+    @Test
+    fun aTransferWelcomeHandsTheRefreshTokenToTheNewAdmin() = runTest {
+        val (_, g) = pair({ parentHost().serve(it, transfer(makeAdmin = true, handed)) }, { guest(parentInvite, name = "Pixel").join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertEquals("RT", joined.cloud?.refreshToken)
+        assertEquals("AT", joined.cloud?.access?.accessToken)
+        assertFalse("RT" in joined.cloud.toString())
+    }
+
+    @Test
+    fun onlyATransferWelcomeCarriesTheRefreshToken() = runTest {
+        // Review Focus 5: a phone the welcome did not make an admin never keeps the refresh token.
+        val (_, g) = pair({ parentHost().serve(it, transfer(makeAdmin = false, handed)) }, { guest(parentInvite, name = "Pixel").join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertNull(joined.cloud?.refreshToken)
+        assertEquals("AT", joined.cloud?.access?.accessToken, "the access itself is the owner's, as before")
+    }
+
+    @Test
+    fun aRefreshTokenWithoutTheOwnersAccessIsDropped() = runTest {
+        val otherStorage = WelcomeCloud(0, null, HandedAccess(1, ByteArray(16) { 4 }, "AT", 99), refreshToken = "RT")
+        val (_, g) = pair({ parentHost().serve(it, transfer(makeAdmin = true, otherStorage)) }, { guest(parentInvite, name = "Pixel").join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertNull(joined.cloud?.access)
+        assertNull(joined.cloud?.refreshToken)
+    }
+
+    @Test
+    fun aRefreshTokenWithoutAnyAccessIsNotSent() = runTest {
+        val noAccess = WelcomeCloud(0, null, null, refreshToken = "RT")
+        val (_, g) = pair({ parentHost().serve(it, transfer(makeAdmin = true, noAccess)) }, { guest(parentInvite, name = "Pixel").join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertNull(joined.cloud?.refreshToken)
+    }
+
+    @Test
+    fun aFullFirstPageStillFitsBothTokens() = runTest {
+        // The largest access and refresh tokens, each in 3-byte UTF-8 chars, over a membership that pages: the first
+        // frame must stay under SecureChannel.MAX_PLAINTEXT (the channel refuses a larger one).
+        val others = (0 until 400).map { n ->
+            val k = DeviceKeys.generate()
+            admin.addMember(k.sign.publicKey, k.dh.publicKey, "Kid $n".padEnd(60, 'x'), DeviceRole.CHILD).bytes
+        }
+        assertTrue(others.sumOf { it.size } > PairingProtocol.PAGE_BYTES, "the fixture must page")
+        val access = "\u20ac".repeat(HandedAccess.MAX_TOKEN_CHARS)
+        val refresh = "\u20ad".repeat(HandedAccess.MAX_TOKEN_CHARS)
+        assertEquals(3 * HandedAccess.MAX_TOKEN_CHARS, refresh.encodeToByteArray().size)
+        val cloud = WelcomeCloud(0, null, HandedAccess(1, ByteArray(16) { 3 }, access, 99), refreshToken = refresh)
+        val (_, g) = pair({ parentHost().serve(it, transfer(makeAdmin = true, cloud, others)) }, { guest(parentInvite, name = "Pixel").join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertEquals(access, joined.cloud!!.access!!.accessToken)
+        assertEquals(refresh, joined.cloud!!.refreshToken)
+    }
 }

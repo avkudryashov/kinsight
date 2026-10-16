@@ -2,6 +2,7 @@ package app.kinsight.core.data
 
 import app.kinsight.core.crypto.Primitives
 import app.kinsight.core.model.DecodedEntry
+import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.MembershipLimits
@@ -39,7 +40,9 @@ internal object OwnerRecords {
      * StorageOwner(this phone, [storageId], [generation]) and its CloudAccess with [accessToken], signed together in one
      * append. Null when nothing was signed: this phone is not an active admin parent, or [generation] is not above the
      * current one. Rulings Q3: the op names the token ([tokenId]: null for a fresh sign-in, which gets a new random id;
-     * the id of the token in force when the same token goes on, spec §7.3) and every departure this phone knows of.
+     * the id of the token in force when the same token goes on, spec §7.3) and the departures it was issued after
+     * ([departed]: null for every departure this phone knows of; when the same token goes on, the op in force's list,
+     * copied unchanged).
      */
     suspend fun claim(
         appendOwn: OwnAppend,
@@ -51,6 +54,7 @@ internal object OwnerRecords {
         accessToken: String,
         expiresAtMs: Long,
         tokenId: ByteArray? = null,
+        departed: Collection<DeviceId>? = null,
     ): Claimed? {
         val entries = store.membershipEntries()
         val m = Membership.compute(store.groupId, entries) ?: return null
@@ -59,10 +63,11 @@ internal object OwnerRecords {
         val (epoch, key) = writeKey(keys, m, ring)
         val id = tokenId ?: Primitives.randomBytes(TOKEN_ID_BYTES)
         // Rulings Q16: over 256 lifetime departures the rest stay "exposed" (one renewal prompt per check), out of scope.
-        val departed = m.departed.keys.sortedBy { it.hex }.take(MembershipLimits.MAX_OWNER_DEPARTED)
+        val known = departed?.distinct()?.sortedBy { it.hex }?.take(MembershipLimits.MAX_OWNER_DEPARTED)
+            ?: m.departed.keys.sortedBy { it.hex }.take(MembershipLimits.MAX_OWNER_DEPARTED)
         var signed: List<DecodedEntry> = emptyList()
         val ok = appendOwn { a ->
-            val ownerEntry = a.storageOwnerEntry(keys.deviceId, storageId, generation, id, departed)
+            val ownerEntry = a.storageOwnerEntry(keys.deviceId, storageId, generation, id, known)
             val withOwner = Membership.compute(store.groupId, entries + ownerEntry)!!
             listOf(ownerEntry, CloudAccessView.issue(a, withOwner, epoch, key, accessToken, expiresAtMs)).also { signed = it }
         }

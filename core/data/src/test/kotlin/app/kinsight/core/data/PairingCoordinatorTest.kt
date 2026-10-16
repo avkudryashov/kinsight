@@ -17,6 +17,7 @@ import app.kinsight.core.transport.ble.RadioProblem
 import app.kinsight.core.transport.cloud.CloudPaths
 import app.kinsight.core.transport.cloud.GroupKey
 import app.kinsight.core.transport.cloud.InMemoryDisk
+import app.kinsight.core.transport.cloud.OwnerLifecycle
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
@@ -644,5 +645,69 @@ class PairingCoordinatorTest {
 
     private companion object {
         val SHARING = setOf(StateEvent.Kind.SHARING_PAUSED, StateEvent.Kind.SHARING_RESUMED)
+    }
+
+    @Test
+    fun theOwnersNewPhoneTakesTheRoleByQr() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        mom.ownStorage(token = "AT")
+        val session = momPairing.invite(scope, Role.PARENT, "Mom", transferOwner = true)
+        val qr = Invite.parse(assertIs<InviteState.Showing>(session.state.awaitFirst { it is InviteState.Showing || it is InviteState.Failed }).uri)
+        val join = kidPairing.join(scope, qr, "Pixel", consent = false) // here the "kid" device plays Mom's new phone
+        session.state.awaitFirst { it is InviteState.Confirm }
+        session.confirm()
+        assertEquals(JoinState.Joined, join.state.awaitFirst { it is JoinState.Joined || it is JoinState.Failed })
+        assertEquals(InviteState.Added("Pixel", ownerTransferred = true), session.state.awaitFirst { it is InviteState.Added })
+        val g = kid.groups.read()!!
+        val m = Membership.compute(g.groupId, kid.store().membershipEntries())!!
+        assertEquals(kid.keys.deviceId to 2L, m.storageOwner!!.deviceId to m.storageOwner!!.generation)
+        assertContentEquals(ByteArray(16) { 1 }, m.storageOwner!!.storageId.toByteArray())
+        assertTrue(m.active[kid.keys.deviceId]!!.isAdmin)
+        val before = Membership.compute(g.groupId, mom.store().membershipEntries())!!.storageOwner!!
+        assertEquals(before.tokenId, m.storageOwner!!.tokenId, "Q3: the same token keeps its id")
+        assertEquals(before.departed, m.storageOwner!!.departed, "Q3: and its departed list")
+        val t = kid.cloudSecrets.tokens()!!
+        assertTrue(t.owner)
+        assertEquals(Triple("AT", "RT", 2L), Triple(t.accessToken, t.refreshToken, t.storageGeneration), "0 taps: the same tokens (spec §7.3)")
+        // The old phone learns it, gives the role up and keeps nothing to revoke: the same token goes on.
+        mom.store().storeMembership(kid.store().membershipEntries())
+        mom.store().applyBatch(kid.store().liveEntries().filter { it.author == kid.keys.deviceId })
+        assertEquals(CloudRun.SYNCED, mom.runner(InMemoryDisk()).run(CloudTrigger.NOW))
+        assertFalse(mom.cloudSecrets.tokens()?.owner ?: false)
+        assertTrue(mom.cloudSecrets.retired(g.groupId).isEmpty())
+        val momState = Membership.compute(g.groupId, mom.store().membershipEntries())!!
+        assertNull(OwnerLifecycle.leaveBlock(momState, mom.keys.deviceId, emptyList()), "the old phone may leave the group now")
+    }
+
+    @Test
+    fun onlyTheStorageOwnerOpensATransferInvite() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val session = momPairing.invite(scope, Role.PARENT, "Mom", transferOwner = true)
+        assertEquals(InviteState.Failed(PairFailure.NOT_ADMIN), session.state.awaitFirst { it is InviteState.Showing || it is InviteState.Failed })
+    }
+
+    @Test
+    fun aTransferInviteIsForAParentOnly() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        mom.ownStorage(token = "AT")
+        val session = momPairing.invite(scope, Role.CHILD, "Mom", transferOwner = true)
+        assertEquals(InviteState.Failed(PairFailure.NOT_ADMIN), session.state.awaitFirst { it is InviteState.Showing || it is InviteState.Failed })
+    }
+
+    @Test
+    fun aParentInviteFromTheOwnerHandsNoRefreshToken() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        mom.ownStorage(token = "AT")
+        val session = momPairing.invite(scope, Role.PARENT, "Mom")
+        val qr = Invite.parse(assertIs<InviteState.Showing>(session.state.awaitFirst { it is InviteState.Showing || it is InviteState.Failed }).uri)
+        val join = kidPairing.join(scope, qr, "Dad", consent = false)
+        session.state.awaitFirst { it is InviteState.Confirm }
+        session.confirm()
+        assertEquals(JoinState.Joined, join.state.awaitFirst { it is JoinState.Joined || it is JoinState.Failed })
+        assertEquals(InviteState.Added("Dad"), session.state.awaitFirst { it is InviteState.Added })
+        val t = kid.cloudSecrets.tokens()!!
+        assertFalse(t.owner)
+        assertNull(t.refreshToken)
+        assertEquals(mom.keys.deviceId, Membership.compute(kid.groups.read()!!.groupId, kid.store().membershipEntries())!!.storageOwner!!.deviceId)
     }
 }

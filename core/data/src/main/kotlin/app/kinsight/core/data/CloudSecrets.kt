@@ -109,9 +109,11 @@ class CloudSecrets(
     /**
      * What an admin hands a joiner (spec §6 «Раздача»): its newest group key generation and, only when this device owns
      * the storage («владелец передаёт access_token»), the access it holds. Another parent's joiner gets the token at its
-     * next Bluetooth meeting with the owner.
+     * next Bluetooth meeting with the owner. [withRefresh]: the owner's transfer invite to its own new phone (spec §7.3)
+     * also hands the refresh token of the access it hands; no other welcome does (spec §6: the refresh token stays on the
+     * owner).
      */
-    suspend fun welcome(group: GroupConfig, store: EntryStore, membership: MembershipState, self: DeviceId): WelcomeCloud {
+    suspend fun welcome(group: GroupConfig, store: EntryStore, membership: MembershipState, self: DeviceId, withRefresh: Boolean = false): WelcomeCloud {
         val ring = ring(group)
         val held = ring.keys()
         val current = GroupKey.currentEpoch(membership)
@@ -120,7 +122,13 @@ class CloudSecrets(
         val access = access(store, membership, self, ring)
             ?.takeIf { membership.storageOwner?.deviceId == self }
             ?.let { HandedAccess(it.generation, it.storageId, it.accessToken, it.expiresAtMs) }
-        return WelcomeCloud(if (key == null) 0 else epoch, key, access)
+        // Spec §7.3: only the owner's transfer invite hands the refresh token, and only with its own access.
+        val refresh = if (withRefresh && access != null) {
+            tokens()?.takeIf { it.owner && it.groupHex == group.groupId.hex && it.accessToken == access.accessToken }?.refreshToken
+        } else {
+            null
+        }
+        return WelcomeCloud(if (key == null) 0 else epoch, key, access, refresh)
     }
 
     /** The joiner's side, before its group file is written: a ring for the new group and the handed access, nothing older. */

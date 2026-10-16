@@ -49,6 +49,7 @@ sealed interface HostDecision {
     /**
      * [membership]: SignedEntry bytes of the group's effective membership, the guest's AddMember included. [cloud]: what
      * the first page hands for the cloud; its access only when this admin is the storage owner (the guest drops it otherwise).
+     * Its refresh token only in the owner's transfer invite (spec §7.3); it is sent only together with the access.
      */
     class Welcome(val discoveryKey: ByteArray, val membership: List<ByteArray>, val cloud: WelcomeCloud? = null) : HostDecision
 
@@ -196,15 +197,21 @@ class PairingHost(
         const val FIELD_OVERHEAD = 64
     }
 
+    /** Spec §7.3: the refresh token goes only with the access it belongs to, and only when well formed. */
+    private fun refreshOf(c: WelcomeCloud?): String? =
+        c?.refreshToken?.takeIf { c.access != null && it.length in 1..HandedAccess.MAX_TOKEN_CHARS }
+
     private suspend fun sendWelcome(ch: SecureChannel, w: HostDecision.Welcome) {
         val pages = mutableListOf<List<ByteArray>>()
         var page = mutableListOf<ByteArray>()
         var size = 0
-        // The first page also carries the discovery key and the cloud fields (a token of up to 4096 chars, so up to
-        // 12 KB of UTF-8, a char being at most 3 bytes): its entries get that much less room, which keeps every frame below SecureChannel.MAX_PLAINTEXT.
+        // The first page also carries the discovery key and the cloud fields (an access token and, in a transfer, a
+        // refresh token of up to 4096 chars each, so up to 12 KB of UTF-8 each, a char being at most 3 bytes): its entries
+        // get that much less room, which keeps every frame below SecureChannel.MAX_PLAINTEXT.
+        val refresh = refreshOf(w.cloud)
         val firstExtra = w.discoveryKey.size + (w.cloud?.let { c ->
             (c.groupKey?.size ?: 0) + (c.access?.let { it.storageId.size + it.accessToken.encodeToByteArray().size } ?: 0)
-        } ?: 0) + FIELD_OVERHEAD
+        } ?: 0) + (refresh?.encodeToByteArray()?.size ?: 0) + FIELD_OVERHEAD
         for (e in w.membership) {
             val budget = if (pages.isEmpty()) PairingProtocol.PAGE_BYTES - firstExtra else PairingProtocol.PAGE_BYTES
             if (page.isNotEmpty() && size + e.size > budget) {
@@ -230,6 +237,7 @@ class PairingHost(
                 storage_id = access?.storageId?.toByteString() ?: ByteString.EMPTY,
                 access_token = access?.accessToken.orEmpty(),
                 access_expires_at_ms = access?.expiresAtMs ?: 0,
+                refresh_token = refresh?.takeIf { first }.orEmpty(),
             )
             PairingProtocol.send(ch, PairMessage(welcome = welcome))
         }
@@ -312,7 +320,8 @@ class PairingGuest(
      * newest is dropped, never trusted, and the joiner starts from generation 0 (the admin's next run rotates for it).
      * Access is kept only when it names the membership's storage and the inviting admin is that storage's owner (only the
      * owner hands the token), whether or not the key was kept. Joining does not depend on it (the device then waits for
-     * the access over Bluetooth).
+     * the access over Bluetooth). The refresh token (spec §7.3, the owner's new phone) is kept only with that access and
+     * only when the welcome made this phone an admin.
      */
     private fun cloudOf(first: PairWelcome, state: MembershipState): WelcomeCloud {
         val epoch = first.key_epoch
@@ -320,6 +329,10 @@ class PairingGuest(
         val groupKey = key.takeIf { epoch > 0 && epoch == (state.discoveryRotation?.epoch ?: 0) && key.size == 32 }
         val access = HandedAccess.of(first.storage_generation, first.storage_id.toByteArray(), first.access_token, first.access_expires_at_ms)
             ?.takeIf { it.isFor(state.storageOwner) && state.storageOwner?.deviceId == invite.adminId }
-        return WelcomeCloud(if (groupKey == null) 0 else epoch, groupKey, access)
+        // Spec §7.3: the refresh token comes only with the owner's access, to a phone this welcome made an admin.
+        val refresh = first.refresh_token.takeIf {
+            it.isNotEmpty() && it.length <= HandedAccess.MAX_TOKEN_CHARS && access != null && state.active[keys.deviceId]?.isAdmin == true
+        }
+        return WelcomeCloud(if (groupKey == null) 0 else epoch, groupKey, access, refresh)
     }
 }

@@ -37,12 +37,13 @@ class HandedAccess(val storageGeneration: Long, val storageId: ByteArray, val ac
 }
 
 /**
- * What pairing hands a new member for the cloud (spec §5, §6): the newest group key generation the admin holds
- * ([groupKey] null: generation 0, the discovery key) and the storage access, present only when the inviting admin is the
- * storage owner (only the owner hands the token).
+ * What pairing hands a new member for the cloud (spec §5, §6 «Раздача»): the newest group key generation the admin holds
+ * ([groupKey] null: generation 0, the discovery key), the storage access, present only when the inviting admin is the
+ * storage owner (only the owner hands the token), and, only in the owner's transfer invite to its new phone (spec §7.3),
+ * the [refreshToken]. Secret: never logged.
  */
-class WelcomeCloud(val keyEpoch: Int, val groupKey: ByteArray?, val access: HandedAccess?) {
-    override fun toString() = "WelcomeCloud(keyEpoch=$keyEpoch, access=$access)"
+class WelcomeCloud(val keyEpoch: Int, val groupKey: ByteArray?, val access: HandedAccess?, val refreshToken: String? = null) {
+    override fun toString() = "WelcomeCloud(keyEpoch=$keyEpoch, access=$access, refresh=${refreshToken != null})"
 }
 
 /**
