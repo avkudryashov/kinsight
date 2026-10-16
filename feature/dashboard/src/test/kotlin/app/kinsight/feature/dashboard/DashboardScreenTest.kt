@@ -466,6 +466,14 @@ class DashboardScreenTest {
     }
 
     @Test
+    fun aHiddenNotificationIsNamedBeforeCollectionOff() {
+        val both = usage(kid, 30, 30).copy(updatedMs = now - 30 * hour, collectionOff = true, notificationHidden = true)
+        show(DashboardUi(DashboardState(mom, null, listOf(both), emptyList()), running, true))
+        rule.onNodeWithText("The Kinsight notification is hidden on the child's phone").assertExists()
+        rule.onNodeWithText("collection is off", substring = true).assertDoesNotExist()
+    }
+
+    @Test
     @Config(qualifiers = "ru")
     fun theRussianParentsCardNamesAHiddenNotification() {
         val hidden = usage(kid, 30, 30).copy(notificationHidden = true)

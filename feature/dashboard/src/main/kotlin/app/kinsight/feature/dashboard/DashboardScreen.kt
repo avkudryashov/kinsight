@@ -561,8 +561,9 @@ private fun status(u: DeviceUsage, nowMs: Long, noContactMs: Long): String? = wh
         val seen = u.member.lastSeenMs
         when {
             !u.member.isSelf && seen != null && nowMs - seen > noContactMs -> stringResource(R.string.dash_card_not_seen, relativeTime(seen, nowMs))
-            !u.member.isSelf && u.collectionOff -> stringResource(R.string.dash_card_collection_off)
+            // The more specific cause first: a hidden notification, then collection off (cloud Y5).
             !u.member.isSelf && u.notificationHidden -> stringResource(R.string.dash_card_notification_hidden)
+            !u.member.isSelf && u.collectionOff -> stringResource(R.string.dash_card_collection_off)
             u.updatedMs == null -> stringResource(R.string.dash_card_no_data)
             else -> null
         }
