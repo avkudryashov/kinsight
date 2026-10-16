@@ -9,6 +9,7 @@ import app.kinsight.core.location.Zone
 import app.kinsight.core.location.ZoneEvent
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.Membership
+import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.inZoneEntry
 import app.kinsight.core.model.locationEntry
 import app.kinsight.core.model.zoneEventEntry
@@ -39,23 +40,39 @@ class FamilyLocation(
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) : LocationHost {
     override suspend fun zones(): List<Zone>? = withContext(io) {
-        val group = groups.read() ?: return@withContext null
-        val store = RoomEntryStore(db, group.groupId)
-        val m = Membership.compute(group.groupId, store.membershipEntries()) ?: return@withContext null
-        val me = m.active[keys().deviceId] ?: return@withContext null
-        val s = settings.current()
-        if (!me.isChild || m.storageOwner == null || s.consentAtMs == null || !s.sharing) return@withContext null
+        val (store, m) = tracking() ?: return@withContext null
         SafeZones.effective(store.safeZones(), m).map { Zone(it.id, it.latE7, it.lonE7, it.radiusM) }
     }
 
-    override suspend fun record(events: List<ZoneEvent>, report: Report?): Boolean = appendOwn { a ->
-        events.map { a.zoneEventEntry(it.zoneId.hexToBytes(), it.entered, it.atMs) } + listOfNotNull(
-            when (report) {
-                is Report.InZone -> a.inZoneEntry(report.zoneId.hexToBytes(), report.atMs)
-                is Report.Point -> report.fix.let { f -> a.locationEntry(f.latE7, f.lonE7, f.accuracyM, f.timeMs, f.provider) }
-                null -> null
-            },
-        )
+    /**
+     * The gate is checked again inside the append, under the pipeline lock that a pause (UsagePipeline.setSharing) also
+     * takes: a pause or a lost gate while the engine waited for its fix signs nothing (false).
+     */
+    override suspend fun record(events: List<ZoneEvent>, report: Report?): Boolean {
+        var open = false
+        val appended = appendOwn { a ->
+            open = withContext(io) { tracking() } != null
+            if (!open) return@appendOwn emptyList()
+            events.map { a.zoneEventEntry(it.zoneId.hexToBytes(), it.entered, it.atMs) } + listOfNotNull(
+                when (report) {
+                    is Report.InZone -> a.inZoneEntry(report.zoneId.hexToBytes(), report.atMs)
+                    is Report.Point -> report.fix.let { f -> a.locationEntry(f.latE7, f.lonE7, f.accuracyM, f.timeMs, f.provider) }
+                    null -> null
+                },
+            )
+        }
+        return appended && open
+    }
+
+    /** This phone's group store and membership while it may track (an active consenting, sharing CHILD; cloud on), else null. */
+    private suspend fun tracking(): Pair<RoomEntryStore, MembershipState>? {
+        val group = groups.read() ?: return null
+        val store = RoomEntryStore(db, group.groupId)
+        val m = Membership.compute(group.groupId, store.membershipEntries()) ?: return null
+        val me = m.active[keys().deviceId] ?: return null
+        val s = settings.current()
+        if (!me.isChild || m.storageOwner == null || s.consentAtMs == null || !s.sharing) return null
+        return store to m
     }
 
     override fun upload() = upload.invoke()

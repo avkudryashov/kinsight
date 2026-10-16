@@ -31,4 +31,14 @@ class CloudWorkResultTest {
         assertEquals(androidx.work.ExistingWorkPolicy.KEEP, CloudWork.followPolicy(fromFollow = false))
         assertEquals(5L, CloudWork.FOLLOW_MINUTES)
     }
+
+    /** Spec §9: only a run that read the Disk asks whether to follow; cloud off, retry or skip end the chain. */
+    @Test
+    fun onlyASyncedRunFollowsUp() = runBlocking<Unit> {
+        for (run in CloudRun.entries - CloudRun.SYNCED) {
+            assertEquals(false, CloudWork.followNext(run) { error("asked after $run") }, run.name)
+        }
+        assertEquals(true, CloudWork.followNext(CloudRun.SYNCED) { true })
+        assertEquals(false, CloudWork.followNext(CloudRun.SYNCED) { false })
+    }
 }

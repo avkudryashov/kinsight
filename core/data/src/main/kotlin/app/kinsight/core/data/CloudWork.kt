@@ -20,6 +20,7 @@ import app.kinsight.core.transport.cloud.DiskApi
 import app.kinsight.core.transport.cloud.InMemoryDisk
 import app.kinsight.core.transport.cloud.YandexDisk
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -117,7 +118,13 @@ object CloudWork {
      * Spec §8.1: a zone event or an outside point goes to the Disk at once (after a run in flight). Only enqueues work
      * (rulings L8): the location engine calls it and must never wait for, or run, the cloud itself.
      */
-    fun uploadSoon(context: Context): Job = whenOn(context) { runNow(context, ExistingWorkPolicy.APPEND_OR_REPLACE) }
+    fun uploadSoon(context: Context): Job = whenOn(context) { runNow(context, UPLOAD_POLICY) }
+
+    /** What was just signed is uploaded by a run of its own after any run in flight, never dropped as a duplicate. */
+    val UPLOAD_POLICY = ExistingWorkPolicy.APPEND_OR_REPLACE
+
+    /** Spec §9: a follow-up is queued only after a run that read the Disk, while a child is outside ([needed] is asked then). */
+    suspend fun followNext(run: CloudRun, needed: suspend () -> Boolean): Boolean = run == CloudRun.SYNCED && needed()
 
     /** App start and after every Bluetooth session (it may have brought a storage owner): the periodic job, if the cloud is on. */
     fun keepScheduled(context: Context): Job = whenOn(context) { schedule(context) }
@@ -162,18 +169,24 @@ object CloudWork {
 
     /** The returned job lets a test wait for the check; callers do not need it. */
     private fun whenOn(context: Context, block: () -> Unit): Job {
-        val app = context.applicationContext
-        val g = AppGraph.get(app)
-        return g.scope.launch {
+        val g = AppGraph.get(context.applicationContext)
+        return enqueueIfOn(g.scope, g.cloud::isOn, block)
+    }
+
+    /**
+     * [whenOn] without the Context: launched on [scope], so the caller never waits; [isOn] (CloudRunner.isOn) reads the
+     * group and membership only and takes no runLock, so a cloud run in flight never holds the enqueue back (rulings L8).
+     */
+    internal fun enqueueIfOn(scope: CoroutineScope, isOn: suspend () -> Boolean, block: () -> Unit): Job =
+        scope.launch {
             try {
-                if (g.cloud.isOn()) block()
+                if (isOn()) block()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "cloud schedule check failed", e)
             }
         }
-    }
 }
 
 /** Thin: all logic lives in CloudRunner. A run that finds the cloud off cancels the schedule. */
@@ -189,7 +202,7 @@ class CloudWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
             // After the run (never inside its runLock): a child takes the zones this run brought (spec §8.1)...
             LocationGraph.refresh(applicationContext)
             // ...and a parent keeps reading while a child is outside (spec §9).
-            if (run == CloudRun.SYNCED && g.familyLocation.followNeeded()) CloudWork.follow(applicationContext, fromFollow = follow)
+            if (CloudWork.followNext(run, g.familyLocation::followNeeded)) CloudWork.follow(applicationContext, fromFollow = follow)
             run
         }
     }

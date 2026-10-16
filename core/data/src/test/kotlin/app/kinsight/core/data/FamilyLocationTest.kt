@@ -7,7 +7,9 @@ import app.kinsight.core.location.ZoneEvent
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.proto.Location
 import app.kinsight.core.model.proto.StateEvent
+import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.safeZoneEntry
+import app.kinsight.core.transport.cloud.InMemoryDisk
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.atomic.AtomicInteger
@@ -28,8 +30,10 @@ class FamilyLocationTest {
         kid.close()
     }
 
-    private fun host(d: TestDevice) =
-        FamilyLocation(d.db, d.groups, d.keyProvider, d.settings, d.appendOwn, d.snapshots, upload = { uploads.incrementAndGet() }, clock = { d.now })
+    private fun host(d: TestDevice, appendOwn: OwnAppend = d.appendOwn, clock: () -> Long = { d.now }) =
+        FamilyLocation(d.db, d.groups, d.keyProvider, d.settings, appendOwn, d.snapshots, upload = { uploads.incrementAndGet() }, clock = clock)
+
+    private val point get() = Report.Point(Fix(1, 2, 10, kid.now, Location.Provider.GPS))
 
     private suspend fun family(cloud: Boolean = true) {
         mom.group.createGroup("Mom")
@@ -84,14 +88,66 @@ class FamilyLocationTest {
         assertEquals(zone, inZone.zone_id.hex())
     }
 
+    /** Review Minor 1: a pause that lands while the engine waits for its fix (the gate was open at zones()) signs nothing. */
+    @Test
+    fun aPauseDuringTheFixSignsNothing() = runBlocking<Unit> {
+        family()
+        consent()
+        val pausedMeanwhile: OwnAppend = { build ->
+            kid.pipeline.setSharing(false)
+            kid.pipeline.appendOwn(build = build)
+        }
+        val h = host(kid, appendOwn = pausedMeanwhile)
+        assertEquals(emptyList(), h.zones(), "the gate is open when the engine decides")
+        val before = kid.store().entriesAfter(kid.keys.deviceId, 0, 1_000).size
+        assertEquals(false, h.record(listOf(ZoneEvent("05".repeat(16), entered = false, atMs = kid.now)), point))
+        val after = kid.store().entriesAfter(kid.keys.deviceId, 0, 1_000)
+        assertTrue(after.drop(before).none { it.kind == EntryKind.LOCATION || it.body.state_event?.kind == StateEvent.Kind.ZONE_EXIT })
+        assertEquals(emptyList(), kid.store().locations())
+    }
+
+    @Test
+    fun aParentOrAPhoneWithoutCloudSignsNoLocation() = runBlocking<Unit> {
+        family(cloud = false)
+        consent()
+        assertEquals(false, host(kid).record(emptyList(), point), "no cloud storage")
+        assertEquals(false, host(mom).record(emptyList(), point), "a parent")
+        assertEquals(emptyList(), kid.store().locations())
+        assertEquals(emptyList(), mom.store().locations())
+    }
+
     @Test
     fun theParentFollowsWhileTheChildIsOutside() = runBlocking<Unit> {
         family()
         consent()
         assertEquals(false, host(mom).followNeeded())
-        host(kid).record(emptyList(), Report.Point(Fix(1, 2, 10, kid.now, Location.Provider.GPS)))
+        assertTrue(host(kid).record(emptyList(), point))
         mom.store().applyBatch(kid.store().locations())
         assertEquals(true, host(mom).followNeeded())
+        assertEquals(false, host(kid).followNeeded(), "the child's own phone never follows")
+    }
+
+    @Test
+    fun theFollowUpStopsWhenTheWordIsStale() = runBlocking<Unit> {
+        family()
+        consent()
+        assertTrue(host(kid).record(emptyList(), point))
+        mom.store().applyBatch(kid.store().locations())
+        val later = host(mom, clock = { mom.now + LocationReadModel.FOLLOW_FOR_MS + 1 })
+        assertEquals(false, later.followNeeded(), "the child stopped sending")
+    }
+
+    @Test
+    fun theFollowUpStopsWhenTheChildIsBackInAZone() = runBlocking<Unit> {
+        family()
+        consent()
+        assertTrue(host(kid).record(emptyList(), point))
+        kid.now += 60_000
+        val zone = "05".repeat(16)
+        assertTrue(host(kid).record(listOf(ZoneEvent(zone, entered = true, atMs = kid.now)), Report.InZone(zone, kid.now)))
+        mom.now = kid.now
+        mom.store().applyBatch(kid.store().entriesAfter(kid.keys.deviceId, 0, 1_000))
+        assertEquals(false, host(mom).followNeeded())
     }
 
     /** Rulings L6/L8: the engine reads zones, signs and asks for an upload while a cloud run holds runLock. */
@@ -106,8 +162,13 @@ class FamilyLocationTest {
                 assertEquals(emptyList(), h.zones())
                 assertTrue(h.record(emptyList(), Report.Point(Fix(1, 2, 10, kid.now, Location.Provider.GPS))))
             }
+            // The upload's only suspending step is CloudWork's isOn check (CloudRunner.isOn), then an enqueue.
+            val enqueued = AtomicInteger()
+            withTimeout(10_000) { CloudWork.enqueueIfOn(kid.scope, kid.runner(InMemoryDisk())::isOn) { enqueued.incrementAndGet() }.join() }
+            assertEquals(1, enqueued.get(), "the upload is enqueued while a cloud run holds runLock")
+            assertEquals(androidx.work.ExistingWorkPolicy.APPEND_OR_REPLACE, CloudWork.UPLOAD_POLICY)
             h.upload()
-            assertEquals(1, uploads.get(), "upload only hands the request on (CloudWork enqueues a run)")
+            assertEquals(1, uploads.get())
         } finally {
             kid.cloudSecrets.runLock.unlock()
         }

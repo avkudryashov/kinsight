@@ -63,12 +63,13 @@ class Graph internal constructor(app: Context) {
         db = db,
         pipeline = pipeline,
         forgetGroupFiles = {
+            // First, under the cloud runLock (R14): no alert, tick or service of the old group survives the wipe, and a
+            // failing cloud step below cannot skip it. A failure here aborts the reset before anything is deleted.
+            LocationGraph.forget(app)
             SyncGraph.forgetGroup(app)
             CloudWork.cancel(app)
             cloudSecrets.forget()
             cloudState.clear()
-            // Under the cloud runLock (R14): no alert, tick or service of the old group survives the wipe.
-            LocationGraph.forget(app)
         },
         settings = settings,
         prefs = prefs,
@@ -112,8 +113,8 @@ class Graph internal constructor(app: Context) {
         runLock = cloudSecrets.runLock,
     )
     val usage = UsageRepository(snapshots, prefs, appendOwn = { build -> pipeline.appendOwn(build = build) })
-    val service = ServiceRepository(SyncGraph.snapshot, transport, { BlePermissions.missing(app) }, sync, usageAccess = { AppOpsUsageAccess(app).granted() })
     val location = LocationRepository(snapshots, ownAppend)
+    val service = ServiceRepository(SyncGraph.snapshot, transport, { BlePermissions.missing(app) }, sync, usageAccess = { AppOpsUsageAccess(app).granted() })
     val pruner = Pruner(db, groups, settings, keys)
     val settingsRepository = SettingsRepository(settings, prefs, pipeline, pruner::prune)
 
