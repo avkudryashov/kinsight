@@ -19,10 +19,12 @@
     <string name="alert_bluetooth_off">%1$s: Bluetooth was turned off</string>
     <string name="alert_data_gap">%1$s: part of the screen time history is missing</string>
     <string name="alert_clock_changed">%1$s: the phone clock was changed</string>
+    <string name="alert_location_off">%1$s: location access turned off</string>
+    <string name="alert_location_disabled">%1$s: location turned off on the phone</string>
     <string name="alert_event">%1$s: something changed</string>
     <string name="alert_at">When: %1$s</string>
-    <string name="alert_no_contact">%1$s is out of contact</string>
-    <string name="alert_no_contact_body">Last in contact %1$s. Keep the phones close, or check that Bluetooth is on.</string>
+    <string name="alert_no_contact">%1$s: no contact for %2$s</string>
+    <string name="alert_no_contact_body">Last in contact %1$s. The phone may be off or without internet and Bluetooth, or Kinsight was stopped or removed on it.</string>
     <string name="alert_new_parent">%1$s can now see your screen time</string>
     <string name="alert_new_parent_body">A new parent joined your family group. Settings → Who sees my data shows everyone.</string>
     <string name="alert_summary_daily">Screen time today</string>
@@ -60,6 +62,8 @@
     <string name="alert_advice_bluetooth_off">The data of that time arrives once the phones are in contact again.</string>
     <string name="alert_advice_data_gap">No screen time was recorded for this time. If it happens often, check the battery settings on the child\'s phone.</string>
     <string name="alert_advice_clock_changed">Nothing to do: Kinsight keeps the hours right after a clock change.</string>
+    <string name="alert_advice_location_off">Without it Kinsight cannot tell where the phone is. Ask for “Allow all the time” in Kinsight\'s settings.</string>
+    <string name="alert_advice_location_disabled">Without it Kinsight cannot tell where the phone is. Ask for location to be turned back on in the quick settings.</string>
     <string name="alert_advice_event">Open Kinsight to see what changed.</string>
     <string name="alert_zone_exit">%1$s left “%2$s”</string>
     <string name="alert_zone_exit_unnamed">%1$s left a safe zone</string>

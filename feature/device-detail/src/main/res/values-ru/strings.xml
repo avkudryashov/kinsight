@@ -47,6 +47,10 @@
     <string name="det_ev_notification_shown_open">Уведомление синхронизации снова видно</string>
     <string name="det_ev_nearby_off_open">Разрешение «Устройства поблизости» было выключено</string>
     <string name="det_ev_force_stopped_open">Kinsight был принудительно остановлен</string>
+    <string name="det_ev_location_off">Доступ к местоположению был выключен на %1$s</string>
+    <string name="det_ev_location_off_open">Доступ к местоположению выключен</string>
+    <string name="det_ev_location_disabled">Местоположение на телефоне было выключено на %1$s</string>
+    <string name="det_ev_location_disabled_open">На телефоне выключено местоположение</string>
     <string name="det_today">Сегодня</string>
     <string name="det_yesterday">Вчера</string>
     <string name="det_no_data_day">Нет данных за этот день</string>

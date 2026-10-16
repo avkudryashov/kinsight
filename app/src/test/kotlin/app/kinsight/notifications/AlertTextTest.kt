@@ -92,7 +92,7 @@ class AlertTextTest {
     @Config(qualifiers = "ru")
     fun russianTexts() {
         assertTrue(AlertText.of(context, Alert.NewParent("Папа")).title.contains("Папа"))
-        assertTrue(AlertText.of(context, Alert.NoContact("Kid", 1_000)).title.contains("на связи"))
+        assertTrue(AlertText.of(context, Alert.NoContact("Kid", 1_000)).title.contains("нет связи"))
     }
 
     @Test
@@ -182,5 +182,11 @@ class AlertTextTest {
     @Config(qualifiers = "ru")
     fun zoneAlertsInRussianStayNeutral() {
         assertEquals("Kid: выход из зоны «Дом»", AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.ZONE_EXIT, 1_000, zoneName = "Дом")).title)
+    }
+
+    @Test
+    fun noContactSaysForHowLong() {
+        val now = 1_760_000_000_000L
+        assertEquals("Kid: no contact for 7 h", AlertText.of(context, Alert.NoContact("Kid", now - 7 * 3_600_000L), nowMs = now).title)
     }
 }

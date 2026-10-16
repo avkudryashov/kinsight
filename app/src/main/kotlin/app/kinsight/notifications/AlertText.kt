@@ -15,7 +15,7 @@ import app.kinsight.feature.devicedetail.R as DetailR
 object AlertText {
     data class Content(val channel: String, val title: String, val body: String)
 
-    fun of(context: Context, alert: Alert): Content {
+    fun of(context: Context, alert: Alert, nowMs: Long = System.currentTimeMillis()): Content {
         fun at(ms: Long) = DateUtils.formatDateTime(context, ms, DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH)
         val channel = AlertChannels.of(AlertPlanner.level(alert))
         return when (alert) {
@@ -25,7 +25,12 @@ object AlertText {
                 title(context, alert),
                 context.getString(R.string.alert_at, at(alert.atMs)) + "\n" + context.getString(adviceOf(alert.kind)),
             )
-            is Alert.NoContact -> Content(channel, context.getString(R.string.alert_no_contact, alert.device), context.getString(R.string.alert_no_contact_body, at(alert.sinceMs)))
+            is Alert.NoContact -> Content(
+                channel,
+                // Spec §10 «Нет связи N часов».
+                context.getString(R.string.alert_no_contact, alert.device, formatDuration(context.resources, (nowMs - alert.sinceMs).coerceAtLeast(0))),
+                context.getString(R.string.alert_no_contact_body, at(alert.sinceMs)),
+            )
             is Alert.NewParent -> Content(channel, context.getString(R.string.alert_new_parent, alert.name), context.getString(R.string.alert_new_parent_body))
             is Alert.Resolved -> error("Resolved cancels a notification, it has no text")
             is Alert.Summary -> Content(
@@ -57,6 +62,8 @@ object AlertText {
         StateEvent.Kind.BLUETOOTH_OFF -> R.string.alert_bluetooth_off
         StateEvent.Kind.DATA_GAP -> R.string.alert_data_gap
         StateEvent.Kind.CLOCK_CHANGED -> R.string.alert_clock_changed
+        StateEvent.Kind.LOCATION_PERMISSION_OFF -> R.string.alert_location_off
+        StateEvent.Kind.LOCATION_DISABLED -> R.string.alert_location_disabled
         else -> R.string.alert_event
     }
 
@@ -72,6 +79,8 @@ object AlertText {
         StateEvent.Kind.BLUETOOTH_OFF -> R.string.alert_advice_bluetooth_off
         StateEvent.Kind.DATA_GAP -> R.string.alert_advice_data_gap
         StateEvent.Kind.CLOCK_CHANGED -> R.string.alert_advice_clock_changed
+        StateEvent.Kind.LOCATION_PERMISSION_OFF -> R.string.alert_advice_location_off
+        StateEvent.Kind.LOCATION_DISABLED -> R.string.alert_advice_location_disabled
         StateEvent.Kind.ZONE_EXIT -> R.string.alert_advice_zone_exit
         StateEvent.Kind.ZONE_ENTER -> R.string.alert_advice_zone_enter
         else -> R.string.alert_advice_event

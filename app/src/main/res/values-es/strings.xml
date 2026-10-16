@@ -14,10 +14,12 @@
     <string name="alert_bluetooth_off">%1$s: se ha desactivado el Bluetooth</string>
     <string name="alert_data_gap">%1$s: falta parte del historial de tiempo de pantalla</string>
     <string name="alert_clock_changed">%1$s: se ha cambiado la hora del teléfono</string>
+    <string name="alert_location_off">%1$s: acceso a la ubicación desactivado</string>
+    <string name="alert_location_disabled">%1$s: ubicación desactivada en el teléfono</string>
     <string name="alert_event">%1$s: algo ha cambiado</string>
     <string name="alert_at">Cuándo: %1$s</string>
-    <string name="alert_no_contact">%1$s está sin contacto</string>
-    <string name="alert_no_contact_body">Último contacto: %1$s. Mantén los teléfonos cerca o comprueba que el Bluetooth esté activado.</string>
+    <string name="alert_no_contact">%1$s: sin contacto desde hace %2$s</string>
+    <string name="alert_no_contact_body">Último contacto: %1$s. Puede que el teléfono esté apagado o sin internet ni Bluetooth, o que se haya detenido o eliminado Kinsight en él.</string>
     <string name="alert_new_parent">%1$s ya puede ver tu tiempo de pantalla</string>
     <string name="alert_new_parent_body">Un nuevo adulto se ha unido a tu grupo familiar. En Ajustes → Quién ve mis datos aparecen todos.</string>
     <string name="alert_summary_daily">Tiempo de pantalla hoy</string>
@@ -55,6 +57,8 @@
     <string name="alert_advice_bluetooth_off">Los datos de ese periodo llegan cuando los teléfonos vuelven a estar en contacto.</string>
     <string name="alert_advice_data_gap">No se registró tiempo de pantalla durante este periodo. Si ocurre a menudo, revisa los ajustes de batería del teléfono del menor.</string>
     <string name="alert_advice_clock_changed">No hay que hacer nada: Kinsight mantiene las horas correctas tras un cambio de hora.</string>
+    <string name="alert_advice_location_off">Sin él, Kinsight no sabe dónde está el teléfono. Pide que se elija «Permitir siempre» en los ajustes de Kinsight.</string>
+    <string name="alert_advice_location_disabled">Sin ella, Kinsight no sabe dónde está el teléfono. Pide que se vuelva a activar la ubicación en los ajustes rápidos.</string>
     <string name="alert_advice_event">Abre Kinsight para ver qué ha cambiado.</string>
     <string name="alert_zone_exit">%1$s salió de «%2$s»</string>
     <string name="alert_zone_exit_unnamed">%1$s salió de una zona segura</string>

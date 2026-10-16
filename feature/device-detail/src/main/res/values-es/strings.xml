@@ -45,6 +45,10 @@
     <string name="det_ev_notification_shown_open">Notificación de sincronización visible de nuevo</string>
     <string name="det_ev_nearby_off_open">Permiso «Dispositivos cercanos» desactivado</string>
     <string name="det_ev_force_stopped_open">Kinsight detenido forzosamente</string>
+    <string name="det_ev_location_off">Acceso a la ubicación desactivado durante %1$s</string>
+    <string name="det_ev_location_off_open">Acceso a la ubicación desactivado</string>
+    <string name="det_ev_location_disabled">Ubicación desactivada en el teléfono durante %1$s</string>
+    <string name="det_ev_location_disabled_open">Ubicación desactivada en el teléfono</string>
     <string name="det_today">Hoy</string>
     <string name="det_yesterday">Ayer</string>
     <string name="det_no_data_day">No hay datos de este día</string>

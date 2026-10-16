@@ -28,7 +28,7 @@ sealed interface Alert {
 
     /**
      * The child undid an open problem ([kind] is the open kind: SHARING_PAUSED or NOTIFICATION_HIDDEN, see
-     * AlertPlanner.CLOSERS): the app cancels that child's notification of [kind] instead of posting.
+     * AlertPlanner.CLOSERS, or a self-closing location kind, see AlertPlanner.SELF_CLOSING): the app cancels that child's notification of [kind] instead of posting.
      */
     data class Resolved(val id: DeviceId, val kind: StateEvent.Kind, val device: String) : Alert
 
@@ -116,6 +116,8 @@ object AlertPlanner {
         StateEvent.Kind.BLUETOOTH_OFF,
         StateEvent.Kind.DATA_GAP,
         StateEvent.Kind.CLOCK_CHANGED,
+        StateEvent.Kind.LOCATION_PERMISSION_OFF,
+        StateEvent.Kind.LOCATION_DISABLED,
     )
     /**
      * Open problems the child can undo, by their closing kind. Their notification stays up until the closing event
@@ -127,6 +129,15 @@ object AlertPlanner {
         StateEvent.Kind.NOTIFICATION_HIDDEN to StateEvent.Kind.NOTIFICATION_SHOWN,
     )
     private val OPENERS = CLOSERS.entries.associate { it.value to it.key }
+
+    /**
+     * Spec §10: problems signed when noticed (to = from) and closed by a second event of the same kind (to after from).
+     * The open one is announced; the closing one resolves it like a resume; a closed one never seen open is announced
+     * with its length.
+     */
+    val SELF_CLOSING = setOf(StateEvent.Kind.LOCATION_PERMISSION_OFF, StateEvent.Kind.LOCATION_DISABLED)
+
+    private fun isOpen(e: EventView) = e.toMs <= e.fromMs
 
     /** Safe zone news (spec §8.1): announced like integrity events, but never a fast Bluetooth start (IntegrityFastSync). */
     val ZONE_KINDS = WireConstants.ZONE_KINDS
@@ -226,6 +237,13 @@ object AlertPlanner {
             val sorted = own.sortedBy { it.seq }
             for ((index, e) in sorted.withIndex()) {
                 if (e.seq <= mark) continue
+                if (e.kind in SELF_CLOSING && !isOpen(e)) {
+                    val before = sorted.subList(0, index).lastOrNull { it.kind == e.kind }
+                    if (before != null && isOpen(before)) {
+                        alerts += Alert.Resolved(child.id, e.kind, child.name)
+                        continue
+                    }
+                }
                 if (e.kind in INTEGRITY_KINDS || e.kind in ZONE_KINDS) {
                     alerts += Alert.Integrity(child.name, e.kind, e.atMs, child.id, durationOf(e), e.zoneName)
                 }
@@ -324,8 +342,8 @@ object AlertPlanner {
     }
 
     /**
-     * Each current child's problems still open (a pause or a hidden notification whose latest event of the pair is the
-     * opening one) that were already announced (seq within the child's marker: a newer one is the plan's to say,
+     * Each current child's problems still open (a pause, a hidden notification or a location problem still open: the
+     * latest event of the pair, or of the self-closing kind, is the opening one) that were already announced (seq within the child's marker: a newer one is the plan's to say,
      * with sound), as alerts; for a re-post after their notifications were lost, not for the markers.
      */
     fun openProblems(i: AlertInput): List<Alert.Integrity> =
@@ -335,6 +353,9 @@ object AlertPlanner {
             CLOSERS.mapNotNull { (open, close) ->
                 own.filter { it.kind == open || it.kind == close }.maxByOrNull { it.seq }?.takeIf { it.kind == open }
                     ?.let { Alert.Integrity(child.name, open, it.atMs, child.id, durationOf(it)) }
+            } + SELF_CLOSING.mapNotNull { kind ->
+                own.filter { it.kind == kind }.maxByOrNull { it.seq }?.takeIf(::isOpen)
+                    ?.let { Alert.Integrity(child.name, kind, it.atMs, child.id) }
             }
         }
 

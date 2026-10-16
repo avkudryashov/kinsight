@@ -473,4 +473,29 @@ class AlertPlannerTest {
         assertTrue(AlertPlanner.plan(input(events = listOf(exit, enter), markers = plan.markers)).alerts.none { it is Alert.Integrity })
         assertTrue(StateEvent.Kind.ZONE_EXIT !in AlertPlanner.INTEGRITY_KINDS, "zone news is not an integrity signal (IntegrityFastSync)")
     }
+
+    private fun loc(seq: Long, kind: StateEvent.Kind, from: Long, to: Long) = EventView(kid.id, seq, kind, from, to, seq * 1_000, 0)
+
+    @Test
+    fun aLocationProblemIsAnnouncedAtOnceAndResolvedWhenBack() {
+        val off = StateEvent.Kind.LOCATION_PERMISSION_OFF
+        val first = AlertPlanner.plan(input(events = listOf(loc(1, off, 5_000, 5_000))))
+        assertEquals(listOf<Alert>(Alert.Integrity("Kid", off, 5_000, kid.id)), first.alerts)
+        assertEquals(AlertLevel.IMPORTANT, AlertPlanner.level(first.alerts.single()))
+        val second = AlertPlanner.plan(input(events = listOf(loc(1, off, 5_000, 5_000), loc(2, off, 5_000, 65_000)), markers = first.markers))
+        assertEquals(listOf<Alert>(Alert.Resolved(kid.id, off, "Kid")), second.alerts)
+        // Never seen open (both came late, the open one pruned): the interval itself is the news, with its length.
+        val disabled = StateEvent.Kind.LOCATION_DISABLED
+        val late = AlertPlanner.plan(input(events = listOf(loc(3, disabled, 7_000, 67_000))))
+        assertEquals(listOf<Alert>(Alert.Integrity("Kid", disabled, 7_000, kid.id, durationMs = 60_000)), late.alerts)
+    }
+
+    @Test
+    fun anOpenLocationProblemIsRepostedLikeAPause() {
+        val disabled = StateEvent.Kind.LOCATION_DISABLED
+        val markers = AlertMarkers(knownParents = setOf(mom.id), initialized = true, notifiedSeq = mapOf(kid.id to 1L))
+        assertEquals(listOf(Alert.Integrity("Kid", disabled, 5_000, kid.id)), AlertPlanner.openProblems(input(events = listOf(loc(1, disabled, 5_000, 5_000)), markers = markers)))
+        val closed = listOf(loc(1, disabled, 5_000, 5_000), loc(2, disabled, 5_000, 9_000))
+        assertEquals(emptyList(), AlertPlanner.openProblems(input(events = closed, markers = markers.copy(notifiedSeq = mapOf(kid.id to 2L)))))
+    }
 }

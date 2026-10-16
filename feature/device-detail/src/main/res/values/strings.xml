@@ -45,6 +45,10 @@
     <string name="det_ev_notification_shown_open">Sync notification visible again</string>
     <string name="det_ev_nearby_off_open">The Nearby devices permission was off</string>
     <string name="det_ev_force_stopped_open">Kinsight was force-stopped</string>
+    <string name="det_ev_location_off">Location access was off for %1$s</string>
+    <string name="det_ev_location_off_open">Location access turned off</string>
+    <string name="det_ev_location_disabled">Location was off on the phone for %1$s</string>
+    <string name="det_ev_location_disabled_open">Location turned off on the phone</string>
     <string name="det_today">Today</string>
     <string name="det_yesterday">Yesterday</string>
     <string name="det_no_data_day">No data for this day</string>

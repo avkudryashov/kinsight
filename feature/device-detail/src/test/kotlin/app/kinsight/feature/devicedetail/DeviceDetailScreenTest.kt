@@ -96,8 +96,7 @@ class DeviceDetailScreenTest {
 
     private val list get() = rule.onNodeWithTag("det_list")
 
-    // Y5 kinds have no text of their own yet: they read as unknown.
-    private val shownKinds = StateEvent.Kind.entries - setOf(StateEvent.Kind.LOCATION_PERMISSION_OFF, StateEvent.Kind.LOCATION_DISABLED)
+    private val shownKinds = StateEvent.Kind.entries
 
     /** Every kind's line in the current locale, in Kind.entries order. */
     private fun allEventTexts(): List<String> {
@@ -637,5 +636,19 @@ class DeviceDetailScreenTest {
         shown.value = detail // the control: the same list does show it for a sharing child
         rule.waitForIdle()
         list.performScrollToNode(hasTestTag("det_location"))
+    }
+
+    @Test
+    fun aLocationProblemReadsOpenUntilItIsClosed() {
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                Column {
+                    Text(eventText(event.copy(kind = StateEvent.Kind.LOCATION_PERMISSION_OFF, fromMs = 5_000, toMs = 5_000)))
+                    Text(eventText(event.copy(kind = StateEvent.Kind.LOCATION_DISABLED, fromMs = 5_000, toMs = 5_000 + 3_600_000)))
+                }
+            }
+        }
+        rule.onNodeWithText("Location access turned off").assertExists()
+        rule.onNodeWithText("Location was off on the phone for 1 h").assertExists()
     }
 }

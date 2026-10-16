@@ -23,6 +23,10 @@ fun eventText(e: EventView): String {
     @Composable
     fun timed(withSpan: Int, without: Int) = if (span != null) stringResource(withSpan, span) else stringResource(without)
 
+    /** Spec §10: still off when noticed (to = from), or closed with its length. */
+    @Composable
+    fun noticed(withSpan: Int, open: Int) = if (e.toMs > e.fromMs) timed(withSpan, open) else stringResource(open)
+
     return when (e.kind) {
         StateEvent.Kind.SHARING_PAUSED -> stringResource(R.string.det_ev_paused)
         StateEvent.Kind.SHARING_RESUMED -> stringResource(if (e.firstSharing) R.string.det_ev_started else R.string.det_ev_resumed)
@@ -42,9 +46,8 @@ fun eventText(e: EventView): String {
         StateEvent.Kind.APP_FORCE_STOPPED -> timed(R.string.det_ev_force_stopped, R.string.det_ev_force_stopped_open)
         StateEvent.Kind.ZONE_ENTER -> e.zoneName?.let { stringResource(R.string.det_ev_zone_enter, it) } ?: stringResource(R.string.det_ev_zone_enter_unknown)
         StateEvent.Kind.ZONE_EXIT -> e.zoneName?.let { stringResource(R.string.det_ev_zone_exit, it) } ?: stringResource(R.string.det_ev_zone_exit_unknown)
-        // Y5 kinds (tamper signals, spec §10): shown like an unknown one until Y5 gives them a line.
-        StateEvent.Kind.LOCATION_PERMISSION_OFF,
-        StateEvent.Kind.LOCATION_DISABLED,
+        StateEvent.Kind.LOCATION_PERMISSION_OFF -> noticed(R.string.det_ev_location_off, R.string.det_ev_location_off_open)
+        StateEvent.Kind.LOCATION_DISABLED -> noticed(R.string.det_ev_location_disabled, R.string.det_ev_location_disabled_open)
         StateEvent.Kind.KIND_UNSPECIFIED -> stringResource(R.string.det_ev_unknown)
     }
 }
