@@ -28,7 +28,8 @@ sealed interface Alert {
 
     /**
      * The child undid an open problem ([kind] is the open kind: SHARING_PAUSED or NOTIFICATION_HIDDEN, see
-     * AlertPlanner.CLOSERS, or a self-closing location kind, see AlertPlanner.SELF_CLOSING): the app cancels that child's notification of [kind] instead of posting.
+     * AlertPlanner.CLOSERS, or a self-closing location kind, see AlertPlanner.SELF_CLOSING): the app cancels that
+     * child's notification of [kind] instead of posting.
      */
     data class Resolved(val id: DeviceId, val kind: StateEvent.Kind, val device: String) : Alert
 
@@ -132,8 +133,10 @@ object AlertPlanner {
 
     /**
      * Spec §10: problems signed when noticed (to = from) and closed by a second event of the same kind (to after from).
-     * The open one is announced; the closing one resolves it like a resume; a closed one never seen open is announced
-     * with its length.
+     * The open one is announced; the closing one resolves it like a resume, but only when the open one was announced in
+     * an earlier pass. A closed one whose open one was never announced (pruned, or both new in this pass: posting and
+     * cancelling in one pass would hide it, against «любое отключение видно родителю») is announced with its length
+     * instead, and that open one stays quiet.
      */
     val SELF_CLOSING = setOf(StateEvent.Kind.LOCATION_PERMISSION_OFF, StateEvent.Kind.LOCATION_DISABLED)
 
@@ -237,11 +240,16 @@ object AlertPlanner {
             val sorted = own.sortedBy { it.seq }
             for ((index, e) in sorted.withIndex()) {
                 if (e.seq <= mark) continue
-                if (e.kind in SELF_CLOSING && !isOpen(e)) {
-                    val before = sorted.subList(0, index).lastOrNull { it.kind == e.kind }
-                    if (before != null && isOpen(before)) {
-                        alerts += Alert.Resolved(child.id, e.kind, child.name)
-                        continue
+                if (e.kind in SELF_CLOSING) {
+                    if (isOpen(e)) {
+                        // Closed later in this same pass: the closing event says it, with its length.
+                        if (sorted.subList(index + 1, sorted.size).firstOrNull { it.kind == e.kind }?.let { !isOpen(it) } == true) continue
+                    } else {
+                        val before = sorted.subList(0, index).lastOrNull { it.kind == e.kind }
+                        if (before != null && isOpen(before) && before.seq <= mark) {
+                            alerts += Alert.Resolved(child.id, e.kind, child.name)
+                            continue
+                        }
                     }
                 }
                 if (e.kind in INTEGRITY_KINDS || e.kind in ZONE_KINDS) {
@@ -342,9 +350,10 @@ object AlertPlanner {
     }
 
     /**
-     * Each current child's problems still open (a pause, a hidden notification or a location problem still open: the
-     * latest event of the pair, or of the self-closing kind, is the opening one) that were already announced (seq within the child's marker: a newer one is the plan's to say,
-     * with sound), as alerts; for a re-post after their notifications were lost, not for the markers.
+     * Each current child's problems still open (a pause, a hidden notification or a location problem: the latest event
+     * of the pair, or of the self-closing kind, is the opening one) that were already announced (seq within the child's
+     * marker: a newer one is the plan's to say, with sound), as alerts; for a re-post after their notifications were
+     * lost, not for the markers.
      */
     fun openProblems(i: AlertInput): List<Alert.Integrity> =
         i.members.filter { it.role == Role.CHILD && !it.isSelf }.flatMap { child ->

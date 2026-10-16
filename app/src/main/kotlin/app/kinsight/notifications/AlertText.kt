@@ -15,6 +15,10 @@ import app.kinsight.feature.devicedetail.R as DetailR
 object AlertText {
     data class Content(val channel: String, val title: String, val body: String)
 
+    /**
+     * [nowMs]: only for the NoContact length. The wall clock by default: the notifier posts right after the planner
+     * decided with its own now, so both read the same hour.
+     */
     fun of(context: Context, alert: Alert, nowMs: Long = System.currentTimeMillis()): Content {
         fun at(ms: Long) = DateUtils.formatDateTime(context, ms, DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH)
         val channel = AlertChannels.of(AlertPlanner.level(alert))

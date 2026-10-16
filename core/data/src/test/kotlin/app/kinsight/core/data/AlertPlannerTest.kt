@@ -498,4 +498,29 @@ class AlertPlannerTest {
         val closed = listOf(loc(1, disabled, 5_000, 5_000), loc(2, disabled, 5_000, 9_000))
         assertEquals(emptyList(), AlertPlanner.openProblems(input(events = closed, markers = markers.copy(notifiedSeq = mapOf(kid.id to 2L)))))
     }
+
+    @Test
+    fun aShortLocationBlackoutInOneBatchIsAnnouncedWithItsLength() {
+        val off = StateEvent.Kind.LOCATION_PERMISSION_OFF
+        val markers = AlertMarkers(knownParents = setOf(mom.id), initialized = true)
+        val plan = AlertPlanner.plan(input(events = listOf(loc(1, off, 5_000, 5_000), loc(2, off, 5_000, 65_000)), markers = markers))
+        assertEquals(listOf<Alert>(Alert.Integrity("Kid", off, 5_000, kid.id, durationMs = 60_000)), plan.alerts)
+    }
+
+    @Test
+    fun aFlappingLocationSwitchResolvesTheFirstAndAnnouncesTheNext() {
+        val off = StateEvent.Kind.LOCATION_DISABLED
+        val first = AlertPlanner.plan(input(events = listOf(loc(1, off, 5_000, 5_000))))
+        assertEquals(listOf<Alert>(Alert.Integrity("Kid", off, 5_000, kid.id)), first.alerts)
+        val events = listOf(loc(1, off, 5_000, 5_000), loc(2, off, 5_000, 65_000), loc(3, off, 70_000, 70_000))
+        val second = AlertPlanner.plan(input(events = events, markers = first.markers))
+        assertEquals(listOf(Alert.Resolved(kid.id, off, "Kid"), Alert.Integrity("Kid", off, 70_000, kid.id)), second.alerts)
+        // All three new in one pass: the closed interval with its length, then the open one.
+        val fresh = AlertMarkers(knownParents = setOf(mom.id), initialized = true)
+        assertEquals(
+            listOf<Alert>(Alert.Integrity("Kid", off, 5_000, kid.id, durationMs = 60_000), Alert.Integrity("Kid", off, 70_000, kid.id)),
+            AlertPlanner.plan(input(events = events, markers = fresh)).alerts,
+        )
+        assertEquals(listOf(Alert.Integrity("Kid", off, 70_000, kid.id)), AlertPlanner.openProblems(input(events = events, markers = second.markers)))
+    }
 }
