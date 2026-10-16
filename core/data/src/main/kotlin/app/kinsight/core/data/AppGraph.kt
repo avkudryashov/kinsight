@@ -16,11 +16,13 @@ import app.kinsight.core.usage.UsageGraph
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Manual wiring for the screens (no Hilt in v1): one Graph per process over the existing singletons. */
 object AppGraph {
@@ -63,13 +65,28 @@ class Graph internal constructor(app: Context) {
         db = db,
         pipeline = pipeline,
         forgetGroupFiles = {
-            // First, under the cloud runLock (R14): no alert, tick or service of the old group survives the wipe, and a
-            // failing cloud step below cannot skip it. A failure here aborts the reset before anything is deleted.
+            // Under the cloud runLock (R14), the location wipe runs twice. First, so a failure in it aborts the reset
+            // before anything is deleted. Again in `finally`, after the group file is gone and whether or not a cloud step
+            // failed: an alert, tick or refresh that re-armed tracking in between does not survive (with no group file
+            // the gate stays closed after that).
             LocationGraph.forget(app)
-            SyncGraph.forgetGroup(app)
-            CloudWork.cancel(app)
-            cloudSecrets.forget()
-            cloudState.clear()
+            var failed: Throwable? = null
+            try {
+                SyncGraph.forgetGroup(app)
+                CloudWork.cancel(app)
+                cloudSecrets.forget()
+                cloudState.clear()
+            } catch (e: Throwable) {
+                failed = e
+                throw e
+            } finally {
+                try {
+                    withContext(NonCancellable) { LocationGraph.forget(app) }
+                } catch (e: Exception) {
+                    // The first failure is the one the reset reports.
+                    failed?.addSuppressed(e) ?: throw e
+                }
+            }
         },
         settings = settings,
         prefs = prefs,
