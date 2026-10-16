@@ -37,6 +37,7 @@ import app.kinsight.core.data.Sharing
 import app.kinsight.core.data.SignInState
 import app.kinsight.core.data.SummaryMode
 import app.kinsight.core.designsystem.theme.KinsightTheme
+import app.kinsight.core.location.LocationPermissions
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.GroupId
 import app.kinsight.core.transport.ble.ServiceState
@@ -847,5 +848,48 @@ class SettingsScreenTest {
                     "A phone that no longer syncs can be removed from the group.",
             )
         rule.onNodeWithTag("set_reset_handover").assertDoesNotExist()
+    }
+
+    private fun showChildLocation(state: LocationPermissions.State?, asked: MutableList<LocationPermissions.State>) = rule.setContent {
+        KinsightTheme(dynamicColor = false) {
+            SettingsScreen(
+                SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1L), Prefs(), running),
+                "0.4.0", onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
+                onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {}, onResetIdentity = {}, nowMs = NOW,
+                location = state, onLocationAccess = { asked += it },
+            )
+        }
+    }
+
+    @Test
+    fun aChildIsAskedForPreciseThenBackgroundLocation() {
+        val asked = mutableListOf<LocationPermissions.State>()
+        var state by mutableStateOf<LocationPermissions.State?>(LocationPermissions.State.NONE)
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                SettingsScreen(
+                    SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1L), Prefs(), running),
+                    "0.4.0", onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
+                    onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {}, onResetIdentity = {}, nowMs = NOW,
+                    location = state, onLocationAccess = { asked += it },
+                )
+            }
+        }
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_location_allow"))
+        rule.onNodeWithTag("set_location_allow").assertTextEquals("Allow")
+        rule.onNodeWithTag("set_location_allow").performClick()
+        state = LocationPermissions.State.WHILE_IN_USE
+        rule.onNodeWithTag("set_location_allow").assertTextEquals("Allow all the time")
+        rule.onNodeWithTag("set_location_allow").performClick()
+        assertEquals(listOf(LocationPermissions.State.NONE, LocationPermissions.State.WHILE_IN_USE), asked)
+        state = LocationPermissions.State.ALWAYS
+        rule.onNodeWithTag("set_location_allow").assertDoesNotExist()
+        rule.onNodeWithText("Your parents see where this phone is", substring = true).assertExists()
+    }
+
+    @Test
+    fun withoutTheCloudThereIsNoLocationRow() {
+        showChildLocation(null, mutableListOf())
+        rule.onNodeWithTag("set_location").assertDoesNotExist()
     }
 }

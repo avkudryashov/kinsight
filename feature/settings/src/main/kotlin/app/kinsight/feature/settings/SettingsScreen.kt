@@ -6,6 +6,8 @@ import android.content.Intent
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -74,6 +76,8 @@ import app.kinsight.core.data.SignInState
 import app.kinsight.core.data.SummaryMode
 import app.kinsight.core.data.UsageReadModel
 import app.kinsight.core.designsystem.openPrivacyPolicy
+import app.kinsight.core.location.LocationGraph
+import app.kinsight.core.location.LocationPermissions
 import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.ErrorState
 import app.kinsight.core.designsystem.component.isJustNow
@@ -100,7 +104,17 @@ fun SettingsRoute(
     }
     val ui by vm.ui.collectAsStateWithLifecycle()
     // Back from Android's usage access screen: the row goes away at once, not on the next 30 s tick (U1).
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshStatus() }
+    var locationState by remember { mutableStateOf(LocationPermissions.state(context)) }
+    val locationChanged: () -> Unit = {
+        locationState = LocationPermissions.state(context)
+        LocationGraph.refresh(context, rearm = true)
+    }
+    val foreground = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { locationChanged() }
+    val background = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { locationChanged() }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        vm.refreshStatus()
+        locationState = LocationPermissions.state(context) // back from Android's settings page
+    }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -118,6 +132,14 @@ fun SettingsRoute(
         onCloudTakeOver = { vm.startCloudSignIn(takeOver = true) { url -> context.open(Intent(Intent.ACTION_VIEW, url.toUri())) } },
         onCloudHandover = vm::requestHandover,
         onNewPhone = onNewPhone,
+        location = locationState.takeIf { ui.cloud.on && ui.cloud.isChild },
+        onLocationAccess = { st ->
+            when (st) {
+                LocationPermissions.State.NONE -> foreground.launch(LocationPermissions.FOREGROUND)
+                LocationPermissions.State.WHILE_IN_USE -> background.launch(LocationPermissions.BACKGROUND)
+                LocationPermissions.State.ALWAYS -> Unit
+            }
+        },
     )
 }
 
@@ -155,6 +177,9 @@ fun SettingsScreen(
     onCloudTakeOver: () -> Unit = {},
     onCloudHandover: (DeviceId) -> Unit = {},
     onNewPhone: () -> Unit = {},
+    /** Spec §8, §12: the child's location access, shown on a child's phone while the cloud is on; null hides the row. */
+    location: LocationPermissions.State? = null,
+    onLocationAccess: (LocationPermissions.State) -> Unit = {},
 ) {
     val context = LocalContext.current
     val ready = ui.group as? GroupState.Ready
@@ -303,6 +328,31 @@ fun SettingsScreen(
                 )
             }
             Role.PARENT, null -> Unit // a parent's «not shared» sentence is in the sync section
+        }
+        if (child && location != null) {
+            item {
+                Column(Modifier.fillMaxWidth().testTag("set_location"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ListItem(
+                        headlineContent = { Text(stringResource(R.string.set_location)) },
+                        supportingContent = {
+                            Text(
+                                stringResource(
+                                    when (location) {
+                                        LocationPermissions.State.NONE -> R.string.set_location_none
+                                        LocationPermissions.State.WHILE_IN_USE -> R.string.set_location_while_in_use
+                                        LocationPermissions.State.ALWAYS -> R.string.set_location_always
+                                    },
+                                ),
+                            )
+                        },
+                    )
+                    if (location != LocationPermissions.State.ALWAYS) {
+                        Button({ onLocationAccess(location) }, Modifier.padding(horizontal = 16.dp).testTag("set_location_allow")) {
+                            Text(stringResource(if (location == LocationPermissions.State.NONE) R.string.set_location_allow else R.string.set_location_allow_always))
+                        }
+                    }
+                }
+            }
         }
         item {
             // U21: the row is the button (no separate «Open» under it).

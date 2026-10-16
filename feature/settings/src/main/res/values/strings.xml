@@ -142,4 +142,10 @@
     <string name="set_cloud_transfer_done">The new phone is the owner now. This phone leaves the group by itself.</string>
     <string name="set_reset_switching">The storage is moving to another Disk. You can disconnect this phone once every phone has switched to it. A phone that no longer syncs can be removed from the group.</string>
     <string name="set_cloud_new_phone_restore">To move to a new phone, first restore access to the Disk: sign in to Yandex on this phone.</string>
+    <string name="set_location">Location for your family</string>
+    <string name="set_location_none">Your parents will see where this phone is and learn when it leaves a safe zone. Location access is needed.</string>
+    <string name="set_location_while_in_use">Choose “Allow all the time” so your family sees the location while Kinsight is closed.</string>
+    <string name="set_location_always">Your parents see where this phone is and are told when it leaves a safe zone.</string>
+    <string name="set_location_allow">Allow</string>
+    <string name="set_location_allow_always">Allow all the time</string>
 </resources>

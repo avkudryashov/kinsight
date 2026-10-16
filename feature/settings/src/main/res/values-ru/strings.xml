@@ -146,4 +146,10 @@
     <string name="set_cloud_transfer_done">Новый телефон теперь владелец. Этот телефон выйдет из группы сам.</string>
     <string name="set_reset_switching">Хранилище переезжает на другой Диск. Отключить этот телефон можно, когда все телефоны переключатся на него. Телефон, который больше не синхронизируется, можно исключить из группы.</string>
     <string name="set_cloud_new_phone_restore">Чтобы перенести на новый телефон, сначала восстановите доступ к Диску: войдите в Яндекс на этом телефоне.</string>
+    <string name="set_location">Местоположение для семьи</string>
+    <string name="set_location_none">Родители увидят, где этот телефон, и узнают, когда он покидает безопасную зону. Нужен доступ к местоположению.</string>
+    <string name="set_location_while_in_use">Выберите «Разрешать всегда», чтобы семья видела местоположение, когда Kinsight закрыт.</string>
+    <string name="set_location_always">Родители видят, где этот телефон, и получают уведомление, когда он покидает безопасную зону.</string>
+    <string name="set_location_allow">Разрешить</string>
+    <string name="set_location_allow_always">Разрешать всегда</string>
 </resources>
