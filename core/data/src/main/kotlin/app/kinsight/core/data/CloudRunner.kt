@@ -1,6 +1,7 @@
 package app.kinsight.core.data
 
 import android.util.Log
+import app.kinsight.core.crypto.Primitives
 import app.kinsight.core.crypto.toHex
 import app.kinsight.core.database.KinsightDatabase
 import app.kinsight.core.database.RoomCloudCursorStore
@@ -196,8 +197,9 @@ class CloudRunner(
                 record(now, CloudRun.NO_ACCESS, CloudProblem.NO_ACCESS)
             }
         // Parked Y3 minor: an older token the old Disk already refused is not tried again on every run (battery) until
-        // something changes: a new owner record, another kept token, or the new access opening here.
-        val oldMark = previous?.let { oldTokenMark(it.storageGeneration, owner.generation, owner.deviceId) }
+        // something changes: a new owner record, another kept token (its fingerprint is in the mark), or the new access
+        // opening here.
+        val oldMark = previous?.let { oldTokenMark(it.storageGeneration, owner.generation, owner.deviceId, it.accessToken) }
         if (oldMark != null && state.current().deadOldToken == oldMark) return record(now, CloudRun.UNAUTHORIZED, CloudProblem.NO_ACCESS)
         // The generation this run actually syncs with: the Heartbeat never claims a storage this phone has not reached.
         val syncedGeneration = if (access != null) owner.generation else previous!!.storageGeneration
@@ -267,8 +269,6 @@ class CloudRunner(
         if (secrets.retireOlderAccess(store, m, older, ring)) state.markOlderAccess(older.generation)
     }
 
-    /** What a 401 to the kept older token is remembered under (no token in it): its generation and the owner record in force. */
-    private fun oldTokenMark(heldGeneration: Long, ownerGeneration: Long, owner: DeviceId) = "$heldGeneration/$ownerGeneration/${owner.hex}"
 
     /** The handed token of an older storage generation of [groupId] still in the vault, or null. */
     private suspend fun olderHanded(groupId: GroupId, generation: Long) =
@@ -439,6 +439,13 @@ class CloudRunner(
     }
 
     companion object {
+        /**
+         * What a 401 to the kept older token is remembered under: its generation, the owner record in force and a
+         * fingerprint of the token (8 bytes of SHA-256, never the token), so another token of the same generation is tried.
+         */
+        internal fun oldTokenMark(heldGeneration: Long, ownerGeneration: Long, owner: DeviceId, token: String): String =
+            "$heldGeneration/$ownerGeneration/${owner.hex}/${Primitives.sha256(token.encodeToByteArray()).copyOf(8).toHex()}"
+
         /** Spec §9: without anything new a child uploads once an hour. */
         const val CHILD_IDLE_MS = 60L * 60 * 1000
 

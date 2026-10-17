@@ -35,6 +35,17 @@ class CloudRunnerTest {
         kid.joinGroupOf(mom, DeviceRole.CHILD, "Kid")
     }
 
+    /** Sweep review Minor 3: the dead-token mark changes with the token, and never holds it. */
+    @Test
+    fun theDeadTokenMarkFollowsTheTokenWithoutHoldingIt() {
+        val owner = mom.keys.deviceId
+        val a = CloudRunner.oldTokenMark(1, 2, owner, "OLDTOKEN-A")
+        assertEquals(a, CloudRunner.oldTokenMark(1, 2, owner, "OLDTOKEN-A"))
+        assertTrue(a != CloudRunner.oldTokenMark(1, 2, owner, "OLDTOKEN-B"), "another kept token is tried")
+        assertTrue(a != CloudRunner.oldTokenMark(1, 3, owner, "OLDTOKEN-A"), "a new owner record too")
+        assertFalse("OLDTOKEN" in a)
+    }
+
     @Test
     fun withoutAStorageOwnerTheCloudIsOff() = runBlocking<Unit> {
         family()
