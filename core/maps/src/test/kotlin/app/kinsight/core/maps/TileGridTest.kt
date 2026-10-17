@@ -2,6 +2,7 @@ package app.kinsight.core.maps
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 /** Offline map spec §2, §3: the z10 cell of a point (Web Mercator, as `pmtiles extract` cuts it) and its 3 km neighbours. */
 class TileGridTest {
@@ -57,4 +58,35 @@ class TileGridTest {
         assertEquals(Cell(0, 0), TileGrid.cellOf(900_000_000, -1_800_000_000))
         assertEquals(Cell(1023, 1023), TileGrid.cellOf(-900_000_000, 1_800_000_000))
     }
+
+    /** OpenFreeMap spec §7: a neighbour to z13 is 85 tiles, the centre to z14 is 341, a neighbourhood 1 021. */
+    @Test
+    fun aCellHas85TilesToZ13And341ToZ14() {
+        assertEquals(85, TileGrid.tiles(valencia, 13).size)
+        assertEquals(341, TileGrid.tiles(valencia, 14).size)
+        assertEquals(85, TileGrid.tileCount(13))
+        assertEquals(341, TileGrid.tileCount(14))
+        assertEquals(1_021, TileGrid.tileCount(14) + 8 * TileGrid.tileCount(13))
+    }
+
+    @Test
+    fun everyTileLiesInsideItsCellZoomByZoom() {
+        val tiles = TileGrid.tiles(valencia, 14)
+        assertEquals(TileKey(10, 510, 389), tiles.first())
+        for (t in tiles) {
+            val shift = t.z - TileGrid.ZOOM
+            assertEquals(valencia, Cell(t.x shr shift, t.y shr shift))
+        }
+        assertEquals(tiles.size, tiles.toSet().size)
+        assertEquals(listOf(10, 11, 12, 13, 14), tiles.map { it.z }.distinct())
+    }
+
+    @Test
+    fun aDepthOutsideZ10ToZ14IsRefused() {
+        assertFailsWith<IllegalArgumentException> { TileGrid.tiles(valencia, 9) }
+        assertFailsWith<IllegalArgumentException> { TileGrid.tiles(valencia, 15) }
+    }
+
+    @Test
+    fun aTileKeyIsNeverLogged() = assertEquals("TileKey", TileKey(14, 8160, 6230).toString())
 }

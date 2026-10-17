@@ -25,6 +25,11 @@ data class Bounds(val south: Double, val west: Double, val north: Double, val ea
     override fun toString() = "Bounds"
 }
 
+/** One tile of the z10..z14 pyramid inside a cell (offline map spec §7). It says where a child has been: never logged. */
+data class TileKey(val z: Int, val x: Int, val y: Int) {
+    override fun toString() = "TileKey"
+}
+
 /** The z10 grid the blocks are cut by (spec §2), with the same formula as `scripts/maps/build-blocks.sh`. */
 object TileGrid {
     const val ZOOM = 10
@@ -32,6 +37,23 @@ object TileGrid {
 
     /** Web Mercator stops here; a point further north or south counts as on the edge. */
     const val MAX_LAT = 85.05112878
+
+    /** OpenFreeMap's deepest zoom (spec §7); MapLibre overzooms it on the phone. */
+    const val MAX_TILE_ZOOM = 14
+
+    /** Spec §7: every tile of zoom [ZOOM]..[maxZoom] inside [c], zoom by zoom, row by row: 85 to z13, 341 to z14. */
+    fun tiles(c: Cell, maxZoom: Int): List<TileKey> {
+        require(maxZoom in ZOOM..MAX_TILE_ZOOM) { "max zoom $maxZoom outside $ZOOM..$MAX_TILE_ZOOM" }
+        val out = ArrayList<TileKey>(tileCount(maxZoom))
+        for (z in ZOOM..maxZoom) {
+            val n = 1 shl (z - ZOOM)
+            for (y in c.y * n until (c.y + 1) * n) for (x in c.x * n until (c.x + 1) * n) out += TileKey(z, x, y)
+        }
+        return out
+    }
+
+    /** How many tiles [tiles] gives for [maxZoom]. */
+    fun tileCount(maxZoom: Int): Int = (ZOOM..maxZoom).sumOf { 1 shl (2 * (it - ZOOM)) }
 
     fun cellOf(latE7: Int, lonE7: Int): Cell = cellOf(latE7 / 1e7, lonE7 / 1e7)
 
