@@ -162,6 +162,7 @@
     <string name="zone_delete_body">Children\'s phones stop checking this zone.</string>
     <string name="zone_cancel">Cancel</string>
     <string name="zone_failed">Could not save the zone. Try again.</string>
+    <string name="zone_delete_failed">Could not delete the zone. Try again.</string>
     <string name="loc_entry">Location and safe zones</string>
     <string name="loc_entry_body">Where the phone is now and today\'s route</string>
     <string name="loc_title">%1$s: location</string>

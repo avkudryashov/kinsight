@@ -120,7 +120,7 @@ fun ZonesRoute(onBack: () -> Unit) {
 @Composable
 fun ZonesScreen(
     state: ZonesState,
-    failed: ZoneSave?,
+    failed: ZoneFailure?,
     onSave: (ZoneDraft, () -> Unit) -> Unit,
     onDelete: (String) -> Unit,
     onHere: ((Pair<Int, Int>?) -> Unit) -> Unit,
@@ -132,10 +132,12 @@ fun ZonesScreen(
         onDismissError() // an earlier failure is not this editor's
         editing = d
     }
-    val draft = editing
+    // Rights gone while the editor is open (this phone left or was removed): nothing here may be saved any more.
+    LaunchedEffect(state.canEdit) { if (!state.canEdit) editing = null }
+    val draft = editing?.takeIf { state.canEdit }
     if (draft != null) {
         ZoneEditor(
-            draft, state.children, failed,
+            draft, state.children, failed?.takeIf { !it.delete }?.result,
             onSave = { d -> onSave(d) { editing = null } },
             onDelete = draft.id?.let { id -> { onDelete(id); editing = null } },
             onHere = onHere,
@@ -155,7 +157,11 @@ fun ZonesScreen(
             if (failed != null) {
                 item(key = "failed") {
                     Column {
-                        Text(stringResource(R.string.zone_failed), color = MaterialTheme.colorScheme.error)
+                        Text(
+                            stringResource(if (failed.delete) R.string.zone_delete_failed else R.string.zone_failed),
+                            Modifier.testTag("zones_failed"),
+                            color = MaterialTheme.colorScheme.error,
+                        )
                         TextButton(onDismissError) { Text(stringResource(R.string.zone_cancel)) }
                     }
                 }

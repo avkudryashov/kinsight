@@ -170,6 +170,7 @@
     <string name="zone_delete_body">Телефоны детей перестанут проверять эту зону.</string>
     <string name="zone_cancel">Отмена</string>
     <string name="zone_failed">Не удалось сохранить зону. Попробуйте ещё раз.</string>
+    <string name="zone_delete_failed">Не удалось удалить зону. Попробуйте ещё раз.</string>
     <string name="loc_entry">Местоположение и безопасные зоны</string>
     <string name="loc_entry_body">Где телефон сейчас и маршрут за сегодня</string>
     <string name="loc_title">%1$s: местоположение</string>

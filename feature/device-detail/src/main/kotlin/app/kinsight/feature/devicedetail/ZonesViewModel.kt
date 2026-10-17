@@ -35,6 +35,9 @@ private class RepositoryZoneSource(private val location: LocationRepository) : Z
     override suspend fun delete(id: String) = location.delete(id)
 }
 
+/** A refused or failed zone write: [delete] tells a delete from a save, so the screen names the right one. */
+data class ZoneFailure(val result: ZoneSave, val delete: Boolean = false)
+
 /** [children]: each child's newest point, offered as a centre. */
 data class ZonesState(val zones: List<ZoneView>, val canEdit: Boolean, val children: List<Pair<MemberView, GeoPoint>>)
 
@@ -44,20 +47,20 @@ class ZonesViewModel internal constructor(private val source: ZoneSource) : View
     val state: StateFlow<ZonesState?> = combine(source.zones(), source.canEdit(), source.lastPoints(), ::ZonesState)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    private val _failed = MutableStateFlow<ZoneSave?>(null)
+    private val _failed = MutableStateFlow<ZoneFailure?>(null)
 
     /** The last refused or failed write (shown until dismissed or the next attempt). */
-    val failed: StateFlow<ZoneSave?> = _failed.asStateFlow()
+    val failed: StateFlow<ZoneFailure?> = _failed.asStateFlow()
 
-    fun save(d: ZoneDraft, onDone: () -> Unit) = write({ source.save(d) }, onDone)
+    fun save(d: ZoneDraft, onDone: () -> Unit) = write(delete = false, { source.save(d) }, onDone)
 
-    fun delete(id: String) = write({ source.delete(id) }, {})
+    fun delete(id: String) = write(delete = true, { source.delete(id) }, {})
 
     fun dismissError() {
         _failed.value = null
     }
 
-    private fun write(op: suspend () -> ZoneSave, onDone: () -> Unit) {
+    private fun write(delete: Boolean, op: suspend () -> ZoneSave, onDone: () -> Unit) {
         _failed.value = null
         viewModelScope.launch {
             val r = try {
@@ -68,7 +71,7 @@ class ZonesViewModel internal constructor(private val source: ZoneSource) : View
                 Log.w(TAG, "zone write failed: ${e.javaClass.simpleName}")
                 ZoneSave.INVALID
             }
-            if (r == ZoneSave.SAVED || r == ZoneSave.UNCHANGED) onDone() else _failed.value = r
+            if (r == ZoneSave.SAVED || r == ZoneSave.UNCHANGED) onDone() else _failed.value = ZoneFailure(r, delete)
         }
     }
 

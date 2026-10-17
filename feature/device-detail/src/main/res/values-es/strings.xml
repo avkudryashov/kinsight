@@ -162,6 +162,7 @@
     <string name="zone_delete_body">Los teléfonos de los niños dejarán de comprobar esta zona.</string>
     <string name="zone_cancel">Cancelar</string>
     <string name="zone_failed">No se pudo guardar la zona. Inténtalo de nuevo.</string>
+    <string name="zone_delete_failed">No se pudo eliminar la zona. Inténtalo de nuevo.</string>
     <string name="loc_entry">Ubicación y zonas seguras</string>
     <string name="loc_entry_body">Dónde está el teléfono ahora y la ruta de hoy</string>
     <string name="loc_title">%1$s: ubicación</string>
