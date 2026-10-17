@@ -4,7 +4,6 @@
     <string name="dash_shared_with">Your screen time is visible to: %1$s</string>
     <string name="dash_shared_with_nobody">No parent is in the group yet.</string>
     <string name="dash_parent_only">Only a parent can change sharing: from their phone, or with the parent PIN in Settings.</string>
-    <string name="dash_cancel">Cancel</string>
     <string name="dash_paused_since">Sharing has been paused since %1$s.</string>
     <string name="dash_resume">Resume sharing</string>
     <string name="dash_not_sharing">Sharing is off on this phone. Your family sees that.</string>

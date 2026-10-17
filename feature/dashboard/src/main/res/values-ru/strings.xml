@@ -4,7 +4,6 @@
     <string name="dash_shared_with">Ваше экранное время видят: %1$s</string>
     <string name="dash_shared_with_nobody">В группе пока нет родителей.</string>
     <string name="dash_parent_only">Изменить обмен может только родитель: со своего телефона или по PIN родителя в Настройках.</string>
-    <string name="dash_cancel">Отмена</string>
     <string name="dash_paused_since">Обмен на паузе с %1$s.</string>
     <string name="dash_resume">Снять паузу</string>
     <string name="dash_not_sharing">Обмен на этом телефоне выключен. Семья это видит.</string>

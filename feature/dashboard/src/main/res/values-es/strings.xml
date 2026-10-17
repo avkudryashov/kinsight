@@ -4,7 +4,6 @@
     <string name="dash_shared_with">Ven tu tiempo de pantalla: %1$s</string>
     <string name="dash_shared_with_nobody">Todavía no hay ningún adulto en el grupo.</string>
     <string name="dash_parent_only">Solo un adulto de la familia puede cambiar el intercambio: desde su teléfono o con el PIN de los adultos en Ajustes.</string>
-    <string name="dash_cancel">Cancelar</string>
     <string name="dash_paused_since">El intercambio está en pausa desde %1$s.</string>
     <string name="dash_resume">Reanudar el intercambio</string>
     <string name="dash_not_sharing">El intercambio está desactivado en este teléfono. Tu familia lo ve.</string>
