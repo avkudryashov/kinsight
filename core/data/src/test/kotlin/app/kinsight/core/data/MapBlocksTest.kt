@@ -1,11 +1,12 @@
 package app.kinsight.core.data
 
 import app.kinsight.core.maps.BlockStore
-import app.kinsight.core.maps.MapLinks
 import app.kinsight.core.maps.MapNet
 import app.kinsight.core.maps.MapPoint
 import app.kinsight.core.maps.MapSync
+import app.kinsight.core.maps.PmTiles
 import app.kinsight.core.maps.SyncRun
+import app.kinsight.core.maps.Tile
 import app.kinsight.core.maps.TileGrid
 import app.kinsight.core.model.DeviceId
 import kotlinx.coroutines.Dispatchers
@@ -18,8 +19,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import java.io.File
 import java.io.IOException
-import java.io.InputStream
-import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -34,12 +33,12 @@ class MapBlocksTest {
     private class CountingNet : MapNet {
         var calls = 0
 
-        override fun catalog(): String {
+        override fun tileJson(): String {
             calls++
             throw IOException("offline")
         }
 
-        override fun open(url: String): InputStream {
+        override fun tile(url: String): Tile? {
             calls++
             throw IOException("offline")
         }
@@ -84,7 +83,7 @@ class MapBlocksTest {
         val maps = blocks(on = true)
         assertTrue(maps.check())
         assertTrue(store.ledger().usage.isNotEmpty())
-        assertEquals(SyncRun.RETRY, maps.run(), "the fake GitHub is offline")
+        assertEquals(SyncRun.RETRY, maps.run(), "the fake OpenFreeMap is offline")
         assertEquals(1, net.calls)
     }
 
@@ -99,43 +98,29 @@ class MapBlocksTest {
         assertFalse(dir.exists(), "a check after leaving writes no ledger")
     }
 
-    /** A fake GitHub that serves one block and holds the catalog or the block's first read until [release]. */
-    private class GateNet(private val catalogText: String, private val bytes: ByteArray, private val holdCatalog: Boolean) : MapNet {
+    /** A fake OpenFreeMap that holds the TileJSON, or the first tile, until [release]. */
+    private class GateNet(private val holdTileJson: Boolean) : MapNet {
         val held = CountDownLatch(1)
         val release = CountDownLatch(1)
+        private val first = AtomicBoolean(true)
 
         private fun hold() {
             held.countDown()
             check(release.await(10, TimeUnit.SECONDS))
         }
 
-        override fun catalog(): String {
-            if (holdCatalog) hold()
-            return catalogText
+        override fun tileJson(): String {
+            if (holdTileJson) hold()
+            return """{"tiles":["https://tiles.openfreemap.org/planet/20261011_080001_pt/{z}/{x}/{y}.pbf"],"maxzoom":14}"""
         }
 
-        override fun open(url: String): InputStream = object : InputStream() {
-            private var i = 0
-
-            override fun read(): Int = if (i < bytes.size) bytes[i++].toInt() and 0xff else -1
-
-            override fun read(b: ByteArray, off: Int, len: Int): Int {
-                if (i == 0 && !holdCatalog) hold()
-                if (i >= bytes.size) return -1
-                val n = minOf(len, bytes.size - i)
-                System.arraycopy(bytes, i, b, off, n)
-                i += n
-                return n
-            }
+        override fun tile(url: String): Tile? {
+            if (!holdTileJson && first.getAndSet(false)) hold()
+            return Tile(PmTiles.gzip(url.encodeToByteArray()), gzip = true)
         }
     }
 
     private val cell = TileGrid.cellOf(a.latE7, a.lonE7)
-    private val block = "block".repeat(1_000).toByteArray()
-    private val sha = MessageDigest.getInstance("SHA-256").digest(block).joinToString("") { "%02x".format(it) }
-    private val catalog = "${MapLinks.DOWNLOAD_PREFIX}maps-2026-10/${cell.name}.pmtiles".let { url ->
-        """{"version":"2026-10","blocks":[{"x":${cell.x},"y":${cell.y},"bytes":${block.size},"sha256":"$sha","url":"$url"}]}"""
-    }
 
     /** Counted down each time a check reads the children (outside the lock). */
     private val childrenRead = CountDownLatch(2)
@@ -145,8 +130,8 @@ class MapBlocksTest {
         emit(listOf(child(listOf(a, b), b)))
     }
 
-    private fun gated(holdCatalog: Boolean): Pair<MapBlocks, GateNet> {
-        val gate = GateNet(catalog, block, holdCatalog)
+    private fun gated(holdTileJson: Boolean): Pair<MapBlocks, GateNet> {
+        val gate = GateNet(holdTileJson)
         return MapBlocks(MapSync(store, gate) { now }, store, family, cloudOn = { true }, downloading = flowOf(false)) to gate
     }
 
@@ -181,7 +166,7 @@ class MapBlocksTest {
     /** A check that comes while a download runs waits for it: the ledger, the sweep and the eviction never overlap. */
     @Test
     fun aCheckWaitsForTheRunningDownload() = runBlocking {
-        val (maps, gate) = gated(holdCatalog = false)
+        val (maps, gate) = gated(holdTileJson = false)
         assertTrue(maps.check())
         val run = async(Dispatchers.IO) { maps.run() }
         assertTrue(gate.held.await(10, TimeUnit.SECONDS))
@@ -193,14 +178,14 @@ class MapBlocksTest {
         assertEquals(SyncRun.DONE, run.await())
         assertFalse(check.await(), "the block is here now")
         assertTrue(store.file(cell).isFile)
-        assertEquals(sha, store.ledger().installed[cell])
+        assertEquals("20261011_080001_pt/14", store.ledger().installed[cell])
         assertTrue(cell in store.ledger().usage)
     }
 
-    /** Review Focus 2: leaving while a download runs leaves no block, no catalog and no ledger behind. */
+    /** Review Focus 2: leaving while a download runs leaves no block, no TileJSON cache and no ledger. */
     @Test
     fun forgettingDuringADownloadLeavesNothing() = runBlocking {
-        val (maps, gate) = gated(holdCatalog = true)
+        val (maps, gate) = gated(holdTileJson = true)
         assertTrue(maps.check())
         val run = async(Dispatchers.IO) { maps.run() }
         assertTrue(gate.held.await(10, TimeUnit.SECONDS))

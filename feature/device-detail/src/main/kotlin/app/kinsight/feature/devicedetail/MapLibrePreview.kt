@@ -26,7 +26,7 @@ import org.maplibre.android.maps.Style
 /** The street preview as MapLibre draws it (offline map spec §1, §4). */
 internal val MapLibreSlot: StreetMapSlot = { style, frame, modifier -> MapLibrePreview(style, frame, modifier) }
 
-/** Blocks hold z10..z14 (spec §2); MapLibre overzooms z14 up to the max without any request. */
+/** Blocks hold z10..z14 at the child's cell, z10..z13 around it (spec §7); MapLibre overzooms up to the max without any request. */
 internal const val PREVIEW_MIN_ZOOM = 10.0
 internal const val PREVIEW_MAX_ZOOM = 17.0
 

@@ -8,7 +8,7 @@ import app.kinsight.core.maps.TileGrid
 
 /** What the Карта tab draws for the selected child (offline map spec §4). */
 internal sealed interface StreetPreview {
-    /** No street map for this place (no point, a place the catalog lacks, a full phone, the cloud off): the plain map. */
+    /** No street map for this place (no point, a skipped cell: a full phone or over the size cap, the cloud off): the plain map. */
     data object None : StreetPreview
 
     /** The block downloads now: the plain map with «Карта улиц загружается». */
@@ -29,9 +29,7 @@ internal sealed interface StreetPreview {
                 return Ready(streets.blocks.filterKeys { it in near })
             }
             if (!cloudOn) return None
-            val catalog = streets.catalog
-            if (catalog != null && own !in catalog) return None
-            if (own in streets.noRoom) return None
+            if (own in streets.skipped) return None
             return if (streets.downloading) Loading else WaitingWifi
         }
     }

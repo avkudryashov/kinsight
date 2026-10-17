@@ -15,7 +15,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 
-/** Offline map spec §3: blocks only over an unmetered network, queued once; a daily check from the start. */
+/** Offline map spec §7: blocks over any network but roaming, queued once; a daily check from the start. */
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35], application = TestKinsightApplication::class)
 class MapWorkTest {
@@ -23,10 +23,10 @@ class MapWorkTest {
     private val wm get() = WorkManager.getInstance(app)
 
     @Test
-    fun blocksDownloadOnlyOverWifiAndOnce() {
+    fun blocksDownloadOffRoamingAndOnce() {
         MapWork.syncSoon(app).result.get()
         val first = wm.getWorkInfosForUniqueWork(MapWork.SYNC).get().single()
-        assertEquals(NetworkType.UNMETERED, first.constraints.requiredNetworkType)
+        assertEquals(NetworkType.NOT_ROAMING, first.constraints.requiredNetworkType)
         assertEquals(WorkInfo.State.ENQUEUED, first.state)
         MapWork.syncSoon(app).result.get()
         assertEquals("a second ask keeps the queued run", first.id, wm.getWorkInfosForUniqueWork(MapWork.SYNC).get().single().id)

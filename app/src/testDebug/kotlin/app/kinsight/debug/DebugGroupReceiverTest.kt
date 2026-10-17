@@ -66,7 +66,7 @@ class DebugGroupReceiverTest {
     @Test
     fun theMapHooksAnswerFromTheAppsMapFolder() {
         java.io.File(context.filesDir, "maps").deleteRecursively()
-        assertTrue(answer("MAP_STATUS").let { it.first == 0 && it.second.startsWith("present=none used=none catalog=none free=") })
+        assertTrue(answer("MAP_STATUS").let { it.first == 0 && it.second.startsWith("present=none used=none source=none free=") })
         assertEquals(1 to "error: IllegalStateException: path extra missing", answer("MAP_INSTALL_LOCAL") { putExtra("x", 510); putExtra("y", 389) })
         assertEquals("x and y are required", 1, answer("MAP_INSTALL_LOCAL") { putExtra("path", "/nowhere") }.first)
     }

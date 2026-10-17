@@ -26,15 +26,15 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 /**
- * Offline map spec §3 schedules: a check (no network) when new points may have come and once a day; one download run
- * over an unmetered network (Wi-Fi), retried with backoff, that fetches every missing block.
+ * Offline map spec §3 and §7 schedules: a check (no network) when new points may have come and once a day; one download
+ * run over any network but roaming, retried with backoff, that fetches every missing block.
  */
 object MapWork {
     const val CHECK = "kinsight-map-check"
     const val SYNC = "kinsight-map-sync"
     const val DAILY = "kinsight-map-daily"
 
-    /** Spec §3 «проверка раз в сутки»: week-old blocks go, a newer catalog is looked for. Not right at start-up. */
+    /** Spec §3 «проверка раз в сутки»: week-old blocks go, missing blocks are queued. Not right at start-up. */
     fun schedule(context: Context) {
         val request = PeriodicWorkRequestBuilder<MapCheckWorker>(1, TimeUnit.DAYS).setInitialDelay(1, TimeUnit.HOURS).build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(DAILY, ExistingPeriodicWorkPolicy.KEEP, request)
@@ -65,10 +65,13 @@ object MapWork {
         }
     }
 
-    /** Spec §3: only over Wi-Fi, with retry. KEEP: a pending run reads the ledger when it starts and fetches every missing block. */
+    /**
+     * Spec §7: any network but roaming (Android's Data Saver still keeps background mobile data closed), with retry.
+     * KEEP: a pending run reads the ledger when it starts and fetches every missing block.
+     */
     fun syncSoon(context: Context): Operation {
         val request = OneTimeWorkRequestBuilder<MapSyncWorker>()
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.UNMETERED).build())
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.NOT_ROAMING).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
             .build()
         return WorkManager.getInstance(context).enqueueUniqueWork(SYNC, ExistingWorkPolicy.KEEP, request)
@@ -92,7 +95,7 @@ object MapWork {
     private const val TAG = "KinsightMap"
 }
 
-/** Thin: MapBlocks.check; a needed download is queued for Wi-Fi. A failure waits for the next point or the daily check. */
+/** Thin: MapBlocks.check; a needed download is queued for the network. A failure waits for the next point or the daily check. */
 class MapCheckWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result = try {
         if (AppGraph.get(applicationContext).maps.check()) MapWork.syncSoon(applicationContext)
@@ -109,7 +112,7 @@ class MapCheckWorker(context: Context, params: WorkerParameters) : CoroutineWork
     }
 }
 
-/** Thin: MapBlocks.run over Wi-Fi; a failed fetch or verification is retried with backoff. */
+/** Thin: MapBlocks.run off roaming; a failed tile or TileJSON is retried with backoff. */
 class MapSyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result = try {
         MapWork.resultOf(AppGraph.get(applicationContext).maps.run())

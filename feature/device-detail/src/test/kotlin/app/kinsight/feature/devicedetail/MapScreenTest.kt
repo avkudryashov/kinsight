@@ -367,7 +367,7 @@ class MapScreenTest {
     /** Offline map spec §4: with the block on the phone, the street preview with the OSM attribution, no plain map. */
     @Test
     fun withTheBlockTheStreetPreviewShows() {
-        showStreets(StreetMaps(mapOf(madrid to block), setOf(madrid), emptySet(), downloading = false))
+        showStreets(StreetMaps(mapOf(madrid to block), emptySet(), downloading = false))
         awaitPreview()
         rule.onNodeWithTag("fake_maplibre").assertExists()
         rule.onNodeWithTag("loc_map").assertDoesNotExist()
@@ -380,7 +380,7 @@ class MapScreenTest {
 
     private fun showPreviewReady() {
         install(ExternalMaps.yandex(p2.latE7, p2.lonE7), ExternalMaps.YANDEX)
-        showStreets(StreetMaps(mapOf(madrid to block), setOf(madrid), emptySet(), downloading = false))
+        showStreets(StreetMaps(mapOf(madrid to block), emptySet(), downloading = false))
         awaitPreview()
         rule.mainClock.autoAdvance = false
     }
@@ -429,7 +429,7 @@ class MapScreenTest {
     fun tappingThePreviewOpensYandexFirst() {
         install(ExternalMaps.yandex(p2.latE7, p2.lonE7), ExternalMaps.YANDEX)
         install(ExternalMaps.google(p2.latE7, p2.lonE7), ExternalMaps.GOOGLE)
-        showStreets(StreetMaps(mapOf(madrid to block), setOf(madrid), emptySet(), downloading = false))
+        showStreets(StreetMaps(mapOf(madrid to block), emptySet(), downloading = false))
         awaitPreview()
         rule.onNodeWithTag("loc_preview_tap").performClick()
         assertEquals(ExternalMaps.YANDEX, shadowOf(app).nextStartedActivity.`package`)
@@ -438,7 +438,7 @@ class MapScreenTest {
     @Test
     fun theStreetPreviewHasAHintAwayFromTheAttributionAndALabel() {
         installMapApp()
-        showStreets(StreetMaps(mapOf(madrid to block), setOf(madrid), emptySet(), downloading = false))
+        showStreets(StreetMaps(mapOf(madrid to block), emptySet(), downloading = false))
         awaitPreview()
         rule.onNodeWithTag("loc_open_hint", useUnmergedTree = true).assertExists()
         rule.onNodeWithTag("loc_preview_tap").assert(SemanticsMatcher("click label") {
@@ -451,7 +451,7 @@ class MapScreenTest {
 
     @Test
     fun withoutAMapsAppThePreviewIsNotClickableAndHasNoHint() {
-        showStreets(StreetMaps(mapOf(madrid to block), setOf(madrid), emptySet(), downloading = false))
+        showStreets(StreetMaps(mapOf(madrid to block), emptySet(), downloading = false))
         awaitPreview()
         rule.onNodeWithTag("loc_preview_tap").assertHasNoClickAction()
         rule.onNodeWithTag("loc_open_hint", useUnmergedTree = true).assertDoesNotExist()
@@ -459,7 +459,7 @@ class MapScreenTest {
 
     @Test
     fun withoutTheBlockThePlainMapSaysItIsLoading() {
-        showStreets(StreetMaps(emptyMap(), null, emptySet(), downloading = true))
+        showStreets(StreetMaps(emptyMap(), emptySet(), downloading = true))
         rule.onNodeWithTag("loc_map").assertExists()
         rule.onNodeWithTag("fake_maplibre").assertDoesNotExist()
         rule.onNodeWithTag("loc_streets_status").assertTextEquals("Street map is loading")
@@ -467,13 +467,13 @@ class MapScreenTest {
 
     @Test
     fun waitingForWifiSaysSo() {
-        showStreets(StreetMaps(emptyMap(), setOf(madrid), emptySet(), downloading = false))
+        showStreets(StreetMaps(emptyMap(), emptySet(), downloading = false))
         rule.onNodeWithTag("loc_streets_status").assertTextEquals("The street map will download over Wi-Fi")
     }
 
     @Test
-    fun aPlaceTheCatalogLacksShowsThePlainMapOnly() {
-        showStreets(StreetMaps(emptyMap(), setOf(Cell(510, 389)), emptySet(), downloading = false))
+    fun aSkippedCellShowsThePlainMapOnly() {
+        showStreets(StreetMaps(emptyMap(), setOf(madrid), downloading = false))
         rule.onNodeWithTag("loc_map").assertExists()
         rule.onNodeWithTag("loc_streets_status").assertDoesNotExist()
     }
@@ -481,14 +481,14 @@ class MapScreenTest {
     @Test
     @Config(qualifiers = "ru")
     fun russianStreetCaptions() {
-        showStreets(StreetMaps(emptyMap(), null, emptySet(), downloading = true))
+        showStreets(StreetMaps(emptyMap(), emptySet(), downloading = true))
         rule.onNodeWithTag("loc_streets_status").assertTextEquals("Карта улиц загружается")
     }
 
     @Test
     @Config(qualifiers = "ru")
     fun russianWifiCaption() {
-        showStreets(StreetMaps(emptyMap(), null, emptySet(), downloading = false))
+        showStreets(StreetMaps(emptyMap(), emptySet(), downloading = false))
         rule.onNodeWithTag("loc_streets_status").assertTextEquals("Карта улиц будет загружена по Wi-Fi")
     }
 }

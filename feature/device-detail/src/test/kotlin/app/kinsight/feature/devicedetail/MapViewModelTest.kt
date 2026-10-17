@@ -118,7 +118,7 @@ class MapViewModelTest {
         val source = FakeSource()
         val vm = MapViewModel(source)
         val job = launch { vm.state.collect {} }
-        val s = StreetMaps(mapOf(Cell(510, 389) to "/maps/z10-510-389.pmtiles"), null, emptySet(), downloading = false)
+        val s = StreetMaps(mapOf(Cell(510, 389) to "/maps/z10-510-389.pmtiles"), emptySet(), downloading = false)
         source.streetsFlow.value = s
         assertEquals(s, vm.state.value.streets)
         job.cancel()

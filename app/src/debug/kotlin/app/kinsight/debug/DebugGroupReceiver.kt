@@ -76,21 +76,21 @@ import kotlin.time.Duration.Companion.seconds
  * The fake Disk lives as long as the process: after a restart switch it on again before any cloud run, or the fake token
  * goes to Yandex and the run ends in a 401.
  *
- * Offline map hooks (spec §3; the blocks are not published yet, so the device check takes a locally built one):
- * MAP_INSTALL_LOCAL (`--ei x X --ei y Y --es path P`: the file at P, e.g. pushed to the app's external files dir, is
- * installed as block z10-X-Y through BlockStore.install (partial file, size and sha256, atomic rename), the cell is
+ * Offline map hooks (spec §3, §7; a block copied from a phone that downloaded it): MAP_INSTALL_LOCAL
+ * (`--ei x X --ei y Y --es path P`: the PMTiles v3 file at P is installed as block z10-X-Y through BlockStore.install
+ * (partial file, copy checked by size and sha256, atomic rename) and recorded as `local/<max zoom>`, the cell is
  * marked used now, and a map check is queued so the Карта tab sees it; the answer is `installed X Y BYTES`) and
- * MAP_STATUS (the block cells on the phone, the ledger's last-used time of each cell in ms, the catalog version or
- * none, the free bytes). Both answers name cells: adb only, never logcat.
+ * MAP_STATUS (the block cells on the phone, the ledger's last-used time of each cell in ms, the OpenFreeMap build of
+ * the cached TileJSON or none, the free bytes). Both answers name cells: adb only, never logcat.
  * ```
- * R=app.kinsight/.debug.DebugGroupReceiver; A=app.kinsight.debug; D=/sdcard/Android/data/app.kinsight/files/maps-in
- * scripts/maps/build-blocks.sh <bbox> <planet YYYYMMDD> <version>   # writes build/maps/<version>/z10-<x>-<y>.pmtiles
- * adb shell mkdir -p $D && adb push build/maps/<version>/z10-510-389.pmtiles $D/
+ * R=app.kinsight/.debug.DebugGroupReceiver; A=app.kinsight.debug; D=/data/user/0/app.kinsight/files/maps-in
+ * adb -s <phone with the map> exec-out run-as app.kinsight cat files/maps/z10-510-389.pmtiles > z10-510-389.pmtiles
+ * adb push z10-510-389.pmtiles /data/local/tmp/
+ * adb shell run-as app.kinsight sh -c 'mkdir -p files/maps-in && cp /data/local/tmp/z10-510-389.pmtiles files/maps-in/'
  * adb shell am broadcast -n $R -a $A.MAP_INSTALL_LOCAL --ei x 510 --ei y 389 --es path $D/z10-510-389.pmtiles
  * adb shell am broadcast -n $R -a $A.MAP_STATUS
  * ```
- * A block no child point comes near is deleted after 7 days like any other; a catalog listing the cell with another
- * sha256 replaces it at the next run.
+ * A block no child point comes near is deleted after 7 days like any other.
  */
 class DebugGroupReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
