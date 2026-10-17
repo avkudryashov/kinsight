@@ -288,4 +288,22 @@ class CloudRunnerTest {
         assertEquals(CloudRun.SYNCED, mom.runner(disk).run(CloudTrigger.NOW))
         assertTrue(day in mom.store().liveEntries())
     }
+
+    /** Final review ruling: a child that never agreed uploads nothing at all through the Disk, Heartbeats included. */
+    @Test
+    fun aChildWithoutConsentPutsNothingOnTheDisk() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        kid.joinGroupOf(mom, DeviceRole.CHILD, "Kid", consent = false)
+        mom.ownStorage()
+        kid.learnsStorageFrom(mom)
+        kid.beat(storageGeneration = 1)
+        assertEquals(CloudRun.SYNCED, mom.runner(disk).run(CloudTrigger.NOW))
+        val before = disk.files("app:").mapValues { it.value.toList() }
+        assertEquals(CloudRun.SKIPPED, kid.runner(disk).run(CloudTrigger.NOW))
+        assertEquals(before, disk.files("app:").mapValues { it.value.toList() }, "the Disk is untouched by the child")
+        assertTrue(kid.runner(disk).isOn(), "the worker stays scheduled")
+        kid.settings.recordConsent(kid.now)
+        assertEquals(CloudRun.SYNCED, kid.runner(disk).run(CloudTrigger.NOW))
+        assertTrue(disk.files("app:").keys.any { it.contains(kid.keys.deviceId.hex) }, "after consent the child's folder appears")
+    }
 }

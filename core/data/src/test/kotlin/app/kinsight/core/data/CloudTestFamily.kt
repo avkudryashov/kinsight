@@ -20,14 +20,23 @@ import app.kinsight.core.transport.cloud.YandexOAuth
 
 private const val YEAR_MS = 365L * 24 * 60 * 60 * 1000
 
-/** What a welcome stores on the joiner: [admin] signs our AddMember, we take its membership and its group file. */
-suspend fun TestDevice.joinGroupOf(admin: TestDevice, role: DeviceRole = DeviceRole.CHILD, name: String = "Kid") {
+/**
+ * What a welcome stores on the joiner: [admin] signs our AddMember, we take its membership and its group file. A child
+ * also agrees to the current consent text, as onboarding has it do ([consent] false: it has not agreed yet).
+ */
+suspend fun TestDevice.joinGroupOf(
+    admin: TestDevice,
+    role: DeviceRole = DeviceRole.CHILD,
+    name: String = "Kid",
+    consent: Boolean = role == DeviceRole.CHILD,
+) {
     val g = admin.groups.read()!!
     check(admin.pipeline.appendOwn { a -> listOf(a.addMember(keys.sign.publicKey, keys.dh.publicKey, name, role)) })
     val m = Membership.compute(g.groupId, admin.store().membershipEntries())!!
     RoomEntryStore(db, g.groupId).applyBatch(m.effectiveEntries.toList())
     cloudSecrets.adopt(g.groupId, g.discoveryKey, null)
     groups.write(GroupConfig(g.groupId, g.discoveryKey))
+    if (consent) settings.recordConsent(now)
 }
 
 /** A second parent with admin rights, as the owner grants them: Dad in the owner tests. */
