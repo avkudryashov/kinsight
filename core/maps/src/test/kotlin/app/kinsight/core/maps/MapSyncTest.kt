@@ -226,4 +226,21 @@ class MapSyncTest {
         assertTrue(dir.listFiles().orEmpty().none { it.name.endsWith(".part") })
         assertTrue(store.ledger().installed.isEmpty())
     }
+
+    /** Spec §3: one point brings its whole 3 × 3 neighbourhood in one run, only the cells the catalog lists. */
+    @Test
+    fun oneRunFetchesTheWholeListedNeighbourhood() {
+        val cells = (-1..1).flatMap { dx -> (-1..1).map { dy -> Cell(valencia.x + dx, valencia.y + dy) } }.filter { it != Cell(509, 388) }
+        val blocks = cells.associateWith { "${it.name} ".repeat(300).toByteArray() }
+        blocks.forEach { (c, b) -> net.files[url(c, "2026-10")] = b }
+        net.catalogText = """{"version":"2026-10","blocks":[""" + blocks.entries.joinToString(",") { (c, b) ->
+            """{"x":${c.x},"y":${c.y},"bytes":${b.size},"sha256":"${sha(b)}","url":"${url(c, "2026-10")}"}"""
+        } + "]}"
+        assertTrue(sync.check(listOf(point()), listOf(point())))
+        assertEquals(SyncRun.DONE, sync.sync())
+        assertEquals(cells.map { url(it, "2026-10") }.toSet(), net.opened.toSet())
+        assertEquals(8, net.opened.size)
+        assertEquals(cells.toSet(), store.present())
+        assertFalse(sync.check(listOf(point()), listOf(point())), "the neighbourhood is complete")
+    }
 }

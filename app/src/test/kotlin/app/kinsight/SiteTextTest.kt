@@ -26,10 +26,12 @@ class SiteTextTest {
         // The refresh token is on the phone of whoever holds the storage now, which a take-over can change.
         assertTrue("parent who holds the storage" in page("en"))
         // Offline map spec §6: the street map blocks from GitHub, in each language, and what GitHub sees.
-        assertTrue("Карту улиц приложение само докачивает блоками около 30 × 30 км с GitHub" in page("ru"))
-        assertTrue("GitHub видит только, какой блок скачан." in page("ru"))
-        assertTrue("GitHub sees only which block is downloaded." in page("en"))
-        assertTrue("GitHub solo ve qué bloque se ha descargado." in page("es"))
+        // Task 14: the whole 3 × 3 neighbourhood is fetched together, so GitHub learns an area of about 90 × 90 km.
+        assertTrue("Карту улиц приложение само докачивает с GitHub блоками около 30 × 30 км" in page("ru"))
+        assertTrue("GitHub видит только, какой район около 90 × 90 км скачан." in page("ru"))
+        assertTrue("GitHub sees only which area of about 90 × 90 km is downloaded." in page("en"))
+        assertTrue("GitHub solo ve qué zona de unos 90 × 90 km se ha descargado." in page("es"))
+        for (lang in listOf("en", "ru", "es")) assertFalse("block is downloaded" in page(lang) || "блок скачан" in page(lang) || "qué bloque" in page(lang))
         assertTrue("IP-адрес телефона родителя" in page("ru"))
         assertTrue("IP address of the parent's phone" in page("en"))
         assertTrue("dirección IP del teléfono del adulto" in page("es"))

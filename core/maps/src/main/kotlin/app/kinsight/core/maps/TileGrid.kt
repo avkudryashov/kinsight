@@ -45,7 +45,21 @@ object TileGrid {
     fun bounds(c: Cell): Bounds = Bounds(lat(c.y + 1), lon(c.x), lat(c.y), lon(c.x + 1))
 
     /**
-     * Spec §3: the point's own cell and every neighbour whose edge is closer than [radiusM] (the preview reaches 3 km).
+     * Spec §3: the cell and its eight neighbours, the blocks a point in it wants (all together, wherever the point is in
+     * its cell, so the server learns only this 3 × 3 area). A neighbour off the grid is left out; one across the
+     * antimeridian is not looked for (the family is in one city).
+     */
+    fun neighbourhood(c: Cell): Set<Cell> {
+        val out = linkedSetOf<Cell>()
+        for (dy in -1..1) for (dx in -1..1) if (c.x + dx in 0 until SIZE && c.y + dy in 0 until SIZE) out += Cell(c.x + dx, c.y + dy)
+        return out
+    }
+
+    fun neighbourhood(latE7: Int, lonE7: Int): Set<Cell> = neighbourhood(cellOf(latE7, lonE7))
+
+    /**
+     * Spec §4: the point's own cell and every neighbour whose edge is closer than [radiusM], the blocks the preview
+     * (3 km around the point) draws from. Downloads take the whole [neighbourhood].
      * A neighbour across the antimeridian is not looked for (the family is in one city).
      */
     fun cellsNear(latE7: Int, lonE7: Int, radiusM: Double): Set<Cell> {

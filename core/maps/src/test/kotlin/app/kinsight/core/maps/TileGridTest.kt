@@ -45,6 +45,14 @@ class TileGridTest {
     fun deepInsideOnlyItsOwnCell() = assertEquals(setOf(valencia), TileGrid.cellsNear(395_000_000, -5_000_000, 3_000.0))
 
     @Test
+    fun theNeighbourhoodIsTheCellAndItsEightNeighbours() {
+        val around = (509..511).flatMap { x -> (388..390).map { y -> Cell(x, y) } }.toSet()
+        assertEquals(around, TileGrid.neighbourhood(valencia))
+        assertEquals(around, TileGrid.neighbourhood(396_300_000, -3_600_000), "near a corner: the same nine, no extra side")
+        assertEquals(setOf(Cell(0, 0), Cell(1, 0), Cell(0, 1), Cell(1, 1)), TileGrid.neighbourhood(Cell(0, 0)), "off the grid is left out")
+    }
+
+    @Test
     fun thePolesAndTheAntimeridianStayOnTheGrid() {
         assertEquals(Cell(0, 0), TileGrid.cellOf(900_000_000, -1_800_000_000))
         assertEquals(Cell(1023, 1023), TileGrid.cellOf(-900_000_000, 1_800_000_000))
