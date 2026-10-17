@@ -41,6 +41,13 @@ open class KinsightApplication : Application() {
         SyncGraph.cloudGeneration = { AppGraph.get(it).cloudState.current().syncedGeneration ?: 0L }
         // Spec §8: the child's tracking reads and signs through the family (core/data FamilyLocation).
         LocationGraph.host = { AppGraph.get(it).familyLocation }
+        // Emulator finding: access given back in the system settings is found by the 30-minute check (app closed) and
+        // whenever the app comes to the foreground; a check that sees the change refreshes the tracking (AppGraph).
+        LocationGraph.stateCheck = { AppGraph.get(it).launchLocationCheck() }
+        ForegroundCheck.register(this) {
+            AppGraph.get(it).launchLocationCheck()
+            LocationGraph.refresh(it)
+        }
         IntegrityFastSync.install(this)
         UsageWork.schedule(this)
         CloudWork.keepScheduled(this)

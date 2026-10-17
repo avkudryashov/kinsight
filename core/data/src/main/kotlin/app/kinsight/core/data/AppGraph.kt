@@ -175,10 +175,12 @@ class Graph internal constructor(app: Context) {
             access = { LocationPermissions.state(appContext) == LocationPermissions.State.ALWAYS },
             enabled = { LocationPermissions.systemEnabled(appContext) },
         )
-        if (recorded) {
-            pipeline.collectAndPublish()
-            CloudWork.uploadSoon(appContext)
-        }
+        LocationStateFollow.after(
+            recorded,
+            refresh = { LocationGraph.refresh(appContext, rearm = true) },
+            publish = { pipeline.collectAndPublish() },
+            upload = { CloudWork.uploadSoon(appContext) },
+        )
     }
 
     /** [checkLocationState] on the app scope; a failure is logged by class name. */
