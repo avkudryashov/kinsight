@@ -102,6 +102,12 @@ class DebugGroupReceiver : BroadcastReceiver() {
             UsageGraph.pipeline(c).setSharing(on)
             "sharing=$on"
         }
+        "$PREFIX.CONSENT" -> {
+            // «Принимаю» on the consent screen without the screen (a locked test phone): the same call the button makes.
+            val repo = AppGraph.get(c).settingsRepository
+            repo.agreeToConsent()
+            "consent=" + AppGraph.get(c).settings.current().let { "${it.consentAtMs} outdated=${it.consentOutdated} sharing=${it.sharing}" }
+        }
         "$PREFIX.BUMP" -> {
             // A fresh publish plus a new Heartbeat (it supersedes the last one): our vector moves for sure.
             val p = UsageGraph.pipeline(c)
