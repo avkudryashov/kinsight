@@ -9,7 +9,7 @@ import app.kinsight.core.sync.SafeZoneRules
 
 /** A live safe zone (spec §8.1); [id] is the zone_id in hex. Never logged: it carries a place of the family. */
 data class ZoneView(val id: String, val name: String, val latE7: Int, val lonE7: Int, val radiusM: Int, val author: DeviceId) {
-    override fun toString() = "ZoneView(${id.take(8)}, r=$radiusM)"
+    override fun toString() = "ZoneView(${id.take(8)})" // no radius: with a known centre it narrows the place
 }
 
 /**

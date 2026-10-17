@@ -12,7 +12,7 @@ import kotlin.math.abs
 
 /** One fix of a child (spec §8): degrees × 10^7, [timeMs] = the phone's Location.time. Never logged. */
 data class GeoPoint(val latE7: Int, val lonE7: Int, val accuracyM: Int, val timeMs: Long) {
-    override fun toString() = "GeoPoint(±${accuracyM}m)"
+    override fun toString() = "GeoPoint" // nothing of the fix: not even its accuracy is logged
 }
 
 /** Where a child is by its newest word (a Location entry or a zone event, by seq). [atMs] is the child's time of it. */

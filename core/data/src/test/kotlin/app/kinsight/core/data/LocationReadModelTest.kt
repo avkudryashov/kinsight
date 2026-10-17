@@ -111,4 +111,12 @@ class LocationReadModelTest {
             assertFalse("Secret School" in card || "404168123" in card || "37038456" in card, card)
         }
     }
+
+    /** Y4 Task 3 review Minor 4: neither a zone nor a point prints a number of the place, radius and accuracy included. */
+    @Test
+    fun zonesAndPointsPrintNoNumberOfThePlace() {
+        val zone = ZoneView("ab".repeat(16), "Secret School", 404_168_123, -37_038_456, 173, DeviceId("cd".repeat(16)))
+        assertEquals("ZoneView(abababab)", zone.toString())
+        assertEquals("GeoPoint", GeoPoint(404_168_123, -37_038_456, 47, 5).toString())
+    }
 }
