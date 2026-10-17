@@ -245,7 +245,7 @@ private fun MainScaffold(appVersion: String, role: Role?, openDevice: StateFlow<
                     }
                 }
                 composable<GroupDest> {
-                    Box(Modifier.windowInsetsPadding(topInsets)) { GroupRoute(onInvite = { nav.navigate(InviteDest(it.name)) }) }
+                    Box(Modifier.windowInsetsPadding(topInsets)) { GroupRoute(onInvite = { nav.navigate(InviteDest(it.name)) }, onBack = { nav.popBackStack() }) }
                 }
                 composable<SettingsDest> {
                     SettingsRoute(
@@ -254,6 +254,7 @@ private fun MainScaffold(appVersion: String, role: Role?, openDevice: StateFlow<
                         onDiagnostics = { context.startActivity(Intent(context, DiagnosticsActivity::class.java)) },
                         onNewPhone = { nav.openTransferInvite() }, // spec §7.3
                         onZones = { nav.navigate(ZonesDest) }, // spec §8.1: the child sees the zones
+                        onBack = { nav.popBackStack() },
                     )
                 }
                 composable<LimitsDest> {

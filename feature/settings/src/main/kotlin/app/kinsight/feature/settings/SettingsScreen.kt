@@ -13,11 +13,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -26,6 +28,7 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -33,7 +36,9 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -44,6 +49,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -93,6 +99,8 @@ fun SettingsRoute(
     onDiagnostics: () -> Unit,
     onNewPhone: () -> Unit = {},
     onZones: () -> Unit = {},
+    /** Set when the screen is opened from «Ещё»: a top bar with a back arrow. */
+    onBack: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val vm = settingsViewModel()
@@ -166,6 +174,7 @@ fun SettingsRoute(
             }
         },
         onZones = onZones,
+        onBack = onBack,
         onUnlock = vm::unlock,
         onLock = vm::lock,
     )
@@ -234,6 +243,8 @@ fun SettingsScreen(
     /** Spec §10: the parent PIN typed on a child's phone; «Закрыть настройки»; an admin parent's new PIN. */
     onUnlock: (String) -> Unit = {},
     onLock: () -> Unit = {},
+    /** Set when the screen is opened from «Ещё»: a top bar with a back arrow. */
+    onBack: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val ready = ui.group as? GroupState.Ready
@@ -314,180 +325,185 @@ fun SettingsScreen(
             )
         }
     }
-    LazyColumn(
-        Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).testTag("set_list"),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        item { Text(stringResource(R.string.set_title), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() }) }
-        ui.error?.let { e ->
-            item {
-                ErrorState(
-                    title = stringResource(R.string.set_error_title),
-                    body = stringResource(
-                        when (e) {
-                            SettingsError.SHARING -> R.string.set_error_sharing
-                            SettingsError.RETENTION -> R.string.set_error_retention
-                            SettingsError.NOTIFICATIONS -> R.string.set_error_notifications
-                            SettingsError.RESET -> R.string.set_error_reset
-                            SettingsError.HANDOVER -> R.string.set_error_handover
-                            SettingsError.CLOUD_OFF -> R.string.set_error_cloud_off
-                        },
-                    ),
-                ) { TextButton(onDismissError) { Text(stringResource(R.string.set_ok)) } }
-            }
-        }
-        // This phone's sync, moved here from Overview (user feedback 2026-10-10); Overview keeps a banner for problems.
-        item {
-            val s = ui.service
-            val stopped = s?.stoppedByUser == true
-            Column(Modifier.fillMaxWidth().testTag("set_sync_section"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(stringResource(R.string.set_sync), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
-                Text(syncStateText(s))
-                if (!stopped) Text(lastSyncText(s?.lastSyncMs, nowMs))
-                if (stopped) {
-                    Button(onStartSync, Modifier.testTag("set_start")) { Text(stringResource(R.string.set_start)) }
-                } else {
-                    // Wraps at 360 dp or with large fonts instead of squeezing the labels.
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onSyncNow, Modifier.testTag("set_sync_now")) { Text(stringResource(R.string.set_sync_now)) }
-                        if (!childLocked) OutlinedButton({ ask = Ask.STOP }, Modifier.testTag("set_stop")) { Text(stringResource(R.string.set_stop)) }
-                    }
-                }
-                // U1: a consenting child whose phone cannot count; the same check as Overview's banner (the signed
-                // sharing state; the local consent only before the snapshot has this device).
-                val collects = UsageReadModel.collects(ui.ownSharing, localConsent = ui.usage.consentAtMs != null)
-                if (role == Role.CHILD && collects && s?.usageAccessGranted == false) {
-                    Text(stringResource(R.string.set_usage_access_missing), color = MaterialTheme.colorScheme.error)
-                    OutlinedButton({ UsageAccessSettings.open(context) }, Modifier.testTag("set_usage_access")) {
-                        Text(stringResource(R.string.set_open_usage_access))
-                    }
-                }
-                if (child && !childLocked) Text(stringResource(R.string.set_pause_vs_stop), style = MaterialTheme.typography.bodySmall)
-                if (role == Role.PARENT) Text(stringResource(R.string.set_not_shared), style = MaterialTheme.typography.bodyMedium)
-            }
-        }
-        cloudSection(ui.cloud, nowMs, onCloudSignIn, onCloudTakeOver, { handover = true }, onNewPhone, onTurnOff = { ask = Ask.CLOUD_OFF })
-        ready?.let { r ->
-            item {
-                ListItem(
-                    headlineContent = { Text(r.self.name) },
-                    supportingContent = {
-                        Text(
-                            stringResource(if (r.self.role == Role.CHILD) R.string.set_role_child else R.string.set_role_parent) +
-                                if (r.self.isAdmin) " · " + stringResource(R.string.set_admin) else "",
-                        )
-                    },
-                )
-            }
-        }
-        when (role) {
-            // A consent never given may still be given while locked: agreeing switches nothing off.
-            Role.CHILD -> if (!childLocked || ui.usage.consentAtMs == null) item {
-                ListItem(
-                    headlineContent = { Text(stringResource(R.string.set_share)) },
-                    supportingContent = { Text(stringResource(R.string.set_share_body)) },
-                    trailingContent = {
-                        Switch(
-                            checked = ui.usage.sharing,
-                            onCheckedChange = { on ->
-                                when {
-                                    !on -> ask = Ask.PAUSE
-                                    ui.usage.consentAtMs == null -> onConsent()
-                                    else -> onSharing(true)
-                                }
+    // From «Ещё» the top bar carries the status-bar inset, the list keeps the rest.
+    val insets = if (onBack != null) WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom) else WindowInsets.safeDrawing
+    Column(Modifier.fillMaxSize()) {
+        if (onBack != null) BackBar(onBack)
+        LazyColumn(
+            Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(insets).testTag("set_list"),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            item { Text(stringResource(R.string.set_title), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() }) }
+            ui.error?.let { e ->
+                item {
+                    ErrorState(
+                        title = stringResource(R.string.set_error_title),
+                        body = stringResource(
+                            when (e) {
+                                SettingsError.SHARING -> R.string.set_error_sharing
+                                SettingsError.RETENTION -> R.string.set_error_retention
+                                SettingsError.NOTIFICATIONS -> R.string.set_error_notifications
+                                SettingsError.RESET -> R.string.set_error_reset
+                                SettingsError.HANDOVER -> R.string.set_error_handover
+                                SettingsError.CLOUD_OFF -> R.string.set_error_cloud_off
                             },
-                            modifier = Modifier.testTag("set_share"),
-                        )
-                    },
-                )
+                        ),
+                    ) { TextButton(onDismissError) { Text(stringResource(R.string.set_ok)) } }
+                }
             }
-            Role.PARENT, null -> Unit // a parent's «not shared» sentence is in the sync section
-        }
-        if (child && location != null) {
+            // This phone's sync, moved here from Overview (user feedback 2026-10-10); Overview keeps a banner for problems.
             item {
-                Column(Modifier.fillMaxWidth().testTag("set_location"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val s = ui.service
+                val stopped = s?.stoppedByUser == true
+                Column(Modifier.fillMaxWidth().testTag("set_sync_section"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.set_sync), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
+                    Text(syncStateText(s))
+                    if (!stopped) Text(lastSyncText(s?.lastSyncMs, nowMs))
+                    if (stopped) {
+                        Button(onStartSync, Modifier.testTag("set_start")) { Text(stringResource(R.string.set_start)) }
+                    } else {
+                        // Wraps at 360 dp or with large fonts instead of squeezing the labels.
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onSyncNow, Modifier.testTag("set_sync_now")) { Text(stringResource(R.string.set_sync_now)) }
+                            if (!childLocked) OutlinedButton({ ask = Ask.STOP }, Modifier.testTag("set_stop")) { Text(stringResource(R.string.set_stop)) }
+                        }
+                    }
+                    // U1: a consenting child whose phone cannot count; the same check as Overview's banner (the signed
+                    // sharing state; the local consent only before the snapshot has this device).
+                    val collects = UsageReadModel.collects(ui.ownSharing, localConsent = ui.usage.consentAtMs != null)
+                    if (role == Role.CHILD && collects && s?.usageAccessGranted == false) {
+                        Text(stringResource(R.string.set_usage_access_missing), color = MaterialTheme.colorScheme.error)
+                        OutlinedButton({ UsageAccessSettings.open(context) }, Modifier.testTag("set_usage_access")) {
+                            Text(stringResource(R.string.set_open_usage_access))
+                        }
+                    }
+                    if (child && !childLocked) Text(stringResource(R.string.set_pause_vs_stop), style = MaterialTheme.typography.bodySmall)
+                    if (role == Role.PARENT) Text(stringResource(R.string.set_not_shared), style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            cloudSection(ui.cloud, nowMs, onCloudSignIn, onCloudTakeOver, { handover = true }, onNewPhone, onTurnOff = { ask = Ask.CLOUD_OFF })
+            ready?.let { r ->
+                item {
                     ListItem(
-                        headlineContent = { Text(stringResource(R.string.set_location)) },
+                        headlineContent = { Text(r.self.name) },
                         supportingContent = {
                             Text(
-                                stringResource(
-                                    when (location) {
-                                        LocationPermissions.State.NONE -> R.string.set_location_none
-                                        LocationPermissions.State.COARSE_ONLY -> R.string.set_location_coarse
-                                        LocationPermissions.State.WHILE_IN_USE -> R.string.set_location_while_in_use
-                                        LocationPermissions.State.ALWAYS -> R.string.set_location_always
-                                    },
-                                ),
+                                stringResource(if (r.self.role == Role.CHILD) R.string.set_role_child else R.string.set_role_parent) +
+                                    if (r.self.isAdmin) " · " + stringResource(R.string.set_admin) else "",
                             )
                         },
                     )
-                    if (location != LocationPermissions.State.ALWAYS && locationBlocked) {
-                        Text(
-                            stringResource(R.string.set_location_blocked),
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                        )
-                        Button(onLocationSettings, Modifier.padding(horizontal = 16.dp).testTag("set_location_settings")) {
-                            Text(stringResource(R.string.set_location_open_settings))
-                        }
-                    } else if (location != LocationPermissions.State.ALWAYS) {
-                        Button({ onLocationAccess(location) }, Modifier.padding(horizontal = 16.dp).testTag("set_location_allow")) {
-                            Text(stringResource(if (location == LocationPermissions.State.WHILE_IN_USE) R.string.set_location_allow_always else R.string.set_location_allow))
-                        }
-                    }
-                    ListItem(
-                        headlineContent = { Text(stringResource(R.string.set_zones)) },
-                        supportingContent = { Text(stringResource(R.string.set_zones_body)) },
-                        trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
-                        modifier = Modifier.clickable(onClickLabel = stringResource(R.string.set_open), role = SemanticsRole.Button, onClick = onZones)
-                            .testTag("set_zones"),
-                    )
                 }
             }
-        }
-        if (child) {
-            item {
-                if (childLocked) {
+            when (role) {
+                // A consent never given may still be given while locked: agreeing switches nothing off.
+                Role.CHILD -> if (!childLocked || ui.usage.consentAtMs == null) item {
                     ListItem(
-                        headlineContent = { Text(stringResource(R.string.set_parent_unlock)) },
-                        supportingContent = {
-                            Text(stringResource(if (ui.lock.status.pinSet) R.string.set_parent_unlock_body else R.string.set_parent_unlock_no_pin))
+                        headlineContent = { Text(stringResource(R.string.set_share)) },
+                        supportingContent = { Text(stringResource(R.string.set_share_body)) },
+                        trailingContent = {
+                            Switch(
+                                checked = ui.usage.sharing,
+                                onCheckedChange = { on ->
+                                    when {
+                                        !on -> ask = Ask.PAUSE
+                                        ui.usage.consentAtMs == null -> onConsent()
+                                        else -> onSharing(true)
+                                    }
+                                },
+                                modifier = Modifier.testTag("set_share"),
+                            )
                         },
-                        leadingContent = { Icon(Icons.Filled.Lock, contentDescription = null) },
-                        modifier = Modifier.clickable(enabled = ui.lock.status.pinSet, role = SemanticsRole.Button) { askPin = true }
-                            .testTag("set_parent_unlock"),
                     )
-                } else {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(stringResource(R.string.set_unlocked), style = MaterialTheme.typography.bodyMedium)
-                        OutlinedButton(onLock, Modifier.testTag("set_lock")) { Text(stringResource(R.string.set_lock)) }
+                }
+                Role.PARENT, null -> Unit // a parent's «not shared» sentence is in the sync section
+            }
+            if (child && location != null) {
+                item {
+                    Column(Modifier.fillMaxWidth().testTag("set_location"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ListItem(
+                            headlineContent = { Text(stringResource(R.string.set_location)) },
+                            supportingContent = {
+                                Text(
+                                    stringResource(
+                                        when (location) {
+                                            LocationPermissions.State.NONE -> R.string.set_location_none
+                                            LocationPermissions.State.COARSE_ONLY -> R.string.set_location_coarse
+                                            LocationPermissions.State.WHILE_IN_USE -> R.string.set_location_while_in_use
+                                            LocationPermissions.State.ALWAYS -> R.string.set_location_always
+                                        },
+                                    ),
+                                )
+                            },
+                        )
+                        if (location != LocationPermissions.State.ALWAYS && locationBlocked) {
+                            Text(
+                                stringResource(R.string.set_location_blocked),
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                            )
+                            Button(onLocationSettings, Modifier.padding(horizontal = 16.dp).testTag("set_location_settings")) {
+                                Text(stringResource(R.string.set_location_open_settings))
+                            }
+                        } else if (location != LocationPermissions.State.ALWAYS) {
+                            Button({ onLocationAccess(location) }, Modifier.padding(horizontal = 16.dp).testTag("set_location_allow")) {
+                                Text(stringResource(if (location == LocationPermissions.State.WHILE_IN_USE) R.string.set_location_allow_always else R.string.set_location_allow))
+                            }
+                        }
+                        ListItem(
+                            headlineContent = { Text(stringResource(R.string.set_zones)) },
+                            supportingContent = { Text(stringResource(R.string.set_zones_body)) },
+                            trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
+                            modifier = Modifier.clickable(onClickLabel = stringResource(R.string.set_open), role = SemanticsRole.Button, onClick = onZones)
+                                .testTag("set_zones"),
+                        )
                     }
                 }
             }
-        }
-        if (!child && !loading) retentionSection()
-        section(R.string.set_device) {
-            TextButton(onBattery, Modifier.testTag("set_battery")) { Text(stringResource(R.string.set_battery)) }
-            if (!child && !loading) adultActions()
-        }
-        // U22: on a child's phone what is for adults waits under «Advanced», and only while a parent unlocked it (spec §10);
-        // a storage error still opens it by itself, it is the way out of a broken phone.
-        if (child && (unlocked || keyError)) {
-            item {
-                val state = stringResource(if (open) R.string.set_expanded else R.string.set_collapsed)
-                ListItem(
-                    headlineContent = { Text(stringResource(R.string.set_advanced)) },
-                    supportingContent = { Text(stringResource(R.string.set_advanced_body)) },
-                    trailingContent = { Icon(if (open) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown, contentDescription = null) },
-                    modifier = Modifier.clickable(enabled = !keyError, role = SemanticsRole.Button) { advanced = !advanced }
-                        .semantics { stateDescription = state }
-                        .testTag("set_advanced"),
-                )
+            if (child) {
+                item {
+                    if (childLocked) {
+                        ListItem(
+                            headlineContent = { Text(stringResource(R.string.set_parent_unlock)) },
+                            supportingContent = {
+                                Text(stringResource(if (ui.lock.status.pinSet) R.string.set_parent_unlock_body else R.string.set_parent_unlock_no_pin))
+                            },
+                            leadingContent = { Icon(Icons.Filled.Lock, contentDescription = null) },
+                            modifier = Modifier.clickable(enabled = ui.lock.status.pinSet, role = SemanticsRole.Button) { askPin = true }
+                                .testTag("set_parent_unlock"),
+                        )
+                    } else {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(stringResource(R.string.set_unlocked), style = MaterialTheme.typography.bodyMedium)
+                            OutlinedButton(onLock, Modifier.testTag("set_lock")) { Text(stringResource(R.string.set_lock)) }
+                        }
+                    }
+                }
             }
-            if (open) {
-                retentionSection()
-                item { Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) { adultActions() } }
+            if (!child && !loading) retentionSection()
+            section(R.string.set_device) {
+                TextButton(onBattery, Modifier.testTag("set_battery")) { Text(stringResource(R.string.set_battery)) }
+                if (!child && !loading) adultActions()
+            }
+            // U22: on a child's phone what is for adults waits under «Advanced», and only while a parent unlocked it (spec §10);
+            // a storage error still opens it by itself, it is the way out of a broken phone.
+            if (child && (unlocked || keyError)) {
+                item {
+                    val state = stringResource(if (open) R.string.set_expanded else R.string.set_collapsed)
+                    ListItem(
+                        headlineContent = { Text(stringResource(R.string.set_advanced)) },
+                        supportingContent = { Text(stringResource(R.string.set_advanced_body)) },
+                        trailingContent = { Icon(if (open) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown, contentDescription = null) },
+                        modifier = Modifier.clickable(enabled = !keyError, role = SemanticsRole.Button) { advanced = !advanced }
+                            .semantics { stateDescription = state }
+                            .testTag("set_advanced"),
+                    )
+                }
+                if (open) {
+                    retentionSection()
+                    item { Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) { adultActions() } }
+                }
             }
         }
     }
@@ -659,3 +675,13 @@ internal fun <T> Choices(options: List<T>, selected: T, tagPrefix: String, label
         }
     }
 }
+
+/** The back arrow of a screen opened from «Ещё» (the same bar as «О приложении»). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BackBar(onBack: () -> Unit) = TopAppBar(
+    title = {},
+    navigationIcon = {
+        IconButton(onBack, Modifier.testTag("set_back")) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.set_back)) }
+    },
+)

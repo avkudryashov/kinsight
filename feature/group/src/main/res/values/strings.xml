@@ -17,7 +17,7 @@
     <string name="grp_grant_title">Make %1$s an admin?</string>
     <string name="grp_grant_body">Admins can invite and remove phones. This cannot be undone without pairing that phone again.</string>
     <string name="grp_remove_title">Remove %1$s?</string>
-    <string name="grp_remove_body">The phone stops syncing with the group. To come back, it has to be disconnected in its own settings (“Disconnect this phone and pair again”) and invited again. Until a future update of Kinsight it can still recognise your family\'s phones nearby over Bluetooth.</string>
+    <string name="grp_remove_body">The phone stops syncing with the group. To come back, it has to be disconnected in More → Sync on that phone (“Disconnect this phone and pair again”) and invited again. Until a future update of Kinsight it can still recognise your family\'s phones nearby over Bluetooth.</string>
     <string name="grp_leave">Leave the group</string>
     <string name="grp_leave_title">Leave the family group?</string>
     <string name="grp_leave_body">Everyone in the group will be told that this phone left. The group\'s data on this phone will be deleted. Data already on their phones stays until their retention ends. Coming back needs a new invitation.</string>
@@ -98,4 +98,5 @@
     <string name="inv_transfer_hint">Scan this code with your new phone. It becomes the owner of the family\'s storage, with no new sign-in.</string>
     <string name="inv_confirm_transfer">Adding it hands it the family\'s storage: it becomes the owner, and this phone then leaves the group by itself.</string>
     <string name="inv_added_transfer">“%1$s” now holds the family\'s storage. This phone leaves the group by itself, there is nothing to tap.</string>
+    <string name="grp_back">Back</string>
 </resources>

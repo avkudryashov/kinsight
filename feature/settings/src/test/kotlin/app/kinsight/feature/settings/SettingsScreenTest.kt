@@ -90,6 +90,7 @@ class SettingsScreenTest {
         onCloudTurnOff: () -> Unit = {},
         onUnlock: (String) -> Unit = {},
         onLock: () -> Unit = {},
+        onBack: (() -> Unit)? = null,
     ) = rule.setContent {
         KinsightTheme() {
             SettingsScreen(
@@ -99,7 +100,7 @@ class SettingsScreenTest {
                 onResetIdentity = onReset, onSyncNow = { calls += "syncNow" }, nowMs = nowMs,
                 onCloudSignIn = onCloudSignIn, onCloudCode = onCloudCode, onCloudDismiss = onCloudDismiss,
                 onCloudTakeOver = onCloudTakeOver, onCloudHandover = onCloudHandover, onNewPhone = onNewPhone,
-                onCloudTurnOff = onCloudTurnOff, onUnlock = onUnlock, onLock = onLock,
+                onCloudTurnOff = onCloudTurnOff, onUnlock = onUnlock, onLock = onLock, onBack = onBack,
             )
         }
     }
@@ -113,6 +114,20 @@ class SettingsScreenTest {
         rule.onNodeWithTag("set_stop").assertExists()
         rule.onNodeWithTag("set_sync_now").performClick()
         assertEquals(listOf("syncNow"), calls)
+    }
+
+    @Test
+    fun openedFromMoreItHasABackArrowAndOtherwiseNone() {
+        var backs = 0
+        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running), onBack = { backs++ })
+        rule.onNodeWithTag("set_back").performClick()
+        assertEquals(1, backs)
+    }
+
+    @Test
+    fun withoutOnBackThereIsNoBackArrow() {
+        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running))
+        rule.onNodeWithTag("set_back").assertDoesNotExist()
     }
 
     @Test

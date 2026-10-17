@@ -17,7 +17,7 @@
     <string name="grp_grant_title">¿Hacer administrador a %1$s?</string>
     <string name="grp_grant_body">Los administradores pueden invitar y eliminar teléfonos. No se puede deshacer sin volver a emparejar ese teléfono.</string>
     <string name="grp_remove_title">¿Eliminar «%1$s» del grupo?</string>
-    <string name="grp_remove_body">El teléfono deja de sincronizarse con el grupo. Para volver, hay que desconectarlo en sus propios ajustes («Desconectar este teléfono y volver a emparejarlo») e invitarlo de nuevo. Hasta una próxima actualización de Kinsight, todavía podrá reconocer por Bluetooth los teléfonos de tu familia que estén cerca.</string>
+    <string name="grp_remove_body">El teléfono deja de sincronizarse con el grupo. Para volver, hay que desconectarlo en Más → Sincronización en ese teléfono («Desconectar este teléfono y volver a emparejarlo») e invitarlo de nuevo. Hasta una próxima actualización de Kinsight, todavía podrá reconocer por Bluetooth los teléfonos de tu familia que estén cerca.</string>
     <string name="grp_leave">Salir del grupo</string>
     <string name="grp_leave_title">¿Salir del grupo familiar?</string>
     <string name="grp_leave_body">Se avisará a todos los miembros del grupo de que este teléfono ha salido. Se borrarán los datos del grupo en este teléfono. Los datos que ya están en sus teléfonos se conservan hasta que termine su periodo de conservación. Para volver hace falta una invitación nueva.</string>
@@ -99,4 +99,5 @@
     <string name="inv_transfer_hint">Escanea este código con tu teléfono nuevo. Será el propietario del almacenamiento de la familia, sin volver a iniciar sesión.</string>
     <string name="inv_confirm_transfer">Al añadirlo, le pasas el almacenamiento de la familia: será el propietario y este teléfono saldrá después del grupo por sí solo.</string>
     <string name="inv_added_transfer">«%1$s» tiene ahora el almacenamiento de la familia. Este teléfono sale del grupo por sí solo, no tienes que tocar nada.</string>
+    <string name="grp_back">Atrás</string>
 </resources>

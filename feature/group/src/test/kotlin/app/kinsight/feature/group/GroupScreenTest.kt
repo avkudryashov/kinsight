@@ -52,6 +52,7 @@ class GroupScreenTest {
         onGrantAdmin: (DeviceId) -> Unit = {},
         onRemove: (DeviceId) -> Unit = {},
         onLeave: () -> Unit = {},
+        onBack: (() -> Unit)? = null,
     ) = rule.setContent {
         KinsightTheme() {
             GroupScreen(
@@ -62,8 +63,23 @@ class GroupScreenTest {
                 onGrantAdmin = onGrantAdmin,
                 onRemove = onRemove,
                 onLeave = onLeave,
+                onBack = onBack,
             )
         }
+    }
+
+    @Test
+    fun openedFromMoreItHasABackArrowAndOtherwiseNone() {
+        var backs = 0
+        show(mom, listOf(mom, kid), onBack = { backs++ })
+        rule.onNodeWithTag("grp_back").performClick()
+        assertEquals(1, backs)
+    }
+
+    @Test
+    fun withoutOnBackThereIsNoBackArrow() {
+        show(mom, listOf(mom, kid))
+        rule.onNodeWithTag("grp_back").assertDoesNotExist()
     }
 
     @Test
