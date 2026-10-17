@@ -36,7 +36,7 @@ internal interface DetailSource {
     fun thresholds(): Flow<List<ThresholdRule>> = flowOf(emptyList())
 }
 
-private class RepositorySource(private val usage: UsageRepository, private val id: DeviceId, private val weekFields: WeekFields) : DetailSource {
+private class RepositorySource(private val usage: UsageRepository, private val id: DeviceId) : DetailSource {
     override fun today(): LocalDate = usage.today()
 
     override fun detail(range: DetailRange): Flow<DeviceDetail?> = usage.detail(id, range)
@@ -66,7 +66,7 @@ class DeviceDetailViewModel internal constructor(
         saved: SavedStateHandle,
         weekFields: WeekFields = WeekFields.of(Locale.getDefault()),
         initial: DetailRange? = null,
-    ) : this(RepositorySource(usage, id, weekFields), saved, weekFields, initial, defaultPeriod = Period.DAY)
+    ) : this(RepositorySource(usage, id), saved, weekFields, initial, defaultPeriod = Period.DAY)
 
     private val nav = RangeNavigator(viewModelScope, source::today, source::detail, saved, weekFields, initial, ticks, defaultPeriod = defaultPeriod)
 
