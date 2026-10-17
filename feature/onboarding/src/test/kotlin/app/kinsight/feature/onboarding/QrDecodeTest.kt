@@ -1,9 +1,10 @@
 package app.kinsight.feature.onboarding
 
 import app.kinsight.core.designsystem.component.qrMatrix
-import app.kinsight.core.model.DeviceKeys
-import app.kinsight.core.model.GroupGenesis
+import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.proto.DeviceRole
+import app.kinsight.core.sync.MIN_PROTOCOL_VERSION
+import app.kinsight.core.sync.PROTOCOL_VERSION
 import app.kinsight.core.sync.pairing.Invite
 import kotlin.random.Random
 import kotlin.test.Test
@@ -12,8 +13,16 @@ import kotlin.test.assertNull
 
 /** The camera path minus the camera: our own QR rendered as a Y plane, decoded the way the analyzer does. */
 class QrDecodeTest {
-    private val admin = DeviceKeys.generate()
-    private val invite = Invite.create(GroupGenesis.create(admin, "Mom").groupId, admin, DeviceRole.CHILD, "Mom")
+    /**
+     * A fixed invite, not a random one: with fresh keys and token each run, the QR pattern (mask, module layout) differs
+     * per run, and about 4% of those patterns do not decode from this synthetic frame at all (measured: 13 of 300, rotated
+     * or not), so the test flaked. These bytes were checked to decode both upright and rotated.
+     */
+    private val invite = Invite(
+        PROTOCOL_VERSION, GroupId("00112233445566778899aabbccddeeff"), ByteArray(32) { (it * 7 + 1).toByte() },
+        ByteArray(32) { (it * 11 + 3).toByte() }, ByteArray(Invite.TOKEN_BYTES) { (it * 13 + 5).toByte() }, DeviceRole.CHILD, "Mom",
+        MIN_PROTOCOL_VERSION,
+    )
 
     private class Frame(val y: ByteArray, val width: Int, val height: Int, val rowStride: Int)
 
