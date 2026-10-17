@@ -103,7 +103,11 @@ class LocationEngine(
         val registered = s.copy(registered = wanted.keys.toSet())
         store.save(registered)
         cadence.schedulePeriodic()
-        if (registered.mode == Mode.UNKNOWN) {
+        // Y4 final review Minor 1: a zone the phone is in was deleted, moved or resized. One fix decides now, so the outside
+        // cadence does not wait for the 30-minute check (a deleted zone is dropped without an exit, as in ZoneTracker).
+        val insideChanged = registered.mode == Mode.IN_ZONE &&
+            s.inside.any { id -> s.registered.none { sig -> ZoneTracker.idOf(sig) == id && sig in wanted } }
+        if (registered.mode == Mode.UNKNOWN || insideChanged) {
             apply(ZoneTracker.fix(registered, zones, fix(), clock()))
             return true
         }

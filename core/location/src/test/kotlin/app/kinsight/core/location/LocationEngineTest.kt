@@ -117,6 +117,48 @@ class LocationEngineTest {
     private fun at(z: Zone) = Fix(z.latE7, z.lonE7, 10, now, Location.Provider.GPS)
     private val away = Fix(404_168_000 - 100_000, -37_038_000, 10, now, Location.Provider.GPS) // about 1.1 km south of home
 
+    /** Y4 final review Minor 1: the zone the phone is in is deleted. The refresh finds the phone outside at once. */
+    @Test
+    fun aRefreshAfterTheInsideZoneIsDeletedGoesOutsideAtOnce() = runTest {
+        fixes.next = at(home)
+        engine.refresh()
+        assertEquals(Mode.IN_ZONE, store.state.mode)
+        host.zones = listOf(school)
+        fixes.next = away
+        val asked = fixes.asked
+        engine.refresh()
+        assertEquals(asked + 1, fixes.asked, "one fix decides")
+        assertEquals(Mode.OUTSIDE, store.state.mode)
+        assertTrue(cadence.service)
+        assertEquals(LocationEngine.TICK_MS, cadence.tickInMs)
+        assertEquals(emptyList<ZoneEvent>() to Report.Point(away), host.recorded.last(), "no exit for a deleted zone, the point goes")
+    }
+
+    /** Y4 final review Minor 1: the zone the phone is in moves away from it. The refresh signs the exit with a point. */
+    @Test
+    fun aRefreshAfterTheInsideZoneMovedAwayLeavesIt() = runTest {
+        fixes.next = at(home)
+        engine.refresh()
+        val moved = home.copy(latE7 = school.latE7 + 200_000) // about 2.2 km north of the phone
+        host.zones = listOf(moved, school)
+        engine.refresh()
+        assertEquals(Mode.OUTSIDE, store.state.mode)
+        assertEquals(listOf(ZoneEvent(home.id, entered = false, atMs = now)) to Report.Point(at(home)), host.recorded.last())
+        assertTrue(cadence.service)
+    }
+
+    /** Only a change of the zones the phone is in costs a fix; another zone's change does not. */
+    @Test
+    fun aRefreshAfterAnotherZoneChangedTakesNoFix() = runTest {
+        fixes.next = at(home)
+        engine.refresh()
+        host.zones = listOf(home, school.copy(radiusM = 300))
+        val asked = fixes.asked
+        engine.refresh()
+        assertEquals(asked, fixes.asked)
+        assertEquals(Mode.IN_ZONE, store.state.mode)
+    }
+
     @Test
     fun theFirstFixIsABaselineWithoutEvents() = runTest {
         fixes.next = at(home)
