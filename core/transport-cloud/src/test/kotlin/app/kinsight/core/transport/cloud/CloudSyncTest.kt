@@ -277,6 +277,30 @@ class CloudSyncTest {
         assertEquals(0, store.fullScans)
     }
 
+    @Test
+    fun aRunThatChangesNothingPagesTheOwnersLogOnce() = runTest {
+        val (mom, kid) = family(DeviceRole.CHILD)
+        mom.publish(mom.author.storageOwnerEntry(mom.id, ByteArray(16) { 1 }, 1))
+        mom.publish(CloudAccessView.issue(mom.author, mom.membership(), 0, GEN0, "AT", expiresAtMs = 9))
+        mom.sync(disk).run()
+        val store = OwnerPagingStore(kid.store, mom.id)
+        val sync = CloudSync(store, kid.keys, SyncPolicy(kid.id, showOthers = false, today = { TODAY }), disk, kid.ring, kid.cursor, { 1_000L })
+        assertIs<CloudResult.Synced>(sync.run())
+        store.walks = 0
+        assertEquals(CloudResult.Synced(0, 0), sync.run())
+        assertEquals(1, store.walks)
+    }
+
+    /** Counts walks through [owner]'s log from its start: each one pages the whole of it. */
+    private class OwnerPagingStore(private val inner: InMemoryEntryStore, private val owner: DeviceId) : EntryStore by inner {
+        var walks = 0
+
+        override suspend fun entriesAfter(author: DeviceId, afterSeq: Long, limit: Int): List<DecodedEntry> {
+            if (author == owner && afterSeq == 0L) walks++
+            return inner.entriesAfter(author, afterSeq, limit)
+        }
+    }
+
     /** Counts liveEntries calls: on Room each one decodes every row of the database. */
     private class NoFullScanStore(private val inner: InMemoryEntryStore) : EntryStore by inner {
         var fullScans = 0

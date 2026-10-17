@@ -551,7 +551,8 @@ class CloudSync(
         val ringAtStart = ring.keys()
         // Spec §5: a covered pack's generation only decides which keys the ring keeps. Keys we write with or need for the
         // access are kept anyway, so it matters only while the ring holds another one.
-        val pinned = setOfNotNull(writeEpoch(start), accessEpoch(start))
+        val startAccess = accessEpoch(start)
+        val pinned = setOfNotNull(writeEpoch(start), startAccess)
         fun generationMatters(held: Map<Int, ByteArray>) = (held.keys - pinned).isNotEmpty()
         var pending = listing.filterKeys { it != self }
             .flatMap { (device, items) -> items.map { device to it } }
@@ -646,7 +647,9 @@ class CloudSync(
         // only while the file is still on the Disk (spec §5: while files sealed with it remain).
         val ownListed = listing[self].orEmpty().map { it.name }.toSet()
         val keptEpochs = keptPacks(cursor).filterKeys { it in ownListed }.values.map { it.epoch }
-        val keep = setOfNotNull(writeEpoch(membership), accessEpoch(membership)) + keptEpochs
+        // The owner's log is paged again only when this run may have changed it: nothing ingested keeps the start's answer.
+        val access = if (received == 0 && membership === start) startAccess else accessEpoch(membership)
+        val keep = setOfNotNull(writeEpoch(membership), access) + keptEpochs
         val unread = (ring.keys().keys - keep).isNotEmpty() && keptSeen.filterKeys { it in memberKeys }.values.any { it == COVERED_UNREAD }
         if (!unread && memberKeys.all { it in keptSeen || it in keptDeferred }) {
             val inUse = (keptSeen.filterKeys { it in memberKeys }.values + keptDeferred.filterKeys { it in memberKeys }.values.map { it.epoch })
