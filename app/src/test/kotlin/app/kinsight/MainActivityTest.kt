@@ -176,8 +176,8 @@ class MainActivityTest {
     @Config(qualifiers = "ru")
     fun tabsReadInRussian() {
         assertEquals("Обзор", app.getString(R.string.nav_overview))
-        assertEquals("Группа", app.getString(R.string.nav_group))
-        assertEquals("Настройки", app.getString(R.string.nav_settings))
+        assertEquals("Карта", app.getString(R.string.nav_map))
+        assertEquals("Ещё", app.getString(R.string.nav_more))
     }
 
     private companion object {

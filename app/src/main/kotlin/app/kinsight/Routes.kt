@@ -2,12 +2,29 @@ package app.kinsight
 
 import kotlinx.serialization.Serializable
 
-// Tabs and screens inside the main root.
+// Tabs (UI refresh §2) and screens inside the main root.
 @Serializable object OverviewDest
 
+/** The Карта tab (UI refresh §5), a parent's phone only. */
+@Serializable object MapDest
+
+/** The «Ещё» tab (UI refresh §2). */
+@Serializable object MoreDest
+
+/** «Ещё → Семья»: the family group screen (the former Group tab). */
 @Serializable object GroupDest
 
+/** «Ещё → Синхронизация»: the former Settings tab. */
 @Serializable object SettingsDest
+
+/** «Ещё → Лимиты и уведомления». */
+@Serializable object LimitsDest
+
+/** «Ещё → О приложении». */
+@Serializable object AboutDest
+
+/** The child's setup steps still missing (UI refresh §6): after a later consent, or from «Ещё». */
+@Serializable object ChildSetupDest
 
 @Serializable data class DeviceDest(val id: String)
 

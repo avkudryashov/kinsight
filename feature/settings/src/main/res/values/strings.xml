@@ -72,7 +72,7 @@
     <string name="tr_child_what">What is sent: screen time per day and per app, time per hour, the number of unlocks, app names and icons, and events: pauses, stopped sync, a hidden notification, usage access or location turned off. With the sync through a parent\'s Yandex Disk, also where this phone is: its last place, its route today and when it leaves or enters a safe zone.</string>
     <string name="tr_child_sharing_on">Sharing is on.</string>
     <string name="tr_child_sharing_off">Sharing is off: nothing new is sent, and your family sees that.</string>
-    <string name="tr_child_how">Only a parent can change sharing: from their phone, or with the parent PIN in Settings on this phone. If something is turned off in Android settings, your family sees it.</string>
+    <string name="tr_child_how">Only a parent can change sharing: from their phone, or with the parent PIN in More → Sync on this phone. If something is turned off in Android settings, your family sees it.</string>
     <string name="tr_child_keep">Parents\' phones keep the data as long as their settings say (by default 90 days in detail and a year of daily totals).</string>
     <string name="tr_parent_own">This phone does not share its own screen time with anyone.</string>
     <string name="tr_parent_sync">It keeps your children\'s data and syncs it with the other parents: %1$s.</string>

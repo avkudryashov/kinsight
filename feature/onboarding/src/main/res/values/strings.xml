@@ -60,9 +60,9 @@
     <string name="onb_done_body_parent">Next: invite your child\'s phone from the Group tab.</string>
     <string name="onb_done_body_child">This phone is in your family group.</string>
     <string name="onb_done_open">Open Kinsight</string>
-    <string name="onb_create_failed">Could not create the group. Open Settings → Diagnostics on this phone.</string>
+    <string name="onb_create_failed">Could not create the group. Open More → Sync → Diagnostics on this phone.</string>
     <string name="onb_consent_child">Your parents will see how much time you spend on your phone and in which apps, and where this phone is if a parent turns on the sync through their Yandex Disk.</string>
-    <string name="onb_consent_failed">Could not turn on sharing. Try again, or open Settings → Diagnostics on this phone.</string>
+    <string name="onb_consent_failed">Could not turn on sharing. Try again, or open More → Sync → Diagnostics on this phone.</string>
     <string name="onb_step">Step %1$d of %2$d</string>
     <string name="onb_consent_point_what">What is seen: how long you spend in each app, how often you unlock the phone and at what hours. Kinsight counts this in the background, and the first sending also includes up to the last 7 days.</string>
     <string name="onb_consent_point_who">Who sees it: every parent of your family group (now %1$s) and parents who join later.</string>

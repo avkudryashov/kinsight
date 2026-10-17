@@ -24,7 +24,7 @@
     <string name="alert_no_contact">%1$s: нет связи %2$s</string>
     <string name="alert_no_contact_body">Последний раз на связи %1$s. Телефон мог быть выключен или остаться без интернета и Bluetooth, либо на нём остановили или удалили Kinsight.</string>
     <string name="alert_new_parent">%1$s теперь видит ваше экранное время</string>
-    <string name="alert_new_parent_body">В вашу семейную группу вступил новый родитель. Все, кто видит данные, перечислены в Настройки → Кто видит мои данные.</string>
+    <string name="alert_new_parent_body">В вашу семейную группу вступил новый родитель. Все, кто видит данные, перечислены в разделе Ещё → Кто видит мои данные.</string>
     <string name="alert_summary_daily">Экранное время за сегодня</string>
     <string name="alert_summary_weekly">Экранное время за неделю</string>
     <string name="channel_thresholds">Лимиты</string>
@@ -34,8 +34,8 @@
     <string name="alert_threshold_target">%1$s: %2$s сегодня %3$s (лимит %4$s)</string>
     <string name="alert_threshold_body">Нажмите, чтобы посмотреть экранное время за сегодня.</string>
     <string name="nav_overview">Обзор</string>
-    <string name="nav_group">Группа</string>
-    <string name="nav_settings">Настройки</string>
+    <string name="nav_map">Карта</string>
+    <string name="nav_more">Ещё</string>
     <string name="app_already_in_group">Этот телефон уже в семейной группе. Чтобы вступить в другую, сначала выйдите из текущей.</string>
     <string name="app_leaving">Выход из группы: сообщаем семье…</string>
     <string name="app_resetting">Удаляем данные Kinsight на этом телефоне…</string>
@@ -53,7 +53,7 @@
     <string name="alert_advice_paused">Время за паузу придёт, когда пауза будет снята.</string>
     <string name="alert_advice_access_revoked">Попросите снова включить доступ: настройки Android → Доступ к истории использования → Kinsight.</string>
     <string name="alert_advice_left">Чтобы снова видеть его экранное время, пригласите этот телефон заново.</string>
-    <string name="alert_advice_sync_stopped">Синхронизацию снова запускают в Kinsight на телефоне ребёнка: Настройки → Запустить синхронизацию.</string>
+    <string name="alert_advice_sync_stopped">Синхронизацию снова запускают в Kinsight на телефоне ребёнка: Ещё → Синхронизация → Запустить синхронизацию.</string>
     <string name="alert_advice_notification_hidden">Попросите снова разрешить уведомления Kinsight на телефоне ребёнка.</string>
     <string name="alert_advice_nearby_off">Без этого разрешения телефон не связывается с семьёй. Попросите разрешить его в настройках приложения Kinsight.</string>
     <string name="alert_advice_force_stopped">Kinsight снова заработает, когда его откроют на телефоне ребёнка.</string>

@@ -22,7 +22,7 @@
     <string name="grp_leave_title">Leave the family group?</string>
     <string name="grp_leave_body">Everyone in the group will be told that this phone left. The group\'s data on this phone will be deleted. Data already on their phones stays until their retention ends. Coming back needs a new invitation.</string>
     <string name="grp_leave_sole_admin">You are the only admin. Make another parent an admin first, or remove the other phones.</string>
-    <string name="grp_leave_child">A parent can remove this phone from the family on their own phone, or disconnect it here in Settings with the parent PIN.</string>
+    <string name="grp_leave_child">A parent can remove this phone from the family on their own phone, or disconnect it here in More → Sync with the parent PIN.</string>
     <string name="grp_leaving">Leaving: telling your family…</string>
     <string name="grp_confirm_remove">Remove</string>
     <string name="grp_confirm_leave">Leave</string>
@@ -85,14 +85,14 @@
     <string name="pair_fail_invalid">The invitation or the answer was not valid. If either phone has an older Kinsight, update the app and try again.</string>
     <string name="pair_fail_not_admin">Only an admin can invite.</string>
     <string name="pair_fail_already_in_group">This phone is already in a group. Leave it first.</string>
-    <string name="pair_fail_identity">This phone\'s keys are broken. Use “Disconnect this phone and pair again” in Settings.</string>
+    <string name="pair_fail_identity">This phone\'s keys are broken. Use “Disconnect this phone and pair again” in More → Sync.</string>
     <string name="inv_adding">Adding…</string>
     <string name="inv_expires_soon_spoken">Expires in less than 30 seconds</string>
     <plurals name="inv_expires_spoken">
         <item quantity="one">Expires within %d minute</item>
         <item quantity="other">Expires within %d minutes</item>
     </plurals>
-    <string name="grp_err_leave_owner_handover">Leaving was refused: the family\'s storage is on your Yandex Disk. Hand it to another parent in Settings first, then leave.</string>
+    <string name="grp_err_leave_owner_handover">Leaving was refused: the family\'s storage is on your Yandex Disk. Hand it to another parent in More → Sync first, then leave.</string>
     <string name="grp_err_leave_cloud_switching">The storage is moving to another Disk. You can leave once every phone has switched to it. A phone that no longer syncs can be removed from the group.</string>
     <string name="grp_leave_cloud_off">Sync through Yandex Disk turns off. The data stays on the phones, and Bluetooth goes on working.</string>
     <string name="inv_transfer_hint">Scan this code with your new phone. It becomes the owner of the family\'s storage, with no new sign-in.</string>

@@ -3,7 +3,7 @@
     <string name="dash_title">Vista general</string>
     <string name="dash_shared_with">Ven tu tiempo de pantalla: %1$s</string>
     <string name="dash_shared_with_nobody">Todavía no hay ningún adulto en el grupo.</string>
-    <string name="dash_parent_only">Solo un adulto de la familia puede cambiar el intercambio: desde su teléfono o con el PIN de los adultos en Ajustes.</string>
+    <string name="dash_parent_only">Solo un adulto de la familia puede cambiar el intercambio: desde su teléfono o con el PIN de los adultos en Más → Sincronización.</string>
     <string name="dash_paused_since">El intercambio está en pausa desde %1$s.</string>
     <string name="dash_resume">Reanudar el intercambio</string>
     <string name="dash_not_sharing">El intercambio está desactivado en este teléfono. Tu familia lo ve.</string>
@@ -49,7 +49,7 @@
     <string name="dash_update_self">Actualiza Kinsight en este teléfono para volver a sincronizar con %1$s.</string>
     <string name="dash_update_peer">Actualiza Kinsight en %1$s. La sincronización con él se reanuda tras la actualización.</string>
     <string name="dash_new_parent">Tu tiempo de pantalla ya es visible para: %1$s.</string>
-    <string name="dash_new_parent_body">Lo ven todos los adultos de tu grupo familiar. En Ajustes → Quién ve mis datos aparecen todos.</string>
+    <string name="dash_new_parent_body">Lo ven todos los adultos de tu grupo familiar. En Más → Quién ve mis datos aparecen todos.</string>
     <string name="dash_new_parent_ok">Entendido</string>
     <string name="dash_searching">Buscando los teléfonos de tu familia…</string>
     <string name="dash_reconsent_body">Ahora Kinsight también puede enviar tu tiempo de pantalla y dónde está este teléfono a través del Yandex Disk de un adulto de la familia. Mira qué ha cambiado y decide.</string>

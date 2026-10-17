@@ -60,9 +60,9 @@
     <string name="onb_done_body_parent">Siguiente paso: invita al teléfono de un menor desde la pestaña «Grupo».</string>
     <string name="onb_done_body_child">Este teléfono está en tu grupo familiar.</string>
     <string name="onb_done_open">Abrir Kinsight</string>
-    <string name="onb_create_failed">No se ha podido crear el grupo. Abre Ajustes → Diagnóstico en este teléfono.</string>
+    <string name="onb_create_failed">No se ha podido crear el grupo. Abre Más → Sincronización → Diagnóstico en este teléfono.</string>
     <string name="onb_consent_child">Los adultos de tu familia verán cuánto tiempo pasas con el teléfono y en qué aplicaciones y, si uno de ellos activa la sincronización con su Yandex Disk, dónde está este teléfono.</string>
-    <string name="onb_consent_failed">No se ha podido activar el intercambio. Inténtalo de nuevo o abre Ajustes → Diagnóstico en este teléfono.</string>
+    <string name="onb_consent_failed">No se ha podido activar el intercambio. Inténtalo de nuevo o abre Más → Sincronización → Diagnóstico en este teléfono.</string>
     <string name="onb_step">Paso %1$d de %2$d</string>
     <string name="onb_consent_point_what">Qué se ve: cuánto tiempo pasas en cada aplicación, cuántas veces desbloqueas el teléfono y a qué horas. Kinsight lo cuenta en segundo plano, y el primer envío incluye también hasta los últimos 7 días.</string>
     <string name="onb_consent_point_who">Quién lo ve: todos los adultos de tu grupo familiar (ahora %1$s) y los que se unan más adelante.</string>

@@ -13,18 +13,12 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,7 +26,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -44,12 +37,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hasRoute
-import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import app.kinsight.core.data.AppGraph
@@ -66,22 +57,26 @@ import app.kinsight.feature.dashboard.DashboardRoute
 import app.kinsight.feature.devicedetail.AllAppsRoute
 import app.kinsight.feature.devicedetail.AppDetailRoute
 import app.kinsight.feature.devicedetail.DeviceDetailRoute
+import app.kinsight.feature.devicedetail.MapRoute
 import app.kinsight.feature.devicedetail.ThresholdsRoute
 import app.kinsight.feature.devicedetail.ZonesRoute
 import app.kinsight.feature.group.GroupRoute
 import app.kinsight.feature.group.InviteRoute
 import app.kinsight.feature.group.JoinRoute
 import app.kinsight.feature.onboarding.BatteryGuideRoute
+import app.kinsight.feature.onboarding.ChildSetupRoute
 import app.kinsight.feature.onboarding.ConsentRoute
 import app.kinsight.feature.onboarding.OnboardingRoute
+import app.kinsight.feature.settings.AboutRoute
 import app.kinsight.feature.settings.KeyErrorRoute
+import app.kinsight.feature.settings.LimitsNotificationsRoute
+import app.kinsight.feature.settings.MoreRoute
 import app.kinsight.feature.settings.RemovedRoute
 import app.kinsight.feature.settings.SettingsRoute
 import app.kinsight.feature.settings.TransparencyRoute
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.time.LocalDate
-import kotlin.reflect.KClass
 
 /**
  * The root (spec §9.1): the screen follows [AppStart] over the group state, the prefs and the app-wide wipe status.
@@ -144,7 +139,7 @@ fun KinsightApp(
                                 onInviteConsumed()
                             }
                         }
-                        MainScaffold(appVersion, openDevice, onDeviceOpened)
+                        MainScaffold(appVersion, (group as? GroupState.Ready)?.self?.role, openDevice, onDeviceOpened)
                     }
                 }
             }
@@ -190,28 +185,20 @@ private fun ResetFailed(reason: String, onRetry: () -> Unit, onDismiss: (() -> U
     }
 }
 
-private class Tab(val route: Any, val type: KClass<*>, val label: Int, val icon: ImageVector, val tag: String)
-
-private val tabs = listOf(
-    Tab(OverviewDest, OverviewDest::class, R.string.nav_overview, Icons.Filled.Home, "nav_overview"),
-    Tab(GroupDest, GroupDest::class, R.string.nav_group, Icons.Filled.Person, "nav_group"),
-    Tab(SettingsDest, SettingsDest::class, R.string.nav_settings, Icons.Filled.Settings, "nav_settings"),
-)
-
 @Composable
-private fun MainScaffold(appVersion: String, openDevice: StateFlow<String?>, onDeviceOpened: () -> Unit) {
+private fun MainScaffold(appVersion: String, role: Role?, openDevice: StateFlow<String?>, onDeviceOpened: () -> Unit) {
     val context = LocalContext.current
     val graph = remember { AppGraph.get(context) }
     val nav = rememberNavController()
-    val entry by nav.currentBackStackEntryAsState()
+    val stack by nav.currentBackStack.collectAsStateWithLifecycle()
     // Screens without their own top bar keep clear of the status bar and cutout; the suite handles the navigation bar.
     val topInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
-    // A leave that failed or was refused comes back here as a fresh root: its error dialog lives on the group tab.
+    // A leave that failed or was refused comes back here as a fresh root: its error dialog lives on «Ещё → Семья».
     val leaveError by graph.group.leaveError.collectAsStateWithLifecycle()
     LaunchedEffect(leaveError) {
-        if (leaveError != null && nav.currentDestination?.hasRoute(GroupDest::class) != true) nav.selectTab(GroupDest)
+        if (leaveError != null && nav.currentDestination?.hasRoute(GroupDest::class) != true) nav.openFromMore(GroupDest)
     }
-    // An integrity alert was tapped: the overview tab, then that child's detail on top of it.
+    // An integrity alert was tapped: the overview tab, then that child's report on top of it.
     val device by openDevice.collectAsStateWithLifecycle()
     LaunchedEffect(device) {
         val hex = device ?: return@LaunchedEffect
@@ -219,20 +206,12 @@ private fun MainScaffold(appVersion: String, openDevice: StateFlow<String?>, onD
         nav.navigate(DeviceDest(hex)) { launchSingleTop = true }
         onDeviceOpened()
     }
-    NavigationSuiteScaffold(
-        navigationSuiteItems = {
-            tabs.forEach { t ->
-                val selected = entry?.destination?.hierarchy?.any { it.hasRoute(t.type) } == true
-                item(
-                    selected = selected,
-                    // Reselecting the current tab returns to its root (Material navigation bar guidance).
-                    onClick = { if (selected) nav.popBackStack(t.route, inclusive = false) else nav.selectTab(t.route) },
-                    icon = { Icon(t.icon, contentDescription = null) },
-                    label = { Text(stringResource(t.label)) },
-                    modifier = Modifier.testTag(t.tag),
-                )
-            }
-        },
+    val selected = selectedTab(stack)
+    MainNavigation(
+        tabs = mainTabs(role),
+        selected = selected,
+        // Reselecting the current tab returns to its root (Material navigation bar guidance).
+        onSelect = { t -> if (t == selected) nav.popBackStack(t.route(), inclusive = false) else nav.selectTab(t.route()) },
     ) {
         CenteredContent {
             NavHost(nav, startDestination = OverviewDest) {
@@ -241,13 +220,27 @@ private fun MainScaffold(appVersion: String, openDevice: StateFlow<String?>, onD
                         DashboardRoute(
                             onOpenDevice = { nav.navigate(DeviceDest(it.hex)) },
                             onConsent = { nav.navigate(ConsentDest) },
-                            // The group tab's child invite, so closing it lands on the group, as the invite there does.
+                            // The family screen's child invite, so closing it lands on the family, as the invite there does.
                             onInviteChild = {
-                                nav.selectTab(GroupDest)
+                                nav.openFromMore(GroupDest)
                                 nav.navigate(InviteDest(Role.CHILD.name))
                             },
-                            // A key error: Settings holds Diagnostics and the identity reset.
-                            onOpenSettings = { nav.selectTab(SettingsDest) },
+                            // A key error: «Синхронизация» holds Diagnostics and the identity reset.
+                            onOpenSettings = { nav.openFromMore(SettingsDest) },
+                        )
+                    }
+                }
+                composable<MapDest> { Box(Modifier.windowInsetsPadding(topInsets)) { MapRoute(onZones = { nav.navigate(ZonesDest) }) } }
+                composable<MoreDest> {
+                    Box(Modifier.windowInsetsPadding(topInsets)) {
+                        MoreRoute(
+                            appVersion = appVersion,
+                            onFamily = { nav.navigate(GroupDest) },
+                            onLimits = { nav.navigate(LimitsDest) },
+                            onSync = { nav.navigate(SettingsDest) },
+                            onTransparency = { nav.navigate(TransparencyDest) },
+                            onAbout = { nav.navigate(AboutDest) },
+                            onSetup = { nav.navigate(ChildSetupDest) },
                         )
                     }
                 }
@@ -263,6 +256,11 @@ private fun MainScaffold(appVersion: String, openDevice: StateFlow<String?>, onD
                         onZones = { nav.navigate(ZonesDest) }, // spec §8.1: the child sees the zones
                     )
                 }
+                composable<LimitsDest> {
+                    LimitsNotificationsRoute(onChild = { nav.navigate(ThresholdsDest(it.hex)) }, onBack = { nav.popBackStack() })
+                }
+                composable<AboutDest> { AboutRoute(appVersion, onBack = { nav.popBackStack() }) }
+                composable<ChildSetupDest> { ChildSetupRoute(onDone = { nav.popBackStack() }) }
                 composable<DeviceDest> { e ->
                     val r = e.toRoute<DeviceDest>()
                     DeviceDetailRoute(
@@ -289,11 +287,26 @@ private fun MainScaffold(appVersion: String, openDevice: StateFlow<String?>, onD
                     InviteRoute(Role.valueOf(d.role), transfer = d.transfer, onClose = { nav.popBackStack() })
                 }
                 composable<TransparencyDest> { TransparencyRoute(onBack = { nav.popBackStack() }) }
-                composable<ConsentDest> { ConsentRoute(onDone = { nav.popBackStack() }) }
+                // UI refresh §6: a consent given later goes straight on to the setup steps still missing.
+                composable<ConsentDest> {
+                    ConsentRoute(
+                        onDone = { nav.popBackStack() },
+                        onAgreed = {
+                            nav.popBackStack()
+                            nav.navigate(ChildSetupDest)
+                        },
+                    )
+                }
                 composable<BatteryDest> { BatteryGuideRoute(onDone = { nav.popBackStack() }) }
             }
         }
     }
+}
+
+/** A screen of «Ещё»: its tab first, so Back from the screen lands on «Ещё». */
+private fun NavHostController.openFromMore(route: Any) {
+    selectTab(MoreDest)
+    navigate(route) { launchSingleTop = true }
 }
 
 /**
