@@ -10,6 +10,12 @@ interface MapNet {
 
     /** The block file at a catalog [url]; the caller closes it. */
     fun open(url: String): InputStream
+
+    /** Spec §7: OpenFreeMap's TileJSON as text. Takes over from [catalog] in the next step. */
+    fun tileJson(): String = throw IOException("no tile source")
+
+    /** Spec §7: the tile at [url] as sent; null when the server has none there (204). */
+    fun tile(url: String): Tile? = throw IOException("no tile source")
 }
 
 enum class SyncRun { DONE, RETRY }

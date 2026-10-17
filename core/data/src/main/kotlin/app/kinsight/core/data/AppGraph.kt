@@ -12,6 +12,7 @@ import app.kinsight.core.location.LocationGraph
 import app.kinsight.core.location.LocationPermissions
 import app.kinsight.core.maps.BlockStore
 import app.kinsight.core.maps.HttpMapNet
+import app.kinsight.core.maps.MapLinks
 import app.kinsight.core.maps.MapSync
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.transport.ble.AndroidPairingLink
@@ -191,8 +192,11 @@ class Graph internal constructor(app: Context) {
      * cells, CloudRunner.isOnAsParent); nothing is fetched while the family's cloud is off. The WorkManager flow is opened on first collection.
      */
     private val mapStore = BlockStore(java.io.File(app.filesDir, MapBlocks.DIR))
+
+    /** Spec §7: OpenFreeMap's terms want a User-Agent that names the app and its version. */
+    private val mapUserAgent = MapLinks.userAgent(app.packageManager.getPackageInfo(app.packageName, 0).versionName.orEmpty())
     val maps = MapBlocks(
-        MapSync(mapStore, HttpMapNet()),
+        MapSync(mapStore, HttpMapNet(mapUserAgent)),
         mapStore,
         location.children,
         cloudOn = { cloud.isOnAsParent() },

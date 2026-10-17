@@ -10,6 +10,14 @@ import kotlinx.serialization.json.longOrNull
 
 /** Offline map spec §2: GitHub Releases of the project are the map's only source. */
 object MapLinks {
+    /** Offline map spec §7: OpenFreeMap's tile host, the only one the map may reach. */
+    const val TILE_HOST = "tiles.openfreemap.org"
+    const val TILEJSON_URL = "https://$TILE_HOST/planet"
+    const val PROJECT_URL = "https://github.com/avkudryashov/kinsight"
+
+    /** Spec §7, OpenFreeMap terms of use: a User-Agent of its own that names the app and its version. */
+    fun userAgent(versionName: String): String = "Kinsight/$versionName (+$PROJECT_URL)"
+
     const val DOWNLOAD_PREFIX = "https://github.com/avkudryashov/kinsight/releases/download/"
 
     /** A release of its own that only ever holds catalog.json: the app releases are «Latest», so /latest/ is theirs. */
