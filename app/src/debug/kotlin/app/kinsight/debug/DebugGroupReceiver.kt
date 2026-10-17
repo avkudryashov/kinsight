@@ -44,7 +44,15 @@ import kotlin.time.Duration.Companion.seconds
  * (`--ez on true|false`, the in-memory Disk instead of Yandex), CLOUD_FAKE_ENABLE (an admin parent with the fake Disk
  * on turns the cloud on through the real path with a fake token, CloudDebugEnable). Location hooks: ZONE_ADD (an admin
  * parent adds a safe zone through LocationRepository; the answer is the save result only), LOCATION_STATUS (the child's
- * gate, tracker mode, outside service, next tick, zone counts, permission and open tamper problems; never a coordinate).
+ * gate, tracker mode, outside service, next tick, zone counts, permission and open tamper problems, then the debug
+ * switches below; never a coordinate).
+ *
+ * Device steps of the location service (task-6 report; switches of the debug build only, LocationSeams, off at every
+ * process start): LOCATION_REFUSE_FGS (`--es at start|service|none`: the next startForegroundService throws
+ * ForegroundServiceStartNotAllowedException, or the service's startForeground throws SecurityException and it stops
+ * itself by its start id; none is the real path) and LOCATION_SLOW_TICK (`--ei seconds N`, 0 to 600: every outside tick
+ * waits N seconds before its fix, so with N over 30 the broadcast is released before the tick re-arms the alarm; logcat
+ * KinsightLocation says "tick held" and "held tick done", the window to kill the process in).
  *
  * Emulator check of the child's location (the in-memory Disk is per process: the two emulators never share a storage,
  * no pack travels between them, and cross-emulator cloud sync is out of scope; the child gets the access over Bluetooth):
@@ -69,15 +77,18 @@ class DebugGroupReceiver : BroadcastReceiver() {
         val pending = goAsync()
         val app = context.applicationContext
         CoroutineScope(Dispatchers.IO).launch {
-            val (code, data) = try {
-                0 to withTimeout(25.seconds) { handle(app, intent) }
-            } catch (e: Exception) {
-                1 to "error: ${e::class.simpleName}: ${e.message}"
-            }
+            val (code, data) = answer(app, intent)
             Log.i(TAG, logLine(intent.action, code, data)) // the data can hold an invite token: never logged
             pending.setResult(code, data, null)
             pending.finish()
         }
+    }
+
+    /** The result code (0 done, 1 failed) and data of [intent]; a failure is the answer, never a crash of the receiver. */
+    internal suspend fun answer(c: Context, intent: Intent): Pair<Int, String> = try {
+        0 to withTimeout(25.seconds) { handle(c, intent) }
+    } catch (e: Exception) {
+        1 to "error: ${e::class.simpleName}: ${e.message}"
     }
 
     private suspend fun handle(c: Context, intent: Intent): String = when (intent.action) {
@@ -117,7 +128,14 @@ class DebugGroupReceiver : BroadcastReceiver() {
             val d = DebugLocation.draft(intent.getStringExtra("lat"), intent.getStringExtra("lon"), intent.getIntExtra("radius", 0), intent.getStringExtra("name"))
             "zone=" + AppGraph.get(c).location.save(d)
         }
-        "$PREFIX.LOCATION_STATUS" -> locationStatus(c)
+        "$PREFIX.LOCATION_STATUS" -> locationStatus(c) + " " + LocationDebug.seams()
+        "$PREFIX.LOCATION_REFUSE_FGS" -> when (val at = intent.getStringExtra("at") ?: "none") {
+            "start" -> LocationDebug.refuse(start = true, foreground = false)
+            "service" -> LocationDebug.refuse(start = false, foreground = true)
+            "none" -> LocationDebug.refuse(start = false, foreground = false)
+            else -> error("at must be start, service or none, not $at")
+        }
+        "$PREFIX.LOCATION_SLOW_TICK" -> LocationDebug.slowTick(intent.getIntExtra("seconds", 0) * 1_000L)
         else -> error("unknown action ${intent.action}")
     }
 
