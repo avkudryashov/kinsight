@@ -11,6 +11,8 @@ import app.kinsight.core.model.DeviceId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
@@ -20,6 +22,7 @@ import java.io.InputStream
 import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -134,12 +137,45 @@ class MapBlocksTest {
         """{"version":"2026-10","blocks":[{"x":${cell.x},"y":${cell.y},"bytes":${block.size},"sha256":"$sha","url":"$url"}]}"""
     }
 
+    /** Counted down each time a check reads the children (outside the lock). */
+    private val childrenRead = CountDownLatch(2)
+
+    private val family: Flow<List<ChildLocation>> = flow {
+        childrenRead.countDown()
+        emit(listOf(child(listOf(a, b), b)))
+    }
+
     private fun gated(holdCatalog: Boolean): Pair<MapBlocks, GateNet> {
         val gate = GateNet(catalog, block, holdCatalog)
-        return MapBlocks(
-            MapSync(store, gate) { now }, store, flowOf(listOf(child(listOf(a, b), b))),
-            cloudOn = { true }, downloading = flowOf(false),
-        ) to gate
+        return MapBlocks(MapSync(store, gate) { now }, store, family, cloudOn = { true }, downloading = flowOf(false)) to gate
+    }
+
+    /**
+     * Review Important 1: a check that read the children before a leave writes nothing after it. The check is held
+     * before the lock, the leave runs, the check goes on: no folder, no ledger, no download asked for.
+     */
+    @Test
+    fun aCheckCaughtByALeaveWritesNothing() = runBlocking {
+        val held = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val on = AtomicBoolean(true)
+        val maps = MapBlocks(
+            MapSync(store, net) { now }, store,
+            flow {
+                held.countDown()
+                check(release.await(10, TimeUnit.SECONDS))
+                emit(listOf(child(listOf(a, b), b)))
+            },
+            cloudOn = { on.get() }, downloading = flowOf(false),
+        )
+        val checking = async(Dispatchers.IO) { maps.check() }
+        assertTrue(held.await(10, TimeUnit.SECONDS))
+        on.set(false) // the group file is gone before MapBlocks.forget (AppGraph reset order)
+        maps.forget()
+        release.countDown()
+        assertFalse(checking.await(), "no download is asked for")
+        assertFalse(dir.exists(), "no ledger naming the children's cells")
+        assertEquals(0, net.calls)
     }
 
     /** A check that comes while a download runs waits for it: the ledger, the sweep and the eviction never overlap. */
@@ -150,6 +186,7 @@ class MapBlocksTest {
         val run = async(Dispatchers.IO) { maps.run() }
         assertTrue(gate.held.await(10, TimeUnit.SECONDS))
         val check = async(Dispatchers.IO) { maps.check() }
+        assertTrue(childrenRead.await(10, TimeUnit.SECONDS), "the second check is past the children, at the lock")
         delay(300)
         assertFalse(check.isCompleted, "the check waits for the download")
         gate.release.countDown()

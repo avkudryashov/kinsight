@@ -15,6 +15,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.await
 import app.kinsight.core.maps.SyncRun
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -46,7 +47,7 @@ object MapWork {
     /** [checkSoon] only when [wanted] (a parent's phone with the cloud on): a child's phone queues nothing. */
     suspend fun checkIfWanted(context: Context, wanted: suspend () -> Boolean): Boolean {
         if (!wanted()) return false
-        checkSoon(context).result.get()
+        checkSoon(context).await()
         return true
     }
 

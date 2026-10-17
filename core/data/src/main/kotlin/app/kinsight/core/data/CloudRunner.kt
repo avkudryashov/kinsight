@@ -115,17 +115,16 @@ class CloudRunner(
      * True while this device is an active member of a group with a storage owner: the worker is scheduled only then.
      * The same conditions as the run's OFF checks, so a removed device does not schedule runs that only cancel themselves.
      */
-    suspend fun isOn(): Boolean {
-        val group = withContext(io) { groups.read() } ?: return false
-        val membership = Membership.compute(group.groupId, RoomEntryStore(db, group.groupId).membershipEntries()) ?: return false
-        return membership.storageOwner != null && keys().deviceId in membership.active
-    }
+    suspend fun isOn(): Boolean = withStorageOwner { m, self -> self in m.active }
 
     /** [isOn], and this device is a parent: offline map spec §3, only a parent's phone keeps street map blocks. */
-    suspend fun isOnAsParent(): Boolean {
+    suspend fun isOnAsParent(): Boolean = withStorageOwner { m, self -> m.active[self]?.isChild == false }
+
+    /** [test] on the current group's membership and this device, false without a group or a storage owner. */
+    private suspend fun withStorageOwner(test: (MembershipState, DeviceId) -> Boolean): Boolean {
         val group = withContext(io) { groups.read() } ?: return false
         val membership = Membership.compute(group.groupId, RoomEntryStore(db, group.groupId).membershipEntries()) ?: return false
-        return membership.storageOwner != null && membership.active[keys().deviceId]?.isChild == false
+        return membership.storageOwner != null && test(membership, keys().deviceId)
     }
 
     /**

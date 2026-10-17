@@ -44,17 +44,24 @@ class MapBlocks(
     /** The Карта tab's view of the blocks: again after every check, run or forget, and when a download starts or ends. */
     val streets: Flow<StreetMaps> = combine(changed, downloading) { _, d -> d }.map { sync.streets(it) }.flowOn(Dispatchers.IO)
 
-    /** True when a network run is needed (MapWork.syncSoon). Eviction runs whether or not the cloud is on. */
+    /**
+     * True when a network run is needed (MapWork.syncSoon). Eviction runs whether or not the cloud is on. The children
+     * are read outside the lock (up to [READ_MS]); under it the check asks again: a leave since the start (the epoch
+     * moved) writes nothing and asks for nothing, and a cloud gone off marks nothing.
+     */
     suspend fun check(): Boolean = withContext(Dispatchers.IO) {
-        val on = cloudOn()
-        val kids = if (on) withTimeoutOrNull(READ_MS) { children.first() }.orEmpty() else emptyList()
-        val (points, last) = points(kids)
+        val start = epoch.get()
+        val kids = if (cloudOn()) withTimeoutOrNull(READ_MS) { children.first() }.orEmpty() else emptyList()
         val needed = lock.withLock {
+            if (epoch.get() != start) return@withLock false
+            val on = cloudOn()
             // Nothing to evict and nothing to mark: no ledger is written (after a leave the folder stays gone).
-            if (!on && !store.dir.exists()) false else sync.check(points, last)
+            if (!on && !store.dir.exists()) return@withLock false
+            val (points, last) = points(if (on) kids else emptyList())
+            sync.check(points, last) && on
         }
         changed.update { it + 1 }
-        on && needed
+        needed
     }
 
     /** Asks [cloudOn] again before every request: the cloud may go off, or the phone leave, while blocks download. */
