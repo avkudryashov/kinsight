@@ -28,6 +28,8 @@ object ReleaseManifestRules {
         "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
         "android.permission.SCHEDULE_EXACT_ALARM",
         "android.permission.USE_EXACT_ALARM",
+        // Offline map spec: MapLibre's AAR asks for it; the app manifest removes it (no new permissions).
+        "android.permission.ACCESS_WIFI_STATE",
     )
 
     private val FORBIDDEN_PREFIXES = listOf(

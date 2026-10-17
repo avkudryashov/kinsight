@@ -151,6 +151,9 @@
     <string name="loc_no_events">Hoy no hubo eventos de zonas</string>
     <string name="loc_zones">Zonas seguras: %1$d</string>
     <string name="loc_map_description">Mapa de las zonas seguras y la ruta de hoy</string>
+    <string name="loc_preview_description">Mapa de calles con el lugar del menor, la ruta de hoy y las zonas. Tócalo para abrirlo en una aplicación de mapas</string>
+    <string name="map_streets_loading">El mapa de calles se está descargando</string>
+    <string name="map_streets_wifi">El mapa de calles se descargará por wifi</string>
     <string name="loc_open_map">Abrir en Mapas</string>
     <string name="loc_open_yandex">Yandex Maps</string>
     <string name="loc_open_google">Google Maps</string>

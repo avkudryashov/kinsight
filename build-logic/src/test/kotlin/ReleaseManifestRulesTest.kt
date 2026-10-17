@@ -67,10 +67,11 @@ class ReleaseManifestRulesTest {
                     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
                     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
                     <uses-permission-sdk-23 android:name="android.permission.USE_EXACT_ALARM" />
+                    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
                 """,
             ),
         )
-        assertEquals(5, v.size, v.toString())
+        assertEquals(6, v.size, v.toString())
     }
 
     /** Spec §12: location for the safe zones; the service of type location ships. */

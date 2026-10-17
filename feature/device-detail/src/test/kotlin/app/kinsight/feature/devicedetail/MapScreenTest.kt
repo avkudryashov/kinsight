@@ -6,10 +6,13 @@ import android.content.pm.ActivityInfo
 import android.content.pm.ResolveInfo
 import android.net.Uri
 import android.text.format.DateUtils
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasClickAction
@@ -35,10 +38,15 @@ import app.kinsight.core.data.Role
 import app.kinsight.core.data.Sharing
 import app.kinsight.core.data.ZoneView
 import app.kinsight.core.designsystem.theme.KinsightTheme
+import app.kinsight.core.maps.Bounds
+import app.kinsight.core.maps.Cell
+import app.kinsight.core.maps.StreetMaps
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.proto.StateEvent
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -250,6 +258,8 @@ class MapScreenTest {
     @Test
     fun withoutAMapsAppTheActionIsHidden() {
         show(ChildLocation(kid, PlaceStatus.Outside(p2, p2.timeMs), p2, listOf(p2), emptyList(), emptyList(), Sharing.On))
+        // The street map caption under the plain map pushes the line below the test screen's fold.
+        rule.onNodeWithTag("loc_list").performScrollToNode(hasTestTag("loc_last"))
         rule.onNodeWithTag("loc_last").assertExists()
         rule.onNodeWithTag("loc_open_map").assertDoesNotExist()
         assertNull(shadowOf(app).nextStartedActivity)
@@ -320,4 +330,73 @@ class MapScreenTest {
     @Test
     fun theYandexLinkPutsLongitudeFirst() =
         assertEquals("yandexmaps://maps.yandex.ru/?pt=-3.7038001,40.4168123&z=17&l=map", ExternalMaps.yandexUri(404_168_123, -37_038_001))
+
+    private val madrid = Cell(501, 386)
+    private val block = "/data/user/0/app.kinsight/files/maps/z10-501-386.pmtiles"
+    private var drawn: Pair<String, Bounds>? = null
+    private val fakeMap: StreetMapSlot = { style, frame, modifier ->
+        drawn = style to frame
+        Box(modifier.testTag("fake_maplibre"))
+    }
+
+    private fun showStreets(streets: StreetMaps, cloudOn: Boolean = true) = rule.setContent {
+        KinsightTheme { MapScreen(MapState(listOf(outside), cloudOn, loaded = true, streets = streets), now, onZones = {}, streetMap = fakeMap) }
+    }
+
+    /** Offline map spec §4: with the block on the phone, the street preview with the OSM attribution, no plain map. */
+    @Test
+    fun withTheBlockTheStreetPreviewShows() {
+        showStreets(StreetMaps(mapOf(madrid to block), setOf(madrid), emptySet(), downloading = false))
+        rule.onNodeWithTag("fake_maplibre").assertExists()
+        rule.onNodeWithTag("loc_map").assertDoesNotExist()
+        rule.onNodeWithTag("loc_osm").assertTextEquals("© OpenStreetMap contributors")
+        val (style, frame) = drawn!!
+        assertTrue("pmtiles://file://$block" in style)
+        assertFalse("http" in style)
+        assertTrue(frame.south < 40.412 && 40.412 < frame.north && frame.west < -3.708 && -3.708 < frame.east)
+    }
+
+    @Test
+    fun tappingThePreviewOpensYandexFirst() {
+        install(ExternalMaps.yandex(p2.latE7, p2.lonE7), ExternalMaps.YANDEX)
+        install(ExternalMaps.google(p2.latE7, p2.lonE7), ExternalMaps.GOOGLE)
+        showStreets(StreetMaps(mapOf(madrid to block), setOf(madrid), emptySet(), downloading = false))
+        rule.onNodeWithTag("loc_preview_tap").performClick()
+        assertEquals(ExternalMaps.YANDEX, shadowOf(app).nextStartedActivity.`package`)
+    }
+
+    @Test
+    fun withoutTheBlockThePlainMapSaysItIsLoading() {
+        showStreets(StreetMaps(emptyMap(), null, emptySet(), downloading = true))
+        rule.onNodeWithTag("loc_map").assertExists()
+        rule.onNodeWithTag("fake_maplibre").assertDoesNotExist()
+        rule.onNodeWithTag("loc_streets_status").assertTextEquals("Street map is loading")
+    }
+
+    @Test
+    fun waitingForWifiSaysSo() {
+        showStreets(StreetMaps(emptyMap(), setOf(madrid), emptySet(), downloading = false))
+        rule.onNodeWithTag("loc_streets_status").assertTextEquals("The street map will download over Wi-Fi")
+    }
+
+    @Test
+    fun aPlaceTheCatalogLacksShowsThePlainMapOnly() {
+        showStreets(StreetMaps(emptyMap(), setOf(Cell(510, 389)), emptySet(), downloading = false))
+        rule.onNodeWithTag("loc_map").assertExists()
+        rule.onNodeWithTag("loc_streets_status").assertDoesNotExist()
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun russianStreetCaptions() {
+        showStreets(StreetMaps(emptyMap(), null, emptySet(), downloading = true))
+        rule.onNodeWithTag("loc_streets_status").assertTextEquals("Карта улиц загружается")
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun russianWifiCaption() {
+        showStreets(StreetMaps(emptyMap(), null, emptySet(), downloading = false))
+        rule.onNodeWithTag("loc_streets_status").assertTextEquals("Карта улиц будет загружена по Wi-Fi")
+    }
 }

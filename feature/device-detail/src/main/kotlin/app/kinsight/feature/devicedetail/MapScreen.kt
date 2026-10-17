@@ -6,9 +6,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -35,7 +35,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
@@ -70,7 +69,7 @@ import java.util.Locale
 @Composable
 fun MapRoute(onZones: () -> Unit) {
     val graph = AppGraph.get(LocalContext.current)
-    val vm: MapViewModel = viewModel { MapViewModel(graph.location, graph.cloudRepository, graph.usage, graph.service) }
+    val vm: MapViewModel = viewModel { MapViewModel(graph.location, graph.cloudRepository, graph.usage, graph.service, graph.maps) }
     MapRoute(vm, onZones)
 }
 
@@ -96,12 +95,21 @@ internal fun MapRoute(vm: MapViewModel, onZones: () -> Unit) {
 
 /**
  * UI refresh §5 (variant A): a big status line per child («В зоне «Дом» с 14:10», «Вне зон · 350 м от «Школа»»,
- * «Последняя точка 2 ч назад», «Местоположения пока нет» with the reason), then the selected child's family map (zones,
- * today's route, the last point; no tiles), «Открыть в Картах» (a geo: link, only on the parent's tap), today's zone
- * events and «Зоны». [selectedId]: a child's id hex; null or unknown selects the first child.
+ * «Последняя точка 2 ч назад», «Местоположения пока нет» with the reason), then the selected child's street preview
+ * (offline map spec §4) or, without its block, the family map (zones, today's route, the last point; no tiles), the maps
+ * apps' buttons (spec §5: «Яндекс Карты» and «Google Карты» when installed, else «Открыть в Картах» through geo:; the
+ * point leaves the phone only on the parent's tap), today's zone events and «Зоны». [selectedId]: a child's id hex; null
+ * or unknown selects the first child. [streetMap] draws the preview (MapLibre; a stand-in in the JVM tests).
  */
 @Composable
-fun MapScreen(state: MapState, nowMs: Long, selectedId: String? = null, onSelect: (String) -> Unit = {}, onZones: () -> Unit) {
+fun MapScreen(
+    state: MapState,
+    nowMs: Long,
+    selectedId: String? = null,
+    onSelect: (String) -> Unit = {},
+    onZones: () -> Unit,
+    streetMap: StreetMapSlot = MapLibreSlot,
+) {
     val context = LocalContext.current
     val child = state.children.firstOrNull { it.member.id.hex == selectedId } ?: state.children.firstOrNull()
     fun time(ms: Long) = DateUtils.formatDateTime(context, ms, timeFlags(ms, nowMs))
@@ -127,7 +135,7 @@ fun MapScreen(state: MapState, nowMs: Long, selectedId: String? = null, onSelect
             }
         }
         item(key = "map") {
-            FamilyMap(child.zones, child.route, child.last, childMark(child, state.children), Modifier.fillMaxWidth().aspectRatio(4f / 3f).clip(MaterialTheme.shapes.large).testTag("loc_map"))
+            ChildMap(child, childMark(child, state.children), StreetPreview.of(child.last, state.streets, state.cloudOn), apps, streetMap)
         }
         child.last?.let { p ->
             item(key = "last") {
@@ -171,7 +179,8 @@ private fun Searching() = Row(
 @Composable
 private fun MapAppButtons(apps: MapApps) {
     val context = LocalContext.current
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    // A FlowRow: at a large font scale the two buttons wrap instead of squeezing.
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         apps.yandex?.let { Button({ openMaps(context, it) }, Modifier.testTag("loc_open_yandex")) { Text(stringResource(R.string.loc_open_yandex)) } }
         apps.google?.let { Button({ openMaps(context, it) }, Modifier.testTag("loc_open_google")) { Text(stringResource(R.string.loc_open_google)) } }
         if (apps.yandex == null && apps.google == null) {

@@ -3,6 +3,8 @@ package app.kinsight.feature.devicedetail
 import app.kinsight.core.data.ChildLocation
 import app.kinsight.core.data.MemberView
 import app.kinsight.core.data.Role
+import app.kinsight.core.maps.Cell
+import app.kinsight.core.maps.StreetMaps
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.transport.ble.SyncService
 import kotlinx.coroutines.Dispatchers
@@ -48,6 +50,8 @@ class MapViewModelTest {
         override fun syncNow() {
             syncs++
         }
+        val streetsFlow = MutableStateFlow(StreetMaps.NONE)
+        override fun streets(): Flow<StreetMaps> = streetsFlow
     }
 
     @Test
@@ -106,6 +110,17 @@ class MapViewModelTest {
         assertFalse(vm.state.value.canEditZones)
         source.admin.value = true
         assertTrue(vm.state.value.canEditZones)
+        job.cancel()
+    }
+
+    @Test
+    fun theStreetMapReachesTheState() = runTest(dispatcher) {
+        val source = FakeSource()
+        val vm = MapViewModel(source)
+        val job = launch { vm.state.collect {} }
+        val s = StreetMaps(mapOf(Cell(510, 389) to "/maps/z10-510-389.pmtiles"), null, emptySet(), downloading = false)
+        source.streetsFlow.value = s
+        assertEquals(s, vm.state.value.streets)
         job.cancel()
     }
 }

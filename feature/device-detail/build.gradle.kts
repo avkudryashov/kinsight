@@ -12,6 +12,8 @@ android {
 
 dependencies {
     implementation(project(":core:maps"))
+    // Offline map spec §1: MapLibre Native (BSD-2-Clause) draws the street preview from local PMTiles blocks.
+    implementation(libs.maplibre.android)
     // StyleAssetsTest reads the bundled style JSON.
     testImplementation(libs.serialization.json)
 }

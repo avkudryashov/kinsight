@@ -5,8 +5,10 @@ import androidx.lifecycle.viewModelScope
 import app.kinsight.core.data.ChildLocation
 import app.kinsight.core.data.CloudRepository
 import app.kinsight.core.data.LocationRepository
+import app.kinsight.core.data.MapBlocks
 import app.kinsight.core.data.ServiceRepository
 import app.kinsight.core.data.UsageRepository
+import app.kinsight.core.maps.StreetMaps
 import app.kinsight.core.transport.ble.SyncService
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -35,6 +37,9 @@ internal interface MapSource {
 
     /** The Overview pull's «Sync now» (ServiceRepository.syncNow): no other network path. */
     fun syncNow() {}
+
+    /** Offline map spec §4: the street map blocks on this phone and whether one is downloading. */
+    fun streets(): Flow<StreetMaps> = flowOf(StreetMaps.NONE)
 }
 
 private class RepositoryMapSource(
@@ -42,6 +47,7 @@ private class RepositoryMapSource(
     private val cloud: CloudRepository,
     private val usage: UsageRepository,
     private val service: ServiceRepository,
+    private val maps: MapBlocks,
 ) : MapSource {
     override fun children() = location.children
 
@@ -56,6 +62,8 @@ private class RepositoryMapSource(
     override fun syncNow() {
         service.syncNow()
     }
+
+    override fun streets() = maps.streets
 }
 
 /**
@@ -68,11 +76,13 @@ data class MapState(
     val loaded: Boolean = false,
     val canEditZones: Boolean = false,
     val searching: Boolean = false,
+    /** Offline map spec §4: which street map blocks are on the phone. */
+    val streets: StreetMaps = StreetMaps.NONE,
 )
 
 class MapViewModel internal constructor(private val source: MapSource, private val clock: () -> Long = System::currentTimeMillis) : ViewModel() {
-    constructor(location: LocationRepository, cloud: CloudRepository, usage: UsageRepository, service: ServiceRepository) :
-        this(RepositoryMapSource(location, cloud, usage, service))
+    constructor(location: LocationRepository, cloud: CloudRepository, usage: UsageRepository, service: ServiceRepository, maps: MapBlocks) :
+        this(RepositoryMapSource(location, cloud, usage, service, maps))
 
     /** When the tab's opening asked for a sync; null once the fast window is over. */
     private val searchSince = MutableStateFlow<Long?>(null)
@@ -83,7 +93,7 @@ class MapViewModel internal constructor(private val source: MapSource, private v
         MapState(c, on, loaded = ready, canEditZones = admin)
     }
 
-    val state: StateFlow<MapState> = combine(base, search) { s, searching -> s.copy(searching = searching) }
+    val state: StateFlow<MapState> = combine(base, search, source.streets()) { s, searching, streets -> s.copy(searching = searching, streets = streets) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MapState())
 
     /**

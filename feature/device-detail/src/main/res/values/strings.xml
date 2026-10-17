@@ -149,6 +149,10 @@
     <string name="loc_no_events">No zone events today</string>
     <string name="loc_zones">Safe zones: %1$d</string>
     <string name="loc_map_description">Map of the safe zones and today\'s route</string>
+    <string name="loc_preview_description">Street map with the child\'s place, today\'s route and the zones. Tap to open it in a maps app</string>
+    <string name="map_streets_loading">Street map is loading</string>
+    <string name="map_streets_wifi">The street map will download over Wi-Fi</string>
+    <string name="map_osm_attribution" translatable="false">© OpenStreetMap contributors</string>
     <string name="loc_open_map">Open in Maps</string>
     <string name="loc_open_yandex">Yandex Maps</string>
     <string name="loc_open_google">Google Maps</string>

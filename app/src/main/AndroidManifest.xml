@@ -5,6 +5,11 @@
     <!-- Spec §2: the cloud is an option of this app, off by default; it reaches only the user's own Yandex Disk. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Offline map spec «Границы»: no new permissions. MapLibre's library manifest asks for this one; the app does
+         not need it (the map reads local files only). -->
+    <uses-permission
+        android:name="android.permission.ACCESS_WIFI_STATE"
+        tools:node="remove" />
 
     <!-- Do NOT declare android:process on any component: select() takes an in-process lock plus a cross-process
          file lock, but the key stores (Keystore and the software file) are designed and tested for a single
