@@ -66,11 +66,27 @@ class MapStatusTest {
     }
 
     @Test
-    fun anExitWithoutAFixUsesTheLastPointAndNoZonesSayOnlyOutside() {
+    fun anExitWithoutAFixUsesTheLastPoint() {
         val p = GeoPoint(404_218_000, -37_038_000, 10, now - 20 * min)
         assertEquals(MapStatus.Outside("Home", 410), MapStatus.of(loc(PlaceStatus.Outside(null, now - 2 * min), p), true, now))
+    }
+
+    /** Task 12: without any zone «Вне зон» says nothing; the status says the zones are not set, with the point's age. */
+    @Test
+    fun withoutAnyZoneTheZonesAreNotSet() {
+        val p = GeoPoint(404_218_000, -37_038_000, 10, now - 3 * min)
         val noZones = ChildLocation(kid, PlaceStatus.Outside(p, p.timeMs), p, listOf(p), emptyList(), emptyList(), Sharing.On)
-        assertEquals(MapStatus.Outside(null, null), MapStatus.of(noZones, true, now))
+        assertEquals(MapStatus.NoZones(p.timeMs), MapStatus.of(noZones, true, now))
+        val exit = ChildLocation(kid, PlaceStatus.Outside(null, now - 2 * min), p, listOf(p), emptyList(), emptyList(), Sharing.On)
+        assertEquals(MapStatus.NoZones(now - 2 * min), MapStatus.of(exit, true, now))
+    }
+
+    @Test
+    fun anOldWordWithoutZonesIsStillTheLastPointAgo() {
+        val at = now - LocationReadModel.PLACE_STALE_MS - min
+        val p = GeoPoint(404_218_000, -37_038_000, 10, at)
+        val noZones = ChildLocation(kid, PlaceStatus.Outside(p, at), p, listOf(p), emptyList(), emptyList(), Sharing.On)
+        assertEquals(MapStatus.Stale(at), MapStatus.of(noZones, true, now))
     }
 
     @Test

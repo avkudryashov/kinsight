@@ -4,6 +4,19 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.text.format.DateUtils
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
+import app.kinsight.core.designsystem.theme.ChildColorKey
+import app.kinsight.core.designsystem.theme.OnChildCard
+import app.kinsight.core.designsystem.theme.childColor
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -60,7 +73,14 @@ import java.util.Locale
 @Composable
 fun MapRoute(onZones: () -> Unit) {
     val graph = AppGraph.get(LocalContext.current)
-    val vm: MapViewModel = viewModel { MapViewModel(graph.location, graph.cloudRepository, graph.usage) }
+    val vm: MapViewModel = viewModel { MapViewModel(graph.location, graph.cloudRepository, graph.usage, graph.service) }
+    MapRoute(vm, onZones)
+}
+
+@Composable
+internal fun MapRoute(vm: MapViewModel, onZones: () -> Unit) {
+    // Task 12: opening the tab asks for the Overview pull's sync, once per opening (MapViewModel.onOpen).
+    LaunchedEffect(vm) { vm.onOpen() }
     val state by vm.state.collectAsStateWithLifecycle()
     // «2 ч назад» ticks only while the tab is in front; a return refreshes «now» at once.
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -102,20 +122,23 @@ fun MapScreen(state: MapState, nowMs: Long, selectedId: String? = null, onSelect
         item(key = "title") {
             Text(stringResource(R.string.map_title), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
         }
+        if (state.searching) item(key = "searching") { Searching() }
         if (child == null) {
             item(key = "empty") { EmptyState(stringResource(R.string.map_no_children_title), stringResource(R.string.map_no_children_body), icon = Icons.Filled.LocationOn) }
             return@LazyColumn
         }
         items(state.children, key = { "status:${it.member.id.hex}" }) { c ->
-            StatusCard(c, MapStatus.of(c, state.cloudOn, nowMs), nowMs, selected = c.member.id == child.member.id) { onSelect(c.member.id.hex) }
+            StatusCard(c, MapStatus.of(c, state.cloudOn, nowMs), nowMs, selected = c.member.id == child.member.id, canEditZones = state.canEditZones, onZones = onZones) {
+                onSelect(c.member.id.hex)
+            }
         }
         item(key = "map") {
-            FamilyMap(child.zones, child.route, child.last, Modifier.fillMaxWidth().aspectRatio(4f / 3f).clip(MaterialTheme.shapes.large).testTag("loc_map"))
+            FamilyMap(child.zones, child.route, child.last, childMark(child), Modifier.fillMaxWidth().aspectRatio(4f / 3f).clip(MaterialTheme.shapes.large).testTag("loc_map"))
         }
         child.last?.let { p ->
             item(key = "last") {
                 Text(
-                    stringResource(R.string.loc_last_point, time(p.timeMs), p.accuracyM, Coordinates.format(p.latE7, p.lonE7)),
+                    stringResource(R.string.loc_last_point, time(p.timeMs), p.accuracyM),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.testTag("loc_last"),
@@ -152,41 +175,94 @@ fun MapScreen(state: MapState, nowMs: Long, selectedId: String? = null, onSelect
     }
 }
 
-/** One child's status line; tapping it shows that child's map. */
+/** U6 on the Карта tab: the opening's sync is still under way. */
 @Composable
-private fun StatusCard(c: ChildLocation, status: MapStatus, nowMs: Long, selected: Boolean, onClick: () -> Unit) {
+private fun Searching() = Row(
+    Modifier.fillMaxWidth().testTag("loc_searching").semantics { liveRegion = LiveRegionMode.Polite },
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(12.dp),
+) {
+    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+    Text(stringResource(R.string.map_searching), style = MaterialTheme.typography.bodyMedium)
+}
+
+/** The child's own colour (Task 12), the same as its Overview card; a lighter tone of it on the dark theme's map. */
+@Composable
+private fun childMark(c: ChildLocation): Color {
+    val color = childColor(c.member.id.hex)
+    return if (MaterialTheme.colorScheme.surface.luminance() < 0.5f) color.onDark else color.base
+}
+
+/** One child's status line; tapping it shows that child's map. Without any zone, a hint to add «Дом». */
+@Composable
+private fun StatusCard(
+    c: ChildLocation,
+    status: MapStatus,
+    nowMs: Long,
+    selected: Boolean,
+    canEditZones: Boolean,
+    onZones: () -> Unit,
+    onClick: () -> Unit,
+) {
+    val color = childColor(c.member.id.hex)
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth().semantics { this.selected = selected }.testTag("loc_card_${c.member.id.hex}"),
-        border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+        border = if (selected) BorderStroke(2.dp, childMark(c)) else null,
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Avatar(c.member.name, container = MaterialTheme.colorScheme.primaryContainer, content = MaterialTheme.colorScheme.onPrimaryContainer)
+            // White on every palette colour keeps 4.5:1 (ChildColorsTest), in both themes.
+            Box(Modifier.semantics { set(ChildColorKey, color) }.testTag("loc_avatar_${c.member.id.hex}")) {
+                Avatar(c.member.name, container = color.base, content = OnChildCard)
+            }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(c.member.name, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(statusText(status, nowMs), style = MaterialTheme.typography.titleLarge, modifier = Modifier.testTag("loc_status"))
+                Text(statusText(status, c, nowMs), style = MaterialTheme.typography.titleLarge, modifier = Modifier.testTag("loc_status"))
                 reasonText(status, c)?.let {
                     Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("loc_reason"))
                 }
+                if (status is MapStatus.NoZones) ZoneHint(canEditZones, onZones)
             }
         }
     }
 }
 
+/** «Добавьте зону «Дом»»: an admin taps it to the zones screen; another parent cannot add one, so it is plain text. */
 @Composable
-private fun statusText(s: MapStatus, nowMs: Long): String {
+private fun ZoneHint(canEditZones: Boolean, onZones: () -> Unit) {
+    val text = stringResource(R.string.map_add_home_zone)
+    if (canEditZones) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.clickable(role = Role.Button, onClick = onZones).minimumInteractiveComponentSize().testTag("loc_zone_hint"),
+        )
+    } else {
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("loc_zone_hint"))
+    }
+}
+
+/** Task 12: every status with a point says how old it is; «с 14:10» and «Последняя точка N назад» already do. */
+@Composable
+private fun statusText(s: MapStatus, c: ChildLocation, nowMs: Long): String {
     val context = LocalContext.current
+    @Composable
+    fun aged(text: String): String = c.status?.let { stringResource(R.string.map_with_age, text, relativeTime(it.atMs, nowMs)) } ?: text
     return when (s) {
         is MapStatus.InZone -> when {
-            s.zoneName == null -> stringResource(R.string.map_in_unknown_zone)
+            s.zoneName == null -> aged(stringResource(R.string.map_in_unknown_zone))
             s.sinceMs != null -> stringResource(R.string.map_in_zone_since, s.zoneName, DateUtils.formatDateTime(context, s.sinceMs, DateUtils.FORMAT_SHOW_TIME))
-            else -> stringResource(R.string.map_in_zone, s.zoneName)
+            else -> aged(stringResource(R.string.map_in_zone, s.zoneName))
         }
-        is MapStatus.Outside -> when {
-            s.nearestZone == null || s.distanceM == null -> stringResource(R.string.map_outside)
-            s.distanceM == 0 -> stringResource(R.string.map_outside_edge, s.nearestZone)
-            else -> stringResource(R.string.map_outside_near, distanceText(s.distanceM), s.nearestZone)
-        }
+        is MapStatus.Outside -> aged(
+            when {
+                s.nearestZone == null || s.distanceM == null -> stringResource(R.string.map_outside)
+                s.distanceM == 0 -> stringResource(R.string.map_outside_edge, s.nearestZone)
+                else -> stringResource(R.string.map_outside_near, distanceText(s.distanceM), s.nearestZone)
+            },
+        )
+        is MapStatus.NoZones -> stringResource(R.string.map_with_age, stringResource(R.string.map_no_zones), relativeTime(s.atMs, nowMs))
         is MapStatus.Stale -> stringResource(R.string.map_stale, relativeTime(s.atMs, nowMs))
         is MapStatus.NoPlace -> stringResource(R.string.map_none_title)
     }

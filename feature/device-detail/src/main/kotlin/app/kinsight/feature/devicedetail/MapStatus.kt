@@ -27,6 +27,9 @@ sealed interface MapStatus {
 
     data class NoPlace(val reason: NoPlaceReason) : MapStatus
 
+    /** Task 12: the group has no zone at all, so «Вне зон» would say nothing; [atMs] the newest word's time. */
+    data class NoZones(val atMs: Long) : MapStatus
+
     companion object {
         /** [cloudOn]: the family's sync through the Disk is on; locations travel only through it. */
         fun of(c: ChildLocation, cloudOn: Boolean, nowMs: Long): MapStatus {
@@ -38,7 +41,7 @@ sealed interface MapStatus {
                     val newest = c.zoneEvents.firstOrNull { it.zoneId == s.zoneId }
                     InZone(s.zoneName, newest?.takeIf { it.kind == StateEvent.Kind.ZONE_ENTER }?.atMs)
                 }
-                is PlaceStatus.Outside -> nearest(s.point ?: c.last, c.zones)
+                is PlaceStatus.Outside -> if (c.zones.isEmpty()) NoZones(s.atMs) else nearest(s.point ?: c.last, c.zones)
             }
         }
 

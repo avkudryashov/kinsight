@@ -9,6 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -27,10 +28,11 @@ import app.kinsight.core.location.Geo
 
 /**
  * The family map (spec §12) without tiles or a map library (spec §15: online only for the user's Disk; no Play
- * services): zone circles with names, today's route, the last point with its accuracy, a scale bar; north up.
+ * services): zone circles with names, today's route, the last point with its accuracy, a scale bar; north up. The route
+ * and the last point are in the child's [mark] colour (Task 12), the zones in the accent.
  */
 @Composable
-internal fun FamilyMap(zones: List<ZoneView>, route: List<GeoPoint>, last: GeoPoint?, modifier: Modifier = Modifier) {
+internal fun FamilyMap(zones: List<ZoneView>, route: List<GeoPoint>, last: GeoPoint?, mark: Color, modifier: Modifier = Modifier) {
     val description = stringResource(R.string.loc_map_description)
     BoxWithConstraints(modifier.semantics { contentDescription = description }) {
         val density = LocalDensity.current
@@ -75,13 +77,13 @@ internal fun FamilyMap(zones: List<ZoneView>, route: List<GeoPoint>, last: GeoPo
                     val o = at(pt.latE7, pt.lonE7)
                     if (i == 0) path.moveTo(o.x, o.y) else path.lineTo(o.x, o.y)
                 }
-                drawPath(path, colors.primary, style = Stroke(4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+                drawPath(path, mark, style = Stroke(4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
             }
             last?.let { pt ->
                 val o = at(pt.latE7, pt.lonE7)
-                drawCircle(colors.primary.copy(alpha = 0.15f), p.px(pt.accuracyM.toDouble()), o)
+                drawCircle(mark.copy(alpha = 0.15f), p.px(pt.accuracyM.toDouble()), o)
                 drawCircle(colors.surfaceContainerHighest, 9.dp.toPx(), o)
-                drawCircle(colors.primary, 6.dp.toPx(), o)
+                drawCircle(mark, 6.dp.toPx(), o)
             }
             if (scale != null && scaleLabel != null) {
                 val x0 = 12.dp.toPx()

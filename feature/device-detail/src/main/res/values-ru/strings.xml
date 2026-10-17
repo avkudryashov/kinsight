@@ -148,7 +148,7 @@
     <string name="zone_cancel">Отмена</string>
     <string name="zone_failed">Не удалось сохранить зону. Попробуйте ещё раз.</string>
     <string name="zone_delete_failed">Не удалось удалить зону. Попробуйте ещё раз.</string>
-    <string name="loc_last_point">Последняя точка: %1$s, точность %2$d м (%3$s)</string>
+    <string name="loc_last_point">Последняя точка: %1$s, точность %2$d м</string>
     <string name="loc_events">События зон за сегодня</string>
     <string name="loc_no_events">Сегодня событий зон не было</string>
     <string name="loc_zones">Безопасные зоны: %1$d</string>
@@ -185,6 +185,10 @@
     <string name="map_distance_km">%1$s км</string>
     <string name="map_stale">Последняя точка %1$s</string>
     <string name="map_none_title">Местоположения пока нет</string>
+    <string name="map_no_zones">Зоны не заданы</string>
+    <string name="map_add_home_zone">Добавьте зону «Дом»</string>
+    <string name="map_searching">Обновляем местоположение…</string>
+    <string name="map_with_age">%1$s · %2$s</string>
     <string name="map_reason_cloud_off">Синхронизация через Яндекс Диск выключена, а местоположение передаётся только через неё.</string>
     <string name="map_reason_not_sharing">Телефон ребёнка сейчас не делится данными.</string>
     <string name="map_reason_permission">На телефоне ребёнка выключен доступ к геолокации.</string>

@@ -6,7 +6,16 @@ import android.content.pm.ActivityInfo
 import android.content.pm.ResolveInfo
 import android.net.Uri
 import android.text.format.DateUtils
+import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.hasClickAction
+import app.kinsight.core.designsystem.theme.ChildColorKey
+import app.kinsight.core.designsystem.theme.childColor
+import kotlinx.coroutines.flow.flowOf
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -53,16 +62,21 @@ class MapScreenTest {
     private val app get() = ApplicationProvider.getApplicationContext<Application>()
     private val status get() = rule.onNodeWithTag("loc_status", useUnmergedTree = true)
 
-    private fun show(vararg c: ChildLocation, cloudOn: Boolean = true) = rule.setContent {
-        KinsightTheme { MapScreen(MapState(c.toList(), cloudOn, loaded = true), now, onZones = { zonesOpened++ }) }
+    private fun show(vararg c: ChildLocation, cloudOn: Boolean = true, canEditZones: Boolean = false, searching: Boolean = false) = rule.setContent {
+        KinsightTheme { MapScreen(MapState(c.toList(), cloudOn, loaded = true, canEditZones = canEditZones, searching = searching), now, onZones = { zonesOpened++ }) }
     }
+
+    private fun ago(ms: Long) = DateUtils.getRelativeTimeSpanString(ms, now, DateUtils.MINUTE_IN_MILLIS).toString()
 
     @Test
     fun outsideNamesTheNearestZoneAndShowsTheRouteAndTheExit() {
         show(ChildLocation(kid, PlaceStatus.Outside(p2, p2.timeMs), p2, listOf(p1, p2), listOf(home), listOf(exit), Sharing.On))
         status.assertTextContains("Outside the zones ·", substring = true)
-        status.assertTextContains("from “Home”", substring = true)
-        rule.onNodeWithTag("loc_last").assertTextContains("40.41200, -3.70800", substring = true)
+        status.assertTextContains("from “Home” · " + ago(p2.timeMs), substring = true)
+        // Task 12: the last point line keeps its time and accuracy, never the raw coordinates.
+        rule.onNodeWithTag("loc_last").assertTextContains("accuracy 15 m", substring = true)
+        rule.onNodeWithText("40.41200", substring = true).assertDoesNotExist()
+        rule.onNodeWithText("-3.70800", substring = true).assertDoesNotExist()
         rule.onNodeWithContentDescription("Map of the safe zones and today's route").assertExists()
         rule.onNodeWithTag("loc_list").performScrollToNode(hasTestTag("loc_event_7"))
         rule.onNodeWithText("Left the zone “Home”").assertExists()
@@ -95,8 +109,84 @@ class MapScreenTest {
     @Test
     @Config(qualifiers = "ru")
     fun russianStatus() {
+        show(ChildLocation(kid, PlaceStatus.Outside(p2, p2.timeMs), p2, listOf(p2), listOf(home), emptyList(), Sharing.On))
+        status.assertTextContains("Вне зон · ", substring = true)
+        status.assertTextContains(" · " + ago(p2.timeMs), substring = true)
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun russianWithoutZones() {
         show(ChildLocation(kid, PlaceStatus.Outside(p2, p2.timeMs), p2, listOf(p2), emptyList(), emptyList(), Sharing.On))
-        status.assertTextEquals("Вне зон")
+        status.assertTextEquals("Зоны не заданы · " + ago(p2.timeMs))
+        rule.onNodeWithTag("loc_zone_hint", useUnmergedTree = true).assertTextEquals("Добавьте зону «Дом»")
+    }
+
+    @Test
+    fun withoutZonesAnAdminIsOfferedTheZonesScreen() {
+        show(ChildLocation(kid, PlaceStatus.Outside(p2, p2.timeMs), p2, listOf(p2), emptyList(), emptyList(), Sharing.On), canEditZones = true)
+        status.assertTextEquals("Zones not set · " + ago(p2.timeMs))
+        rule.onNodeWithTag("loc_zone_hint", useUnmergedTree = true).assertTextEquals("Add a “Home” zone")
+        rule.onNode(hasTestTag("loc_zone_hint") and hasClickAction()).performClick()
+        assertEquals(1, zonesOpened)
+    }
+
+    @Test
+    fun withoutZonesAnotherParentReadsThePlainHint() {
+        show(ChildLocation(kid, PlaceStatus.Outside(p2, p2.timeMs), p2, listOf(p2), emptyList(), emptyList(), Sharing.On))
+        rule.onNodeWithTag("loc_zone_hint", useUnmergedTree = true).assertExists()
+        rule.onNode(hasTestTag("loc_zone_hint") and hasClickAction(), useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun aKnownZoneWithoutAnEntryTodayShowsTheAge() {
+        show(ChildLocation(kid, PlaceStatus.InZone(home.id, "Home", now - 3 * min), null, emptyList(), listOf(home), emptyList(), Sharing.On))
+        status.assertTextEquals("In “Home” · " + ago(now - 3 * min))
+        rule.onNodeWithTag("loc_zone_hint", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun theStatusAvatarCarriesTheChildsColour() {
+        show(ChildLocation(kid, null, null, emptyList(), listOf(home), emptyList(), Sharing.On))
+        rule.onNode(hasTestTag("loc_avatar_${kid.id.hex}") and SemanticsMatcher.expectValue(ChildColorKey, childColor(kid.id.hex)), useUnmergedTree = true).assertExists()
+    }
+
+    @Test
+    fun anUpdateInProgressIsShown() {
+        show(ChildLocation(kid, null, null, emptyList(), listOf(home), emptyList(), Sharing.On), searching = true)
+        rule.onNodeWithTag("loc_searching", useUnmergedTree = true).assertExists()
+    }
+
+    @Test
+    fun noUpdateNoIndicator() {
+        show(ChildLocation(kid, null, null, emptyList(), listOf(home), emptyList(), Sharing.On))
+        rule.onNodeWithTag("loc_searching", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    private class CountingSource : MapSource {
+        var syncs = 0
+        override fun children() = flowOf(emptyList<ChildLocation>())
+        override fun cloudOn() = flowOf(true)
+        override fun syncNow() {
+            syncs++
+        }
+    }
+
+    @Test
+    fun openingTheTabAsksForOneSync() {
+        val source = CountingSource()
+        val vm = MapViewModel(source)
+        var tick by mutableIntStateOf(0)
+        rule.setContent {
+            KinsightTheme {
+                Text("t$tick")
+                MapRoute(vm, onZones = {})
+            }
+        }
+        rule.waitForIdle()
+        tick++ // a recomposition is no new opening
+        rule.waitForIdle()
+        assertEquals(1, source.syncs)
     }
 
     @Test
