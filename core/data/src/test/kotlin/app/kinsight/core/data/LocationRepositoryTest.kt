@@ -153,4 +153,23 @@ class LocationRepositoryTest {
         assertEquals(3L, ranks.max(), "above Dad's rank 2")
         assertEquals(300, repo(mom).zones.firstWithin { it.singleOrNull()?.radiusM == 300 }.single().radiusM)
     }
+
+    /** Sweep review Minor 4: a zone write reads only the membership and the zones under the pipeline lock. */
+    @Test
+    fun aZoneWriteReadsOnlyWhatTheRankNeeds() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        var reads = 0
+        val r = LocationRepository(
+            mom.snapshots, mom.appendOwn, date = { today }, clock = { noon }, zone = { ZoneId.of("UTC") },
+            zoneState = { reads++; mom.snapshots.zoneWriteState() },
+        )
+        assertEquals(ZoneSave.SAVED, r.save(ZoneDraft(null, "Home", 404_168_000, -37_038_000, 150)))
+        val home = r.zones.firstWithin { it.isNotEmpty() }.single()
+        assertEquals(ZoneSave.UNCHANGED, r.save(ZoneDraft(home.id, "Home", 404_168_000, -37_038_000, 150)))
+        assertEquals(ZoneSave.SAVED, r.delete(home.id))
+        assertEquals(3, reads)
+        val st = mom.snapshots.zoneWriteState()!!
+        assertEquals(mom.keys.deviceId, st.self)
+        assertEquals(true, st.safeZones.single().body.safe_zone!!.deleted, "the tombstone supersedes the zone")
+    }
 }

@@ -26,7 +26,8 @@ enum class ZoneSave { SAVED, UNCHANGED, INVALID, NOT_ALLOWED }
 /**
  * The location screens' reads and the zone writes (spec §8, §8.1, §12). Reads derive from the shared snapshot; a write
  * appends one SafeZone entry under [zoneLock] (lock order: this, then the pipeline lock inside [appendOwn]), reading
- * the fresh snapshot and the rank inside the append. Only an active admin parent writes (spec §8.1), and only what the receivers' SafeZoneRules accept.
+ * the membership, the zones and the rank inside the append. Only an active admin parent writes (spec §8.1), and only
+ * what the receivers' SafeZoneRules accept.
  */
 class LocationRepository(
     private val snapshots: Snapshots,
@@ -35,6 +36,8 @@ class LocationRepository(
     private val clock: () -> Long = System::currentTimeMillis,
     private val zone: () -> ZoneId = ZoneId::systemDefault,
     private val random: SecureRandom = SecureRandom(),
+    /** The narrow read a write makes under the pipeline lock (sweep review Minor 4); a seam for tests. */
+    private val zoneState: suspend () -> ZoneWriteState? = snapshots::zoneWriteState,
 ) {
     val zones: Flow<List<ZoneView>> = snapshots.snapshots.map { s -> (s as? GroupSnapshot.Ready)?.let(SafeZones::effective).orEmpty() }.distinctUntilChanged()
 
@@ -73,7 +76,7 @@ class LocationRepository(
         // last read is outranked, never tied.
         var result = ZoneSave.NOT_ALLOWED
         val ok = appendOwn { a ->
-            val ready = parentSnapshot() ?: return@appendOwn emptyList()
+            val ready = writer() ?: return@appendOwn emptyList()
             val winner = SafeZones.winners(ready.safeZones, ready.membership)[id]
             val w = winner?.body?.safe_zone
             if (w != null && !w.deleted && w.name == name && w.lat_e7 == d.latE7 && w.lon_e7 == d.lonE7 && w.radius_m == d.radiusM) {
@@ -91,7 +94,7 @@ class LocationRepository(
     suspend fun delete(id: String): ZoneSave = zoneLock.withLock {
         var result = ZoneSave.NOT_ALLOWED
         val ok = appendOwn { a ->
-            val ready = parentSnapshot() ?: return@appendOwn emptyList()
+            val ready = writer() ?: return@appendOwn emptyList()
             val winner = SafeZones.winners(ready.safeZones, ready.membership)[id]
             val w = winner?.body?.safe_zone
             if (w == null || w.deleted) {
@@ -106,12 +109,13 @@ class LocationRepository(
 
     /**
      * A fresh read (the shared flow may lag a just-committed append) when this phone is an active admin parent. Called
-     * inside the append (under the pipeline lock): it reads the database only, never the pipeline.
+     * inside the append (under the pipeline lock): the membership and the zones only, from the database, never the
+     * pipeline and never the whole snapshot.
      */
-    private suspend fun parentSnapshot(): GroupSnapshot.Ready? {
-        val ready = snapshots.load(emptyMap()) as? GroupSnapshot.Ready ?: return null
-        val me = ready.membership.active[ready.self] ?: return null
-        return ready.takeIf { !it.removed && !me.isChild && me.isAdmin }
+    private suspend fun writer(): ZoneWriteState? {
+        val st = zoneState() ?: return null
+        val me = st.membership.active[st.self] ?: return null
+        return st.takeIf { !me.isChild && me.isAdmin }
     }
 
     private companion object {

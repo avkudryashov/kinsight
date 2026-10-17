@@ -80,6 +80,9 @@ sealed interface GroupSnapshot {
  * when it stops, its last snapshot is dropped, so a later subscriber starts from a fresh load, never a stale one.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
+/** See [Snapshots.zoneWriteState]. */
+class ZoneWriteState(val self: DeviceId, val membership: MembershipState, val safeZones: List<DecodedEntry>)
+
 class Snapshots(
     private val db: KinsightDatabase,
     private val groups: GroupStore,
@@ -138,6 +141,29 @@ class Snapshots(
             delay(afterMs)
             invalidate()
         }
+    }
+
+    /**
+     * What a zone write needs and nothing more (sweep review Minor 4): this device, the membership and the SafeZone
+     * entries. Read inside the pipeline lock by LocationRepository, so it never loads the whole snapshot there. Null
+     * without a group or with an unusable identity or group file.
+     */
+    suspend fun zoneWriteState(): ZoneWriteState? = withContext(io) {
+        val self = try {
+            keys().deviceId
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return@withContext null
+        }
+        val group = try {
+            groups.read()
+        } catch (e: GroupStoreException) {
+            null
+        } ?: return@withContext null
+        val store = RoomEntryStore(db, group.groupId)
+        val membership = Membership.compute(group.groupId, store.membershipEntries()) ?: return@withContext null
+        ZoneWriteState(self, membership, store.safeZones())
     }
 
     /** [author]'s UsageDetail entries for [range] (level 4); read on demand, the snapshot itself carries none. */
