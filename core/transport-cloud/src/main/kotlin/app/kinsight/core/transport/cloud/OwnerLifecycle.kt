@@ -24,8 +24,12 @@ object OwnerLifecycle {
     /** Spec §7.2 «Владелец недоступен»: nothing heard from the owner for this long (or it departed). */
     const val UNAVAILABLE_AFTER_MS = 7L * 24 * 60 * 60 * 1000
 
+    /**
+     * The effective StorageOwner ops that named an owner, by generation. An owner's «выключить» (off) names no storage in
+     * use and issues no token: a turn-on after it starts afresh (a new token id), so it is skipped here.
+     */
     private fun ownerOps(m: MembershipState): List<DecodedEntry> =
-        m.effectiveEntries.filter { it.body.membership_op?.storage_owner != null }
+        m.effectiveEntries.filter { it.body.membership_op?.storage_owner?.let { so -> !so.off } == true }
             .sortedBy { it.body.membership_op!!.storage_owner!!.generation }
 
     /** The effective StorageOwner ops with their states, by generation (Membership keeps them strictly increasing). */
@@ -149,8 +153,10 @@ object OwnerLifecycle {
         if (self !in m.active) return null
         if (owner.deviceId == self && m.active.values.any { it.id != self && !it.isChild }) return OwnerLeaveBlock.HANDOVER_NEEDED
         val selfBytes = self.bytes().toByteString()
+        // A storage turned off before the one in force had its token revoked by its owner then: nothing to wait for.
+        val offAt = m.effectiveEntries.mapNotNull { it.body.membership_op?.storage_owner?.takeIf { so -> so.off }?.generation }.maxOrNull() ?: 0L
         val mine = ownerOps(m).map { it.body.membership_op!!.storage_owner!! }
-            .filter { it.generation < owner.generation && it.device_id == selfBytes && it.storage_id != owner.storageId }
+            .filter { it.generation in (offAt + 1) until owner.generation && it.device_id == selfBytes && it.storage_id != owner.storageId }
             .maxOfOrNull { it.generation } ?: return null
         return OwnerLeaveBlock.SWITCHING.takeIf { !allSwitched(m, heartbeats, mine, self) }
     }

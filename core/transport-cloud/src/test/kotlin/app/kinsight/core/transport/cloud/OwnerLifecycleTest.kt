@@ -13,6 +13,7 @@ import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.Heartbeat
 import app.kinsight.core.model.removeMemberEntry
 import app.kinsight.core.model.storageHandoverEntry
+import app.kinsight.core.model.storageOffEntry
 import app.kinsight.core.model.storageOwnerEntry
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -243,5 +244,23 @@ class OwnerLifecycleTest {
         val updated = listOf(beat(dadKeys, 2), beat(kidKeys, 0, seq = 200, protocol = 2), beat(kidKeys, 1, seq = 201))
         assertFalse(OwnerLifecycle.allSwitched(m, updated, 1, momKeys.deviceId), "once updated, its newest Heartbeat counts")
         assertFalse(OwnerLifecycle.allSwitched(m, listOf(beat(dadKeys, 2)), 1, momKeys.deviceId), "no Heartbeat yet: still waited for")
+    }
+
+    /** «Выключить»: while off nothing has an owner; a turn-on after it is a fresh token, the off record is no owner before it. */
+    @Test
+    fun anOffRecordIsNoOwnerAndAFreshTurnOnAfterItStandsAlone() {
+        val off = at(momKeys, 30).storageOffEntry(s1, 2)
+        val kidLeaves = at(kidKeys, 40).leaveGroupEntry()
+        val m = state(off, kidLeaves)
+        assertFalse(OwnerLifecycle.tokenExposed(m))
+        assertNull(OwnerLifecycle.previousOwner(m))
+        assertNull(OwnerLifecycle.leaveBlock(m, momKeys.deviceId, emptyList()), "off: the owner leaves freely")
+        assertFalse(OwnerLifecycle.canTakeOver(m, dadKeys.deviceId, emptyList(), null, 0))
+        val back = at(dadKeys, 50).storageOwnerEntry(dadKeys.deviceId, s1, 3, t2, listOf(kidKeys.deviceId))
+        val on = state(off, kidLeaves, back)
+        assertFalse(OwnerLifecycle.tokenExposed(on), "the turn-on lists the departure it knew of")
+        assertEquals(1L, OwnerLifecycle.previousOwner(on)!!.generation, "the off record is skipped")
+        val elsewhere = state(off, at(dadKeys, 50).storageOwnerEntry(dadKeys.deviceId, s2, 3, t2))
+        assertNull(OwnerLifecycle.leaveBlock(elsewhere, momKeys.deviceId, emptyList()), "Mom's storage before the off is not waited for")
     }
 }
