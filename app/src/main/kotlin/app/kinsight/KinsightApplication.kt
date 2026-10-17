@@ -78,7 +78,7 @@ open class KinsightApplication : Application() {
             // Alerts and the tick do not survive a force stop: a fresh process registers them again.
             // Launched, not awaited: a first fix (up to 20 s) must not hold back the checks below (Y4 review Minor 3).
             attempt("location") { LocationGraph.refresh(app, rearm = true) }
-            attempt("location state") { AppGraph.get(app).checkLocationState() }
+            attempt("location state") { AppGraph.get(app).launchLocationCheck() } // launched too: it may collect usage
             attempt("nearby permission") { SyncGraph.onNearbyPermission(app, BlePermissions.missing(app).isEmpty()) }
             // Stage 5c: a parent's local category choices of 5a become shared entries, once (idempotent, crash-safe).
             attempt("category migration") { AppGraph.get(app).usage.migrateLocalCategories() }
