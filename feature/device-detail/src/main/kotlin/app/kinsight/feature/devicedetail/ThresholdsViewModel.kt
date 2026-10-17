@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -39,6 +40,9 @@ internal interface ThresholdSource {
     /** The child's apps of the last [PICKER_DAYS] days, largest first. */
     fun apps(): Flow<AppList?>
 
+    /** The child's time today for the «Всего за день» bar (UI refresh §7); null without a summary of today. */
+    fun todayMs(): Flow<Long?> = flowOf(null)
+
     suspend fun set(rule: ThresholdRule)
 
     suspend fun remove(id: String)
@@ -54,6 +58,10 @@ private class RepositoryThresholdSource(private val usage: UsageRepository, priv
         return usage.apps(id, DetailRange(Period.MONTH, today.minusDays(PICKER_DAYS - 1), today))
     }
 
+    override fun todayMs(): Flow<Long?> = usage.dashboard.map { d ->
+        d?.children?.firstOrNull { it.member.id == id }?.today?.takeIf { it.known }?.totalMs
+    }
+
     override suspend fun set(rule: ThresholdRule) = usage.setThreshold(rule)
 
     override suspend fun remove(id: String) = usage.removeThreshold(id)
@@ -63,7 +71,7 @@ private class RepositoryThresholdSource(private val usage: UsageRepository, priv
  * The thresholds screen of one child: [rules] total first, then categories (AppCategory order), then apps by label;
  * [apps] the child's apps of the last 30 days a rule may name (not the `~other` remainder); [canEdit] only on a parent.
  */
-data class ThresholdsState(val childName: String, val canEdit: Boolean, val rules: List<ThresholdRule>, val apps: List<AppUsage>) {
+data class ThresholdsState(val childName: String, val canEdit: Boolean, val rules: List<ThresholdRule>, val apps: List<AppUsage>, val todayMs: Long? = null) {
     /** An app rule's label: the app's own when it is in [apps], else its package. */
     fun appLabel(packageName: String): String = apps.firstOrNull { it.packageName == packageName }?.label ?: packageName
 }
@@ -111,14 +119,14 @@ class ThresholdsViewModel internal constructor(
         pending.map { it.keys }.stateIn(viewModelScope, SharingStarted.Eagerly, pending.value.keys)
 
     val state: StateFlow<ThresholdsState?> =
-        combine(source.rules(), source.viewerIsParent(), source.apps(), pending, committing) { all, parent, list, open, queued ->
+        combine(source.rules(), source.viewerIsParent(), source.apps(), pending, combine(committing, source.todayMs(), ::Pair)) { all, parent, list, open, (queued, today) ->
             val rules = all.filter { it.id !in open && it.id !in queued }
             val apps = list?.apps.orEmpty().filter { it.packageName != Categories.REMAINDER_PACKAGE }
             val labels = apps.associate { it.packageName to it.label }
             val mine = rules.filter { it.child == child }.sortedWith(
                 compareBy<ThresholdRule>({ order(it.target) }, { (it.target as? ThresholdTarget.App)?.let { t -> labels[t.packageName] ?: t.packageName } }),
             )
-            ThresholdsState(list?.member?.name.orEmpty(), parent, mine, apps)
+            ThresholdsState(list?.member?.name.orEmpty(), parent, mine, apps, today)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val canEdit get() = state.value?.canEdit == true

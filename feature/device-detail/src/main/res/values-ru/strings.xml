@@ -96,7 +96,6 @@
     <string name="app_days_title">По дням</string>
     <string name="det_limit_line">Лимит %1$s</string>
     <string name="thr_title">Лимиты: %1$s</string>
-    <string name="thr_intro">Вы получите уведомление раз в день, когда %1$s превысит лимит. Ничего не блокируется.</string>
     <string name="thr_parent_only">Лимиты задаёт только родитель.</string>
     <string name="thr_empty">Лимитов пока нет</string>
     <string name="thr_add">Добавить лимит</string>
@@ -193,4 +192,9 @@
     <string name="map_reason_waiting">Ждём первую точку с телефона.</string>
     <string name="map_no_children_title">Детей пока нет</string>
     <string name="map_no_children_body">Пригласите телефон ребёнка: Ещё → Семья.</string>
+    <string name="thr_subtitle">Уведомим один раз в день при превышении. Ничего не блокируется.</string>
+    <string name="thr_total_today">Сегодня %1$s</string>
+    <string name="thr_total_none">Лимит на весь день не задан</string>
+    <string name="thr_total_set">Задать лимит</string>
+    <string name="thr_separate">Отдельные лимиты</string>
 </resources>

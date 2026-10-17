@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
@@ -79,6 +80,8 @@ import app.kinsight.core.data.AppUsage
 import app.kinsight.core.data.ThresholdRule
 import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.designsystem.component.AppIcon
+import app.kinsight.core.designsystem.component.LimitBar
+import app.kinsight.core.designsystem.component.Pill
 import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.durationText
 import app.kinsight.core.model.DeviceId
@@ -134,6 +137,7 @@ fun ThresholdsScreen(
     val offeredNow by rememberUpdatedState(onOffered)
     val snackbar = remember { SnackbarHostState() }
     var adding by rememberSaveable { mutableStateOf(false) }
+    var addingTotal by rememberSaveable { mutableStateOf(false) }
     var editing by rememberSaveable { mutableStateOf<String?>(null) }
     val removed = stringResource(R.string.thr_deleted)
     val undo = stringResource(R.string.thr_undo)
@@ -170,25 +174,45 @@ fun ThresholdsScreen(
         ) {
             item(key = "intro") {
                 Text(
-                    if (state.canEdit) stringResource(R.string.thr_intro, state.childName) else stringResource(R.string.thr_parent_only),
+                    if (state.canEdit) stringResource(R.string.thr_subtitle) else stringResource(R.string.thr_parent_only),
                     style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("thr_subtitle"),
                 )
             }
-            if (state.rules.isEmpty()) item(key = "empty") { Text(stringResource(R.string.thr_empty), style = MaterialTheme.typography.titleMedium) }
-            items(state.rules, key = { it.id }) { r ->
+            item(key = "total") {
+                TotalCard(
+                    rule = state.rules.firstOrNull { it.target == ThresholdTarget.Total },
+                    todayMs = state.todayMs,
+                    canEdit = state.canEdit,
+                    onEdit = { editing = it },
+                    onSet = { addingTotal = true },
+                    onDelete = onDelete,
+                )
+            }
+            item(key = "separate_title") { SectionTitle(stringResource(R.string.thr_separate)) }
+            val separate = state.rules.filter { it.target != ThresholdTarget.Total }
+            if (separate.isEmpty()) {
+                item(key = "empty") { Text(stringResource(R.string.thr_empty), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+            items(separate, key = { it.id }) { r ->
                 val name = targetName(r.target, state::appLabel)
                 ListItem(
                     headlineContent = { Text(name) },
-                    supportingContent = { Text(durationText(r.limitMs)) },
-                    trailingContent = if (state.canEdit) {
-                        {
-                            IconButton(
-                                onClick = { onDelete(r) },
-                                modifier = Modifier.size(48.dp).testTag("thr_delete_${r.id}"),
-                            ) { Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.thr_delete, name)) }
+                    trailingContent = {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Pill(
+                                durationText(r.limitMs),
+                                container = MaterialTheme.colorScheme.primaryContainer,
+                                content = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                            if (state.canEdit) {
+                                IconButton(
+                                    onClick = { onDelete(r) },
+                                    modifier = Modifier.size(48.dp).testTag("thr_delete_${r.id}"),
+                                ) { Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.thr_delete, name)) }
+                            }
                         }
-                    } else {
-                        null
                     },
                     modifier = Modifier.testTag("thr_rule_${r.id}").then(
                         if (state.canEdit) Modifier.clickable(onClickLabel = stringResource(R.string.thr_edit)) { editing = r.id } else Modifier,
@@ -206,22 +230,73 @@ fun ThresholdsScreen(
         }
     }
     val edited = state.rules.firstOrNull { it.id == editing }
-    if (adding || edited != null) {
+    if (adding || addingTotal || edited != null) {
+        val fixed = edited?.target ?: ThresholdTarget.Total.takeIf { addingTotal }
         ThresholdDialog(
-            title = if (edited != null) targetName(edited.target, state::appLabel) else stringResource(R.string.thr_new),
-            fixedTarget = edited?.target,
+            title = if (fixed != null) targetName(fixed, state::appLabel) else stringResource(R.string.thr_new),
+            fixedTarget = fixed,
             existing = state.rules,
             apps = state.apps,
             onDismiss = {
                 adding = false
+                addingTotal = false
                 editing = null
             },
             onSave = { t, ms ->
                 adding = false
+                addingTotal = false
                 editing = null
                 onSave(t, ms)
             },
         )
+    }
+}
+
+/**
+ * UI refresh §7: «Всего за день» large on its own card, with today's bar when the child has time today; without a rule
+ * an invitation to set one (a parent's phone only). Tapping the figure edits it.
+ */
+@Composable
+private fun TotalCard(
+    rule: ThresholdRule?,
+    todayMs: Long?,
+    canEdit: Boolean,
+    onEdit: (String) -> Unit,
+    onSet: () -> Unit,
+    onDelete: (ThresholdRule) -> Unit,
+) {
+    val name = stringResource(R.string.thr_target_total)
+    Card(Modifier.fillMaxWidth().testTag("thr_total")) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (rule == null) {
+                Text(name, style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.thr_total_none), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (canEdit) {
+                    FilledTonalButton(onSet, Modifier.heightIn(min = 48.dp).testTag("thr_total_set")) { Text(stringResource(R.string.thr_total_set)) }
+                }
+                return@Column
+            }
+            Row(
+                Modifier.fillMaxWidth().testTag("thr_rule_${rule.id}").then(
+                    if (canEdit) Modifier.clickable(onClickLabel = stringResource(R.string.thr_edit)) { onEdit(rule.id) } else Modifier,
+                ),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(name, style = MaterialTheme.typography.titleMedium)
+                    Text(durationText(rule.limitMs), style = MaterialTheme.typography.displaySmall)
+                }
+                if (canEdit) {
+                    IconButton(onClick = { onDelete(rule) }, modifier = Modifier.size(48.dp).testTag("thr_delete_${rule.id}")) {
+                        Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.thr_delete, name))
+                    }
+                }
+            }
+            if (todayMs != null) {
+                Text(stringResource(R.string.thr_total_today, durationText(todayMs)), style = MaterialTheme.typography.bodyMedium)
+                LimitBar(todayMs, rule.limitMs)
+            }
+        }
     }
 }
 

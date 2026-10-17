@@ -94,7 +94,6 @@
     <string name="app_days_title">Por día</string>
     <string name="det_limit_line">Límite %1$s</string>
     <string name="thr_title">Límites: %1$s</string>
-    <string name="thr_intro">Recibes una notificación una vez al día cuando %1$s supera un límite. No se bloquea nada.</string>
     <string name="thr_parent_only">Solo un adulto puede fijar límites.</string>
     <string name="thr_empty">Todavía no hay límites</string>
     <string name="thr_add">Añadir límite</string>
@@ -190,4 +189,9 @@
     <string name="map_reason_waiting">Esperando el primer punto del teléfono.</string>
     <string name="map_no_children_title">Todavía no hay menores</string>
     <string name="map_no_children_body">Invita al teléfono de un menor en Más → Familia.</string>
+    <string name="thr_subtitle">Te avisamos una vez al día si se supera un límite. No se bloquea nada.</string>
+    <string name="thr_total_today">Hoy %1$s</string>
+    <string name="thr_total_none">Todavía no hay límite para todo el día</string>
+    <string name="thr_total_set">Fijar un límite</string>
+    <string name="thr_separate">Límites por separado</string>
 </resources>

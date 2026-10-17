@@ -71,6 +71,10 @@ class ThresholdsViewModelTest {
 
         override fun apps(): Flow<AppList?> = list
 
+        val today = MutableStateFlow<Long?>(null)
+
+        override fun todayMs(): Flow<Long?> = today
+
         val writes = java.util.concurrent.atomic.AtomicInteger()
 
         /** A slow storage remove (blocking), to show the order of writes. */
@@ -101,6 +105,15 @@ class ThresholdsViewModelTest {
     }
 
     private fun rule(target: ThresholdTarget, ms: Long, child: DeviceId = kid.id) = ThresholdRule.of(child, target, ms)!!
+
+    @Test
+    fun todaysTotalComesWithTheState() = runTest(dispatcher) {
+        val source = FakeSource()
+        val vm = vm(source)
+        assertEquals(null, vm.state.value?.todayMs)
+        source.today.value = 2 * hour
+        assertEquals(2 * hour, vm.state.value?.todayMs)
+    }
 
     @Test
     fun listsOnlyThisChildsRulesTotalThenCategoriesThenAppsAndTheAppsToPick() = runTest(dispatcher) {

@@ -92,7 +92,6 @@
     <string name="app_days_title">By day</string>
     <string name="det_limit_line">Limit %1$s</string>
     <string name="thr_title">Limits: %1$s</string>
-    <string name="thr_intro">You get a notification once a day when %1$s goes over a limit. Nothing is blocked.</string>
     <string name="thr_parent_only">Only a parent can set limits.</string>
     <string name="thr_empty">No limits yet</string>
     <string name="thr_add">Add limit</string>
@@ -187,4 +186,9 @@
     <string name="map_reason_waiting">Waiting for the first point from the phone.</string>
     <string name="map_no_children_title">No children yet</string>
     <string name="map_no_children_body">Invite a child\'s phone in More → Family.</string>
+    <string name="thr_subtitle">We notify you once a day when a limit is passed. Nothing is blocked.</string>
+    <string name="thr_total_today">Today %1$s</string>
+    <string name="thr_total_none">No limit for the whole day yet</string>
+    <string name="thr_total_set">Set a limit</string>
+    <string name="thr_separate">Separate limits</string>
 </resources>
