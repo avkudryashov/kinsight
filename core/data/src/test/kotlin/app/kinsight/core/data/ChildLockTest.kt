@@ -9,7 +9,14 @@ import app.kinsight.core.model.grantAdminEntry
 import app.kinsight.core.model.leaveGroupEntry
 import app.kinsight.core.model.parentPinEntry
 import app.kinsight.core.model.proto.DeviceRole
+import app.kinsight.core.sync.MemoryPipe
 import app.kinsight.core.sync.ParentPinRules
+import app.kinsight.core.sync.SecureChannel
+import app.kinsight.core.sync.SessionResult
+import app.kinsight.core.sync.SyncSession
+import app.kinsight.core.transport.ble.SyncPolicies
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -17,6 +24,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -41,10 +49,20 @@ class ChildLockTest {
         kid.joinGroupOf(mom)
     }
 
-    /** What reaches the kid from [from], as a Bluetooth session or the Disk brings it (FROM_PARENTS_TO_ALL). */
-    private suspend fun kidTakesPinsOf(from: TestDevice) {
-        kid.store().storeMembership(from.store().membershipEntries())
-        kid.store().applyBatch(from.store().parentPins())
+    /** One real Bluetooth session between [from] and the kid, as SyncEngine runs it: the parents' PINs ride along (R5). */
+    private suspend fun kidTakesPinsOf(from: TestDevice) = coroutineScope {
+        suspend fun session(d: TestDevice): SyncSession {
+            val m = Membership.compute(d.groups.read()!!.groupId, d.store().membershipEntries())
+            return SyncSession(d.store(), SyncPolicies.forDevice(m, d.keys.deviceId, d.settings.current()))
+        }
+        val (sa, sb) = MemoryPipe.pair()
+        val prologue = SecureChannel.prologue(kid.groups.read()!!.groupId)
+        val sessionFrom = session(from)
+        val sessionKid = session(kid)
+        val rf = async { sessionFrom.run(SecureChannel.initiate(sa, from.keys.dh, prologue)) }
+        val rk = async { sessionKid.run(SecureChannel.accept(sb, kid.keys.dh, prologue)) }
+        assertIs<SessionResult.Completed>(rf.await())
+        assertIs<SessionResult.Completed>(rk.await())
     }
 
     @Test
