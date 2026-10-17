@@ -339,7 +339,9 @@ class CloudRunner(
             return
         }
         secrets.saveOwner(groupId, held.storageGeneration, held.storageId, TokenSet(t.accessToken, t.refreshToken ?: refresh, t.expiresAtMs))
-        if (t.accessToken != held.accessToken) OwnerRecords.issue(appendOwn, k, m, ring, t.accessToken, t.expiresAtMs)
+        if (t.accessToken != held.accessToken && !OwnerRecords.issue(appendOwn, k, m, ring, t.accessToken, t.expiresAtMs)) {
+            Log.w(TAG, "refreshed access not signed")
+        }
         state.markRefreshCheck(now, tokenSinceMs = now)
     }
 

@@ -3,6 +3,7 @@ package app.kinsight.core.data
 import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.leaveGroupEntry
+import app.kinsight.core.sync.CloudAccessRules
 import app.kinsight.core.transport.cloud.CloudAccessView
 import app.kinsight.core.transport.cloud.GroupKey
 import app.kinsight.core.transport.cloud.InMemoryDisk
@@ -387,6 +388,29 @@ class CloudLifecycleTest {
         mom.cloudSecrets.saveOwner(g.groupId, 1, ByteArray(16) { 1 }, TokenSet("AT2", "RT", mom.now + YEAR)) // as if the append failed
         assertEquals(CloudRun.SYNCED, mom.runner(disks::disk, http).run(CloudTrigger.NOW))
         assertEquals("AT2", CloudAccessView.current(mom.store(), membershipOf(mom), mom.cloudSecrets.ring(g).keys())!!.accessToken)
+    }
+
+    /** BLE fix round 3: a token the CloudAccess rules would refuse is never signed, and the owner's runs go on. */
+    @Test
+    fun anOversizedRefreshedTokenIsNotSignedAndTheRunGoesOn() = runBlocking<Unit> {
+        family()
+        val huge = "A".repeat(CloudAccessRules.MAX_CIPHERTEXT_BYTES)
+        val oauth = FakeOAuthHttp(accessToken = huge)
+        val both = AccountDisks(mapOf("AT" to disk, huge to disk))
+        mom.ownStorage(token = "AT", expiresAtMs = mom.now + 20 * DAY)
+        assertEquals(CloudRun.SYNCED, mom.runner(both::disk, oauth).run(CloudTrigger.NOW))
+        assertEquals(1, oauth.forms.size)
+        assertEquals(mom.now, mom.cloudState.current().refreshCheckMs, "the check is marked: no refresh at every run")
+        val g = mom.groups.read()!!
+        assertEquals("AT", CloudAccessView.current(mom.store(), membershipOf(mom), mom.cloudSecrets.ring(g).keys())!!.accessToken)
+        mom.now += DAY
+        assertEquals(CloudRun.SYNCED, mom.runner(both::disk, oauth).run(CloudTrigger.NOW))
+        assertEquals(1, oauth.forms.size, "checked once a week")
+        // A claim with such a token signs nothing either: null, as for any refusal.
+        val m = membershipOf(mom)
+        val claimed = OwnerRecords.claim(mom.appendOwn, mom.store(), mom.keys, mom.cloudSecrets.ring(g), ByteArray(16) { 2 }, m.storageOwner!!.generation + 1, huge, mom.now + YEAR)
+        assertNull(claimed)
+        assertEquals(m.storageOwner!!.generation, membershipOf(mom).storageOwner!!.generation)
     }
 
     private companion object {

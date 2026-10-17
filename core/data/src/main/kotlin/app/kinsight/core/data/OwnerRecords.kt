@@ -66,10 +66,12 @@ internal object OwnerRecords {
         val known = departed?.distinct()?.sortedBy { it.hex }?.take(MembershipLimits.MAX_OWNER_DEPARTED)
             ?: m.departed.keys.sortedBy { it.hex }.take(MembershipLimits.MAX_OWNER_DEPARTED)
         var signed: List<DecodedEntry> = emptyList()
-        val ok = appendOwn { a ->
-            val ownerEntry = a.storageOwnerEntry(keys.deviceId, storageId, generation, id, known)
-            val withOwner = Membership.compute(store.groupId, entries + ownerEntry)!!
-            listOf(ownerEntry, CloudAccessView.issue(a, withOwner, epoch, key, accessToken, expiresAtMs)).also { signed = it }
+        val ok = refusedAsFalse {
+            appendOwn { a ->
+                val ownerEntry = a.storageOwnerEntry(keys.deviceId, storageId, generation, id, known)
+                val withOwner = Membership.compute(store.groupId, entries + ownerEntry)!!
+                listOf(ownerEntry, CloudAccessView.issue(a, withOwner, epoch, key, accessToken, expiresAtMs)).also { signed = it }
+            }
         }
         return if (ok && signed.isNotEmpty()) Claimed(signed, epoch, key) else null
     }
@@ -77,6 +79,16 @@ internal object OwnerRecords {
     /** A new CloudAccess of the current storage (spec §6, §7.4 «новый доступ»): the owner only. */
     suspend fun issue(appendOwn: OwnAppend, keys: DeviceKeys, m: MembershipState, ring: GroupKeyRing, accessToken: String, expiresAtMs: Long): Boolean {
         val (epoch, key) = writeKey(keys, m, ring)
-        return appendOwn { a -> listOf(CloudAccessView.issue(a, m, epoch, key, accessToken, expiresAtMs)) }
+        return refusedAsFalse { appendOwn { a -> listOf(CloudAccessView.issue(a, m, epoch, key, accessToken, expiresAtMs)) } }
+    }
+
+    /**
+     * A CloudAccess the receivers' rules would refuse (CloudAccessView.issue throws before signing, e.g. a token of
+     * kilobytes) is «not signed», like every other refusal: the caller's existing outcome applies and a cloud run goes on.
+     */
+    private inline fun refusedAsFalse(append: () -> Boolean): Boolean = try {
+        append()
+    } catch (e: IllegalArgumentException) {
+        false
     }
 }
