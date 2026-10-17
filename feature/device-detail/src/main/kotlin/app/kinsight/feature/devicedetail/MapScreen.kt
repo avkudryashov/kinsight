@@ -249,10 +249,9 @@ private fun ZoneHint(canEditZones: Boolean, onZones: () -> Unit) {
 private fun statusText(s: MapStatus, c: ChildLocation, nowMs: Long): String {
     val context = LocalContext.current
     @Composable
-    fun aged(text: String): String = c.status?.let {
-        val age = if (MapStatus.justNow(it.atMs, nowMs)) stringResource(R.string.map_just_now) else relativeTime(it.atMs, nowMs)
-        stringResource(R.string.map_with_age, text, age)
-    } ?: text
+    fun age(atMs: Long): String = if (MapStatus.justNow(atMs, nowMs)) stringResource(R.string.map_just_now) else relativeTime(atMs, nowMs)
+    @Composable
+    fun aged(text: String): String = c.status?.let { stringResource(R.string.map_with_age, text, age(it.atMs)) } ?: text
     return when (s) {
         is MapStatus.InZone -> when {
             s.zoneName == null -> aged(stringResource(R.string.map_in_unknown_zone))
@@ -266,7 +265,7 @@ private fun statusText(s: MapStatus, c: ChildLocation, nowMs: Long): String {
                 else -> stringResource(R.string.map_outside_near, distanceText(s.distanceM), s.nearestZone)
             },
         )
-        is MapStatus.NoZones -> stringResource(R.string.map_with_age, stringResource(R.string.map_no_zones), relativeTime(s.atMs, nowMs))
+        is MapStatus.NoZones -> stringResource(R.string.map_with_age, stringResource(R.string.map_no_zones), age(s.atMs))
         is MapStatus.Stale -> stringResource(R.string.map_stale, relativeTime(s.atMs, nowMs))
         is MapStatus.NoPlace -> stringResource(R.string.map_none_title)
     }

@@ -123,6 +123,22 @@ class MapScreenTest {
     }
 
     @Test
+    @Config(qualifiers = "ru")
+    fun aFreshPointWithoutZonesIsJustNowNeverZeroMinutes() {
+        val fresh = GeoPoint(404_120_000, -37_080_000, 15, now - 20_000)
+        show(ChildLocation(kid, PlaceStatus.Outside(fresh, fresh.timeMs), fresh, listOf(fresh), emptyList(), emptyList(), Sharing.On))
+        status.assertTextEquals("Зоны не заданы · только что")
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun aFreshPointOutsideZonesIsJustNow() {
+        val fresh = GeoPoint(404_120_000, -37_080_000, 15, now - 20_000)
+        show(ChildLocation(kid, PlaceStatus.Outside(fresh, fresh.timeMs), fresh, listOf(fresh), listOf(home), emptyList(), Sharing.On))
+        status.assertTextContains(" · только что", substring = true)
+    }
+
+    @Test
     fun withoutZonesAnAdminIsOfferedTheZonesScreen() {
         show(ChildLocation(kid, PlaceStatus.Outside(p2, p2.timeMs), p2, listOf(p2), emptyList(), emptyList(), Sharing.On), canEditZones = true)
         status.assertTextEquals("Zones not set · " + ago(p2.timeMs))
