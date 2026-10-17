@@ -73,6 +73,18 @@ class PairingViewModelsTest {
         assertEquals(InviteState.Showing("kinsight://pair/1/AAAA", 5L, busy), vm.state.value)
     }
 
+    /** Y3 parked minor: the owner's «Перенести на новый телефон» reaches PairingCoordinator.invite(transferOwner = true). */
+    @Test
+    fun theTransferInviteAsksForTheOwnerTransfer() {
+        val asked = mutableListOf<Boolean>()
+        val inviter = Inviter { scope, role, name, transferOwner -> asked += transferOwner; opener.open(scope, role, name) }
+        val vm = InviteViewModel(inviter, { "Mom" }, Role.PARENT, transfer = true)
+        vm.start() // a fresh code after coming back: still the transfer
+        assertEquals(listOf(true, true), asked)
+        InviteViewModel(inviter, { "Mom" }, Role.PARENT, transfer = false)
+        assertEquals(listOf(true, true, false), asked)
+    }
+
     @Test
     fun inviteForwardsTheAdminsDecision() {
         val vm = InviteViewModel(opener, { "Mom" }, Role.PARENT)

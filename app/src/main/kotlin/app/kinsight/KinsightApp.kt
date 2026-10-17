@@ -262,7 +262,7 @@ private fun MainScaffold(appVersion: String, openDevice: StateFlow<String?>, onD
                         onTransparency = { nav.navigate(TransparencyDest) },
                         onBattery = { nav.navigate(BatteryDest) },
                         onDiagnostics = { context.startActivity(Intent(context, DiagnosticsActivity::class.java)) },
-                        onNewPhone = { nav.navigate(InviteDest(Role.PARENT.name, transfer = true)) }, // spec §7.3
+                        onNewPhone = { nav.openTransferInvite() }, // spec §7.3
                         onZones = { nav.navigate(ZonesDest) }, // spec §8.1: the child sees the zones
                     )
                 }
@@ -303,6 +303,12 @@ private fun MainScaffold(appVersion: String, openDevice: StateFlow<String?>, onD
         }
     }
 }
+
+/**
+ * «Перенести на новый телефон» (spec §7.3): the owner's transfer invite. Single top, so a double tap opens one invite
+ * screen (one radio, one code), never two stacked.
+ */
+internal fun NavHostController.openTransferInvite() = navigate(InviteDest(Role.PARENT.name, transfer = true)) { launchSingleTop = true }
 
 private fun NavHostController.selectTab(route: Any) = navigate(route) {
     popUpTo(graph.findStartDestination().id) { saveState = true }
