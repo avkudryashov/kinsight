@@ -36,6 +36,10 @@ class CloudWorkResultTest {
         val main = java.io.File("src/main/kotlin/app/kinsight/core/data/CloudDebugDisk.kt")
         val debug = java.io.File("src/debug/kotlin/app/kinsight/core/data/CloudDebugDisk.kt")
         assertEquals(false to true, main.exists() to debug.exists())
+        // CLOUD_FAKE_ENABLE's fake TokenSet lives in the debug source set alone too.
+        val enableMain = java.io.File("src/main/kotlin/app/kinsight/core/data/CloudDebugEnable.kt")
+        val enableDebug = java.io.File("src/debug/kotlin/app/kinsight/core/data/CloudDebugEnable.kt")
+        assertEquals(false to true, enableMain.exists() to enableDebug.exists())
     }
 
     /** Parked Y2 minor: opening the app replaces a stuck or old run now, never one that started under 30 s ago. */

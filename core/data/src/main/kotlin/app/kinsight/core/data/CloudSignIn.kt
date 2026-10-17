@@ -214,9 +214,23 @@ class CloudSignIn(
             return reopen(p, networkError = true)
         }
         val result = try {
-            enable(tokens, p.mode)
+            signedIn(tokens, p.mode)
         } catch (e: CancellationException) {
             settle(CloudEnableResult.SIGN_IN_FAILED)
+            throw e
+        }
+        return settle(result)
+    }
+
+    /**
+     * What follows a successful exchange: [enable] with [tokens], then [onEnabled] when this phone now holds an owner
+     * token. Internal: [finish] calls it, and so does the debug build's CLOUD_FAKE_ENABLE (CloudDebugEnable, debug source
+     * set only) with a fake TokenSet against the in-memory Disk, so the emulator checks run this same code path.
+     */
+    internal suspend fun signedIn(tokens: TokenSet, mode: SignInMode = SignInMode.ENABLE): CloudEnableResult {
+        val result = try {
+            enable(tokens, mode)
+        } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             // The keystore or anything unexpected: never leave the screen at Working. The code is spent; start again.
@@ -224,7 +238,7 @@ class CloudSignIn(
             CloudEnableResult.SIGN_IN_FAILED
         }
         if (result in SIGNED_IN) onEnabled()
-        return settle(result)
+        return result
     }
 
     fun dismiss() {
