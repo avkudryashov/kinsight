@@ -28,8 +28,12 @@ interface EntryDao {
     @Query("SELECT bytes FROM entries WHERE author = :author AND seq > :afterSeq ORDER BY seq LIMIT :limit")
     suspend fun bytesAfter(author: String, afterSeq: Long, limit: Int): List<ByteArray>
 
-    /** One author's entries of the [kinds] codes above [afterSeq]: served by the (kind, author, seq) index. */
-    @Query("SELECT bytes FROM entries WHERE kind IN (:kinds) AND author = :author AND seq > :afterSeq ORDER BY seq LIMIT :limit")
+    /**
+     * One author's entries of the [kinds] codes above [afterSeq], through the (kind, author, seq) index. INDEXED BY on
+     * purpose: left alone, SQLite picks the (author, seq) primary key for the ORDER BY and walks every row of the author;
+     * this way it reads only the few rows of those kinds and sorts them.
+     */
+    @Query("SELECT bytes FROM entries INDEXED BY index_entries_kind_author_seq WHERE kind IN (:kinds) AND author = :author AND seq > :afterSeq ORDER BY seq LIMIT :limit")
     suspend fun bytesOfKindsAfter(kinds: List<Int>, author: String, afterSeq: Long, limit: Int): List<ByteArray>
 
     @Query("SELECT bytes FROM entries ORDER BY author, seq")
