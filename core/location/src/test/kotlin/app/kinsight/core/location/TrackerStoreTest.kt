@@ -34,4 +34,17 @@ class TrackerStoreTest {
         store.clear()
         assertEquals(TrackerState(), store.load())
     }
+
+    /** Y4 parked minor: an unreadable file starts over from the empty state (logged), so tracking can still be turned off. */
+    @Test
+    fun aCorruptFileStartsOver() = runBlocking<Unit> {
+        val file = File(dir, "bad.preferences_pb")
+        file.writeBytes(byteArrayOf(0x7f, 0x01, 0x02, 0x03, 0x04))
+        val lines = mutableListOf<String>()
+        val bad = DataStoreTrackerStore.create(file, scope) { lines += it }
+        assertEquals(TrackerState(), bad.load())
+        bad.save(TrackerState(Mode.OUTSIDE))
+        assertEquals(Mode.OUTSIDE, bad.load().mode)
+        assertEquals(1, lines.size)
+    }
 }

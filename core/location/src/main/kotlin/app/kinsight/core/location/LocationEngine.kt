@@ -85,6 +85,9 @@ class LocationEngine(
         val zones = active() ?: return@withLock off()
         val s = store.load()
         val wanted = zones.associateBy { it.signature }
+        // Saved before the platform hears of them (Y4 parked minor): a process killed in between leaves every alert it
+        // may hold on the list, so off() can still take them all back.
+        if (!s.registered.containsAll(wanted.keys)) store.save(s.copy(registered = s.registered + wanted.keys))
         for (sig in s.registered - wanted.keys) alerts.unregister(ZoneTracker.idOf(sig))
         for ((sig, z) in wanted) if (rearm || sig !in s.registered) alerts.register(z)
         val registered = s.copy(registered = wanted.keys.toSet())
@@ -105,7 +108,12 @@ class LocationEngine(
     /** A proximity alert (spec §8.1). An exit that leaves every zone takes its point first. */
     suspend fun onProximity(zoneId: String, entering: Boolean): Unit = lock.withLock {
         val zones = active() ?: return@withLock off()
-        val s = store.load()
+        var s = store.load()
+        if (zones.none { it.id == zoneId }) {
+            // A stale alert of a deleted zone (Y4 parked minor): taken back here, the mode recomputed by the tracker.
+            alerts.unregister(zoneId)
+            s = s.copy(registered = s.registered.filterTo(LinkedHashSet()) { ZoneTracker.idOf(it) != zoneId })
+        }
         val leavesAll = !entering && s.inside.none { id -> id != zoneId && zones.any { it.id == id } }
         val fix = if (leavesAll) fix() else null
         apply(ZoneTracker.proximity(s, zones, zoneId, entering, clock(), fix))
@@ -128,7 +136,8 @@ class LocationEngine(
     private suspend fun fix(): Fix? = fixes.fix(FIX_TIMEOUT_MS)?.let(FixCheck::checked)
 
     private suspend fun apply(step: Step) {
-        if (step.events.isNotEmpty() || step.report != null) host.record(step.events, step.report)
+        // Not signed (no group any more): the state does not move on, so nothing is lost; the next run tries again.
+        if ((step.events.isNotEmpty() || step.report != null) && !host.record(step.events, step.report)) return
         val outside = step.state.mode == Mode.OUTSIDE
         val state = step.state.copy(nextTickMs = if (outside) clock() + TICK_MS else null)
         store.save(state)

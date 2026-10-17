@@ -318,4 +318,49 @@ class LocationEngineTest {
         engine.refresh()
         assertFalse(cadence.periodic)
     }
+
+    /** Y4 parked minor: a stale alert of a deleted zone is taken back and the mode follows what is left. */
+    @Test
+    fun aStaleAlertOfADeletedZoneIsUnregistered() = runTest {
+        store.state = TrackerState(Mode.IN_ZONE, setOf(home.id), registered = setOf(home.signature, school.signature))
+        host.zones = listOf(school) // home deleted, no refresh yet
+        engine.onProximity(home.id, entering = false)
+        assertEquals(listOf("-${home.id}"), alerts.log)
+        assertEquals(setOf(school.signature), store.state.registered)
+        assertEquals(Mode.OUTSIDE, store.state.mode)
+        assertTrue(cadence.service, "outside now: the 5-minute cadence")
+        assertTrue(host.recorded.isEmpty())
+    }
+
+    /** Y4 parked minor: the alerts are on the saved list before the platform registers them. */
+    @Test
+    fun alertsAreSavedBeforeTheyAreRegistered() = runTest {
+        val seen = mutableListOf<Set<String>>()
+        val watching = object : ProximityAlerts {
+            override fun register(zone: Zone) {
+                seen += kotlinx.coroutines.runBlocking { store.load().registered }
+            }
+
+            override fun unregister(zoneId: String) = Unit
+        }
+        fixes.next = at(home)
+        LocationEngine(host, store, fixes, watching, cadence, clock = { now }).refresh()
+        assertEquals(2, seen.size)
+        for (s in seen) assertTrue(s.containsAll(setOf(home.signature, school.signature)), "$s")
+    }
+
+    /** Y4 parked minor: a record that signed nothing (no group) leaves the state, so the event is tried again. */
+    @Test
+    fun anUnsignedStepDoesNotMoveTheStateOn() = runTest {
+        val refusing = object : LocationHost by host {
+            override suspend fun record(events: List<ZoneEvent>, report: Report?) = false
+        }
+        val start = TrackerState(Mode.IN_ZONE, setOf(home.id), registered = setOf(home.signature, school.signature))
+        store.state = start
+        fixes.next = away
+        LocationEngine(refusing, store, fixes, alerts, cadence, clock = { now }).onProximity(home.id, entering = false)
+        assertEquals(start, store.state)
+        assertEquals(0, host.uploads)
+        assertFalse(cadence.service)
+    }
 }

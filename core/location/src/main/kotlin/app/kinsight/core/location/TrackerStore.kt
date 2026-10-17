@@ -1,9 +1,12 @@
 package app.kinsight.core.location
 
+import android.util.Log
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
@@ -47,7 +50,20 @@ class DataStoreTrackerStore(private val store: DataStore<Preferences>) : Tracker
     companion object {
         const val NAME = "kinsight_location"
 
-        fun create(file: File, scope: CoroutineScope) = DataStoreTrackerStore(PreferenceDataStoreFactory.create(scope = scope, produceFile = { file }))
+        /**
+         * A file that no longer reads (Y4 parked minor) starts over from the empty state, logged: otherwise every entry
+         * point, off() and forget() included, would throw and tracking could never be turned off.
+         */
+        fun create(file: File, scope: CoroutineScope, log: (String) -> Unit = { Log.w("KinsightLocation", it) }) = DataStoreTrackerStore(
+            PreferenceDataStoreFactory.create(
+                corruptionHandler = ReplaceFileCorruptionHandler { e ->
+                    log("tracker state unreadable, starting over: ${e.javaClass.simpleName}")
+                    emptyPreferences()
+                },
+                scope = scope,
+                produceFile = { file },
+            ),
+        )
 
         private val MODE = stringPreferencesKey("mode")
         private val INSIDE = stringSetPreferencesKey("inside")
