@@ -63,5 +63,8 @@ sealed interface MapStatus {
 
         /** 10 m steps under a kilometre, 100 m above: the map is no ruler. */
         internal fun roundDistance(m: Double): Int = if (m < 1_000) (m / 10).roundToInt() * 10 else (m / 100).roundToInt() * 100
+
+        /** Under a minute old (or a little ahead of this phone's clock): «только что», never «0 минут назад». */
+        internal fun justNow(atMs: Long, nowMs: Long): Boolean = nowMs - atMs < 60_000
     }
 }

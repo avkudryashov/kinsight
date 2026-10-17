@@ -183,6 +183,7 @@
     <string name="map_add_home_zone">Add a “Home” zone</string>
     <string name="map_searching">Updating locations…</string>
     <string name="map_with_age">%1$s · %2$s</string>
+    <string name="map_just_now">just now</string>
     <string name="map_reason_cloud_off">Sync through Yandex Disk is off, and the location travels only through it.</string>
     <string name="map_reason_not_sharing">The child\'s phone is not sharing now.</string>
     <string name="map_reason_permission">Location access is off on the child\'s phone.</string>

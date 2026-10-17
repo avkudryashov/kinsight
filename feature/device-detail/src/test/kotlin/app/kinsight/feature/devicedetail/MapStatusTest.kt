@@ -111,4 +111,13 @@ class MapStatusTest {
         assertEquals(350, MapStatus.roundDistance(347.0))
         assertEquals(1_200, MapStatus.roundDistance(1_234.0))
     }
+
+    @Test
+    fun underAMinuteIsJustNow() {
+        assertEquals(true, MapStatus.justNow(atMs = 1_000_000, nowMs = 1_000_000))
+        assertEquals(true, MapStatus.justNow(atMs = 1_000_000, nowMs = 1_059_999))
+        assertEquals(false, MapStatus.justNow(atMs = 1_000_000, nowMs = 1_060_000))
+        // A point stamped a little ahead of this phone's clock is still fresh, not «in the future».
+        assertEquals(true, MapStatus.justNow(atMs = 1_030_000, nowMs = 1_000_000))
+    }
 }

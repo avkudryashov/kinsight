@@ -186,6 +186,7 @@
     <string name="map_add_home_zone">Añade una zona «Casa»</string>
     <string name="map_searching">Actualizando las ubicaciones…</string>
     <string name="map_with_age">%1$s · %2$s</string>
+    <string name="map_just_now">justo ahora</string>
     <string name="map_reason_cloud_off">La sincronización con Yandex Disk está desactivada y la ubicación solo viaja por ella.</string>
     <string name="map_reason_not_sharing">El teléfono del menor no está compartiendo ahora.</string>
     <string name="map_reason_permission">El acceso a la ubicación está desactivado en el teléfono del menor.</string>

@@ -189,6 +189,7 @@
     <string name="map_add_home_zone">Добавьте зону «Дом»</string>
     <string name="map_searching">Обновляем местоположение…</string>
     <string name="map_with_age">%1$s · %2$s</string>
+    <string name="map_just_now">только что</string>
     <string name="map_reason_cloud_off">Синхронизация через Яндекс Диск выключена, а местоположение передаётся только через неё.</string>
     <string name="map_reason_not_sharing">Телефон ребёнка сейчас не делится данными.</string>
     <string name="map_reason_permission">На телефоне ребёнка выключен доступ к геолокации.</string>

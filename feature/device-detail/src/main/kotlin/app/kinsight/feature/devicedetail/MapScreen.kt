@@ -249,7 +249,10 @@ private fun ZoneHint(canEditZones: Boolean, onZones: () -> Unit) {
 private fun statusText(s: MapStatus, c: ChildLocation, nowMs: Long): String {
     val context = LocalContext.current
     @Composable
-    fun aged(text: String): String = c.status?.let { stringResource(R.string.map_with_age, text, relativeTime(it.atMs, nowMs)) } ?: text
+    fun aged(text: String): String = c.status?.let {
+        val age = if (MapStatus.justNow(it.atMs, nowMs)) stringResource(R.string.map_just_now) else relativeTime(it.atMs, nowMs)
+        stringResource(R.string.map_with_age, text, age)
+    } ?: text
     return when (s) {
         is MapStatus.InZone -> when {
             s.zoneName == null -> aged(stringResource(R.string.map_in_unknown_zone))
