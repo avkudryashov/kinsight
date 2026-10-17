@@ -564,6 +564,22 @@ class DashboardScreenTest {
         rule.onNode(hasTestTag("dash_place") and hasText("may be out of date", substring = true), useUnmergedTree = true).assertDoesNotExist()
     }
 
+    /** Y4 Task 12 review Minor 3: a zone this phone does not know (any more) is still «in a zone», without a name. */
+    @Test
+    fun aChildInAZoneWithoutANameIsSaidToBeInAZone() {
+        val inUnknown = usage(kid, 30, 30).copy(place = PlaceStatus.InZone("aa".repeat(16), null, now - 60_000))
+        show(DashboardUi(DashboardState(mom, null, listOf(inUnknown), listOf(dad)), running, true))
+        rule.onNodeWithTag("dash_place", useUnmergedTree = true).assertTextContains("In a safe zone", substring = true)
+        rule.onNode(hasTestTag("dash_place") and hasText("“", substring = true), useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    /** Y4 Task 12 review Minor 3: no word of the child's place yet: no place line at all. */
+    @Test
+    fun aChildWithoutAPlaceHasNoPlaceLine() {
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30).copy(place = null)), listOf(dad)), running, true))
+        rule.onNodeWithTag("dash_place", useUnmergedTree = true).assertDoesNotExist()
+    }
+
     @Test
     fun aChildOutsideIsSaidSo() {
         val out = usage(kid, 30, 30).copy(place = PlaceStatus.Outside(null, now - 60_000))
