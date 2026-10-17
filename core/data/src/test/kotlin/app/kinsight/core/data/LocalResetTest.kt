@@ -6,9 +6,9 @@ import app.kinsight.core.transport.cloud.DiskApi
 import app.kinsight.core.transport.cloud.DiskItem
 import app.kinsight.core.transport.cloud.InMemoryDisk
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import java.io.File
@@ -169,16 +169,17 @@ class LocalResetTest {
             queuedTouchedTheDisk = true
             oldKey()
         }
-        // Run 1 is inside CloudSync when the wipe starts; run 2 starts after the wipe queued behind run 1.
+        // Run 1 is inside CloudSync when the wipe starts; run 2 starts after the wipe queued behind run 1. Both start
+        // undispatched on this thread, so each is parked on the (fair, FIFO) run lock when async returns: no sleeps.
         val run1 = async(Dispatchers.Default) { runCatching { d.runner(held).run(CloudTrigger.NOW) } }
         withTimeout(20_000) { entered.await() }
-        val wipe = async(Dispatchers.Default) { d.reset.forgetGroup() }
-        delay(300)
+        val wipe = async(start = CoroutineStart.UNDISPATCHED) { d.reset.forgetGroup() }
         assertTrue(d.cloudSecrets.runLock.isLocked)
         assertFalse(wipe.isCompleted, "the wipe waits for the run")
+        assertEquals("stop", d.sync.calls.last(), "the wipe got as far as the run lock")
         assertTrue(d.groups.exists(), "nothing is wiped while a run holds the lock")
-        val run2 = async(Dispatchers.Default) { d.runner(queued).run(CloudTrigger.NOW) }
-        delay(300)
+        val run2 = async(start = CoroutineStart.UNDISPATCHED) { d.runner(queued).run(CloudTrigger.NOW) }
+        assertFalse(run2.isCompleted, "queued behind the wipe")
         release.complete(Unit)
         withTimeout(20_000) {
             run1.await()
