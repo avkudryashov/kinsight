@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -66,7 +65,6 @@ import app.kinsight.core.data.AppList
 import app.kinsight.core.data.AppUsage
 import app.kinsight.core.data.Categories
 import app.kinsight.core.data.CategoryTotal
-import app.kinsight.core.data.DayTotal
 import app.kinsight.core.data.DetailRange
 import app.kinsight.core.data.DeviceDetail
 import app.kinsight.core.data.HourTotal
@@ -79,7 +77,6 @@ import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.data.TodayComparison
 import app.kinsight.core.data.UsageReadModel
 import app.kinsight.core.designsystem.component.AppIcon
-import app.kinsight.core.designsystem.component.BarChart
 import app.kinsight.core.designsystem.component.CategoryStrip
 import app.kinsight.core.designsystem.component.ChartScale
 import app.kinsight.core.designsystem.component.EmptyState
