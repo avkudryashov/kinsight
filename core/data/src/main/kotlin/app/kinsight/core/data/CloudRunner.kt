@@ -168,6 +168,10 @@ class CloudRunner(
             }
         }
         val ring = secrets.ring(group)
+        // Y3 parked concern: the newest generation sealed to us may have come over Bluetooth only (the rotation op), and
+        // the owner's CloudAccess in the log is sealed with it: the ring takes it now, not only inside a sync this phone
+        // could never start without an access.
+        GroupKey.open(k, membership)?.let { (epoch, key) -> if (ring.keys()[epoch]?.contentEquals(key) != true) ring.put(epoch, key) }
         if (isOwner) {
             // Not rotated (the append found no target): a refreshed token would be sealed under a key a departed phone holds.
             if (!GroupKey.rotationNeeded(membership)) refreshIfDue(group.groupId, membership, k, ring, now)

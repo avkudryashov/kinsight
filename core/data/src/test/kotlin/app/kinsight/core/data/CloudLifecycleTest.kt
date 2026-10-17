@@ -341,6 +341,27 @@ class CloudLifecycleTest {
         assertEquals(2, calls)
     }
 
+    /**
+     * Y3 parked concern: a parent whose only access is the owner's CloudAccess in the log, sealed under a key generation
+     * that came to it over Bluetooth (the rotation op) but never reached its ring (absorbing happened only inside a sync),
+     * takes that key before it looks for its access, instead of NO_ACCESS until the owner hands its token.
+     */
+    @Test
+    fun aParentOpensTheLogsAccessUnderAKeyItHasNotAbsorbedYet() = runBlocking<Unit> {
+        family()
+        val g = mom.groups.read()!!
+        check(mom.appendOwn { a -> listOf(GroupKey.rotate(a, membershipOf(mom))) })
+        assertNotNull(OwnerRecords.claim(mom.appendOwn, mom.store(), mom.keys, mom.cloudSecrets.ring(g), ByteArray(16) { 1 }, 1, "AT", mom.now + YEAR))
+        mom.cloudSecrets.saveOwner(g.groupId, 1, ByteArray(16) { 1 }, TokenSet("AT", "RT", mom.now + YEAR))
+        // Bluetooth: Dad gets Mom's log (the rotation, StorageOwner, CloudAccess), no token in his vault.
+        dad.store().storeMembership(mom.store().membershipEntries())
+        dad.store().applyBatch(mom.store().entriesAfter(mom.keys.deviceId, 0, 10_000))
+        assertNull(dad.cloudSecrets.tokens())
+        assertEquals(setOf(0), dad.cloudSecrets.ring(g).keys().keys, "generation 1 is only in the log")
+        assertEquals(CloudRun.SYNCED, dad.runner(disks::disk, http).run(CloudTrigger.NOW))
+        assertNull(dad.cloudState.current().problem)
+    }
+
     /** Parked Y3 minor: the Heartbeat still owed survives the process (a new runner reads it from the cloud state). */
     @Test
     fun aHeartbeatStillOwedSurvivesProcessDeath() = runBlocking<Unit> {
