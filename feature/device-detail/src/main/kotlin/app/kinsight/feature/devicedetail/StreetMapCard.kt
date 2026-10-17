@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +37,8 @@ import app.kinsight.core.maps.OverlayZone
 import app.kinsight.core.maps.Overlays
 import app.kinsight.core.maps.PreviewFrame
 import app.kinsight.core.maps.StyleComposer
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 /** How the street preview is drawn: MapLibre in the app, a stand-in in the JVM tests (no native code there). */
@@ -73,14 +77,24 @@ private fun StreetPreviewCard(child: ChildLocation, mark: Color, preview: Street
     val context = LocalContext.current
     val colors = MaterialTheme.colorScheme
     val dark = colors.surface.luminance() < 0.5f
-    val template = remember(dark) { context.assets.open(if (dark) STYLE_DARK else STYLE_LIGHT).use { it.readBytes().decodeToString() } }
     val overlay = OverlayColors(mark = mark.hex(), zone = colors.primary.hex(), halo = colors.surfaceContainerHighest.hex())
-    val style = remember(template, preview, child, overlay) { previewStyle(template, preview, child, overlay) }
+    // The asset read and the composition (71 layers per block) stay off the main thread; the fallback shows meanwhile.
+    val style by produceState<String?>(null, dark, preview, child, overlay) {
+        value = withContext(Dispatchers.Default) {
+            val template = context.assets.open(if (dark) STYLE_DARK else STYLE_LIGHT).use { it.readBytes().decodeToString() }
+            previewStyle(template, preview, child, overlay)
+        }
+    }
     val frame = remember(child) { previewFrame(child) }
     val description = stringResource(R.string.loc_preview_description)
     val open = apps?.preferred
+    val ready = style
+    if (ready == null) {
+        PlainMap(child, mark, preview)
+        return
+    }
     Box(Modifier.fillMaxWidth().height(PREVIEW_HEIGHT).clip(MaterialTheme.shapes.large).testTag("loc_preview")) {
-        slot(style, frame, Modifier.fillMaxSize())
+        slot(ready, frame, Modifier.fillMaxSize())
         // Over the map view, so the tap reaches Compose (spec §4: the preview has no gestures of its own).
         Box(
             Modifier.matchParentSize()

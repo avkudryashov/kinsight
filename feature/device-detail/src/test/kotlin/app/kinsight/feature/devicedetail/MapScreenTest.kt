@@ -23,6 +23,7 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -343,10 +344,14 @@ class MapScreenTest {
         KinsightTheme { MapScreen(MapState(listOf(outside), cloudOn, loaded = true, streets = streets), now, onZones = {}, streetMap = fakeMap) }
     }
 
+    /** The style is composed off the main thread; the plain map shows until it is ready. */
+    private fun awaitPreview() = rule.waitUntil(5_000) { rule.onAllNodesWithTag("loc_preview").fetchSemanticsNodes().isNotEmpty() }
+
     /** Offline map spec §4: with the block on the phone, the street preview with the OSM attribution, no plain map. */
     @Test
     fun withTheBlockTheStreetPreviewShows() {
         showStreets(StreetMaps(mapOf(madrid to block), setOf(madrid), emptySet(), downloading = false))
+        awaitPreview()
         rule.onNodeWithTag("fake_maplibre").assertExists()
         rule.onNodeWithTag("loc_map").assertDoesNotExist()
         rule.onNodeWithTag("loc_osm").assertTextEquals("© OpenStreetMap contributors")
@@ -361,6 +366,7 @@ class MapScreenTest {
         install(ExternalMaps.yandex(p2.latE7, p2.lonE7), ExternalMaps.YANDEX)
         install(ExternalMaps.google(p2.latE7, p2.lonE7), ExternalMaps.GOOGLE)
         showStreets(StreetMaps(mapOf(madrid to block), setOf(madrid), emptySet(), downloading = false))
+        awaitPreview()
         rule.onNodeWithTag("loc_preview_tap").performClick()
         assertEquals(ExternalMaps.YANDEX, shadowOf(app).nextStartedActivity.`package`)
     }
