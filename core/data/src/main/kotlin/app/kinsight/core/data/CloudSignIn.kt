@@ -361,7 +361,7 @@ class CloudSignIn(
             // Turned off before its old token was revoked: that one goes first (best effort; one Yandex did not answer
             // stays retired, and the runs of the new storage revoke it once every phone switched).
             CloudOff.settle(group.groupId, m, secrets, cloudState, clock())
-            CloudOff.revokeAll(group.groupId, secrets, config, oauth)
+            CloudOff.revokeAll(group.groupId, secrets, config, oauth, inUse = t.accessToken)
         }
         m = rotatedIfNeeded(store, k, m, ring) ?: return CloudEnableResult.NOT_ADMIN
         // Turned on before and off by its owner since (StorageOwner.off): the new op goes above the off record.

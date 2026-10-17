@@ -49,13 +49,25 @@ internal object CloudOff {
 
     /**
      * Revokes every retired token of [groupId] once; an answer of any kind drops it (a token Yandex no longer knows is
-     * dead anyway), no answer keeps it for the next try. True when none is left.
+     * dead anyway), no answer keeps it for the next try. A retired token equal to [inUse] is only dropped: Yandex hands the
+     * same token again to a phone that signs in anew, and revoking it would kill the access just taken. True when none is left.
      */
-    suspend fun revokeAll(groupId: GroupId, secrets: CloudSecrets, config: () -> CloudConfig, oauth: (CloudConfig) -> YandexOAuth): Boolean {
+    suspend fun revokeAll(
+        groupId: GroupId,
+        secrets: CloudSecrets,
+        config: () -> CloudConfig,
+        oauth: (CloudConfig) -> YandexOAuth,
+        inUse: String? = null,
+    ): Boolean {
         val c = config()
         if (!c.configured) return true
         var left = false
         for (r in secrets.retired(groupId)) {
+            if (inUse != null && r.accessToken == inUse) {
+                secrets.dropRetired(r.accessToken)
+                Log.i(TAG, "token of generation ${r.generation} is the one just signed in with: kept, not revoked")
+                continue
+            }
             try {
                 val revoked = oauth(c).revoke(r.accessToken)
                 Log.i(TAG, "token of generation ${r.generation} revoked after the cloud was turned off: $revoked")

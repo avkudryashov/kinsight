@@ -209,6 +209,19 @@ class CloudOffTest {
     }
 
     @Test
+    fun yandexHandingTheSameTokenAgainKeepsIt() = runBlocking<Unit> {
+        family()
+        assertEquals(CloudOffResult.OFF, mom.cloud().turnOff())
+        // Yandex gives a phone that signs in anew (same device_id) the token it already holds.
+        val again = mom.signIn(http, { disk })
+        again.start("Pixel")
+        assertEquals(CloudEnableResult.ENABLED, again.finish("1234567"))
+        assertTrue(revoked().isEmpty(), "the token just signed in with is never revoked")
+        assertEquals("AT1", mom.cloudSecrets.tokens()!!.accessToken)
+        assertTrue(mom.cloudSecrets.retired(mom.groups.read()!!.groupId).isEmpty())
+    }
+
+    @Test
     fun anyAdminParentTurnsItOnAgainOnTheSameFolder() = runBlocking<Unit> {
         family()
         val g = mom.groups.read()!!
