@@ -22,7 +22,9 @@ sealed class DiskException(message: String) : IOException(message) {
     class Conflict(val error: String?) : DiskException("conflict: $error")
     class RateLimited(val retryAfterMs: Long?) : DiskException("rate limited")
     class StorageFull : DiskException("storage full")
-    class Server(val code: Int) : DiskException("server error $code")
+    /** [what] is the app-folder path (no token, no personal data), [error] Yandex's error name when it sent one. */
+    class Server(val code: Int, val what: String = "", val error: String? = null) :
+        DiskException("server error $code" + (if (what.isEmpty()) "" else " at $what") + (error?.let { ": $it" } ?: ""))
     class Unexpected(val code: Int, val detail: String) : DiskException("unexpected $code: $detail")
 }
 

@@ -65,13 +65,13 @@ class YandexDisk(
     override suspend fun upload(path: String, bytes: ByteArray) {
         val link = json(api("GET", "/resources/upload?path=${enc(path)}&overwrite=true", path))
         val r = http.request(method(link, "PUT"), href(link), body = bytes)
-        if (r.code !in 200..299) throw fail(r, path)
+        if (r.code !in 200..299) throw fail(r, path, step = "storage put")
     }
 
     override suspend fun download(path: String): ByteArray {
         val link = json(api("GET", "/resources/download?path=${enc(path)}", path))
         val r = http.request(method(link, "GET"), href(link))
-        if (r.code != 200) throw fail(r, path)
+        if (r.code != 200) throw fail(r, path, step = "storage get")
         return r.body
     }
 
@@ -108,13 +108,13 @@ class YandexDisk(
 
         private fun errorOf(r: HttpResponse): String? = runCatching { json(r)["error"]?.jsonPrimitive?.contentOrNull }.getOrNull()
 
-        fun fail(r: HttpResponse, what: String): IOException = when (r.code) {
+        fun fail(r: HttpResponse, what: String, step: String = "api"): IOException = when (r.code) {
             401 -> DiskException.Unauthorized()
             404 -> DiskException.NotFound(what)
             409 -> DiskException.Conflict(errorOf(r))
             429 -> DiskException.RateLimited(r.header("retry-after")?.toLongOrNull()?.times(1000))
             507 -> DiskException.StorageFull()
-            in 500..599 -> DiskException.Server(r.code)
+            in 500..599 -> DiskException.Server(r.code, "$step $what", errorOf(r))
             else -> DiskException.Unexpected(r.code, errorOf(r) ?: "")
         }
     }

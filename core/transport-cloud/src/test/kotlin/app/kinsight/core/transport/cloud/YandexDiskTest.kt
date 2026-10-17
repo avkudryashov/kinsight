@@ -60,6 +60,13 @@ class YandexDiskTest {
     }
 
     @Test
+    fun aServerErrorSaysWhereAndWhatYandexAnswered() = runTest {
+        y.on({ it.query["path"] == "app:/Kinsight/g/x" }) { _, ex -> y.respond(ex, 500, """{"error":"InternalServerError"}""") }
+        val e = assertFailsWith<DiskException.Server> { disk.list("app:/Kinsight/g/x") }
+        assertEquals("server error 500 at api app:/Kinsight/g/x: InternalServerError", e.message)
+    }
+
+    @Test
     fun statusCodesMapToDiskExceptions() = runTest {
         y.on({ it.query["path"] == "app:/401" }) { _, ex -> y.respond(ex, 401, """{"error":"UnauthorizedError"}""") }
         y.on({ it.query["path"] == "app:/507" }) { _, ex -> y.respond(ex, 507, """{"error":"DiskInsufficientStorageError"}""") }
