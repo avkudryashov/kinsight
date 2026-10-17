@@ -51,6 +51,22 @@ class RoomEntryStoreTest {
     }
 
     @Test
+    fun entriesOfKindsAfterReadOnlyThoseKindsInSeqOrder() = runTest {
+        val store = open()
+        store.applyBatch(listOf(genesis.entry))
+        val usage = author.summary("2026-10-08", 1)
+        val zone = author.safeZoneEntry(ByteArray(16) { 7 }, "Home", 404_168_000, -37_038_000, 150, rank = 1)
+        val point = author.locationEntry(404_168_000, -37_038_000, 20, 1_760_000_000_000L, Location.Provider.GPS)
+        val zone2 = author.safeZoneEntry(ByteArray(16) { 8 }, "School", 404_168_000, -37_038_000, 150, rank = 1)
+        store.applyBatch(listOf(usage, zone, point, zone2))
+        val share = setOf(EntryKind.SAFE_ZONE, EntryKind.PARENT_PIN)
+        assertEquals(listOf(zone, zone2), store.entriesAfter(keys.deviceId, 0, share, 10))
+        assertEquals(listOf(zone2), store.entriesAfter(keys.deviceId, zone.seq, share, 10))
+        assertEquals(listOf(zone), store.entriesAfter(keys.deviceId, 0, share, 1))
+        assertEquals(emptyList(), store.entriesAfter(keys.deviceId, 0, emptySet(), 10))
+    }
+
+    @Test
     fun failedBatchLeavesNoTrace() = runTest {
         val store = open()
         store.applyBatch(listOf(genesis.entry))

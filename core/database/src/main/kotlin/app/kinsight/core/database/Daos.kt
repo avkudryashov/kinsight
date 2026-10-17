@@ -28,6 +28,10 @@ interface EntryDao {
     @Query("SELECT bytes FROM entries WHERE author = :author AND seq > :afterSeq ORDER BY seq LIMIT :limit")
     suspend fun bytesAfter(author: String, afterSeq: Long, limit: Int): List<ByteArray>
 
+    /** One author's entries of the [kinds] codes above [afterSeq]: served by the (kind, author, seq) index. */
+    @Query("SELECT bytes FROM entries WHERE kind IN (:kinds) AND author = :author AND seq > :afterSeq ORDER BY seq LIMIT :limit")
+    suspend fun bytesOfKindsAfter(kinds: List<Int>, author: String, afterSeq: Long, limit: Int): List<ByteArray>
+
     @Query("SELECT bytes FROM entries ORDER BY author, seq")
     suspend fun allBytes(): List<ByteArray>
 

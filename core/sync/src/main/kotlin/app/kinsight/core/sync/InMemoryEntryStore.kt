@@ -3,6 +3,7 @@ package app.kinsight.core.sync
 import app.kinsight.core.crypto.toHex
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
+import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.GroupId
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -23,6 +24,10 @@ class InMemoryEntryStore(override val groupId: GroupId) : EntryStore {
 
     override suspend fun entriesAfter(author: DeviceId, afterSeq: Long, limit: Int) = mutex.withLock {
         byKey.values.filter { it.author == author && it.seq > afterSeq }.sortedBy { it.seq }.take(limit)
+    }
+
+    override suspend fun entriesAfter(author: DeviceId, afterSeq: Long, kinds: Set<EntryKind>, limit: Int) = mutex.withLock {
+        byKey.values.filter { it.author == author && it.seq > afterSeq && it.kind in kinds }.sortedBy { it.seq }.take(limit)
     }
 
     override suspend fun applyBatch(entries: List<DecodedEntry>, seen: Map<DeviceId, Set<Long>>) = mutex.withLock {

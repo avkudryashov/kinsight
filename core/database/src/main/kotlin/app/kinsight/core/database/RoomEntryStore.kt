@@ -43,6 +43,16 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
         return entryDao.bytesAfter(author.hex, afterSeq, limit).map(DecodedEntry::decode)
     }
 
+    /**
+     * Through the kind index. Rows stored as [EntryKinds.UNKNOWN] before an update that taught this build their kind are
+     * not found by their new kind (see EntryKinds); asking for [EntryKind.UNKNOWN] finds them.
+     */
+    override suspend fun entriesAfter(author: DeviceId, afterSeq: Long, kinds: Set<EntryKind>, limit: Int): List<DecodedEntry> {
+        require(limit >= 0) { "Requested element count $limit is less than zero." }
+        if (kinds.isEmpty()) return emptyList()
+        return entryDao.bytesOfKindsAfter(kinds.map(EntryKinds::code).distinct(), author.hex, afterSeq, limit).map(DecodedEntry::decode)
+    }
+
     override suspend fun applyBatch(entries: List<DecodedEntry>, seen: Map<DeviceId, Set<Long>>): Unit = db.write {
         val touched = HashSet<String>()
         entries.forEachIndexed { i, e ->

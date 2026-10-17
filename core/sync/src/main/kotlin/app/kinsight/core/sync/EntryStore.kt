@@ -2,6 +2,7 @@ package app.kinsight.core.sync
 
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
+import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.Membership
 
@@ -26,6 +27,22 @@ interface EntryStore {
 
     /** Live entries of [author] with seq > [afterSeq], ascending by seq. */
     suspend fun entriesAfter(author: DeviceId, afterSeq: Long, limit: Int): List<DecodedEntry>
+
+    /**
+     * Live entries of [author] with seq > [afterSeq] whose kind is in [kinds], ascending by seq. The default pages
+     * through [entriesAfter]; a store with a kind index overrides it.
+     */
+    suspend fun entriesAfter(author: DeviceId, afterSeq: Long, kinds: Set<EntryKind>, limit: Int): List<DecodedEntry> {
+        val out = mutableListOf<DecodedEntry>()
+        var after = afterSeq
+        while (out.size < limit) {
+            val page = entriesAfter(author, after, limit)
+            if (page.isEmpty()) break
+            for (e in page) if (e.kind in kinds && out.size < limit) out += e
+            after = page.last().seq
+        }
+        return out
+    }
 
     /** Atomically stores [entries] and accounts for their seqs and for every seq in [seen] (not stored). */
     suspend fun applyBatch(entries: List<DecodedEntry>, seen: Map<DeviceId, Set<Long>> = emptyMap())
