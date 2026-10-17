@@ -2,10 +2,16 @@ import org.w3c.dom.Element
 import javax.xml.parsers.DocumentBuilderFactory
 
 /**
- * What the release (Play) manifest must and must not contain (audit S-M4, A-10): no debug entry points, the monitoring
- * flag, no ads (location is allowed since cloud Y4, spec §12: the child's position for the family's safe zones, through the platform LocationManager only) (the network is allowed since cloud Y2, spec §2: sync through the user's own Yandex Disk, off by default), nothing of Google Play services, ML Kit or Firebase (the app works
- * offline and without Play services), and no camera requirement (a phone without one joins by link). The CAMERA
- * permission itself is allowed.
+ * What the release (Play) manifest must and must not contain (audit S-M4, A-10):
+ * - no debug entry points;
+ * - the monitoring flag;
+ * - no ads;
+ * - nothing of Google Play services, ML Kit or Firebase: the app works offline and without Play services;
+ * - no camera requirement (a phone without one joins by link). The CAMERA permission itself is allowed.
+ *
+ * Allowed on purpose: the network since cloud Y2 (spec §2: sync through the user's own Yandex Disk, off by default) and
+ * location since cloud Y4 (spec §12: the child's position for the family's safe zones, through the platform
+ * LocationManager only).
  */
 object ReleaseManifestRules {
     private const val ANDROID = "http://schemas.android.com/apk/res/android"
