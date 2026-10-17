@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.location.LocationManager
 import android.net.Uri
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -33,7 +34,23 @@ class ZoneAlertReceiver : BroadcastReceiver() {
 /** The 5-minute tick outside the zones (spec §8.1). */
 class LocationTickReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        within { LocationGraph.launch(context, "tick") { it.onTick(Tick.OUTSIDE) } }
+        within { LocationGraph.launch(context, "tick") { engine -> OutsideTick.run { engine.onTick(Tick.OUTSIDE) } } }
+    }
+}
+
+/** The work of one outside tick. */
+internal object OutsideTick {
+    private const val TAG = "KinsightLocation"
+
+    /** The debug build can hold the tick past the broadcast's release first (LocationSeams; always 0 in release). */
+    suspend fun run(onTick: suspend () -> Unit) {
+        val held = LocationSeams.tickDelayMs
+        if (held > 0) {
+            Log.i(TAG, "tick held ${held}ms by the debug switch")
+            delay(held)
+        }
+        onTick()
+        if (held > 0) Log.i(TAG, "held tick done")
     }
 }
 

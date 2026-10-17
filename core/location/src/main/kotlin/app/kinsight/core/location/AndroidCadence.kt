@@ -36,6 +36,8 @@ class AndroidCadence internal constructor(context: Context, start: ((Intent) -> 
     override fun startService(): Boolean {
         val id = ServiceGate.wantStart() ?: return true
         return try {
+            // The debug build can refuse it here (LocationSeams; the release twin is always off).
+            if (LocationSeams.refuseStart) throw ForegroundServiceStartNotAllowedException("start refused by the debug switch")
             if (start(Intent(app, LocationService::class.java).putExtra(ServiceGate.EXTRA_START, id)) != null) {
                 true
             } else {

@@ -29,6 +29,8 @@ class LocationService : Service() {
             getSystemService(NotificationManager::class.java).createNotificationChannel(
                 NotificationChannel(CHANNEL_ID, getString(R.string.loc_channel), NotificationManager.IMPORTANCE_LOW),
             )
+            // The debug build can refuse it here (LocationSeams; the release twin is always off).
+            if (LocationSeams.refuseForeground) throw SecurityException("foreground refused by the debug switch")
             startForeground(NOTIFICATION_ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
             true
         } catch (e: Exception) {
