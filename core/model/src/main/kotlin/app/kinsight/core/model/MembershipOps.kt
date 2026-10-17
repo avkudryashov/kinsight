@@ -70,6 +70,23 @@ fun EntryAuthor.storageOwnerEntry(
     }
 }
 
+/**
+ * The owner turns the cloud off for the whole family: StorageOwner(this owner, [storageId], [generation], off). Valid only
+ * from the owner in force with [generation] above its op (Membership); token_id and departed stay empty.
+ */
+fun EntryAuthor.storageOffEntry(storageId: ByteArray, generation: Long): DecodedEntry = create {
+    it.copy(
+        membership_op = MembershipOp(
+            storage_owner = StorageOwner(
+                device_id = keys.deviceId.bytes().toByteString(),
+                storage_id = storageId.toByteString(),
+                generation = generation,
+                off = true,
+            ),
+        ),
+    )
+}
+
 /** StorageHandover (spec §7.1): the storage owner asks [to] to take the storage of [generation]. Not a membership op. */
 fun EntryAuthor.storageHandoverEntry(to: DeviceId, generation: Long): DecodedEntry = create {
     it.copy(storage_handover = StorageHandover(to.bytes().toByteString(), generation))

@@ -174,7 +174,8 @@ message MembershipOp {
 }
 
 // The parent whose Yandex Disk holds the group's cloud storage (spec §4). Admin-only. The op with the highest generation
-// wins (replay order breaks a tie); the target must be an active admin that is not a child.
+// wins (replay order breaks a tie); the target must be an active admin that is not a child. An op with off set turns the
+// cloud off instead (see off).
 message StorageOwner {
   bytes device_id = 1;
   bytes storage_id = 2;  // 16 random bytes, also the content of app:/Kinsight/<groupId>/storage.id
@@ -185,6 +186,11 @@ message StorageOwner {
   // Device ids of the departed members (RemoveMember or LEFT_GROUP) the signer knew of when the token was issued,
   // at most 256; copied unchanged with the token. A departure missing here may know the token (spec §7.4).
   repeated bytes departed = 5;
+  // The owner turned the cloud off for the whole family: no storage owner from this generation on (every cloud decision
+  // reads it as «облако выключено»). Only the owner in force may sign it, naming itself and its storage; device_id and
+  // storage_id stay those of the storage turned off, token_id and departed stay empty. A later StorageOwner (any admin
+  // parent's normal turn-on, generation + 1) turns the cloud on again. The family folder on the Disk stays.
+  bool off = 6;
 }
 
 // «Новый доступ» (spec §6, §7.4): the storage owner's access token for the members, one live entry per author
