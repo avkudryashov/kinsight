@@ -117,10 +117,12 @@ class TestDevice(
     // A JVM AES key stands in for the Keystore wrap key; one wrap for all the files, like CloudFiles.wrap.
     private val cloudAes = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
     private val cloudWrap = AesGcmWrap { cloudAes }
+    @Volatile var onAccess: () -> Unit = {} // CloudSecrets' onAccess (the app schedules a cloud run there)
     val cloudSecrets = CloudSecrets(
         CloudTokenVault(File(dir, CloudTokenVault.FILE_NAME), cloudWrap),
         GroupKeyFile(File(dir, GroupKeyFile.FILE_NAME), cloudWrap),
         RetiredTokenFile(File(dir, RetiredTokenFile.FILE_NAME), cloudWrap),
+        onAccess = { onAccess() },
     )
     val cloudState = CloudStateStore.create(File(dir, "c.preferences_pb"), scope)
     val identityResets: MutableList<Boolean> = Collections.synchronizedList(mutableListOf()) // was the database empty when the identity went

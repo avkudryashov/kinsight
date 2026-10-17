@@ -71,22 +71,27 @@ class CloudSecrets(
 
     /**
      * A token handed at pairing or over Bluetooth. Never replaces the owner's own tokens of the group (whatever storage
-     * generation it names), a token of a newer storage generation, nor a newer token (a later expiry) of the same one.
+     * generation it names), a token of a newer storage generation, nor a newer token (a later expiry) of the same storage.
      * True when stored. On a parent ([keep]) the token it replaces is retired first, for the revoke; a child just replaces it.
      */
-    suspend fun saveHanded(groupId: GroupId, a: HandedAccess, keep: Boolean): Boolean = vaultLock.withLock {
-        val held = tokens()
-        if (held != null && held.groupHex == groupId.hex) {
-            if (held.owner) return@withLock false
-            if (held.storageGeneration > a.storageGeneration) return@withLock false
-            if (held.storageGeneration == a.storageGeneration && (held.accessToken == a.accessToken || held.expiresAtMs > a.expiresAtMs)) {
-                return@withLock false
+    suspend fun saveHanded(groupId: GroupId, a: HandedAccess, keep: Boolean): Boolean {
+        val stored = vaultLock.withLock {
+            val held = tokens()
+            if (held != null && held.groupHex == groupId.hex) {
+                if (held.owner) return@withLock false
+                if (held.storageGeneration > a.storageGeneration) return@withLock false
+                // Same storage only: two StorageOwner entries of one generation name two storages, and a later-expiring
+                // token of the one Membership dropped must not block the token of the one it kept.
+                val sameStorage = held.storageGeneration == a.storageGeneration && held.storageId.contentEquals(a.storageId)
+                if (sameStorage && (held.accessToken == a.accessToken || held.expiresAtMs > a.expiresAtMs)) return@withLock false
             }
+            if (keep) retireReplaced(groupId, held, a.accessToken)
+            withContext(io) { vault.write(CloudTokens(groupId.hex, owner = false, a.storageGeneration, a.storageId, a.accessToken, null, a.expiresAtMs)) }
+            true
         }
-        if (keep) retireReplaced(groupId, held, a.accessToken)
-        withContext(io) { vault.write(CloudTokens(groupId.hex, owner = false, a.storageGeneration, a.storageId, a.accessToken, null, a.expiresAtMs)) }
-        onAccess()
-        true
+        // Outside the lock: a callback that reads or writes the secrets must not wait for this save to end.
+        if (stored) onAccess()
+        return stored
     }
 
     /**

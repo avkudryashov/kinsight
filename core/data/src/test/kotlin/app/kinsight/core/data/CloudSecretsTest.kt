@@ -13,7 +13,9 @@ import app.kinsight.core.sync.HandedAccess
 import app.kinsight.core.sync.WelcomeCloud
 import app.kinsight.core.transport.ble.GroupConfig
 import app.kinsight.core.transport.cloud.TokenSet
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -88,6 +90,46 @@ class CloudSecretsTest {
         assertEquals("NEW", token(), "a later sign-in expires later")
         assertFalse(d.cloudSecrets.saveHanded(g.groupId, HandedAccess(1, storageId, "OLDER", 500), keep = false), "an older token never replaces a newer one")
         assertEquals("NEW", token())
+    }
+
+    @Test
+    fun aHandedTokenOfAnOlderStorageGenerationIsRefused() = runBlocking<Unit> {
+        d.group.createGroup("Mom")
+        val g = d.groups.read()!!.groupId
+        assertTrue(d.cloudSecrets.saveHanded(g, HandedAccess(2, ByteArray(16) { 2 }, "GEN2", 1_000), keep = false))
+        assertFalse(d.cloudSecrets.saveHanded(g, HandedAccess(1, ByteArray(16) { 1 }, "GEN1", Long.MAX_VALUE), keep = false))
+        assertEquals("GEN2", d.cloudSecrets.tokens()!!.accessToken)
+    }
+
+    /**
+     * Two StorageOwner entries of one generation (two admins signing in at once): the token of the storage Membership keeps
+     * is not blocked by a later-expiring token of the other one, which [CloudSecrets.access] would never use.
+     */
+    @Test
+    fun aTokenOfTheOtherStorageOfOneGenerationIsTakenWhateverItsExpiry() = runBlocking<Unit> {
+        d.group.createGroup("Mom")
+        val g = d.groups.read()!!.groupId
+        assertTrue(d.cloudSecrets.saveHanded(g, HandedAccess(2, ByteArray(16) { 2 }, "LOSER", 9_000), keep = false))
+        assertTrue(d.cloudSecrets.saveHanded(g, HandedAccess(2, ByteArray(16) { 3 }, "WINNER", 1_000), keep = false))
+        assertEquals("WINNER", d.cloudSecrets.tokens()!!.accessToken)
+        assertFalse(d.cloudSecrets.saveHanded(g, HandedAccess(2, ByteArray(16) { 3 }, "OLDER", 500), keep = false), "same storage: the later expiry wins")
+    }
+
+    /** The callback runs once the vault lock is released: a callback that writes the secrets itself goes through. */
+    @Test
+    fun theAccessCallbackRunsOutsideTheVaultLock() = runBlocking<Unit> {
+        d.group.createGroup("Mom")
+        val g = d.groups.read()!!.groupId
+        var nested: Boolean? = null
+        d.onAccess = {
+            d.onAccess = {}
+            nested = runBlocking(Dispatchers.IO) {
+                withTimeoutOrNull(2_000) { d.cloudSecrets.saveHanded(g, HandedAccess(1, ByteArray(16) { 1 }, "SECOND", 2_000), keep = false) }
+            }
+        }
+        assertTrue(d.cloudSecrets.saveHanded(g, HandedAccess(1, ByteArray(16) { 1 }, "FIRST", 1_000), keep = false))
+        assertEquals(true, nested, "the nested save did not wait for the outer one's lock")
+        assertEquals("SECOND", d.cloudSecrets.tokens()!!.accessToken)
     }
 
     @Test
