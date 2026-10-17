@@ -37,6 +37,26 @@ data class DashboardUi(
     val consentOutdated: Boolean = false,
 )
 
+/**
+ * The loaded screen state. The new-parents banner and the re-consent card ([consentOutdated], the stored consent is
+ * older than the text) are a child's phone's only: an adult's phone never shows them, whatever its own consent record.
+ */
+internal fun dashboardUi(
+    d: DashboardState?,
+    s: ServiceStatus?,
+    noContactHours: Int,
+    sharingFailed: Boolean,
+    ack: Set<DeviceId>?,
+    consentOutdated: Boolean,
+): DashboardUi {
+    val parents = d?.takeIf { it.self.role == Role.CHILD }?.parents // a child's phone only
+    return DashboardUi(
+        d, s, loaded = true, noContactHours = noContactHours, sharingFailed = sharingFailed,
+        newParents = parents?.let { NewParents.of(it, ack) }.orEmpty(),
+        consentOutdated = parents != null && consentOutdated,
+    )
+}
+
 class DashboardViewModel(
     usage: UsageRepository,
     private val service: ServiceRepository,
@@ -55,11 +75,7 @@ class DashboardViewModel(
     private val childFlags = combine(acknowledged, settings.usageSettings.map { it.consentOutdated }.catch { emit(false) }) { ack, old -> ack to old }
 
     val ui: StateFlow<DashboardUi> = combine(usage.dashboard, service.status, noContactHours, sharingFailed, childFlags) { d, s, h, f, (ack, old) ->
-        val parents = d?.takeIf { it.self.role == Role.CHILD }?.parents // a child's phone only
-        DashboardUi(
-            d, s, loaded = true, noContactHours = h, sharingFailed = f, newParents = parents?.let { NewParents.of(it, ack) }.orEmpty(),
-            consentOutdated = parents != null && old,
-        )
+        dashboardUi(d, s, h, f, ack, old)
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUi())
 
