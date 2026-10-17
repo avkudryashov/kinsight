@@ -10,6 +10,7 @@ import app.kinsight.core.data.CloudGraph
 import app.kinsight.core.data.CloudSessionHandoff
 import app.kinsight.core.data.CloudWork
 import app.kinsight.core.data.IntegrityFastSync
+import app.kinsight.core.data.MapWork
 import app.kinsight.core.data.ResetStatus
 import app.kinsight.core.location.LocationGraph
 import app.kinsight.core.transport.ble.BlePermissions
@@ -60,11 +61,17 @@ open class KinsightApplication : Application() {
         UsageWork.schedule(this)
         CloudWork.keepScheduled(this)
         AlertsWork.schedule(this)
+        // Offline map spec §3: the daily check of the street map blocks (a child's phone finds nothing to do).
+        MapWork.schedule(this)
         KinsightWidget.links = WidgetLinks(open = MainActivity::open, openDevice = MainActivity::openDevice)
         // Y4 final review: a cloud run that brought entries of others (a zone exit) gets its alerts pass at once (spec §9).
-        CloudWork.onReceived = { AlertsWork.runSoon(it) }
+        CloudWork.onReceived = {
+            AlertsWork.runSoon(it)
+            MapWork.checkSoon(it) // a child's new points may need a street map block (offline map spec §3)
+        }
         SyncGraph.onSessionFinished = {
             AlertsWork.runSoon(it)
+            MapWork.checkSoon(it)
             CloudWork.keepScheduled(it)
             LocationGraph.refresh(it) // a session may have brought new zones
             // Rulings Q14: the session may have brought the storage owner's new entries.

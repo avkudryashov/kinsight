@@ -10,6 +10,9 @@ import app.kinsight.core.keystore.CloudFiles
 import app.kinsight.core.keystore.DeviceIdentity
 import app.kinsight.core.location.LocationGraph
 import app.kinsight.core.location.LocationPermissions
+import app.kinsight.core.maps.BlockStore
+import app.kinsight.core.maps.HttpMapNet
+import app.kinsight.core.maps.MapSync
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.transport.ble.AndroidPairingLink
 import app.kinsight.core.transport.ble.BlePermissions
@@ -26,6 +29,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -82,6 +87,9 @@ class Graph internal constructor(app: Context) {
             try {
                 SyncGraph.forgetGroup(app)
                 CloudWork.cancel(app)
+                // Offline map spec §3: the blocks name the cells the children were in; they go with the group.
+                MapWork.cancel(app)
+                maps.forget()
                 cloudSecrets.forget()
                 cloudState.clear()
             } catch (e: Throwable) {
@@ -177,6 +185,19 @@ class Graph internal constructor(app: Context) {
         onEnabled = { CloudWork.runSoon(app) },
     )
     val cloudRepository = CloudRepository(snapshots, cloudState, cloudSignIn, prefs, config = { CloudGraph.config }, scope = scope, secrets = cloudSecrets, cloudOff = cloud::turnOff)
+
+    /**
+     * Offline map spec §3: the street map blocks under filesDir/maps. Only a parent's phone sees children (and marks
+     * cells); nothing is fetched while the family's cloud is off. The WorkManager flow is opened on first collection.
+     */
+    private val mapStore = BlockStore(java.io.File(app.filesDir, MapBlocks.DIR))
+    val maps = MapBlocks(
+        MapSync(mapStore, HttpMapNet()),
+        mapStore,
+        location.children,
+        cloudOn = { cloud.isOn() },
+        downloading = flow { emitAll(MapWork.downloading(app)) },
+    )
 
     /**
      * Spec §10 on a child's phone: location access and the system switch (LocationWatch), at every cloud worker run, on
