@@ -4,13 +4,14 @@ import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.StorageOwnerState
 import app.kinsight.core.model.proto.Heartbeat
+import app.kinsight.core.sync.CloudAccessRules
 import app.kinsight.core.transport.cloud.CloudAccessView
 import app.kinsight.core.transport.cloud.CloudPaths
+import app.kinsight.core.transport.cloud.DiskApi
+import app.kinsight.core.transport.cloud.DiskItem
 import app.kinsight.core.transport.cloud.GroupKey
 import app.kinsight.core.transport.cloud.InMemoryDisk
 import app.kinsight.core.transport.cloud.Pkce
-import app.kinsight.core.transport.cloud.DiskApi
-import app.kinsight.core.transport.cloud.DiskItem
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
@@ -264,6 +265,20 @@ class CloudSignInTest {
         assertEquals(SignInState.Idle, s.state.value)
         assertEquals(CloudEnableResult.SIGN_IN_EXPIRED, s.finish("1234567"), "the sign-in is over")
         assertEquals(1, http.forms.size)
+    }
+
+    /** Closure audit (Part 1): a token too large for a CloudAccess is a failed sign-in, not «you are not an admin». */
+    @Test
+    fun aTokenTooLargeToHandOutFailsTheSignInBeforeAnythingIsWritten() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        http.accessToken = "A".repeat(CloudAccessRules.MAX_CIPHERTEXT_BYTES)
+        val s = mom.signIn(http, { disk })
+        s.start("Pixel")
+        assertEquals(CloudEnableResult.SIGN_IN_FAILED, s.finish("1234567"))
+        assertNull(mom.cloudSecrets.tokens())
+        assertTrue(disk.files("app:").isEmpty(), "no storage.id written")
+        val g = mom.groups.read()!!
+        assertNull(Membership.compute(g.groupId, mom.store().membershipEntries())!!.storageOwner)
     }
 
     @Test

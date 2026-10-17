@@ -28,7 +28,21 @@ class StorageAccess(val owner: DeviceId, val storageId: ByteArray, val generatio
  * so it never appears in the log in clear and a device that left before that generation cannot read it. The refresh token
  * is never put here (spec §6: only the device that takes the owner role gets it, directly).
  */
+/** A CloudAccess the receivers' rules (CloudAccessRules) would refuse; [reason] names sizes and roles, never the token. */
+class CloudAccessRefused(reason: String) : IllegalArgumentException("cloud access refused: $reason")
+
 object CloudAccessView {
+    /**
+     * Whether a CloudAccess carrying [accessToken] fits the receivers' size cap (CloudAccessRules): a sign-in checks it
+     * before anything is written, as a token Kinsight cannot hand out is of no use.
+     */
+    fun fits(accessToken: String, expiresAtMs: Long): Boolean =
+        CloudGrant.ADAPTER.encodedSize(CloudGrant(access_token = accessToken, expires_at_ms = expiresAtMs)) + 16 <= CloudAccessRules.MAX_CIPHERTEXT_BYTES
+
+    /**
+     * Throws [CloudAccessRefused] for an entry the receivers would refuse; any other IllegalArgumentException is the
+     * caller's fault (no owner, or not the owner issuing).
+     */
     fun issue(
         author: EntryAuthor,
         membership: MembershipState,
@@ -52,8 +66,8 @@ object CloudAccessView {
         )
         // Checked before signing, as every receiver checks it (CloudAccessRules): an entry a child's rules refuse would
         // keep the owner's log open on that child for good (SyncSession.holdsBack), and a signed seq cannot be taken back.
-        require(membership.roleOf(owner.deviceId) != DeviceRole.CHILD) { "cloud access from a child" }
-        CloudAccessRules.fieldViolation(access)?.let { throw IllegalArgumentException("cloud access refused: $it") }
+        if (membership.roleOf(owner.deviceId) == DeviceRole.CHILD) throw CloudAccessRefused("from a child")
+        CloudAccessRules.fieldViolation(access)?.let { throw CloudAccessRefused(it) }
         return author.create { it.copy(cloud_access = access) }
     }
 

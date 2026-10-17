@@ -18,6 +18,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -411,6 +412,23 @@ class CloudLifecycleTest {
         val claimed = OwnerRecords.claim(mom.appendOwn, mom.store(), mom.keys, mom.cloudSecrets.ring(g), ByteArray(16) { 2 }, m.storageOwner!!.generation + 1, huge, mom.now + YEAR)
         assertNull(claimed)
         assertEquals(m.storageOwner!!.generation, membershipOf(mom).storageOwner!!.generation)
+    }
+
+    /**
+     * Closure audit (Part 1): only the receivers' refusal is «not signed». Anything else from building the CloudAccess is
+     * a fault and is not swallowed: here a phone that is not the owner issuing one.
+     */
+    @Test
+    fun onlyARefusedAccessIsNotSignedOtherFaultsAreNotSwallowed() = runBlocking<Unit> {
+        family()
+        mom.ownStorage(token = "AT")
+        dad.learnsStorageFrom(mom)
+        val g = dad.groups.read()!!
+        assertFailsWith<IllegalArgumentException> {
+            OwnerRecords.issue(dad.appendOwn, dad.keys, membershipOf(dad), dad.cloudSecrets.ring(g), "AT9", dad.now + YEAR)
+        }
+        val huge = "A".repeat(CloudAccessRules.MAX_CIPHERTEXT_BYTES)
+        assertFalse(OwnerRecords.issue(mom.appendOwn, mom.keys, membershipOf(mom), mom.cloudSecrets.ring(mom.groups.read()!!), huge, mom.now + YEAR))
     }
 
     private companion object {

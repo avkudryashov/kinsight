@@ -15,6 +15,7 @@ import app.kinsight.core.model.storageHandoverEntry
 import app.kinsight.core.sync.CLOUD_PROTOCOL_VERSION
 import app.kinsight.core.transport.ble.GroupConfig
 import app.kinsight.core.transport.ble.GroupStore
+import app.kinsight.core.transport.cloud.CloudAccessView
 import app.kinsight.core.transport.cloud.CloudPaths
 import app.kinsight.core.transport.cloud.DiskApi
 import app.kinsight.core.transport.cloud.DiskException
@@ -289,6 +290,11 @@ class CloudSignIn(
      * group's tokens stay behind. The lock is not reentrant: nothing holding it may call [finish].
      */
     private suspend fun enable(t: TokenSet, mode: SignInMode): CloudEnableResult = secrets.runLock.withLock {
+        // A token no CloudAccess can carry could never reach the other phones: nothing is written for it.
+        if (!CloudAccessView.fits(t.accessToken, t.expiresAtMs)) {
+            Log.w(TAG, "the access token is too large to hand out")
+            return@withLock CloudEnableResult.SIGN_IN_FAILED
+        }
         val result = if (mode == SignInMode.TAKE_OVER) takeOverLocked(t) else enableLocked(t)
         if (result in SIGNED_IN) freshToken()
         result

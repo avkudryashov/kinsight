@@ -1,5 +1,6 @@
 package app.kinsight.core.data
 
+import android.util.Log
 import app.kinsight.core.crypto.Primitives
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
@@ -9,6 +10,7 @@ import app.kinsight.core.model.MembershipLimits
 import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.storageOwnerEntry
 import app.kinsight.core.sync.EntryStore
+import app.kinsight.core.transport.cloud.CloudAccessRefused
 import app.kinsight.core.transport.cloud.CloudAccessView
 import app.kinsight.core.transport.cloud.GroupKey
 import app.kinsight.core.transport.cloud.GroupKeyRing
@@ -83,12 +85,16 @@ internal object OwnerRecords {
     }
 
     /**
-     * A CloudAccess the receivers' rules would refuse (CloudAccessView.issue throws before signing, e.g. a token of
-     * kilobytes) is «not signed», like every other refusal: the caller's existing outcome applies and a cloud run goes on.
+     * A CloudAccess the receivers' rules would refuse (CloudAccessView.issue throws [CloudAccessRefused] before signing,
+     * e.g. a token of kilobytes) is «not signed», like every other refusal, and logged (its reason names no token): the
+     * caller's existing outcome applies and a cloud run goes on. Any other fault is not swallowed.
      */
     private inline fun refusedAsFalse(append: () -> Boolean): Boolean = try {
         append()
-    } catch (e: IllegalArgumentException) {
+    } catch (e: CloudAccessRefused) {
+        Log.w(TAG, "not signed: ${e.message}")
         false
     }
+
+    private const val TAG = "KinsightCloud"
 }

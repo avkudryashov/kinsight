@@ -19,6 +19,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class CloudAccessViewTest {
     private val momKeys = DeviceKeys.generate()
@@ -53,8 +54,14 @@ class CloudAccessViewTest {
         val before = mom.lastSeq
         // A token so long the sealed record outgrows CloudAccessRules: a child would hold the owner's log open on it.
         val huge = "x".repeat(app.kinsight.core.sync.CloudAccessRules.MAX_CIPHERTEXT_BYTES)
-        assertFailsWith<IllegalArgumentException> { CloudAccessView.issue(mom, membership, 0, gen0, huge, expiresAtMs = 99) }
+        assertFailsWith<CloudAccessRefused> { CloudAccessView.issue(mom, membership, 0, gen0, huge, expiresAtMs = 99) }
         assertEquals(before, mom.lastSeq, "no seq spent")
+        // The sign-in's pre-check agrees with the rules, to the byte.
+        assertFalse(CloudAccessView.fits(huge, 99))
+        assertTrue(CloudAccessView.fits("AT", 99))
+        val edge = (1..huge.length).first { !CloudAccessView.fits("x".repeat(it), 99) }
+        CloudAccessView.issue(mom, membership, 0, gen0, "x".repeat(edge - 1), expiresAtMs = 99)
+        assertFailsWith<CloudAccessRefused> { CloudAccessView.issue(mom, membership, 0, gen0, "x".repeat(edge), expiresAtMs = 99) }
         val ok = CloudAccessView.issue(mom, membership, 0, gen0, "AT", expiresAtMs = 99)
         assertNull(app.kinsight.core.sync.CloudAccessRules.violation(ok, membership))
     }
