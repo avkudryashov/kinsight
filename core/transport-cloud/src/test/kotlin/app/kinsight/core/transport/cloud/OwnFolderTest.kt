@@ -146,4 +146,129 @@ class OwnFolderTest {
         assertEquals(3L, fresh.versionVector()[kid.id])
         assertTrue(fresh.liveEntries().containsAll(days))
     }
+
+    /** Parked Y3 minor: a kept (unreadable) own pack overlapped by one we opened holds nothing we lack: it is no hole. */
+    @Test
+    fun aKeptPackCoveredByAnOpenedOneIsReplacedLikeAnyOther() = runTest {
+        val (mom, kid) = family(DeviceRole.CHILD)
+        val g = kid.store.groupId
+        val days = (1..3).map { kid.author.summary("2026-10-0$it", it * 60_000L) }
+        kid.publish(*days.toTypedArray())
+        kid.sync(disk).run()
+        val dir = CloudPaths.deviceDir(g, kid.id)
+        // A compaction cut short left the old 1-2, sealed with a generation nobody holds any more, next to the new 1-3.
+        val old = PackCodec.seal(kid.keys, g, kid.store.entriesAfter(kid.id, 0, 2), 1, 2, 7, Primitives.randomBytes(32), 1_000L)
+        disk.upload("$dir/${CloudPaths.packName(1, 2)}", old)
+        val fresh = InMemoryEntryStore(g).also { it.storeMembership(kid.store.membershipEntries()) }
+        val again = Phone("kid", kid.keys, EntryAuthor(g, kid.keys, lastSeq = 0), fresh, isChild = true, ring = InMemoryKeyRing(mapOf(0 to GEN0)))
+        again.sync(disk).run()
+        assertTrue(fresh.liveEntries().containsAll(days))
+        again.sync(disk).run(forceCompaction = true)
+        assertEquals(setOf("$dir/${CloudPaths.packName(1, 3)}"), disk.files("$dir/").keys, "the stale copy goes, 1-3 is sealed whole")
+        mom.sync(disk).run()
+        assertTrue(mom.store.liveEntries().containsAll(days), "a reader gets all three from the Disk")
+    }
+
+    /** Parked Y3 minor: a kept own pack is opened once its key generation reaches the ring; its entries come back. */
+    @Test
+    fun aKeptPackIsReadOnceItsKeyArrives() = runTest {
+        val (_, kid) = family(DeviceRole.CHILD)
+        val g = kid.store.groupId
+        val days = (1..3).map { kid.author.summary("2026-10-0$it", it * 60_000L) }
+        kid.publish(*days.toTypedArray())
+        val k7 = Primitives.randomBytes(32)
+        val dir = CloudPaths.deviceDir(g, kid.id)
+        for (d in listOf(CloudPaths.APP_ROOT, CloudPaths.root(g), dir)) disk.mkdir(d)
+        disk.upload("$dir/${CloudPaths.packName(1, 3)}", PackCodec.seal(kid.keys, g, kid.store.entriesAfter(kid.id, 0, 10), 1, 3, 7, k7, 1_000L))
+        val ring = InMemoryKeyRing(mapOf(0 to GEN0))
+        val fresh = InMemoryEntryStore(g).also { it.storeMembership(kid.store.membershipEntries()) }
+        val again = Phone("kid", kid.keys, EntryAuthor(g, kid.keys, lastSeq = 0), fresh, isChild = true, ring = ring)
+        again.sync(disk).run()
+        assertEquals(3L, fresh.versionVector()[kid.id])
+        assertTrue(fresh.liveEntries().none { it.author == kid.id })
+        assertTrue(again.cursor.cursor.ownPacks.getValue(CloudPaths.packName(1, 3)).kept)
+        val downloads = disk.downloads.size
+        again.sync(disk).run()
+        assertEquals(downloads, disk.downloads.size, "not read again while the key is missing")
+        ring.put(7, k7)
+        again.sync(disk).run()
+        assertTrue(fresh.liveEntries().containsAll(days), "the entries are back")
+        assertTrue(again.cursor.cursor.ownPacks.values.none { it.kept })
+    }
+
+    /** Parked Y3 minor: a kept pack whose key of that generation did not open it waits for another key of it. */
+    @Test
+    fun aKeptPackThatDidNotOpenUnderOurKeyWaitsForAnotherOne() = runTest {
+        val (_, kid) = family(DeviceRole.CHILD)
+        val g = kid.store.groupId
+        kid.publish(kid.author.summary("2026-10-01", 60_000L))
+        val dir = CloudPaths.deviceDir(g, kid.id)
+        for (d in listOf(CloudPaths.APP_ROOT, CloudPaths.root(g), dir)) disk.mkdir(d)
+        disk.upload("$dir/${CloudPaths.packName(1, 1)}", PackCodec.seal(kid.keys, g, kid.store.entriesAfter(kid.id, 0, 10), 1, 1, 0, Primitives.randomBytes(32), 1_000L))
+        val fresh = InMemoryEntryStore(g).also { it.storeMembership(kid.store.membershipEntries()) }
+        val again = Phone("kid", kid.keys, EntryAuthor(g, kid.keys, lastSeq = 0), fresh, isChild = true, ring = InMemoryKeyRing(mapOf(0 to GEN0)))
+        again.sync(disk).run()
+        assertTrue(again.cursor.cursor.ownPacks.getValue(CloudPaths.packName(1, 1)).kept)
+        val downloads = disk.downloads.size
+        again.sync(disk).run()
+        assertEquals(downloads, disk.downloads.size)
+    }
+
+    /** Parked Y3 minor: a file in our folder that is not ours is downloaded once per version, not on every run. */
+    @Test
+    fun aRejectedOwnFileIsNotDownloadedEveryRun() = runTest {
+        val (_, kid) = family(DeviceRole.CHILD)
+        kid.publish(kid.author.summary("2026-10-01", 60_000L))
+        kid.sync(disk).run()
+        val path = "${CloudPaths.deviceDir(kid.store.groupId, kid.id)}/${CloudPaths.packName(2, 5)}"
+        disk.upload(path, byteArrayOf(1, 2, 3))
+        repeat(3) { kid.sync(disk).run() }
+        assertEquals(1, disk.downloads.count { it == path })
+        disk.upload(path, byteArrayOf(4, 5, 6, 7)) // a new version is looked at again
+        kid.sync(disk).run()
+        assertEquals(2, disk.downloads.count { it == path })
+    }
+
+    /** Parked Y3 minor: a far name in our folder is told once, not at every run. */
+    @Test
+    fun aFarOwnNameIsLoggedOnce() = runTest {
+        val (_, kid) = family(DeviceRole.CHILD)
+        val dir = CloudPaths.deviceDir(kid.store.groupId, kid.id)
+        for (d in listOf(CloudPaths.APP_ROOT, CloudPaths.root(kid.store.groupId), dir)) disk.mkdir(d)
+        disk.upload("$dir/${CloudPaths.packName(1, 20_000_000)}", byteArrayOf(1, 2, 3))
+        val lines = mutableListOf<String>()
+        val sync = CloudSync(kid.store, kid.keys, SyncPolicy(kid.id, showOthers = false, today = { TODAY }), disk, kid.ring, kid.cursor, { 1_000L }, log = { lines += it })
+        repeat(3) { sync.run() }
+        assertEquals(1, lines.count { "too far" in it })
+        assertEquals(0L, kid.store.versionVector()[kid.id])
+    }
+
+    /** Parked Y3 minor: a full Disk refusing storage.id still lets the owner read the others; the run says StorageFull. */
+    @Test
+    fun aFullDiskOnTheStorageIdStillReadsTheOthers() = runTest {
+        val (mom, kid) = family(DeviceRole.CHILD)
+        val day = kid.author.summary("2026-10-13", 5)
+        kid.publish(day)
+        kid.sync(disk).run()
+        val full = object : DiskApi by disk {
+            override suspend fun upload(path: String, bytes: ByteArray) =
+                if (path.endsWith(CloudPaths.STORAGE_ID)) throw DiskException.StorageFull() else disk.upload(path, bytes)
+        }
+        val sync = CloudSync(mom.store, mom.keys, SyncPolicy(mom.id, today = { TODAY }), full, mom.ring, mom.cursor, { 1_000L }, ownedStorageId = ByteArray(16) { 7 })
+        val result = sync.run()
+        assertIs<CloudResult.StorageFull>(result)
+        assertEquals(1, result.received)
+        assertTrue(day in mom.store.liveEntries())
+    }
+
+    /** Parked Y3 minor: an owned storage id that is not 16 bytes is a wiring error: told once, never a Retry loop. */
+    @Test
+    fun aMalformedOwnedStorageIdIsIgnored() = runTest {
+        val (mom) = family()
+        val lines = mutableListOf<String>()
+        val sync = CloudSync(mom.store, mom.keys, SyncPolicy(mom.id, today = { TODAY }), disk, mom.ring, mom.cursor, { 1_000L }, log = { lines += it }, ownedStorageId = ByteArray(5))
+        repeat(2) { assertIs<CloudResult.Synced>(sync.run()) }
+        assertTrue(disk.files(CloudPaths.storageIdFile(mom.store.groupId)).isEmpty())
+        assertEquals(1, lines.count { "storage id" in it })
+    }
 }

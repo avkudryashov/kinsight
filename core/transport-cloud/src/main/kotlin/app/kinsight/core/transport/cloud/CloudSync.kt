@@ -57,12 +57,18 @@ class CloudSync(
     private val running: Mutex = Mutex(),
     /**
      * The storage owner's storage id (spec §11 «storage.id пересоздаёт владелец»): when the root listing lacks
-     * `storage.id`, the run writes it again. Null on every other device: only the owner writes it.
+     * `storage.id`, the run writes it again. Null on every other device: only the owner writes it. One that is not 16
+     * bytes is a wiring error: told once and ignored, never a run retried forever.
      */
-    private val ownedStorageId: ByteArray? = null,
+    ownedStorageId: ByteArray? = null,
 ) {
     private val self = keys.deviceId
     private val groupId = store.groupId
+    private val ownedStorageId: ByteArray? = ownedStorageId?.takeIf { it.size == STORAGE_ID_BYTES }
+
+    init {
+        if (ownedStorageId != null && this.ownedStorageId == null) log("owned storage id of ${ownedStorageId.size} bytes ignored")
+    }
 
     private class PackItem(val name: String, val sha: String, val range: LongRange, val size: Long)
 
@@ -71,6 +77,9 @@ class CloudSync(
 
     /** Set by [upload] when the Disk refused a pack for lack of space. */
     private var storageFull = false
+
+    /** Set by [listAll] when the Disk refused `storage.id` for lack of space: the run still reads the others. */
+    private var storageIdFull = false
 
     /** The version key of this run for a listing without any version (see [versionOf]); new for every exchange. */
     private var runVersion = ""
@@ -105,6 +114,7 @@ class CloudSync(
         absorbRotation(membership)
         val epoch = writeEpoch(membership) ?: return CloudResult.NoGroupKey
         var cursor = cursors.load()
+        storageIdFull = false
         val listing = listAll()
         cursor = liftOwn(listing[self].orEmpty(), membership, cursor)
         // Spec §11: our folder lost what we uploaded (deleted in the Disk UI, or a new storage): upload everything again.
@@ -118,7 +128,7 @@ class CloudSync(
             cursors.save(cursor)
         }
         rotationEntry = membership.effectiveEntries.firstOrNull { it.body.membership_op?.rotate?.epoch == GroupKey.currentEpoch(membership) && it.body.membership_op?.rotate?.epoch != 0 }
-        storageFull = false
+        storageFull = storageIdFull
         val (uploaded, afterUpload) = upload(epoch, cursor)
         // A full Disk still lets us read the others.
         val afterCompaction = if (storageFull) afterUpload else compactIfDue(epoch, afterUpload, forceCompaction)
@@ -155,13 +165,13 @@ class CloudSync(
         val top = try {
             disk.list(root)
         } catch (e: DiskException.NotFound) {
-            ownedStorageId?.let { StorageMove.writeStorageId(disk, groupId, it) }
+            ownedStorageId?.let { writeStorageId(it) }
             return emptyMap()
         }
         ownedStorageId?.let { id ->
             if (top.none { !it.isDir && it.name == CloudPaths.STORAGE_ID && it.size == id.size.toLong() }) {
                 log("storage.id is missing: writing it again")
-                StorageMove.writeStorageId(disk, groupId, id)
+                writeStorageId(id)
             }
         }
         val out = HashMap<DeviceId, List<PackItem>>()
@@ -178,6 +188,16 @@ class CloudSync(
             }
         }
         return out
+    }
+
+    /** A full Disk refusing it does not end the run: the others are still read, and the run says StorageFull. */
+    private suspend fun writeStorageId(id: ByteArray) {
+        try {
+            StorageMove.writeStorageId(disk, groupId, id)
+        } catch (e: DiskException.StorageFull) {
+            log("storage.id not written: the Disk is full")
+            storageIdFull = true
+        }
     }
 
     // ---- upload ----
@@ -309,15 +329,24 @@ class CloudSync(
      * store; one sealed with a key we lack still proves the range is ours and is kept as it is ([KeyId.kept]: never
      * overwritten, re-sealed or deleted). Those seqs are accounted, so they are never signed again, and they count as
      * uploaded, so no compaction re-seals the range from an emptied log. Bounded like Bluetooth: a pack whose name ends
-     * more than SyncSession.MAX_OWN_SEQ_JUMP above what we hold is ignored.
+     * more than SyncSession.MAX_OWN_SEQ_JUMP above what we hold is ignored (told once per name). A file that is not ours
+     * is remembered by its version in [CloudCursor.seen], so it is not downloaded again on every run. A kept pack is
+     * read again once the ring holds a key of its generation that may open it; its entries then come back.
      */
     private suspend fun liftOwn(own: List<PackItem>, start: MembershipState, cursor: CloudCursor): CloudCursor {
         val held = store.versionVector()[self]
+        val seen = cursor.seen.toMutableMap()
         // Names are not verified yet: only the ones over the bound are dropped, the lift goes on from the others.
         val (above, far) = own.filter { it.range.last > held }.partition { it.range.last - held <= SyncSession.MAX_OWN_SEQ_JUMP }
-        for (p in far) log("own folder: ${p.name} is too far above $held, ignored")
-        if (above.isEmpty()) return cursor
-        val sorted = above.sortedBy { it.range.first }
+        for (p in far) {
+            if (seen.put(key(self, p), FAR) != FAR) log("own folder: ${p.name} is too far above $held, ignored")
+        }
+        val ring0 = ring.keys()
+        val retry = own.filter { p ->
+            val k = cursor.ownPacks[p.name]?.takeIf { it.kept } ?: return@filter false
+            p.range.last <= held && mayOpen(DeferredPack(k.epoch, k.failedKey), ring0)
+        }
+        val sorted = (above.filter { seen[key(self, it)] != REJECTED } + retry).sortedBy { it.range.first }
         var membership = start
         var lifted = held
         var ownPacks = cursor.ownPacks
@@ -332,7 +361,8 @@ class CloudSync(
             val keys = ring.keys()
             when (val outcome = PackCodec.open(bytes, keys, groupId, self, membership, expected = p.range)) {
                 is PackOutcome.Opened -> {
-                    membership = ingest(outcome.pack, membership).first
+                    // A kept pack read now: its seqs are accounted since the lift, its entries are not in the store.
+                    membership = ingest(outcome.pack, membership, restore = p.range.last <= held).first
                     lifted = maxOf(lifted, outcome.pack.to)
                     ownPacks = ownPacks + (p.name to KeyId(outcome.pack.epoch, GroupKey.fingerprint(keys.getValue(outcome.pack.epoch))))
                     // Its LOCATION entries leave the Disk like those of a pack sealed here (spec §8).
@@ -345,20 +375,42 @@ class CloudSync(
                 }
                 is PackOutcome.KeyMismatch -> {
                     lifted = maxOf(lifted, p.range.last)
-                    ownPacks = ownPacks + (p.name to KeyId.kept(outcome.epoch))
+                    ownPacks = ownPacks + (p.name to KeyId.kept(outcome.epoch, GroupKey.fingerprint(keys.getValue(outcome.epoch))))
                 }
-                is PackOutcome.UnknownAuthor, is PackOutcome.Rejected -> log("own folder: ${p.name} is not ours, ignored")
+                is PackOutcome.UnknownAuthor, is PackOutcome.Rejected -> {
+                    log("own folder: ${p.name} is not ours, ignored")
+                    seen[key(self, p)] = REJECTED
+                }
             }
         }
-        if (lifted <= held) return cursor
-        store.completeAuthor(self, lifted)
-        log("own log found on the Disk up to $lifted, held $held: those seqs are not reused (A-4)")
-        return cursor.copy(uploadedUpTo = maxOf(cursor.uploadedUpTo, lifted), ownPacks = ownPacks, locationDue = due).also { cursors.save(it) }
+        val next = cursor.copy(seen = seen, ownPacks = ownPacks, locationDue = due)
+        if (lifted > held) {
+            store.completeAuthor(self, lifted)
+            log("own log found on the Disk up to $lifted, held $held: those seqs are not reused (A-4)")
+        }
+        if (next == cursor) return cursor
+        return next.copy(uploadedUpTo = maxOf(cursor.uploadedUpTo, lifted)).also { cursors.save(it) }
     }
 
     /** The ranges of [cursor]'s kept own packs (A-4): never sealed by us. */
-    private fun keptRanges(cursor: CloudCursor): List<LongRange> =
-        cursor.ownPacks.filterValues { it.kept }.keys.mapNotNull { CloudPaths.parsePack(it) }
+    private fun keptRanges(cursor: CloudCursor): List<LongRange> = keptPacks(cursor).keys.mapNotNull { CloudPaths.parsePack(it) }
+
+    /**
+     * [cursor]'s kept own packs (A-4) that hold seqs we lack. One whose range our opened own packs cover (a compaction cut
+     * short left an old copy next to the new one) is no hole: it is replaced and deleted like any other own pack.
+     */
+    private fun keptPacks(cursor: CloudCursor): Map<String, KeyId> {
+        val opened = cursor.ownPacks.filterValues { !it.kept }.keys.mapNotNull { CloudPaths.parsePack(it) }.sortedBy { it.first }
+        val merged = mutableListOf<LongRange>()
+        for (r in opened) {
+            val last = merged.lastOrNull()
+            if (last != null && r.first <= last.last + 1) merged[merged.size - 1] = last.first..maxOf(last.last, r.last) else merged += r
+        }
+        return cursor.ownPacks.filter { (name, id) ->
+            val r = CloudPaths.parsePack(name)
+            id.kept && (r == null || merged.none { r.first >= it.first && r.last <= it.last })
+        }
+    }
 
     /** [chunks] of [from]..[upTo] minus the kept ranges: a range whose entries we do not hold is never sealed. */
     private suspend fun ownChunks(from: Long, upTo: Long, cursor: CloudCursor): List<Pair<LongRange, List<DecodedEntry>>> {
@@ -401,7 +453,7 @@ class CloudSync(
         if (!full && now - start.lastCompactionMs < COMPACTION_INTERVAL_MS) return start
         val done = start.copy(lastCompactionMs = now)
         val dir = CloudPaths.deviceDir(groupId, self)
-        val kept = start.ownPacks.filterValues { it.kept }
+        val kept = keptPacks(start)
         val keptTop = keptRanges(start).maxOfOrNull { it.last } ?: 0L
         // Kept packs (A-4) are never replaced; a daily merge stays above them.
         val existing = try {
@@ -578,7 +630,8 @@ class CloudSync(
             pending = next.filter { (device, p) -> retryNow(deferred[key(device, p)], held, membership) }
         }
         val listed = listing.filterKeys { it != self }.flatMap { (device, items) -> items.map { device to key(device, it) } }
-        val allKeys = listed.map { it.second }.toSet()
+        // Own files remembered by liftOwn (not ours, or too far) stay while they are listed.
+        val allKeys = listed.map { it.second }.toSet() + listing[self].orEmpty().map { key(self, it) }
         val keptSeen = seen.filterKeys { it in allKeys }
         val keptDeferred = deferred.filterKeys { it in allKeys && it !in keptSeen }
         // Spec §5: keep a previous generation only while files sealed with it remain (and the CloudAccess is sealed with it).
@@ -586,7 +639,8 @@ class CloudSync(
         // skipped unread has an unknown generation: it blocks dropping while the ring holds a key nothing pins.
         val members = membership.active.keys + membership.departed.keys
         val memberKeys = listed.filter { it.first in members }.map { it.second }.toSet()
-        val keep = setOfNotNull(writeEpoch(membership), accessEpoch(membership))
+        // Our own kept packs (A-4) are files sealed with their generation too: a key of it that arrives is kept to read them.
+        val keep = setOfNotNull(writeEpoch(membership), accessEpoch(membership)) + keptPacks(cursor).values.map { it.epoch }
         val unread = (ring.keys().keys - keep).isNotEmpty() && keptSeen.filterKeys { it in memberKeys }.values.any { it == COVERED_UNREAD }
         if (!unread && memberKeys.all { it in keptSeen || it in keptDeferred }) {
             val inUse = (keptSeen.filterKeys { it in memberKeys }.values + keptDeferred.filterKeys { it in memberKeys }.values.map { it.epoch })
@@ -627,7 +681,8 @@ class CloudSync(
         return next
     }
 
-    private suspend fun ingest(pack: OpenedPack, start: MembershipState): Pair<MembershipState, Int> {
+    /** [restore]: our own kept pack read late, whose seqs were accounted at the lift (A-4) while its entries are missing. */
+    private suspend fun ingest(pack: OpenedPack, start: MembershipState, restore: Boolean = false): Pair<MembershipState, Int> {
         val author = pack.author
         val entries = pack.entries.mapNotNull { raw -> runCatching { DecodedEntry.decode(raw) }.getOrNull() }
             .filter { it.author == author && it.seq in pack.from..pack.to }
@@ -648,7 +703,7 @@ class CloudSync(
             if (liveSet == null || s.upTo > liveSet!!.upTo) liveSet = s
         }
         for (e in entries) {
-            when (val v = validator.check(e, alreadyAccounted = store.isAccounted(e.author, e.seq))) {
+            when (val v = validator.check(e, alreadyAccounted = !restore && store.isAccounted(e.author, e.seq))) {
                 Verdict.Accept -> {
                     accepted += e
                     noteLiveSet(e)
@@ -704,6 +759,11 @@ class CloudSync(
 
         /** [CloudCursor.seen] value of a pack skipped as covered by its name: its generation is unknown, read when it matters. */
         const val COVERED_UNREAD = -2
+
+        /** [CloudCursor.seen] value of an own-folder name too far above our log (A-4): ignored, told once. */
+        const val FAR = -3
+
+        private const val STORAGE_ID_BYTES = 16
 
         /** Daily compaction merges the newest own packs below this size; bigger ones stay as they are. */
         const val SMALL_PACK_BYTES = 256 shl 10
