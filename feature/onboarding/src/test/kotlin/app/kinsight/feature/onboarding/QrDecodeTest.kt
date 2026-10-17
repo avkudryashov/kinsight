@@ -10,8 +10,10 @@ import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /** The camera path minus the camera: our own QR rendered as a Y plane, decoded the way the analyzer does. */
+
 class QrDecodeTest {
     /**
      * A fixed invite, not a random one: with fresh keys and token each run, the QR pattern (mask, module layout) differs
@@ -80,5 +82,36 @@ class QrDecodeTest {
         val rot = ByteArray(n * n)
         for (r in 0 until n) for (c in 0 until n) rot[c * n + (n - 1 - r)] = f.y[r * n + c]
         assertEquals(invite.toUri(), QrDecode.decode(rot, n, n, n))
+    }
+
+    private fun rotated(f: Frame): ByteArray {
+        val n = f.width
+        val rot = ByteArray(n * n)
+        for (r in 0 until n) for (c in 0 until n) rot[c * n + (n - 1 - r)] = f.y[r * n + c]
+        return rot
+    }
+
+    /** Random invites (fixed seed): every one decodes upright and rotated, each frame within a live camera's budget. */
+    @Test
+    fun threeHundredRandomInvitesDecodeUprightAndRotated() {
+        val rnd = Random(20261017)
+        var upright = 0
+        var turned = 0
+        var worstNs = 0L
+        repeat(300) {
+            val inv = Invite(
+                PROTOCOL_VERSION, GroupId(rnd.nextBytes(16).joinToString("") { "%02x".format(it) }), rnd.nextBytes(32), rnd.nextBytes(32),
+                rnd.nextBytes(Invite.TOKEN_BYTES), DeviceRole.CHILD, "Mom", MIN_PROTOCOL_VERSION,
+            )
+            val f = frame(inv.toUri(), padding = 0)
+            val t0 = System.nanoTime()
+            if (QrDecode.decode(f.y, f.width, f.width, f.height) != inv.toUri()) upright++
+            val t1 = System.nanoTime()
+            if (QrDecode.decode(rotated(f), f.width, f.width, f.height) != inv.toUri()) turned++
+            worstNs = maxOf(worstNs, t1 - t0, System.nanoTime() - t1)
+        }
+        assertEquals(0, upright, "upright failures of 300")
+        assertEquals(0, turned, "rotated failures of 300")
+        assertTrue(worstNs < 50_000_000, "slowest frame ${worstNs / 1_000_000} ms")
     }
 }
