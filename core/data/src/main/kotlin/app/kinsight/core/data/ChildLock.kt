@@ -36,6 +36,7 @@ data class ChildLockStatus(val pinSet: Boolean = false, val waitUntilMs: Long? =
  * phone checks a typed PIN against it ([unlock]), with a growing wait after [ParentPins.FREE_TRIES] wrong tries, kept in
  * [prefs] so a restart does not reset it. The PIN is never stored, signed or logged. Hashing runs on [kdf]; [lock]
  * serialises tries, so two quick taps cannot both pass the wait check. Lock order: [lock], then the pipeline lock.
+ * [onPinSaved] runs after a [PinSave.SAVED], outside [lock] (the app asks for an upload soon, so the children get it).
  */
 class ChildLock(
     private val snapshots: Snapshots,
@@ -44,6 +45,7 @@ class ChildLock(
     private val clock: () -> Long = System::currentTimeMillis,
     private val kdf: CoroutineDispatcher = Dispatchers.Default,
     private val random: SecureRandom = SecureRandom(),
+    private val onPinSaved: () -> Unit = {},
 ) {
     /** The wait in force, re-emitted as null once it has passed, so the UI need not compare it to its own clock. */
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -85,7 +87,9 @@ class ChildLock(
         PinCheck.WRONG
     }
 
-    suspend fun setPin(pin: String): PinSave = lock.withLock {
+    suspend fun setPin(pin: String): PinSave = savePin(pin).also { if (it == PinSave.SAVED) onPinSaved() }
+
+    private suspend fun savePin(pin: String): PinSave = lock.withLock {
         if (!ParentPins.valid(pin)) return@withLock PinSave.INVALID
         val ready = when (val s = snapshots.load(emptyMap())) {
             is GroupSnapshot.Ready -> s

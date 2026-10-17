@@ -172,4 +172,17 @@ class ChildLockTest {
         assertTrue(ParentPins.valid("0000") && ParentPins.valid("12345678"))
         assertFalse(ParentPins.valid("123") || ParentPins.valid("123456789") || ParentPins.valid("12 34") || ParentPins.valid("١٢٣٤"))
     }
+
+    /** Final review Minor 1: a saved PIN asks for an upload at once, so the children get it soon; nothing else does. */
+    @Test
+    fun aSavedPinAsksForAnUploadSoon() = runBlocking<Unit> {
+        family()
+        var uploads = 0
+        fun counted(d: TestDevice) = ChildLock(d.snapshots, d.appendOwn, d.prefs, clock = { d.now }, onPinSaved = { uploads++ })
+        assertEquals(PinSave.INVALID, counted(mom).setPin("123"))
+        assertEquals(PinSave.NOT_ALLOWED, counted(dad).setPin("1357"))
+        assertEquals(0, uploads)
+        assertEquals(PinSave.SAVED, counted(mom).setPin("2468"))
+        assertEquals(1, uploads)
+    }
 }
