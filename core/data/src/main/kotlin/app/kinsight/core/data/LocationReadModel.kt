@@ -38,6 +38,10 @@ data class ChildLocation(
     val zones: List<ZoneView>,
     /** Today's ZONE_ENTER and ZONE_EXIT, newest first. */
     val zoneEvents: List<EventView>,
+    /** The child's sharing by its own signed events: no place is expected while it is not On (UI refresh §5). */
+    val sharing: Sharing = Sharing.Never,
+    /** Location problems the child's phone has open now (SetupWarnings). */
+    val warnings: Set<SetupWarning> = emptySet(),
 )
 
 object LocationReadModel {
@@ -85,9 +89,8 @@ object LocationReadModel {
         val names = SafeZones.names(s.safeZones, s.membership)
         fun day(ms: Long) = Instant.ofEpochMilli(ms).atZone(zone).toLocalDate()
         val points = s.locations.filter { it.author == id }.sortedBy { it.seq }.mapNotNull(::point)
-        val events = UsageReadModel.events(s.events.filter { it.author == id }, names)
-            .filter { it.kind in WireConstants.ZONE_KINDS && day(it.atMs) == today }
-            .sortedByDescending { it.seq }
+        val own = UsageReadModel.events(s.events.filter { it.author == id }, names)
+        val events = own.filter { it.kind in WireConstants.ZONE_KINDS && day(it.atMs) == today }.sortedByDescending { it.seq }
         return ChildLocation(
             member = member,
             status = status(s.locations, s.events, id, names),
@@ -95,6 +98,8 @@ object LocationReadModel {
             route = points.filter { day(it.timeMs) == today },
             zones = SafeZones.effective(s),
             zoneEvents = events,
+            sharing = UsageReadModel.sharing(own, departed = false),
+            warnings = SetupWarnings.of(own),
         )
     }
 

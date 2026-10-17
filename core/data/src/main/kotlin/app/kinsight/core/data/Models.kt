@@ -169,7 +169,14 @@ data class DeviceUsage(
     val childZoneId: String? = null,
     /** On a parent's card: where the child is (spec §8), null without location data. */
     val place: PlaceStatus? = null,
+    /** Today's three largest apps (the `~other` remainder left out), each with the category a limit counts it in. */
+    val topApps: List<TopApp> = emptyList(),
+    /** On a parent's card: location problems the child's phone has open now (SetupWarnings, UI refresh §3). */
+    val setupWarnings: Set<SetupWarning> = emptySet(),
 )
+
+/** One of today's top apps on a card; [category] as the limits count it (Categories.of with the family overrides). */
+data class TopApp(val app: AppUsage, val category: AppCategory)
 
 /** What a dashboard card compares today with (U2, audit 2026-10-11): never a part day against whole days. */
 sealed interface TodayComparison {

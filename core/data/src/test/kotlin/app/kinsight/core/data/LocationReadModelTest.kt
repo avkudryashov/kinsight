@@ -119,4 +119,17 @@ class LocationReadModelTest {
         assertEquals("ZoneView(abababab)", zone.toString())
         assertEquals("GeoPoint", GeoPoint(404_168_123, -37_038_456, 47, 5).toString())
     }
+
+    @Test
+    fun theChildsSharingAndOpenLocationProblemsComeWithItsLocation() {
+        val resumed = kid.create {
+            it.copy(created_at_ms = noon - 60 * min, state_event = StateEvent(kind = StateEvent.Kind.SHARING_RESUMED, from_ms = noon - 60 * min))
+        }
+        val off = kid.create {
+            it.copy(created_at_ms = noon - 5 * min, state_event = StateEvent(kind = StateEvent.Kind.LOCATION_DISABLED, from_ms = noon - 5 * min, to_ms = noon - 5 * min))
+        }
+        val c = LocationReadModel.childLocation(ready(emptyList(), listOf(resumed, off)), kidKeys.deviceId, today, utc, noon)!!
+        assertEquals(Sharing.On, c.sharing)
+        assertEquals(setOf(SetupWarning.LOCATION_DISABLED), c.warnings)
+    }
 }

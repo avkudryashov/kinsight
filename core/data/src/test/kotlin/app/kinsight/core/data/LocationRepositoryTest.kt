@@ -172,4 +172,16 @@ class LocationRepositoryTest {
         assertEquals(mom.keys.deviceId, st.self)
         assertEquals(true, st.safeZones.single().body.safe_zone!!.deleted, "the tombstone supersedes the zone")
     }
+
+    @Test
+    fun theChildrenFlowListsEveryChildOnAParentsPhoneOnly() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        kid.joinGroupOf(mom)
+        val gid = mom.groups.read()!!.groupId
+        val author = app.kinsight.core.model.EntryAuthor(gid, kid.keys, lastSeq = 0)
+        mom.store().applyBatch(listOf(author.locationEntry(404_000_000, -37_000_000, 20, noon - 600_000, Location.Provider.GPS)))
+        val all = repo(mom).children.firstWithin { list -> list.any { it.last != null } }
+        assertEquals(listOf("Kid"), all.map { it.member.name })
+        assertEquals(emptyList(), repo(kid).children.firstWithin { true })
+    }
 }

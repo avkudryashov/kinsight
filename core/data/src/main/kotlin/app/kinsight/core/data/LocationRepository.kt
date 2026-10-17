@@ -54,6 +54,13 @@ class LocationRepository(
         }
     }.distinctUntilChanged()
 
+    /** Parent phones only: every active child's location view in the members' order (the Карта tab, UI refresh §5). */
+    val children: Flow<List<ChildLocation>> = snapshots.snapshots.map { s ->
+        val ready = (s as? GroupSnapshot.Ready)?.takeIf(::viewerIsParent) ?: return@map emptyList()
+        SnapshotViews.members(ready, clock()).filter { it.role == Role.CHILD }
+            .mapNotNull { LocationReadModel.childLocation(ready, it.id, date(), zone(), clock()) }
+    }.distinctUntilChanged()
+
     fun child(id: DeviceId): Flow<ChildLocation?> = snapshots.snapshots.map { s ->
         (s as? GroupSnapshot.Ready)?.takeIf(::viewerIsParent)?.let { LocationReadModel.childLocation(it, id, date(), zone(), clock()) }
     }.distinctUntilChanged()

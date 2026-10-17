@@ -38,6 +38,9 @@ object UsageReadModel {
     const val MAX_UNLOCKS_PER_DAY = 10_000
     const val MAX_CLOCK_SKEW_MS = 5 * 60_000L
 
+    /** Apps a card and a report show before «Все приложения» (UI refresh §3, §4). */
+    const val TOP_APPS = 3
+
     /**
      * Sharing on and no summary for this long reads as «collection is off» on the parent's card (U1); the floor of
      * the threshold, which is never below the group's «no contact» window (see [usage]).
@@ -363,6 +366,9 @@ object UsageReadModel {
         noContactMs: Long = 0,
         /** The child's UsageDetail per local date, for «usual by this time» (U2). */
         details: Map<LocalDate, DecodedEntry>? = null,
+        /** The child's catalog and the family overrides, for today's top apps and their categories (UI refresh §3). */
+        catalog: Map<String, AppCatalog> = emptyMap(),
+        overrides: Map<String, AppCategory> = emptyMap(),
     ): DeviceUsage {
         val own = surfaced(member, byDate)
         // The child's own day (spec §9.3), as on the detail screen: it can already be tomorrow for the viewer.
@@ -373,10 +379,16 @@ object UsageReadModel {
         val mine = events.filter { it.author == member.id }
         val sharing = sharing(mine, departed)
         val off = member.role == Role.CHILD && collectionOff(sharing, mine, updated, nowMs, maxOf(COLLECTION_STALE_MS, noContactMs))
+        val top = apps(own, listOf(today), catalog)
+            .filter { it.packageName != Categories.REMAINDER_PACKAGE }
+            .take(TOP_APPS)
+            .map { TopApp(it, Categories.of(it.packageName, catalog[it.packageName]?.category, overrides)) }
         return DeviceUsage(
             member, week.last(), week, average(own, today), sharing, updated,
             collectionOff = off, notificationHidden = member.role == Role.CHILD && notificationHidden(sharing, mine), comparison = comparison(own, surfaced(member, details), today),
             childZoneId = latestZoneId(own),
+            topApps = top,
+            setupWarnings = if (member.role == Role.CHILD) SetupWarnings.of(mine) else emptySet(),
         )
     }
 

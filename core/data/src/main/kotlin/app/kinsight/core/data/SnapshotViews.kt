@@ -84,9 +84,11 @@ object SnapshotViews {
         val byAuthor = UsageReadModel.summaries(s.summaries)
         val names = SafeZones.names(s.safeZones, s.membership)
         val events = UsageReadModel.events(s.events, names).groupBy { it.author }
+        val overrides = CategoryOverrides.effective(s)
         fun usage(m: MemberView) = UsageReadModel.usage(
             m, byAuthor[m.id], events[m.id].orEmpty(), today, nowMs = nowMs, noContactMs = noContactMs,
             details = details[m.id]?.let { UsageReadModel.details(it)[m.id] },
+            catalog = UsageReadModel.catalogOf(s.catalog, m.id), overrides = overrides,
         )
         return DashboardState(
             self = self,

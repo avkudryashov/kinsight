@@ -506,4 +506,32 @@ class UsageReadModelTest {
         assertEquals(5_000L, v.atMs)
         assertEquals(null, UsageReadModel.events(listOf(e)).single().zoneName)
     }
+
+    @Test
+    fun theCardListsTodaysThreeLargestAppsWithTheirCategories() {
+        val entries = listOf(
+            summary(
+                today, 105, 0,
+                "com.example.a" to 10L, "com.example.b" to 40L, Categories.REMAINDER_PACKAGE to 30L, "com.example.c" to 20L, "com.example.d" to 5L,
+            ),
+            summary(today.minusDays(1), 60, 0, "com.example.d" to 60L),
+            kid.create { it.copy(app_catalog = AppCatalog(package_name = "com.example.b", label = "Bee")) },
+        )
+        val by = UsageReadModel.summaries(entries)[kidKeys.deviceId]
+        val catalog = UsageReadModel.catalogOf(entries, kidKeys.deviceId)
+        val noon = today.atTime(12, 0).atZone(ZoneId.of("Europe/Madrid")).toInstant().toEpochMilli()
+        val u = UsageReadModel.usage(member, by, emptyList(), today, nowMs = noon, catalog = catalog, overrides = mapOf("com.example.c" to AppCategory.GAMES))
+        assertEquals(listOf("com.example.b", "com.example.c", "com.example.a"), u.topApps.map { it.app.packageName })
+        assertEquals("Bee", u.topApps.first().app.label)
+        assertEquals(AppCategory.GAMES, u.topApps[1].category)
+    }
+
+    @Test
+    fun aChildsOpenLocationProblemIsAWarningOnItsCard() {
+        val off = event(StateEvent.Kind.LOCATION_DISABLED, fromMs = noonToday, toMs = noonToday)
+        val u = UsageReadModel.usage(member, null, UsageReadModel.events(listOf(off)), today, nowMs = noonToday)
+        assertEquals(setOf(SetupWarning.LOCATION_DISABLED), u.setupWarnings)
+        val adult = member.copy(role = Role.PARENT)
+        assertEquals(emptySet(), UsageReadModel.usage(adult, null, UsageReadModel.events(listOf(off)), today, nowMs = noonToday).setupWarnings)
+    }
 }

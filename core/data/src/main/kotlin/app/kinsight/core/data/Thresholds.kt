@@ -70,4 +70,8 @@ object ThresholdEval {
         is ThresholdTarget.Category -> today.byCategory[target.category] ?: 0L
         is ThresholdTarget.App -> today.byApp[target.packageName] ?: 0L
     }
+
+    /** A rule of [child] names this app or its [category]: the «лимит» mark on an app row (UI refresh §3, §4). */
+    fun limited(rules: List<ThresholdRule>, child: DeviceId, packageName: String, category: AppCategory): Boolean =
+        rules.any { it.child == child && (it.target == ThresholdTarget.App(packageName) || it.target == ThresholdTarget.Category(category)) }
 }
