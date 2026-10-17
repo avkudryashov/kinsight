@@ -30,8 +30,11 @@ data class Prefs(
     val lastPruneDate: String? = null,
 )
 
-/** Wrong PIN tries on a child's phone (spec §10) and until when it waits; local, goes with the group. */
-data class PinLock(val failures: Int = 0, val waitUntilMs: Long? = null)
+/**
+ * Wrong PIN tries on a child's phone (spec §10) and until when it waits; local, goes with the group. [elapsedAtMs] and
+ * [bootCount]: the elapsed clock and boot when the wait began (ChildLock: within that boot it runs on the elapsed clock).
+ */
+data class PinLock(val failures: Int = 0, val waitUntilMs: Long? = null, val elapsedAtMs: Long? = null, val bootCount: Int? = null)
 
 class AppPrefs(private val store: DataStore<Preferences>) {
     val prefs: Flow<Prefs> = store.data.map { p ->
@@ -132,7 +135,9 @@ class AppPrefs(private val store: DataStore<Preferences>) {
         store.edit { it[ACK_PARENTS] = encodeIds(it[ACK_PARENTS]?.let(::decodeIds).orEmpty() + ids) }
     }
 
-    val pinLock: Flow<PinLock> = store.data.map { PinLock(it[PIN_FAILURES] ?: 0, it[PIN_WAIT_UNTIL]) }.distinctUntilChanged()
+    val pinLock: Flow<PinLock> = store.data.map {
+        PinLock(it[PIN_FAILURES] ?: 0, it[PIN_WAIT_UNTIL], it[PIN_WAIT_ELAPSED], it[PIN_WAIT_BOOT])
+    }.distinctUntilChanged()
 
     suspend fun pinLock(): PinLock = pinLock.first()
 
@@ -141,6 +146,15 @@ class AppPrefs(private val store: DataStore<Preferences>) {
             if (l.failures == 0) it.remove(PIN_FAILURES) else it[PIN_FAILURES] = l.failures
             val until = l.waitUntilMs
             if (until == null) it.remove(PIN_WAIT_UNTIL) else it[PIN_WAIT_UNTIL] = until
+            val elapsed = l.elapsedAtMs
+            val boot = l.bootCount
+            if (elapsed == null || boot == null) {
+                it.remove(PIN_WAIT_ELAPSED)
+                it.remove(PIN_WAIT_BOOT)
+            } else {
+                it[PIN_WAIT_ELAPSED] = elapsed
+                it[PIN_WAIT_BOOT] = boot
+            }
         }
     }
 
@@ -172,6 +186,8 @@ class AppPrefs(private val store: DataStore<Preferences>) {
         private val ACK_PARENTS = stringPreferencesKey("acknowledged_parents")
         private val PIN_FAILURES = intPreferencesKey("pin_failures")
         private val PIN_WAIT_UNTIL = longPreferencesKey("pin_wait_until_ms")
+        private val PIN_WAIT_ELAPSED = longPreferencesKey("pin_wait_elapsed_ms")
+        private val PIN_WAIT_BOOT = intPreferencesKey("pin_wait_boot")
 
         private fun encodeIds(ids: Set<DeviceId>): String = ids.map { d -> d.hex }.sorted().joinToString(",")
 

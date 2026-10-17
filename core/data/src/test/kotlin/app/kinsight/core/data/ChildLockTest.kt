@@ -147,6 +147,32 @@ class ChildLockTest {
         assertEquals(PinCheck.OK, lock(kid).unlock("2468"))
     }
 
+    /**
+     * Y5 Task 3 review Minor 1: within one boot the wait runs on the elapsed clock, so a wall clock set ahead does not
+     * end it; after a reboot (the elapsed clock restarted) only the wall clock is left.
+     */
+    @Test
+    fun aClockSetAheadDoesNotEndTheWaitWithinOneBoot() = runBlocking<Unit> {
+        family()
+        lock(mom).setPin("2468")
+        kidTakesPinsOf(mom)
+        var elapsed = 1_000_000L
+        var boot = 7
+        val guarded = ChildLock(kid.snapshots, kid.appendOwn, kid.prefs, clock = { kid.now }, elapsed = { ElapsedSample(elapsed, boot) })
+        repeat(ParentPins.FREE_TRIES) { assertEquals(PinCheck.WRONG, guarded.unlock("0000")) }
+        kid.now += ParentPins.MAX_WAIT_MS + 1 // the wall clock set ahead, no time passed
+        assertEquals(PinCheck.WAIT, guarded.unlock("2468"))
+        val left = withTimeout(5_000) { guarded.status.first() }.waitUntilMs!! - kid.now
+        assertTrue(left in 1..ParentPins.FIRST_WAIT_MS, "what the elapsed clock still owes: $left")
+        elapsed += ParentPins.FIRST_WAIT_MS
+        assertEquals(PinCheck.OK, guarded.unlock("2468"))
+        repeat(ParentPins.FREE_TRIES) { guarded.unlock("0000") }
+        boot++ // a reboot: the elapsed clock starts again, the wall clock alone decides
+        elapsed = 5_000L
+        kid.now += ParentPins.FIRST_WAIT_MS
+        assertEquals(PinCheck.OK, guarded.unlock("2468"))
+    }
+
     @Test
     fun theStatusDropsAWaitThatHasPassed() = runBlocking<Unit> {
         family()

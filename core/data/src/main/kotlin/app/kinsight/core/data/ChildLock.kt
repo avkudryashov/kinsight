@@ -24,6 +24,9 @@ enum class PinCheck { OK, WRONG, WAIT, NO_PIN }
  */
 enum class PinSave { SAVED, INVALID, NOT_ALLOWED, FAILED }
 
+/** The elapsed clock since boot (SystemClock.elapsedRealtime) and the boot count (Settings.Global.BOOT_COUNT). */
+data class ElapsedSample(val elapsedMs: Long, val bootCount: Int)
+
 /**
  * [pinSet]: an admin parent's PIN is in force in this group. [waitUntilMs]: wrong tries make this phone wait until then.
  * [canSetPin]: this phone is an active admin parent.
@@ -37,6 +40,8 @@ data class ChildLockStatus(val pinSet: Boolean = false, val waitUntilMs: Long? =
  * [prefs] so a restart does not reset it. The PIN is never stored, signed or logged. Hashing runs on [kdf]; [lock]
  * serialises tries, so two quick taps cannot both pass the wait check. Lock order: [lock], then the pipeline lock.
  * [onPinSaved] runs after a [PinSave.SAVED], outside [lock] (the app asks for an upload soon, so the children get it).
+ * [elapsed] (the app passes it; null: the wall clock only): within the boot a wait began, it runs on the elapsed clock,
+ * so a wall clock set ahead does not end it (Y5 Task 3 review Minor 1); after a reboot only the wall clock is left.
  */
 class ChildLock(
     private val snapshots: Snapshots,
@@ -46,12 +51,13 @@ class ChildLock(
     private val kdf: CoroutineDispatcher = Dispatchers.Default,
     private val random: SecureRandom = SecureRandom(),
     private val onPinSaved: () -> Unit = {},
+    private val elapsed: (() -> ElapsedSample)? = null,
 ) {
     /** The wait in force, re-emitted as null once it has passed, so the UI need not compare it to its own clock. */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val waitUntil: Flow<Long?> = prefs.pinLock.transformLatest { l ->
         while (true) {
-            val until = waitInForce(l, clock())
+            val until = waitInForce(l, clock(), elapsed?.invoke())
             emit(until)
             if (until == null) break
             delay((until - clock()).coerceIn(1L, ParentPins.MAX_WAIT_MS))
@@ -72,8 +78,9 @@ class ChildLock(
 
     suspend fun unlock(pin: String): PinCheck = lock.withLock {
         val now = clock()
+        val sample = elapsed?.invoke()
         val stored = prefs.pinLock()
-        val state = stored.copy(waitUntilMs = waitInForce(stored, now))
+        val state = stored.copy(waitUntilMs = waitInForce(stored, now, sample))
         if (state != stored) prefs.setPinLock(state)
         if (state.waitUntilMs != null) return@withLock PinCheck.WAIT
         val ready = snapshots.load(emptyMap()) as? GroupSnapshot.Ready ?: return@withLock PinCheck.NO_PIN
@@ -83,7 +90,8 @@ class ChildLock(
             return@withLock PinCheck.OK
         }
         val failures = state.failures + 1
-        prefs.setPinLock(PinLock(failures, ParentPins.waitAfter(failures)?.let { now + it }))
+        val wait = ParentPins.waitAfter(failures)
+        prefs.setPinLock(PinLock(failures, wait?.let { now + it }, sample?.elapsedMs?.takeIf { wait != null }, sample?.bootCount?.takeIf { wait != null }))
         PinCheck.WRONG
     }
 
@@ -109,10 +117,18 @@ class ChildLock(
         /**
          * The deadline of [l] that still holds at [now]; null once passed. A deadline further than the longest wait
          * ([ParentPins.MAX_WAIT_MS]) was written under a clock that was later set back (by hand or by network time):
-         * it is cut to [now] plus the wait the failure count earns, so a parent's PIN is never refused for longer.
+         * it is cut to [now] plus the wait the failure count earns, so a parent's PIN is never refused for longer. Within
+         * the boot the wait began ([e]), the elapsed clock decides instead.
          */
-        fun waitInForce(l: PinLock, now: Long): Long? {
+        fun waitInForce(l: PinLock, now: Long, e: ElapsedSample?): Long? {
             val until = l.waitUntilMs ?: return null
+            val began = l.elapsedAtMs
+            val earned = ParentPins.waitAfter(l.failures)
+            if (e != null && began != null && l.bootCount == e.bootCount && e.elapsedMs >= began && earned != null) {
+                // The same boot: the elapsed clock knows how much of the wait is left, whatever the wall clock says.
+                val left = began + earned - e.elapsedMs
+                return if (left > 0) now + left else null
+            }
             if (now >= until) return null
             if (until - now <= ParentPins.MAX_WAIT_MS) return until
             return ParentPins.waitAfter(l.failures)?.let { now + it }
