@@ -339,7 +339,9 @@ class SyncEngine(
         val secondary = initiatedTo?.takeIf { it != primary }
         val problem = when (result) {
             is SessionResult.Completed -> {
-                val empty = result.received == 0 && result.sentBatches == 0
+                // Empty: nothing came in and nothing we sent moved the peer (an older child holding back a share entry
+                // acks an unchanged vector), so the same session again would change nothing.
+                val empty = result.received == 0 && result.peerAckUnchanged
                 listOfNotNull(primary, secondary).forEach {
                     if (it == primary) {
                         policy.onCompleted(it, now, empty, result.ourVector, result.peerVector)

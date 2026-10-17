@@ -48,10 +48,11 @@ data class SyncPolicy(
          * Parent-signed kinds a child takes as well (R5 of the cloud plan): storage access, the safe zones it watches (spec
          * §8.1) and the parents' PIN it checks (spec §10).
          *
-         * Invariant for widening it (a new kind, or a share rule that accepts more): a child on an older build drops such
-         * an entry (Unwanted as UNKNOWN, or Skipped) and SyncSession then keeps the author's log open below it instead of
-         * completing over it, so the child takes it after its update. Keep that hold-back (SyncSession.holdsBack) in step
-         * with this set.
+         * Invariant for widening it (a new kind, a kind older builds already know such as HEARTBEAT, or a share rule that
+         * accepts more): a child on an older build drops such an entry (Unwanted, as UNKNOWN or as a known kind outside
+         * its set, or Skipped), and SyncSession keeps the author's log open below any entry of the author's own log it
+         * dropped (SyncSession.holdsBack), instead of completing over it, so the child takes it after its update. This
+         * holds only because a session sends a child nothing but the sender's share set: never send a child other kinds.
          */
         val FROM_PARENTS_TO_ALL: Set<EntryKind> = setOf(EntryKind.CLOUD_ACCESS, EntryKind.SAFE_ZONE, EntryKind.PARENT_PIN)
     }

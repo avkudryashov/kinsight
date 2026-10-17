@@ -3,7 +3,6 @@ package app.kinsight.core.sync
 import app.kinsight.core.crypto.CryptoException
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
-import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.MembershipLimits
 import app.kinsight.core.model.MembershipState
@@ -67,6 +66,14 @@ sealed interface SessionResult {
         var ourVector: ByteArray = ByteArray(0)
             internal set
         var peerVector: ByteArray = ByteArray(0)
+            internal set
+
+        /**
+         * Nothing we sent moved the peer's vector: no batch, or its final ack equals the vector it announced. Entries it
+         * stored above a gap do not move it either; they are delivered all the same. With [received] zero the session
+         * counts as empty for the transport's «nothing new» rule: running it again would change nothing.
+         */
+        var peerAckUnchanged: Boolean = sentBatches == 0
             internal set
     }
     /** [peerNewer] (PROTOCOL_VERSION only): true when the peer speaks only newer versions (update this phone), false when only older ones. */
@@ -330,10 +337,11 @@ class SyncSession internal constructor(
             var acks = 0
             var peerDone = false
             var sentBatches = -1 // -1 until our sender has finished
-            // The lowest seq of the peer's own log that we (showOthers off) dropped this session as a share entry we cannot
-            // take yet (Skipped, or Unwanted of a share kind or of a kind we do not know): completion stops below it.
+            // The lowest seq of the peer's own log that we (showOthers off) dropped this session (Skipped or Unwanted): a
+            // share entry we cannot take yet ([holdsBack]). Completion stops below it.
             var heldBack = Long.MAX_VALUE
             var completedTo = 0L
+            var lastAck: VersionVector? = null // the peer's vector in its last ack of our batches
             while (!(peerDone && sentBatches >= 0 && acks >= sentBatches)) {
                 val msg = select<SyncMessage?> {
                     if (sentBatches < 0) sentTotal.onAwait { sentBatches = it; null }
@@ -392,6 +400,7 @@ class SyncSession internal constructor(
                     }
                     msg.ack != null -> {
                         acks++
+                        lastAck = VersionVector.fromProto(msg.ack!!.vector)
                         // A stray extra ack from a misbehaving peer must not break the window.
                         try {
                             window.release()
@@ -432,6 +441,10 @@ class SyncSession internal constructor(
             val completed = SessionResult.Completed(peer.id, received, sentBatches, agreed).also {
                 it.ourVector = ourEnd.canonicalBytes()
                 it.peerVector = peerEnd.canonicalBytes()
+                // Our batches moved nothing on the peer when its last ack still shows the vector it announced: e.g. an
+                // older child holding back a share entry it cannot take yet. Entries it stored above a gap leave its
+                // vector unchanged too; they are delivered, and sending them again would only repeat duplicates.
+                it.peerAckUnchanged = sentBatches == 0 || lastAck == peerVector
             }
             closingHandshake(ch, inbox)
             completed
@@ -558,11 +571,12 @@ class SyncSession internal constructor(
     }
 
     /**
-     * A share entry of [peerId]'s own log that we (showOthers off) did not take: of a FROM_PARENTS_TO_ALL kind this build
-     * knows, or of a kind it does not know (a newer share kind decodes as UNKNOWN). Completion must not account it.
+     * An entry of [peerId]'s own log that we (showOthers off) did not take, whatever its kind. A peer sends a child only
+     * its own share set (SendScope.FROM_PARENTS), so such an entry is by construction a share entry this build cannot
+     * take yet: a kind it does not know (UNKNOWN), a known kind outside its [SyncPolicy.shareKinds], or one its rules
+     * refuse. Completion must not account it.
      */
-    private fun holdsBack(e: DecodedEntry, peerId: DeviceId): Boolean =
-        !policy.showOthers && e.author == peerId && (e.kind == EntryKind.UNKNOWN || e.kind in SyncPolicy.FROM_PARENTS_TO_ALL)
+    private fun holdsBack(e: DecodedEntry, peerId: DeviceId): Boolean = !policy.showOthers && e.author == peerId
 
     /** What [sendData] sends: everything, a child's share (parents' FROM_PARENTS_TO_ALL entries), or nothing. */
     private enum class SendScope { ALL, FROM_PARENTS, NONE }

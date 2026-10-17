@@ -49,8 +49,13 @@ class ChildDeliveryTest {
         val (mom, _, kid) = family()
         val pin = mom.author.pin()
         mom.publish(pin)
+        kid.publish(kid.author.summary(TODAY.toString(), 9))
         val (rm, rk) = syncPair(mom, kid)
-        assertIs<SessionResult.Completed>(rm)
+        assertEquals(1, assertIs<SessionResult.Completed>(rm).received)
+        assertEquals(false, assertIs<SessionResult.Completed>(rk).peerAckUnchanged, "the child's usage moved mom's vector")
+        // The PIN lands above the child's gap in mom's log (membership seqs, never accounted there): its ack is unchanged,
+        // and mom's completion at Done closes the gap. Delivered all the same; resending would only repeat it.
+        assertTrue(rm.peerAckUnchanged)
         assertEquals(1, assertIs<SessionResult.Completed>(rk).received)
         assertTrue(kid.holds(pin), "the child must hold the parent's PIN after a Bluetooth session")
     }
@@ -174,6 +179,50 @@ class ChildDeliveryTest {
         kid.policy = kid.policy.copy(shareKinds = SyncPolicy.FROM_PARENTS_TO_ALL)
         syncPair(mom, kid)
         assertTrue(kid.holds(pin))
+        assertEquals(mom.store.versionVector()[mom.keys.deviceId], kid.store.versionVector()[mom.keys.deviceId])
+    }
+
+    /** A future share kind the child's build already knows (HEARTBEAT plays it): the older child must not complete over it. */
+    @Test
+    fun aKnownKindAnOlderChildDropsStaysOpenAndTheResendIsNothingNew() = runBlocking<Unit> {
+        val (mom, _, kid) = family()
+        mom.policy = mom.policy.copy(shareKinds = SyncPolicy.FROM_PARENTS_TO_ALL + EntryKind.HEARTBEAT)
+        mom.publish(mom.author.summary(TODAY.toString(), 1))
+        val hb = mom.heartbeat()
+        mom.publish(mom.author.summary(TODAY.minusDays(1).toString(), 2))
+        repeat(2) {
+            val (rm, rk) = syncPair(mom, kid)
+            assertEquals(1, assertIs<SessionResult.Completed>(rm).sentBatches, "the heartbeat, again")
+            assertEquals(0, assertIs<SessionResult.Completed>(rk).received)
+            // The resend moved nothing on the child: «nothing new» for the transport, not a session every cooldown.
+            assertTrue(assertIs<SessionResult.Completed>(rm).peerAckUnchanged)
+            assertTrue(rk.peerAckUnchanged)
+            assertEquals(hb.seq - 1, kid.store.versionVector()[mom.keys.deviceId], "open below the heartbeat")
+        }
+        kid.policy = kid.policy.copy(shareKinds = SyncPolicy.FROM_PARENTS_TO_ALL + EntryKind.HEARTBEAT)
+        syncPair(mom, kid)
+        assertTrue(kid.holds(hb))
+        assertEquals(mom.store.versionVector()[mom.keys.deviceId], kid.store.versionVector()[mom.keys.deviceId])
+    }
+
+    /** A share kind the child's build does not know at all: it decodes as UNKNOWN there and stays open too. */
+    @Test
+    fun anUnknownKindAnOlderChildDropsStaysOpen() = runBlocking<Unit> {
+        val (mom, _, kid) = family()
+        mom.policy = mom.policy.copy(shareKinds = SyncPolicy.FROM_PARENTS_TO_ALL + EntryKind.UNKNOWN)
+        // EntryBody field 30 (length-delimited, holding field 1 = 1): a payload this build does not know.
+        val future = mom.author.create {
+            it.copy(unknownFields = okio.Buffer().writeByte(0xF2).writeByte(0x01).writeByte(2).writeByte(0x08).writeByte(0x01).readByteString())
+        }
+        assertEquals(EntryKind.UNKNOWN, future.kind)
+        mom.publish(future, mom.author.summary(TODAY.toString(), 1))
+        syncPair(mom, kid)
+        assertTrue(!kid.holds(future))
+        assertEquals(future.seq - 1, kid.store.versionVector()[mom.keys.deviceId])
+        assertTrue(!kid.store.isAccounted(mom.keys.deviceId, future.seq))
+        kid.policy = kid.policy.copy(shareKinds = SyncPolicy.FROM_PARENTS_TO_ALL + EntryKind.UNKNOWN)
+        syncPair(mom, kid)
+        assertTrue(kid.holds(future))
         assertEquals(mom.store.versionVector()[mom.keys.deviceId], kid.store.versionVector()[mom.keys.deviceId])
     }
 
