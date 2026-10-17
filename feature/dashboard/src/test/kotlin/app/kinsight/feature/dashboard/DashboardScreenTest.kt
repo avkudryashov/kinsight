@@ -13,6 +13,9 @@ import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasAnyDescendant
+import app.kinsight.core.designsystem.theme.ChildColorKey
+import app.kinsight.core.designsystem.theme.childColor
 import app.kinsight.core.data.AppCategory
 import app.kinsight.core.data.AppUsage
 import app.kinsight.core.data.SetupWarning
@@ -598,6 +601,62 @@ class DashboardScreenTest {
         pillIn("com.example.game").assertExists()
         pillIn("com.example.tube").assertExists()
         pillIn("com.example.chat").assertDoesNotExist()
+    }
+
+    private val sis = kid.copy(id = DeviceId("dd".repeat(16)), name = "Test")
+
+    private fun tops(vararg a: Pair<String, Long>) = a.map { (label, min) -> TopApp(AppUsage("com.example.${label.lowercase()}", label, null, min * 60_000L), AppCategory.GAMES) }
+
+    @Test
+    fun oneChildShowsTheFullCardAndItsTopApps() {
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 80, 60).copy(topApps = tops("Game" to 40L))), listOf(dad)), running, true))
+        rule.onNodeWithTag("dash_card").assertExists()
+        rule.onNodeWithTag("dash_top_apps").assertExists()
+        rule.onNodeWithTag("dash_compact_card").assertDoesNotExist()
+    }
+
+    @Test
+    fun twoChildrenGetCompactCardsWithTheirTopAppAndNoTopAppsBlock() {
+        val a = usage(kid, 80, 60).copy(topApps = tops("Game" to 40L, "Chat" to 10L), comparison = TodayComparison.FullDay(60 * 60_000))
+        val b = usage(sis, 90, 60).copy(topApps = tops("Tube" to 82L))
+        show(DashboardUi(DashboardState(mom, null, listOf(a, b), listOf(dad)), running, true, thresholds = listOf(limit2h)))
+        rule.onAllNodes(hasTestTag("dash_compact_card")).assertCountEquals(2)
+        rule.onNodeWithTag("dash_card").assertDoesNotExist()
+        rule.onNodeWithTag("dash_top_apps").assertDoesNotExist()
+        rule.onNodeWithText("Most used: Game · 40 min", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("Most used: Tube · 1 h 22 min", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("Kid", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("1 h 20 min", useUnmergedTree = true).assertExists()
+        // Only the first child has a day limit; the comparison and the data time stay in the report.
+        rule.onAllNodes(hasTestTag("limit_bar"), useUnmergedTree = true).assertCountEquals(1)
+        rule.onNodeWithText("more than", substring = true, useUnmergedTree = true).assertDoesNotExist()
+        rule.onNodeWithTag("dash_data_at", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun aCompactCardWithoutUsageTodayHasNoTopLine() {
+        val a = usage(kid, 80, 60).copy(topApps = tops("Game" to 40L))
+        val b = usage(sis, 0, null).copy(today = DayTotal(today, 0, 0), updatedMs = null)
+        show(DashboardUi(DashboardState(mom, null, listOf(a, b), listOf(dad)), running, true))
+        rule.onAllNodes(hasText("Most used:", substring = true), useUnmergedTree = true).assertCountEquals(1)
+        rule.onNodeWithText("No data yet", useUnmergedTree = true).assertExists()
+    }
+
+    @Test
+    fun aCompactCardOpensTheReportAndShowsTheWarnings() {
+        var opened: DeviceId? = null
+        val b = usage(sis, 30, 30).copy(setupWarnings = setOf(SetupWarning.LOCATION_PERMISSION_OFF))
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30), b), listOf(dad)), running, true), onOpenDevice = { opened = it })
+        rule.onNodeWithTag("dash_warning_LOCATION_PERMISSION_OFF", useUnmergedTree = true).assertExists()
+        rule.onNode(hasTestTag("dash_compact_card") and hasClickAction() and hasAnyDescendant(hasText("Test")), useUnmergedTree = true).performClick()
+        rule.waitForIdle()
+        assertEquals(sis.id, opened)
+    }
+
+    @Test
+    fun aChildKeepsItsColourOnTheCard() {
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), listOf(dad)), running, true))
+        rule.onNode(hasTestTag("dash_card") and SemanticsMatcher.expectValue(ChildColorKey, childColor(kid.id.hex))).assertExists()
     }
 
     @Test

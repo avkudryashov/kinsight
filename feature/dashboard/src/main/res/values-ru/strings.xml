@@ -55,6 +55,7 @@
     <string name="dash_reconsent_body">Теперь Kinsight может передавать экранное время и место этого телефона и через Яндекс Диск родителя. Посмотрите, что изменилось, и решите.</string>
     <string name="dash_reconsent_open">Посмотреть</string>
     <string name="dash_top_today">Чаще всего сегодня</string>
+    <string name="dash_top_line">Чаще всего: %1$s · %2$s</string>
     <string name="dash_limit_pill">лимит</string>
     <string name="dash_warn_location_off">Доступ к геолокации выключен</string>
     <string name="dash_warn_location_disabled">Геолокация выключена</string>

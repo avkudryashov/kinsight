@@ -66,6 +66,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -94,8 +95,9 @@ import app.kinsight.core.designsystem.component.Pill
 import app.kinsight.core.designsystem.component.dataMoment
 import app.kinsight.core.designsystem.component.durationText
 import app.kinsight.core.designsystem.component.relativeTime
-import app.kinsight.core.designsystem.theme.ChildCardGradient
+import app.kinsight.core.designsystem.theme.ChildColorKey
 import app.kinsight.core.designsystem.theme.OnChildCard
+import app.kinsight.core.designsystem.theme.childColor
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.transport.ble.ServiceState
 import app.kinsight.core.transport.ble.SyncProblem
@@ -233,12 +235,17 @@ fun DashboardScreen(
                         Button(onInviteChild, Modifier.testTag("dash_invite_child")) { Text(stringResource(R.string.dash_invite_child)) }
                     }
                 }
-            } else {
+            } else if (d.children.size == 1) {
                 items(d.children, key = { it.member.id.hex }) { u ->
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         ChildCard(u, nowMs, noContactMs, totalLimit(ui.thresholds, u)) { onOpenDevice(u.member.id) }
                         TopApps(u, ui.thresholds)
                     }
+                }
+            } else {
+                // Task 12: two children or more get compact cards, so the second one is on screen without scrolling.
+                items(d.children, key = { it.member.id.hex }) { u ->
+                    CompactChildCard(u, nowMs, noContactMs, totalLimit(ui.thresholds, u)) { onOpenDevice(u.member.id) }
                 }
             }
         }
@@ -488,13 +495,8 @@ internal fun totalLimit(rules: List<ThresholdRule>, u: DeviceUsage): Long? =
  */
 @Composable
 private fun ChildCard(u: DeviceUsage, nowMs: Long, noContactMs: Long, limitMs: Long?, onClick: () -> Unit) {
-    val label = stringResource(R.string.dash_open_details, u.member.name)
     Column(
-        Modifier.fillMaxWidth().clip(MaterialTheme.shapes.large)
-            .background(Brush.linearGradient(ChildCardGradient))
-            .clickable(onClickLabel = label, role = Role.Button, onClick = onClick)
-            .padding(20.dp)
-            .testTag("dash_card"),
+        Modifier.childCard(u, "dash_card", onClick).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         CompositionLocalProvider(LocalContentColor provides OnChildCard) {
@@ -509,6 +511,63 @@ private fun ChildCard(u: DeviceUsage, nowMs: Long, noContactMs: Long, limitMs: L
                 u.updatedMs?.let { DataAt(it, nowMs, u.childZoneId) }
             } else {
                 Text(stringResource(R.string.dash_card_no_data), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.testTag("dash_today"))
+                if (!u.member.isSelf) LastSync(u.member.lastSeenMs, nowMs)
+            }
+            u.setupWarnings.sortedBy { it.ordinal }.forEach { SetupWarningLine(it) }
+            status(u, nowMs, noContactMs)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        }
+    }
+}
+
+/**
+ * The child's card surface: its own colour's gradient (Task 12, the same child the same colour on every phone),
+ * clickable to the report, tagged [tag]. White on every palette gradient keeps 4.5:1 (ChildColorsTest).
+ */
+@Composable
+private fun Modifier.childCard(u: DeviceUsage, tag: String, onClick: () -> Unit): Modifier {
+    val label = stringResource(R.string.dash_open_details, u.member.name)
+    val color = childColor(u.member.id.hex)
+    return fillMaxWidth().clip(MaterialTheme.shapes.large)
+        .background(Brush.linearGradient(color.gradient))
+        .semantics { set(ChildColorKey, color) }
+        .clickable(onClickLabel = label, role = Role.Button, onClick = onClick)
+        .testTag(tag)
+}
+
+/**
+ * Task 12: with two children or more, a smaller card per child. Avatar and name, today's time (28 sp), the day limit's
+ * bar when one is set, «Чаще всего: TikTok · 1 ч 22 мин» when today has usage, the setup warnings and the status as on
+ * the full card. The comparison and «Данные на» stay in the report; the top apps block is left out.
+ */
+@Composable
+private fun CompactChildCard(u: DeviceUsage, nowMs: Long, noContactMs: Long, limitMs: Long?, onClick: () -> Unit) {
+    Column(
+        Modifier.childCard(u, "dash_compact_card", onClick).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        CompositionLocalProvider(LocalContentColor provides OnChildCard) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Avatar(u.member.name, size = 32.dp)
+                Text(u.member.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            if (u.today.hasData) {
+                Text(
+                    durationText(u.today.totalMs),
+                    style = MaterialTheme.typography.displaySmall.copy(fontSize = 28.sp, lineHeight = 34.sp),
+                    modifier = Modifier.testTag("dash_today"),
+                )
+                if (limitMs != null) LimitBar(u.today.totalMs, limitMs, onCard = true)
+                u.topApps.firstOrNull()?.takeIf { it.app.totalMs > 0 }?.let { t ->
+                    Text(
+                        stringResource(R.string.dash_top_line, t.app.label, durationText(t.app.totalMs)),
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("dash_top_line"),
+                    )
+                }
+            } else {
+                Text(stringResource(R.string.dash_card_no_data), style = MaterialTheme.typography.titleLarge, modifier = Modifier.testTag("dash_today"))
                 if (!u.member.isSelf) LastSync(u.member.lastSeenMs, nowMs)
             }
             u.setupWarnings.sortedBy { it.ordinal }.forEach { SetupWarningLine(it) }

@@ -55,6 +55,7 @@
     <string name="dash_reconsent_body">Kinsight can now also send your screen time and where this phone is through a parent\'s Yandex Disk. See what changed and decide.</string>
     <string name="dash_reconsent_open">See what changed</string>
     <string name="dash_top_today">Most used today</string>
+    <string name="dash_top_line">Most used: %1$s · %2$s</string>
     <string name="dash_limit_pill">limit</string>
     <string name="dash_warn_location_off">Location access is off</string>
     <string name="dash_warn_location_disabled">Location is off</string>
