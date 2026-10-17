@@ -30,7 +30,7 @@ for flavor in light dark; do
 done
 
 mkdir -p "$work/npm"
-(cd "$work/npm" && npm init -y >/dev/null && npm install --silent --no-audit --no-fund "@protomaps/basemaps@$BASEMAPS_VERSION")
+(cd "$work/npm" && npm init -y >/dev/null && npm install --silent --no-audit --no-fund --ignore-scripts "@protomaps/basemaps@$BASEMAPS_VERSION")
 cat > "$work/npm/style.mjs" <<'JS'
 import { layers, namedFlavor } from "@protomaps/basemaps";
 const flavor = process.argv[2];
