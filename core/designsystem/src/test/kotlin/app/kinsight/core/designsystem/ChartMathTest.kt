@@ -3,8 +3,6 @@ package app.kinsight.core.designsystem
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import app.kinsight.core.designsystem.component.ChartScale
-import app.kinsight.core.designsystem.component.HEAT_LEGEND
-import app.kinsight.core.designsystem.component.HEAT_MIN_INTENSITY
 import app.kinsight.core.designsystem.component.barLayout
 import app.kinsight.core.designsystem.component.fitTicks
 import app.kinsight.core.designsystem.component.gridTicks
@@ -16,9 +14,6 @@ import app.kinsight.core.designsystem.component.barAlpha
 import app.kinsight.core.designsystem.component.barMarked
 import app.kinsight.core.designsystem.component.categoryPalette
 import app.kinsight.core.designsystem.component.contrastRatio
-import app.kinsight.core.designsystem.component.heatCells
-import app.kinsight.core.designsystem.component.heatHourLabels
-import app.kinsight.core.designsystem.component.heatIntensity
 import app.kinsight.core.designsystem.component.labelShown
 import app.kinsight.core.designsystem.component.limitFraction
 import app.kinsight.core.designsystem.component.limitSummary
@@ -30,7 +25,6 @@ import app.kinsight.core.designsystem.component.paletteIndex
 import app.kinsight.core.designsystem.component.nearestBar
 import app.kinsight.core.designsystem.component.tooltipLeft
 import kotlin.test.Test
-import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
@@ -76,27 +70,7 @@ class ChartMathTest {
         assertEquals(CATEGORY_COLOR_COUNT - 1, paletteIndex(-1))
     }
 
-    @Test
-    fun heatIntensityMapsValueToZeroOne() {
-        assertEquals(0f, heatIntensity(0L, 100L))
-        assertEquals(0f, heatIntensity(-5L, 100L))
-        assertEquals(0f, heatIntensity(50L, 0L))
-        assertEquals(0.575f, heatIntensity(50L, 100L), 0.0001f)
-        assertEquals(1f, heatIntensity(100L, 100L))
-        assertEquals(1f, heatIntensity(250L, 100L))
-    }
 
-    @Test
-    fun heatCellsAreSevenByTwentyFourWithoutNegatives() {
-        val ragged = arrayOf(longArrayOf(1L, -2L, 3L), LongArray(30) { 7L })
-        val c = heatCells(ragged)
-        assertEquals(7, c.size)
-        c.forEach { assertEquals(24, it.size) }
-        assertContentEquals(longArrayOf(1L, 0L, 3L) + LongArray(21), c[0])
-        assertContentEquals(LongArray(24) { 7L }, c[1])
-        assertContentEquals(LongArray(24), c[6])
-        assertEquals(7, heatCells(emptyArray()).size)
-    }
 
     @Test
     fun aHighlightedBarDoesNotDimTheOthers() {
@@ -124,14 +98,6 @@ class ChartMathTest {
         assertTrue(labelShown(i = 4, anchor = 2, step = 1))
     }
 
-    @Test
-    fun heatmapHourAxisTakesTheCallersLabels() {
-        assertEquals(listOf("0", "6", "12", "18"), heatHourLabels(null))
-        assertEquals(listOf("12 AM", "6 AM", "12 PM", "6 PM"), heatHourLabels(listOf("12 AM", "6 AM", "12 PM", "6 PM")))
-        // Too few or too many: padded with blanks or trimmed to the four ticks.
-        assertEquals(listOf("a", "", "", ""), heatHourLabels(listOf("a")))
-        assertEquals(listOf("a", "b", "c", "d"), heatHourLabels(listOf("a", "b", "c", "d", "e")))
-    }
 
     @Test
     fun hourAxisKeepsItsSixHourTicksAtNarrowWidth() {
@@ -276,11 +242,6 @@ class ChartMathTest {
         assertEquals(null, l.slotRange(null))
     }
 
-    @Test
-    fun anyTimeInAHeatCellIsVisible() {
-        assertEquals(HEAT_MIN_INTENSITY, heatIntensity(1L, 1_000_000L), 0.001f)
-        assertEquals(listOf(HEAT_MIN_INTENSITY, (HEAT_MIN_INTENSITY + 1f) / 2, 1f), HEAT_LEGEND)
-    }
 
     @Test
     fun aTouchPicksTheBarUnderItClampedToTheChart() {

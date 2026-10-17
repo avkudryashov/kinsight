@@ -42,7 +42,6 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.compose.foundation.layout.Column
 import app.kinsight.core.designsystem.component.BarChart
 import app.kinsight.core.designsystem.component.CategoryLegend
-import app.kinsight.core.designsystem.component.Heatmap
 import app.kinsight.core.designsystem.component.PeriodHeader
 import app.kinsight.core.designsystem.component.StackedBarChart
 import app.kinsight.core.designsystem.theme.KinsightTheme
@@ -210,22 +209,6 @@ class DetailChartsTest {
         rule.onNodeWithContentDescription("Odd").assertExists()
     }
 
-    @Test
-    fun heatmapIsReadAsItsSummary() {
-        rule.setContent {
-            KinsightTheme() {
-                Heatmap(
-                    cells = Array(7) { d -> LongArray(24) { h -> (d * h).toLong() } },
-                    rowLabels = listOf("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"),
-                    summary = "Most use on Sunday evening",
-                )
-                Heatmap(arrayOf(longArrayOf(-1L)), emptyList(), summary = "Ragged")
-            }
-        }
-        rule.onNodeWithContentDescription("Most use on Sunday evening").assertExists()
-        rule.onNodeWithContentDescription("Ragged").assertExists()
-        rule.onNodeWithText("Mo").assertDoesNotExist()
-    }
 
     @Test
     fun periodHeaderArrowsAreTaggedLabelledAndLargeEnough() {

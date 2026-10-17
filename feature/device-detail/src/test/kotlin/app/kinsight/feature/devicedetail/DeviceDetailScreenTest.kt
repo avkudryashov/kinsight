@@ -49,7 +49,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import java.time.LocalDate
-import java.util.Locale
 import android.content.Context
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.test.core.app.ApplicationProvider
@@ -453,12 +452,6 @@ class DeviceDetailScreenTest {
         assertEquals("><", steps)
     }
 
-    @Test
-    fun hourLabelsFollowTheClockFormat() {
-        val norm = { l: List<String> -> l.map { it.replace('\u202f', ' ').replace('\u00a0', ' ') } }
-        assertEquals(listOf("12 AM", "6 AM", "12 PM", "6 PM"), norm(hourLabels(Locale.US, is24Hour = false)))
-        assertEquals(listOf("0", "6", "12", "18"), hourLabels(Locale.forLanguageTag("ru"), is24Hour = true))
-    }
 
     private fun showWithLimits(d: DeviceDetail, thresholds: List<ThresholdRule>?) = rule.setContent {
         KinsightTheme() {

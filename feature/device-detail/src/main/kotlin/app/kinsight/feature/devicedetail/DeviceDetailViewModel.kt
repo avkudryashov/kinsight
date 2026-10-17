@@ -39,7 +39,7 @@ internal interface DetailSource {
 private class RepositorySource(private val usage: UsageRepository, private val id: DeviceId, private val weekFields: WeekFields) : DetailSource {
     override fun today(): LocalDate = usage.today()
 
-    override fun detail(range: DetailRange): Flow<DeviceDetail?> = usage.detail(id, range, weekFields)
+    override fun detail(range: DetailRange): Flow<DeviceDetail?> = usage.detail(id, range)
 
     override fun groupReady(): Flow<Boolean> = usage.groupReady
 

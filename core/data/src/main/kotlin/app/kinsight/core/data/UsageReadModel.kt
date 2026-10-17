@@ -12,8 +12,6 @@ import app.kinsight.core.usage.LocalHours
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.temporal.WeekFields
-import java.util.Locale
 import kotlin.math.abs
 
 /**
@@ -119,40 +117,6 @@ object UsageReadModel {
             // A skipped spring-forward hour did not happen: no time, and no unlocks either.
             HourTotal(h, byCategory.values.sum(), if (lengths[h] == 0L) 0 else unlocks[h], byCategory)
         }
-    }
-
-    /**
-     * Weekday × hour means over the [dates] that have a usable detail (spec §9.3: average over days with hourly data);
-     * null when none has. Rows follow [weekFields]' first day of week.
-     */
-    fun heatmap(
-        summaries: Map<LocalDate, DecodedEntry>?,
-        details: Map<LocalDate, DecodedEntry>?,
-        dates: List<LocalDate>,
-        today: LocalDate,
-        catalog: Map<String, AppCatalog>,
-        overrides: Map<String, AppCategory>,
-        weekFields: WeekFields,
-    ): Heatmap? {
-        val past = dates.filter { !it.isAfter(today) }
-        val sums = Array(7) { LongArray(24) }
-        val perWeekday = IntArray(7)
-        val unlockSums = LongArray(24)
-        var covered = 0
-        for (date in past) {
-            val detail = detailOf(summaries, details, date) ?: continue
-            val row = (date.dayOfWeek.value - weekFields.firstDayOfWeek.value + 7) % 7
-            perWeekday[row]++
-            covered++
-            hours(detail, catalog, overrides).forEach {
-                sums[row][it.hour] += it.totalMs
-                unlockSums[it.hour] += it.unlocks.toLong()
-            }
-        }
-        if (covered == 0) return null
-        val cells = Array(7) { row -> LongArray(24) { h -> if (perWeekday[row] == 0) 0L else sums[row][h] / perWeekday[row] } }
-        val unlocks = IntArray(24) { h -> Math.round(unlockSums[h].toDouble() / covered).toInt() }
-        return Heatmap(cells, unlocks, covered, past.size, weekFields.firstDayOfWeek)
     }
 
     /**
@@ -403,7 +367,6 @@ object UsageReadModel {
         zone: ZoneId = ZoneId.systemDefault(),
         overrides: Map<String, AppCategory> = emptyMap(),
         details: Map<LocalDate, DecodedEntry>? = null,
-        weekFields: WeekFields = WeekFields.of(Locale.getDefault()),
         nowMs: Long? = null,
     ): DeviceDetail {
         val own = surfaced(member, byDate)
@@ -436,7 +399,6 @@ object UsageReadModel {
             } else {
                 null
             },
-            heatmap = if (range.period == Period.DAY) null else heatmap(own, ownDetails, range.dates(), today, catalog, overrides, weekFields),
             today = today,
             updatedMs = updated,
             childZoneId = latestZoneId(own),

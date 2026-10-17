@@ -3,7 +3,6 @@ package app.kinsight.core.data
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.StateEvent
-import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.WeekFields
 
@@ -91,32 +90,6 @@ data class DetailRange(val period: Period, val start: LocalDate, val end: LocalD
  * repeated hour are summed here, on a spring-forward day the skipped hour is zero. [totalMs] sums [byCategory].
  */
 data class HourTotal(val hour: Int, val totalMs: Long, val unlocks: Int, val byCategory: Map<AppCategory, Long>)
-
-/**
- * Level 4 of a week or month: [cells] is [weekday][hour], weekday 0 being the locale's first day of week, each cell the
- * mean over the covered days of that weekday (a weekday with none is 0). [unlocks]: per hour, the mean over all
- * [coveredDays]. [coveredDays]: days of the range with a usable UsageDetail; [rangeDays]: days of the range up to the
- * viewer's today (a future day cannot have data).
- *
- * [firstDayOfWeek]: the weekday of row 0, from the same WeekFields the rows were built with, so the screen names the
- * rows by the data rather than by its own locale.
- */
-class Heatmap(
-    val cells: Array<LongArray>,
-    val unlocks: IntArray,
-    val coveredDays: Int,
-    val rangeDays: Int,
-    val firstDayOfWeek: DayOfWeek = DayOfWeek.MONDAY,
-) {
-    /** By content, so an identical heatmap does not redraw the screen. */
-    override fun equals(other: Any?): Boolean = other is Heatmap && coveredDays == other.coveredDays && rangeDays == other.rangeDays &&
-        firstDayOfWeek == other.firstDayOfWeek && cells.contentDeepEquals(other.cells) && unlocks.contentEquals(other.unlocks)
-
-    override fun hashCode(): Int =
-        (((cells.contentDeepHashCode() * 31 + unlocks.contentHashCode()) * 31 + coveredDays) * 31 + rangeDays) * 31 + firstDayOfWeek.hashCode()
-
-    override fun toString(): String = "Heatmap(covered=$coveredDays/$rangeDays, first=$firstDayOfWeek)"
-}
 
 /** A child's sharing as the group sees it, from its own signed events. */
 sealed interface Sharing {
@@ -209,8 +182,6 @@ data class DeviceDetail(
     val dayCategories: List<Map<AppCategory, Long>> = emptyList(),
     /** Level 4 of a DAY: 24 clock hours; null when the date has no usable UsageDetail (none, or not newer than its summary). */
     val hours: List<HourTotal>? = null,
-    /** Level 4 of a WEEK or MONTH: weekday × hour averages; null when no day of the range has a usable UsageDetail. */
-    val heatmap: Heatmap? = null,
     /**
      * The child's today, the bound of forward navigation: the viewer's date, or the next one when the child's zone is
      * already there (UsageReadModel.childToday); null when not given (screen tests), the screen then uses the viewer's.
@@ -230,7 +201,7 @@ data class DeviceDetail(
 
 /**
  * Every app of a child over [range], largest first (the «All apps» screen): what [DeviceDetail.apps] holds for the same
- * range, without the detail's UsageDetail query, categories or heatmap. [today]: the child's today, as in the detail.
+ * range, without the detail's UsageDetail query, or categories. [today]: the child's today, as in the detail.
  */
 data class AppList(
     val member: MemberView,
