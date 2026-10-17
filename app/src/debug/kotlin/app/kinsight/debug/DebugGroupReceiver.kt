@@ -10,11 +10,14 @@ import android.util.Log
 import app.kinsight.core.crypto.toHex
 import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.CloudTrigger
+import app.kinsight.core.data.MapBlocks
+import app.kinsight.core.data.MapWork
 import app.kinsight.core.database.KinsightDatabaseFactory
 import app.kinsight.core.database.RoomEntryStore
 import app.kinsight.core.keystore.DeviceIdentity
 import app.kinsight.core.location.LocationDebug
 import app.kinsight.core.location.LocationPermissions
+import app.kinsight.core.maps.BlockStore
 import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.proto.AppCatalog
@@ -31,6 +34,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import okio.ByteString.Companion.toByteString
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.time.LocalDateTime
 import java.time.ZoneId
 import kotlin.time.Duration.Companion.seconds
@@ -71,6 +75,22 @@ import kotlin.time.Duration.Companion.seconds
  * ```
  * The fake Disk lives as long as the process: after a restart switch it on again before any cloud run, or the fake token
  * goes to Yandex and the run ends in a 401.
+ *
+ * Offline map hooks (spec §3; the blocks are not published yet, so the device check takes a locally built one):
+ * MAP_INSTALL_LOCAL (`--ei x X --ei y Y --es path P`: the file at P, e.g. pushed to the app's external files dir, is
+ * installed as block z10-X-Y through BlockStore.install (partial file, size and sha256, atomic rename), the cell is
+ * marked used now, and a map check is queued so the Карта tab sees it; the answer is `installed X Y BYTES`) and
+ * MAP_STATUS (the block cells on the phone, the ledger's last-used time of each cell in ms, the catalog version or
+ * none, the free bytes). Both answers name cells: adb only, never logcat.
+ * ```
+ * R=app.kinsight/.debug.DebugGroupReceiver; A=app.kinsight.debug; D=/sdcard/Android/data/app.kinsight/files/maps-in
+ * scripts/maps/build-blocks.sh <bbox> <planet YYYYMMDD> <version>   # writes build/maps/<version>/z10-<x>-<y>.pmtiles
+ * adb shell mkdir -p $D && adb push build/maps/<version>/z10-510-389.pmtiles $D/
+ * adb shell am broadcast -n $R -a $A.MAP_INSTALL_LOCAL --ei x 510 --ei y 389 --es path $D/z10-510-389.pmtiles
+ * adb shell am broadcast -n $R -a $A.MAP_STATUS
+ * ```
+ * A block no child point comes near is deleted after 7 days like any other; a catalog listing the cell with another
+ * sha256 replaces it at the next run.
  */
 class DebugGroupReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -142,6 +162,13 @@ class DebugGroupReceiver : BroadcastReceiver() {
             else -> error("at must be start, service or none, not $at")
         }
         "$PREFIX.LOCATION_SLOW_TICK" -> LocationDebug.slowTick(intent.getIntExtra("seconds", 0) * 1_000L)
+        "$PREFIX.MAP_INSTALL_LOCAL" -> {
+            val path = intent.getStringExtra("path") ?: error("path extra missing")
+            val answer = DebugMaps.installLocal(mapStore(c), intent.getIntExtra("x", -1), intent.getIntExtra("y", -1), path, System.currentTimeMillis())
+            MapWork.checkSoon(c) // the check refreshes the Карта tab's view of the blocks
+            answer
+        }
+        "$PREFIX.MAP_STATUS" -> DebugMaps.status(mapStore(c))
         else -> error("unknown action ${intent.action}")
     }
 
@@ -189,6 +216,9 @@ class DebugGroupReceiver : BroadcastReceiver() {
             bitmap.recycle()
         }
     }
+
+    /** The folder AppGraph's store keeps the blocks in (filesDir/maps). */
+    private fun mapStore(c: Context) = BlockStore(File(c.filesDir, MapBlocks.DIR))
 
     /** LOCATION_STATUS: counts, modes and times only (DebugLocation.statusLine); the result never holds a coordinate. */
     private suspend fun locationStatus(c: Context): String {

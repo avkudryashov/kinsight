@@ -16,6 +16,7 @@ class DebugHooksLayoutTest {
         "app/src/debug/kotlin/app/kinsight/debug/DebugGroupReceiver.kt",
         "app/src/debug/kotlin/app/kinsight/debug/DebugCloud.kt",
         "app/src/debug/kotlin/app/kinsight/debug/DebugLocation.kt",
+        "app/src/debug/kotlin/app/kinsight/debug/DebugMaps.kt",
         "core/data/src/debug/kotlin/app/kinsight/core/data/CloudDebugDisk.kt",
         "core/data/src/debug/kotlin/app/kinsight/core/data/CloudDebugEnable.kt",
         "core/location/src/debug/kotlin/app/kinsight/core/location/LocationDebug.kt",
@@ -28,7 +29,7 @@ class DebugHooksLayoutTest {
         assertEquals(emptyList(), hooks.map { it.replace("/src/debug/", "/src/main/") }.filter { File(root, it).exists() })
         val names = listOf(
             "DebugGroupReceiver", "CloudDebugDisk", "CloudDebugEnable", "LocationDebug", "CLOUD_FAKE_ENABLE", "LOCATION_STATUS",
-            "LOCATION_REFUSE_FGS", "LOCATION_SLOW_TICK",
+            "LOCATION_REFUSE_FGS", "LOCATION_SLOW_TICK", "DebugMaps", "MAP_INSTALL_LOCAL", "MAP_STATUS",
         )
         val leaks = listOf("app", "core/data", "core/location").flatMap { m ->
             File(root, "$m/src/main").walk().filter { it.isFile && it.extension in setOf("kt", "xml") }.flatMap { f ->
