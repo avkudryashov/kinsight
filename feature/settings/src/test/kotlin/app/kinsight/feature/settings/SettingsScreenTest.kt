@@ -898,6 +898,44 @@ class SettingsScreenTest {
         rule.onNodeWithText("Your parents see where this phone is", substring = true).assertExists()
     }
 
+    /** Y4 parked minor: a refusal for good turns the dead button into the app's settings page. */
+    @Test
+    fun aLocationRefusedForGoodOpensTheAppSettings() {
+        var opened = 0
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                SettingsScreen(
+                    SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1L), Prefs(), running),
+                    "0.4.0", onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
+                    onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {}, onResetIdentity = {}, nowMs = NOW,
+                    location = LocationPermissions.State.NONE, locationBlocked = true, onLocationSettings = { opened++ },
+                )
+            }
+        }
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_location_settings"))
+        rule.onNodeWithTag("set_location_settings").assertTextEquals("Open app settings")
+        rule.onNodeWithTag("set_location_allow").assertDoesNotExist()
+        rule.onNodeWithText("Android no longer asks here", substring = true).assertExists()
+        rule.onNodeWithTag("set_location_settings").performClick()
+        assertEquals(1, opened)
+    }
+
+    /** Y4 parked minor: the route's gate and the refusal rule. */
+    @Test
+    fun theLocationRowIsAChildsWithTheCloudOn() {
+        val s = LocationPermissions.State.WHILE_IN_USE
+        assertEquals(s, locationRow(cloudOn = true, isChild = true, state = s))
+        assertEquals(null, locationRow(cloudOn = false, isChild = true, state = s))
+        assertEquals("never on a parent's phone", null, locationRow(cloudOn = true, isChild = false, state = s))
+        assertEquals(true, locationRequestRefused(LocationPermissions.State.NONE, LocationPermissions.State.NONE))
+        assertEquals(true, locationRequestRefused(LocationPermissions.State.WHILE_IN_USE, LocationPermissions.State.WHILE_IN_USE))
+        assertEquals(false, locationRequestRefused(LocationPermissions.State.NONE, LocationPermissions.State.WHILE_IN_USE))
+        assertEquals(false, locationRequestRefused(LocationPermissions.State.ALWAYS, LocationPermissions.State.ALWAYS))
+        val i = appSettings("app.kinsight")
+        assertEquals(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, i.action)
+        assertEquals("package:app.kinsight", i.dataString)
+    }
+
     @Test
     fun withoutTheCloudThereIsNoLocationRow() {
         showChildLocation(null, mutableListOf())

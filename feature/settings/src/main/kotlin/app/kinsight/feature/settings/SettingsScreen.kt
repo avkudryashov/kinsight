@@ -106,15 +106,25 @@ fun SettingsRoute(
         SettingsViewModel(g.group, g.settingsRepository, g.service, g.reset, g.usage, g.cloudRepository, g.childLock)
     }
     val ui by vm.ui.collectAsStateWithLifecycle()
-    // Back from Android's usage access screen: the row goes away at once, not on the next 30 s tick (U1).
     var locationState by remember { mutableStateOf(LocationPermissions.state(context)) }
+    // Y4 parked minor: a request that changed nothing (Android no longer shows the dialog once it was refused for good)
+    // turns the button into «Открыть настройки приложения», never a button that does nothing.
+    var locationBlocked by rememberSaveable { mutableStateOf(false) }
     val locationChanged: () -> Unit = {
+        val before = locationState
         locationState = LocationPermissions.state(context)
+        if (locationState != before) locationBlocked = false
         LocationGraph.refresh(context, rearm = true)
         AppGraph.get(context).launchLocationCheck()
     }
-    val foreground = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { locationChanged() }
-    val background = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { locationChanged() }
+    val afterRequest: () -> Unit = {
+        val before = locationState
+        locationChanged()
+        locationBlocked = locationRequestRefused(before, locationState)
+    }
+    val foreground = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { afterRequest() }
+    val background = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { afterRequest() }
+    // Back from Android's usage access screen: the row goes away at once, not on the next 30 s tick (U1).
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         vm.refreshStatus()
         // Back from Android's settings page: a grant or revoke made there starts or stops tracking now (Y4 review Minor 8).
@@ -137,7 +147,9 @@ fun SettingsRoute(
         onCloudTakeOver = { vm.startCloudSignIn(takeOver = true) { url -> context.open(Intent(Intent.ACTION_VIEW, url.toUri())) } },
         onCloudHandover = vm::requestHandover,
         onNewPhone = onNewPhone,
-        location = locationState.takeIf { ui.cloud.on && ui.cloud.isChild },
+        location = locationRow(ui.cloud.on, ui.cloud.isChild, locationState),
+        locationBlocked = locationBlocked,
+        onLocationSettings = { context.open(appSettings(context.packageName)) },
         onLocationAccess = { st ->
             when (st) {
                 LocationPermissions.State.NONE -> foreground.launch(LocationPermissions.FOREGROUND)
@@ -153,6 +165,18 @@ fun SettingsRoute(
 }
 
 private enum class Ask { PAUSE, STOP, RESET, SHRINK }
+
+/** Spec §8, §12: the location row shows on a child's phone while the cloud is on, never on a parent's. */
+internal fun locationRow(cloudOn: Boolean, isChild: Boolean, state: LocationPermissions.State): LocationPermissions.State? =
+    state.takeIf { cloudOn && isChild }
+
+/** A permission request that left the state as it was: Android refused without asking (refused for good) or the user said no. */
+internal fun locationRequestRefused(before: LocationPermissions.State, after: LocationPermissions.State): Boolean =
+    after == before && after != LocationPermissions.State.ALWAYS
+
+/** Android's page of this app, where a permission refused for good is granted. */
+internal fun appSettings(packageName: String): Intent =
+    Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:$packageName".toUri())
 
 /**
  * Spec §4.7, §4.8, §9.6, §9.7. Only a child's phone has a «share» switch (Play Stalkerware ruling: an adult's usage is
@@ -189,6 +213,9 @@ fun SettingsScreen(
     /** Spec §8, §12: the child's location access, shown on a child's phone while the cloud is on; null hides the row. */
     location: LocationPermissions.State? = null,
     onLocationAccess: (LocationPermissions.State) -> Unit = {},
+    /** The last request changed nothing: the button opens the app's settings page ([onLocationSettings]) instead. */
+    locationBlocked: Boolean = false,
+    onLocationSettings: () -> Unit = {},
     /** Spec §8.1 «Ребёнок видит список зон»: the read-only list of the family's safe zones, next to the location row. */
     onZones: () -> Unit = {},
     /** Spec §10: the parent PIN typed on a child's phone; «Закрыть настройки»; an admin parent's new PIN. */
@@ -382,7 +409,16 @@ fun SettingsScreen(
                             )
                         },
                     )
-                    if (location != LocationPermissions.State.ALWAYS) {
+                    if (location != LocationPermissions.State.ALWAYS && locationBlocked) {
+                        Text(
+                            stringResource(R.string.set_location_blocked),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
+                        Button(onLocationSettings, Modifier.padding(horizontal = 16.dp).testTag("set_location_settings")) {
+                            Text(stringResource(R.string.set_location_open_settings))
+                        }
+                    } else if (location != LocationPermissions.State.ALWAYS) {
                         Button({ onLocationAccess(location) }, Modifier.padding(horizontal = 16.dp).testTag("set_location_allow")) {
                             Text(stringResource(if (location == LocationPermissions.State.NONE) R.string.set_location_allow else R.string.set_location_allow_always))
                         }
