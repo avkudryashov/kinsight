@@ -18,6 +18,7 @@
     <string name="wid_child_spoken">%1$s: %2$s hoy. %3$s. Abrir detalles</string>
     <plurals name="wid_more">
         <item quantity="one">+%d menor más</item>
+        <item quantity="many">+%d menores más</item>
         <item quantity="other">+%d menores más</item>
     </plurals>
     <string name="wid_preview_name">Álex</string>

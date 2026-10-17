@@ -6,6 +6,7 @@
     <string name="det_month">Mes</string>
     <plurals name="det_unlocks">
         <item quantity="one">%d desbloqueo</item>
+        <item quantity="many">%d desbloqueos</item>
         <item quantity="other">%d desbloqueos</item>
     </plurals>
     <string name="det_no_data_title">No hay datos de este periodo</string>
@@ -70,10 +71,12 @@
     <string name="det_time_of_day">Hora del día</string>
     <plurals name="det_hours_unavailable">
         <item quantity="one">Los datos por hora de este periodo no están disponibles (se conservan %d día)</item>
+        <item quantity="many">Los datos por hora de este periodo no están disponibles (se conservan %d días)</item>
         <item quantity="other">Los datos por hora de este periodo no están disponibles (se conservan %d días)</item>
     </plurals>
     <plurals name="det_heatmap_coverage">
         <item quantity="one">Media de %1$d de %2$d día</item>
+        <item quantity="many">Media de %1$d de %2$d días</item>
         <item quantity="other">Media de %1$d de %2$d días</item>
     </plurals>
     <string name="det_heatmap_summary">Más tiempo el %1$s hacia las %2$s</string>
@@ -105,6 +108,7 @@
     <string name="det_thresholds">Límites</string>
     <plurals name="det_thresholds_count">
         <item quantity="one">%d límite</item>
+        <item quantity="many">%d límites</item>
         <item quantity="other">%d límites</item>
     </plurals>
     <string name="det_thresholds_none">Ninguno fijado</string>
@@ -184,6 +188,7 @@
     <string name="det_ev_zone_exit_unknown">Salida de una zona segura</string>
     <plurals name="loc_route_points">
         <item quantity="one">Ruta de hoy: %d punto</item>
+        <item quantity="many">Ruta de hoy: %d puntos</item>
         <item quantity="other">Ruta de hoy: %d puntos</item>
     </plurals>
 </resources>

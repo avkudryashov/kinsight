@@ -90,6 +90,7 @@
     <string name="inv_expires_soon_spoken">Caduca en menos de 30 segundos</string>
     <plurals name="inv_expires_spoken">
         <item quantity="one">Caduca en %d minuto o menos</item>
+        <item quantity="many">Caduca en %d minutos o menos</item>
         <item quantity="other">Caduca en %d minutos o menos</item>
     </plurals>
     <string name="grp_err_leave_owner_handover">No se ha permitido la salida: el almacenamiento de la familia está en tu Yandex Disk. Primero pásalo a otro adulto en Ajustes y luego sal.</string>

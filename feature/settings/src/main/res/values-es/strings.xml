@@ -87,10 +87,12 @@
     <string name="set_shrink_title">¿Conservar menos historial?</string>
     <plurals name="set_shrink_body">
         <item quantity="one">El historial de más de %1$d día se borrará ahora de este teléfono.</item>
+        <item quantity="many">El historial de más de %1$d días se borrará ahora de este teléfono.</item>
         <item quantity="other">El historial de más de %1$d días se borrará ahora de este teléfono.</item>
     </plurals>
     <plurals name="set_shrink_detail_body">
         <item quantity="one">El historial detallado de más de %1$d día se borrará ahora de este teléfono. Los totales diarios se mantienen.</item>
+        <item quantity="many">El historial detallado de más de %1$d días se borrará ahora de este teléfono. Los totales diarios se mantienen.</item>
         <item quantity="other">El historial detallado de más de %1$d días se borrará ahora de este teléfono. Los totales diarios se mantienen.</item>
     </plurals>
     <string name="set_shrink">Borrar</string>

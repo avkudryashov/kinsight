@@ -69,6 +69,9 @@ class TranslationParityTest {
 
     private fun placeholders(text: String): List<String> = placeholder.findAll(text).map { it.value }.sorted().toList()
 
+    /** The CLDR plural categories of each shipped language that Android resolves a count to (Y4 Task 11 review Minor 7). */
+    private val PLURAL_FORMS = mapOf("ru" to setOf("one", "few", "many", "other"), "es" to setOf("one", "many", "other"))
+
     @Test
     fun everyLocaleHasEveryStringWithTheSamePlaceholders() {
         val locales = locales()
@@ -99,6 +102,8 @@ class TranslationParityTest {
                     } else {
                         // Plural quantities differ by language (ru has few/many); each form keeps the source's placeholders.
                         if ("other" !in t) problems += "$locale $name: no quantity other"
+                        // Every form the language has (CLDR), or Android falls back to «other» where it reads wrong (es «many»).
+                        PLURAL_FORMS[locale.substringBefore('-')]?.let { need -> (need - t.keys).forEach { problems += "$locale $name: no quantity $it" } }
                         val expected = forms.getValue("other")
                         for ((q, p) in t) if (p != expected) problems += "$locale $name[$q]: placeholders $p != $expected"
                     }
