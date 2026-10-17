@@ -204,11 +204,37 @@ class LocationEngineTest {
     }
 
     @Test
-    fun refreshRearmsAnOverdueTickWithoutAnExtraFix() = runTest {
+    fun refreshFiresAnOverdueTickAtOnceWithoutAnExtraFix() = runTest {
         store.state = TrackerState(Mode.OUTSIDE, registered = setOf(home.signature, school.signature), nextTickMs = now - 2 * LocationEngine.TICK_MS)
         engine.refresh()
         assertTrue(cadence.service)
-        assertEquals(LocationEngine.TICK_MS, cadence.tickInMs)
+        assertEquals(0L, cadence.tickInMs)
+        assertEquals(now, store.state.nextTickMs)
+        assertEquals(0, fixes.asked)
+    }
+
+    /** Emulator finding: a process start (rearm) keeps the saved tick time instead of pushing it 5 minutes on. */
+    @Test
+    fun aRestartKeepsTheSavedTickTime() = runTest {
+        val registered = setOf(home.signature, school.signature)
+        store.state = TrackerState(Mode.OUTSIDE, registered = registered, nextTickMs = now + 120_000)
+        engine.refresh(rearm = true)
+        assertEquals(120_000L, cadence.tickInMs)
+        assertEquals(now + 120_000, store.state.nextTickMs)
+
+        store.state = TrackerState(Mode.OUTSIDE, registered = registered, nextTickMs = now - 60_000)
+        engine.refresh(rearm = true)
+        assertEquals(0L, cadence.tickInMs, "a tick already due fires at once")
+        assertEquals(now, store.state.nextTickMs)
+
+        store.state = TrackerState(Mode.OUTSIDE, registered = registered, nextTickMs = now + 3 * LocationEngine.TICK_MS)
+        engine.refresh(rearm = true)
+        assertEquals(LocationEngine.TICK_MS, cadence.tickInMs, "a clock gone back never delays the tick past 5 minutes")
+        assertEquals(now + LocationEngine.TICK_MS, store.state.nextTickMs)
+
+        store.state = TrackerState(Mode.OUTSIDE, registered = registered, nextTickMs = null)
+        engine.refresh(rearm = true)
+        assertEquals(0L, cadence.tickInMs)
         assertEquals(0, fixes.asked)
     }
 
@@ -237,12 +263,37 @@ class LocationEngineTest {
     }
 
     @Test
-    fun withoutTheBackgroundPermissionNothingRuns() = runTest {
+    fun withoutTheBackgroundPermissionOnlyTheCheckRuns() = runTest {
         fixes.ready = false
         engine.refresh()
         assertTrue(alerts.registered.isEmpty())
-        assertFalse(cadence.periodic)
+        assertTrue(cadence.periodic, "the 30-minute check stays to find access given back")
         assertEquals(0, fixes.asked)
+    }
+
+    /** Emulator finding: access revoked, then given back in the system settings with the app closed. */
+    @Test
+    fun theCheckPicksUpAccessGivenBackOutsideTheApp() = runTest {
+        fixes.next = away
+        engine.refresh()
+        assertTrue(cadence.service)
+        fixes.ready = false
+        engine.onTick(Tick.OUTSIDE)
+        assertTrue(alerts.registered.isEmpty())
+        assertFalse(cadence.service)
+        assertNull(cadence.tickInMs)
+        assertTrue(cadence.periodic)
+        assertEquals(TrackerState(), store.state)
+
+        fixes.ready = true
+        fixes.asked = 0
+        host.recorded.clear()
+        engine.onTick(Tick.PERIODIC)
+        assertEquals(setOf(home.id, school.id), alerts.registered.keys, "the alerts are registered again")
+        assertEquals(1, fixes.asked, "the first decision is the check's only fix")
+        assertEquals<List<Recorded>>(listOf(emptyList<ZoneEvent>() to Report.Point(away)), host.recorded)
+        assertEquals(Mode.OUTSIDE, store.state.mode)
+        assertTrue(cadence.service)
     }
 
     /** Ruling L2: a non-finite or out-of-range fix is dropped, never signed. */
@@ -301,7 +352,7 @@ class LocationEngineTest {
     fun anOverdueTickArmedByARefreshIsNotPushedBackByTheNext() = runTest {
         store.state = TrackerState(Mode.OUTSIDE, registered = setOf(home.signature, school.signature), nextTickMs = now - 2 * LocationEngine.TICK_MS)
         engine.refresh()
-        assertEquals(now + LocationEngine.TICK_MS, store.state.nextTickMs)
+        assertEquals(now, store.state.nextTickMs)
         cadence.tickInMs = null
         engine.refresh()
         assertNull(cadence.tickInMs, "a tick armed in time is left alone")

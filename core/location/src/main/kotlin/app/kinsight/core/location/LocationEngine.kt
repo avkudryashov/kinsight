@@ -60,7 +60,8 @@ enum class Tick { PERIODIC, OUTSIDE }
 
 /**
  * The child's tracking (spec §8.1) behind one lock: every entry point first asks [host] whether this phone tracks at
- * all (and [fixes] whether the permissions are there); when not, everything is turned off and the state cleared. Signing
+ * all (and [fixes] whether the permissions are there); when not, everything is turned off and the state cleared (only
+ * the 30-minute check stays while the permissions alone are missing). Signing
  * comes before saving the state, so a crash repeats an event rather than losing it. Every fix passes [FixCheck] first: a
  * fix out of range is dropped, one without accuracy is vague. Lock order: the cloud runLock (a
  * wipe calling [forget]), then this lock, then the pipeline lock (inside [LocationHost.record]); the engine never takes
@@ -79,10 +80,16 @@ class LocationEngine(
     /**
      * Zones changed, a start, a sync, a permission granted: registers the zones whose geometry is new (all of them with
      * [rearm]: boot, update, process start), removes the others, schedules the in-zone check, takes the first fix when
-     * none decided yet, and lines the service and the tick up with the mode (an overdue tick is armed again).
+     * none decided yet, and lines the service and the tick up with the mode. With [rearm] or an overdue tick the outside
+     * tick is armed for the saved time (never pushed back by a restart), or at once when that time has passed.
      */
     suspend fun refresh(rearm: Boolean = false): Unit = lock.withLock {
-        val zones = active() ?: return@withLock off()
+        val zones = active() ?: return@withLock
+        lineUp(zones, rearm)
+    }
+
+    /** True when it took a fix (the first decision). */
+    private suspend fun lineUp(zones: List<Zone>, rearm: Boolean): Boolean {
         val s = store.load()
         val wanted = zones.associateBy { it.signature }
         // Saved before the platform hears of them (Y4 parked minor): a process killed in between leaves every alert it
@@ -95,19 +102,26 @@ class LocationEngine(
         cadence.schedulePeriodic()
         if (registered.mode == Mode.UNKNOWN) {
             apply(ZoneTracker.fix(registered, zones, fix(), clock()))
-        } else if (registered.mode == Mode.OUTSIDE && (rearm || overdue(registered))) {
-            // The tick armed now is due in TICK_MS: recorded, so the next refresh does not push it back again.
-            val armed = registered.copy(nextTickMs = clock() + TICK_MS)
-            store.save(armed)
-            follow(armed, armTick = true)
-        } else {
-            follow(registered, armTick = false)
+            return true
         }
+        if (registered.mode == Mode.OUTSIDE && (rearm || overdue(registered))) {
+            // Emulator finding: a process start used to push the tick 5 minutes on each time. The saved time stays when it
+            // is still ahead (capped at TICK_MS should the clock have gone back); a time already past fires at once.
+            val now = clock()
+            val next = registered.nextTickMs
+            val due = if (next != null && next > now) minOf(next, now + TICK_MS) else now
+            val armed = registered.copy(nextTickMs = due)
+            if (armed != registered) store.save(armed)
+            follow(armed, tickInMs = due - now)
+        } else {
+            follow(registered, tickInMs = null)
+        }
+        return false
     }
 
     /** A proximity alert (spec §8.1). An exit that leaves every zone takes its point first. */
     suspend fun onProximity(zoneId: String, entering: Boolean): Unit = lock.withLock {
-        val zones = active() ?: return@withLock off()
+        val zones = active() ?: return@withLock
         var s = store.load()
         if (zones.none { it.id == zoneId }) {
             // A stale alert of a deleted zone (Y4 parked minor): taken back here, the mode recomputed by the tracker.
@@ -119,11 +133,16 @@ class LocationEngine(
         apply(ZoneTracker.proximity(s, zones, zoneId, entering, clock(), fix))
     }
 
-    /** The cadence: one fix and its report. An outside tick that finds the phone in a zone only stops the outside cadence. */
+    /**
+     * The cadence: one fix and its report. An outside tick that finds the phone in a zone only stops the outside cadence.
+     * The 30-minute check first lines the alerts up like [refresh] (emulator finding: access given back in the system
+     * settings, with the app closed, is picked up here); when that took the first fix, the check is done.
+     */
     suspend fun onTick(tick: Tick): Unit = lock.withLock {
-        val zones = active() ?: return@withLock off()
+        val zones = active() ?: return@withLock
+        if (tick == Tick.PERIODIC && lineUp(zones, rearm = false)) return@withLock
         val s = store.load()
-        if (tick == Tick.OUTSIDE && s.mode == Mode.IN_ZONE) return@withLock follow(s, armTick = false)
+        if (tick == Tick.OUTSIDE && s.mode == Mode.IN_ZONE) return@withLock follow(s, tickInMs = null)
         apply(ZoneTracker.fix(s, zones, fix(), clock()))
     }
 
@@ -134,9 +153,24 @@ class LocationEngine(
     internal suspend fun savedState(): TrackerState = store.load()
 
     /** LocalReset and leaving (under the cloud runLock): every alert, the service, the tick, the check and the state go. */
-    suspend fun forget(): Unit = lock.withLock { off() }
+    suspend fun forget(): Unit = lock.withLock { off(keepCheck = false) }
 
-    private suspend fun active(): List<Zone>? = if (!fixes.ready()) null else host.zones()
+    /**
+     * The zones when this phone tracks; otherwise everything is turned off first and null returned. A phone that should
+     * track but lacks the permissions keeps the 30-minute check, so access given back outside the app is found by it.
+     */
+    private suspend fun active(): List<Zone>? {
+        val zones = host.zones()
+        if (zones == null) {
+            off(keepCheck = false)
+            return null
+        }
+        if (!fixes.ready()) {
+            off(keepCheck = true)
+            return null
+        }
+        return zones
+    }
 
     /** Rulings L2, L4: whatever the source returned, only a checked fix reaches the tracker and a signature. */
     private suspend fun fix(): Fix? = fixes.fix(FIX_TIMEOUT_MS)?.let(FixCheck::checked)
@@ -147,18 +181,19 @@ class LocationEngine(
         val outside = step.state.mode == Mode.OUTSIDE
         val state = step.state.copy(nextTickMs = if (outside) clock() + TICK_MS else null)
         store.save(state)
-        follow(state, armTick = true)
+        follow(state, tickInMs = TICK_MS)
         // Spec §8.1: exits and entries go «сразу», outside points every 5 minutes; an in-zone report waits for §9's cadence.
         // An outside tick without a fix signed nothing, so it uploads nothing.
         if (step.events.isNotEmpty() || step.report is Report.Point) host.upload()
     }
 
-    private fun follow(s: TrackerState, armTick: Boolean) {
+    /** [tickInMs]: the outside tick to arm (replacing a pending one), or null to leave it. */
+    private fun follow(s: TrackerState, tickInMs: Long?) {
         when (s.mode) {
             Mode.OUTSIDE -> {
                 // A refused service (spec §14) leaves the tick: the points go on, without the notification.
                 cadence.startService()
-                if (armTick) cadence.armTick(TICK_MS)
+                if (tickInMs != null) cadence.armTick(tickInMs)
             }
             Mode.IN_ZONE -> {
                 cadence.stopService()
@@ -173,13 +208,13 @@ class LocationEngine(
         return s.mode == Mode.OUTSIDE && clock() > next + TICK_MS
     }
 
-    private suspend fun off() {
+    private suspend fun off(keepCheck: Boolean) {
         val s = store.load()
         s.registered.forEach { alerts.unregister(ZoneTracker.idOf(it)) }
         // Unconditional: the in-zone check is scheduled before the first decision, while the state may still be empty.
         cadence.stopService()
         cadence.cancelTick()
-        cadence.cancelPeriodic()
+        if (keepCheck) cadence.schedulePeriodic() else cadence.cancelPeriodic()
         if (s != TrackerState()) store.clear()
     }
 

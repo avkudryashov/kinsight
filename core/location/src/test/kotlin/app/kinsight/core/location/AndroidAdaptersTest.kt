@@ -337,4 +337,22 @@ class AndroidAdaptersTest {
         assertTrue("it stops itself once foreground", shadowOf(newer).isStoppedBySelf)
         assertEquals(0, ServiceGate.pendingStarts)
     }
+
+    /** Emulator finding: the 30-minute check also runs the app's location state check, even when it throws. */
+    @Test
+    fun theCheckRunsTheAppStateCheck() {
+        val before = LocationGraph.stateCheck
+        try {
+            var runs = 0
+            LocationGraph.stateCheck = {
+                runs++
+                throw IllegalStateException("boom")
+            }
+            val worker = androidx.work.testing.TestListenableWorkerBuilder<LocationWorker>(app).build()
+            assertEquals(androidx.work.ListenableWorker.Result.success(), runBlocking { worker.doWork() })
+            assertEquals(1, runs)
+        } finally {
+            LocationGraph.stateCheck = before
+        }
+    }
 }

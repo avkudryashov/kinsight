@@ -103,15 +103,26 @@ object LocationWork {
     }
 }
 
-/** Thin: the engine decides. A failure is logged by class name (never a coordinate) and waits for the next period. */
+/**
+ * Thin: the engine decides. Also the app's location state check (emulator finding: access given back in the system
+ * settings with the app closed is seen within one period, and the problem closed). A failure is logged by class name
+ * (never a coordinate) and waits for the next period.
+ */
 class LocationWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
-    override suspend fun doWork(): Result = try {
-        LocationGraph.engine(applicationContext)?.onTick(Tick.PERIODIC)
-        Result.success()
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        Log.w("KinsightLocation", "location check failed: ${e.javaClass.simpleName}")
-        Result.success()
+    override suspend fun doWork(): Result {
+        // Each on its own: a failing state check does not skip the engine's check, nor the other way round.
+        attempt("location state check") { LocationGraph.stateCheck(applicationContext) }
+        attempt("location check") { LocationGraph.engine(applicationContext)?.onTick(Tick.PERIODIC) }
+        return Result.success()
+    }
+
+    private suspend fun attempt(what: String, block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("KinsightLocation", "$what failed: ${e.javaClass.simpleName}")
+        }
     }
 }

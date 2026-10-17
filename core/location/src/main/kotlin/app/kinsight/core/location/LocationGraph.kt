@@ -18,6 +18,13 @@ object LocationGraph {
     @Volatile
     var host: (Context) -> LocationHost? = { null }
 
+    /**
+     * The app's location state check (spec §10, core/data AppGraph.launchLocationCheck), run by the 30-minute check
+     * (LocationWorker). It only launches work: never a synchronous call back into the engine (ruling L6).
+     */
+    @Volatile
+    var stateCheck: (Context) -> Unit = {}
+
     @Volatile
     private var engine: LocationEngine? = null
 
