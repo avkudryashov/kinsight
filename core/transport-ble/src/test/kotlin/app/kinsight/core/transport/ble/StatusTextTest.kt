@@ -2,6 +2,7 @@ package app.kinsight.core.transport.ble
 
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.Member
+import app.kinsight.core.model.proto.DeviceRole
 import okio.ByteString
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -73,8 +74,34 @@ class StatusTextTest {
         val child = ServiceSnapshot(ServiceState.RUNNING, peers = listOf("Mom"), peersAreParents = true)
         assertTrue(StatusText.childPhone(child))
         assertFalse(StatusText.offersStop(child), "spec §10: only a parent stops it, with the PIN in Settings")
-        val parent = ServiceSnapshot(ServiceState.RUNNING, peers = listOf("Kid"))
+        val parent = ServiceSnapshot(ServiceState.RUNNING, peers = listOf("Kid"), peersAreParents = false)
         assertFalse(StatusText.childPhone(parent))
         assertTrue(StatusText.offersStop(parent))
+    }
+
+    /** Final review Important 1: until the role is read (first post, Bluetooth off, no permission, storage error) it is a child's. */
+    @Test
+    fun anUnknownRoleFailsClosedAsAChildsPhone() {
+        for (state in listOf(ServiceState.STARTING, ServiceState.BLUETOOTH_OFF, ServiceState.NO_PERMISSION, ServiceState.STORAGE_ERROR)) {
+            val unknown = ServiceSnapshot(state)
+            assertTrue(StatusText.childPhone(unknown), "$state")
+            assertFalse(StatusText.offersStop(unknown), "$state: no Stop before the role is known")
+        }
+        assertTrue(StatusText.offersStop(ServiceSnapshot(ServiceState.BLUETOOTH_OFF, peersAreParents = false)))
+    }
+
+    @Test
+    fun theRoleIsUnknownUntilThisPhoneIsAnActiveMember() {
+        fun member(hex: String, child: Boolean) = Member(
+            DeviceId(hex.repeat(16)), ByteString.EMPTY, ByteString.EMPTY, "x", isAdmin = false,
+            role = if (child) DeviceRole.CHILD else DeviceRole.PARENT,
+        )
+        val kid = member("cc", child = true)
+        val mom = member("aa", child = false)
+        val active = listOf(kid, mom).associateBy { it.id }
+        assertEquals(true, StatusText.selfIsChild(active, kid.id))
+        assertEquals(false, StatusText.selfIsChild(active, mom.id))
+        assertEquals(null, StatusText.selfIsChild(active, DeviceId("dd".repeat(16))))
+        assertEquals(null, StatusText.selfIsChild(null, kid.id))
     }
 }

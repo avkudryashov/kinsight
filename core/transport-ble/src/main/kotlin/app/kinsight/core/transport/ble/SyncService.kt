@@ -343,6 +343,9 @@ class SyncService : Service() {
             show(ServiceState.NO_GROUP)
             return stopNow(startId)
         }
+        // The role before any early return below (Bluetooth off, no permission, storage error): a child's phone never
+        // shows Stop; until this read succeeds the role stays unknown, which fails closed (StatusText.childPhone).
+        refreshPeers()
         try {
             DeviceIdentity.get(c)
         } catch (e: CancellationException) {

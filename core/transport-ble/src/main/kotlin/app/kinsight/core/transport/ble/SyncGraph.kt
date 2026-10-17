@@ -335,10 +335,11 @@ object SyncGraph {
 
     /** Names for the notification line and whether they are the parents who see this child's data. */
     suspend fun notificationPeers(context: Context): NotificationPeers {
-        val ctx = syncContext(context) ?: return NotificationPeers(emptyList(), parentsOnly = false)
-        val state = Membership.compute(ctx.groupId, ctx.store.membershipEntries()) ?: return NotificationPeers(emptyList(), false)
+        // Role unknown (null) without a group, keys or membership: the notification then fails closed (StatusText.childPhone).
+        val ctx = syncContext(context) ?: return NotificationPeers(emptyList(), parentsOnly = null)
+        val state = Membership.compute(ctx.groupId, ctx.store.membershipEntries()) ?: return NotificationPeers(emptyList(), null)
         val self = ctx.keys.deviceId
-        return NotificationPeers(StatusText.peerNames(state.active.values, self), parentsOnly = state.active[self]?.isChild == true)
+        return NotificationPeers(StatusText.peerNames(state.active.values, self), parentsOnly = StatusText.selfIsChild(state.active, self))
     }
 
     private fun readGroupOrNull(context: Context): GroupConfig? = try {
