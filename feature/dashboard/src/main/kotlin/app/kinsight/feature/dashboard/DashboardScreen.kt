@@ -1,7 +1,5 @@
 package app.kinsight.feature.dashboard
 
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Home
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -24,7 +22,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -562,25 +563,31 @@ private fun SetupWarningLine(w: SetupWarning) = Row(
 @Composable
 private fun TopApps(u: DeviceUsage, rules: List<ThresholdRule>) {
     if (u.topApps.isEmpty()) return
-    Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp).testTag("dash_top_apps")) {
-        Text(
-            stringResource(R.string.dash_top_today),
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.semantics { heading() },
-        )
-        u.topApps.forEach { t ->
-            Row(
-                Modifier.fillMaxWidth().heightIn(min = 48.dp).semantics(mergeDescendants = true) {}.testTag("dash_app_${t.app.packageName}"),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                AppIcon(t.app.icon)
-                Text(t.app.label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (ThresholdEval.limited(rules, u.member.id, t.app.packageName, t.category)) {
-                    Pill(stringResource(R.string.dash_limit_pill), Modifier.testTag("dash_limit_pill"))
+    Card(
+        Modifier.fillMaxWidth().testTag("dash_top_apps"),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                stringResource(R.string.dash_top_today),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.semantics { heading() },
+            )
+            u.topApps.forEach { t ->
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 48.dp).semantics(mergeDescendants = true) {}.testTag("dash_app_${t.app.packageName}"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    AppIcon(t.app.icon)
+                    Text(t.app.label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (ThresholdEval.limited(rules, u.member.id, t.app.packageName, t.category)) {
+                        Pill(stringResource(R.string.dash_limit_pill), Modifier.testTag("dash_limit_pill"))
+                    }
+                    Text(durationText(t.app.totalMs), style = MaterialTheme.typography.bodyMedium)
                 }
-                Text(durationText(t.app.totalMs), style = MaterialTheme.typography.bodyMedium)
             }
         }
     }
