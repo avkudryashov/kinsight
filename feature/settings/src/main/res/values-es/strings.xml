@@ -77,7 +77,7 @@
     <string name="tr_parent_own">Este teléfono no comparte su propio tiempo de pantalla con nadie.</string>
     <string name="tr_parent_sync">Guarda los datos de los menores y los sincroniza con los demás adultos: %1$s.</string>
     <string name="tr_parent_keep">En este teléfono: historial detallado %1$s, totales diarios %2$s.</string>
-    <string name="tr_no_internet">Los datos circulan entre los teléfonos de tu familia por Bluetooth. Kinsight solo se conecta a internet para la sincronización a través del Yandex Disk de un adulto de la familia, si este la activó. El desarrollador no guarda nada.</string>
+    <string name="tr_no_internet">Los datos circulan entre los teléfonos de tu familia por Bluetooth. Kinsight solo se conecta a internet para la sincronización a través del Yandex Disk de un adulto de la familia, si este la activó, y en el teléfono de un adulto también para descargar el mapa de calles desde GitHub por Wi-Fi. El desarrollador no guarda nada.</string>
     <string name="rec_key_title">No se pueden usar las claves de este teléfono</string>
     <string name="rec_key_body">Kinsight nunca crea claves nuevas sin avisar. Para continuar, desconecta este teléfono y vuelve a emparejarlo. Detalles: %1$s</string>
     <string name="rec_removed_title">Este teléfono ya no está en el grupo</string>

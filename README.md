@@ -1,6 +1,6 @@
 # Kinsight
 
-Family screen time, phone to phone. A child's phone shares its screen time with the parents' phones over Bluetooth, with the child's consent on the child's phone; when a parent turns on the sync through their Yandex Disk, it also shares where it is, and the parents are told when it leaves a safe zone. On the child's phone only a parent changes sharing, with a parent PIN, and anything turned off in Android settings is shown to the parents. No servers of ours and no Kinsight accounts: the app goes online only to sync through your Yandex Disk, if you turned that on, and the developer stores nothing.
+Family screen time, phone to phone. A child's phone shares its screen time with the parents' phones over Bluetooth, with the child's consent on the child's phone; when a parent turns on the sync through their Yandex Disk, it also shares where it is, and the parents are told when it leaves a safe zone. On the child's phone only a parent changes sharing, with a parent PIN, and anything turned off in Android settings is shown to the parents. No servers of ours and no Kinsight accounts: the app goes online only to sync through your Yandex Disk, if you turned that on, and, on a parent's phone, to download street map blocks from GitHub over Wi-Fi; the developer stores nothing.
 
 - Website and download: https://avkudryashov.github.io/kinsight/
 - Privacy policy: https://avkudryashov.github.io/kinsight/privacy-en.html
