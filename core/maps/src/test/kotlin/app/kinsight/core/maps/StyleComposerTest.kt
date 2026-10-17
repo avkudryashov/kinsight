@@ -43,6 +43,13 @@ class StyleComposerTest {
         composed().getValue("layers").jsonArray.map { it.jsonObject.getValue("id").jsonPrimitive.content },
     )
 
+    /** GeoJSON order is lon, lat: a swap would put every overlay in the wrong place. */
+    @Test
+    fun thePointIsWrittenLonThenLat() {
+        val coordinates = features("kin-point").single().jsonObject.getValue("geometry").jsonObject.getValue("coordinates").jsonArray
+        assertEquals(listOf(-0.5, 39.5), coordinates.map { it.jsonPrimitive.content.toDouble() })
+    }
+
     @Test
     fun theOverlaysAreInTheChildsColour() {
         assertEquals("#E8590C", layer("kin-point").getValue("paint").jsonObject.getValue("circle-color").jsonPrimitive.content)

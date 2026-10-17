@@ -49,6 +49,21 @@ class BlockStoreTest {
         assertTrue(leftovers().isEmpty())
     }
 
+    /** The server stops early: fewer bytes than the catalog says is a mismatch, the partial goes. */
+    @Test
+    fun fewerBytesThanTheCatalogSaysAreRefused() {
+        assertEquals(Install.MISMATCH, store.install(block().copy(bytes = bytes.size + 1L), bytes.inputStream()))
+        assertFalse(store.file(cell).exists())
+        assertTrue(leftovers().isEmpty())
+    }
+
+    @Test
+    fun freeBytesDoesNotCreateTheFolder() {
+        val gone = File(dir, "gone")
+        BlockStore(gone).freeBytes()
+        assertFalse(gone.exists())
+    }
+
     @Test
     fun aBrokenStreamDeletesThePartial() {
         val broken = object : InputStream() {

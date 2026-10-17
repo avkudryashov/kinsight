@@ -39,8 +39,8 @@ class BlockStore(val dir: File, private val free: (File) -> Long = { it.usableSp
     }.toSet()
 
     fun freeBytes(): Long {
-        dir.mkdirs()
-        return free(dir)
+        // Never create the folder here: after a leave it must stay gone (MapBlocks relies on it).
+        return free(dir.takeIf { it.exists() } ?: dir.parentFile ?: dir)
     }
 
     @Synchronized
