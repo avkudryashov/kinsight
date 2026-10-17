@@ -232,7 +232,8 @@ class CloudRunner(
                 // cloud confirms the switch too.
                 // A new generation owes a Heartbeat, kept in the state (parked Y3 minor: across a process death too); one
                 // that failed is tried again at the next synced run (it is idempotent by its mark).
-                record(now, CloudRun.SYNCED, null, synced = true, generation = syncedGeneration).also {
+                // The finish time: a pull waiting for a run already in flight ends when it completes (Task 13 review).
+                record(clock(), CloudRun.SYNCED, null, synced = true, generation = syncedGeneration).also {
                     if (state.current().heartbeatPending && signHeartbeat()) state.heartbeatSigned()
                 }
             }

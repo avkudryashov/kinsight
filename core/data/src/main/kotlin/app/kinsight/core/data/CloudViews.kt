@@ -1,18 +1,32 @@
 package app.kinsight.core.data
 
 import android.util.Log
+import app.kinsight.core.database.KinsightDatabase
+import app.kinsight.core.database.RoomEntryStore
 import app.kinsight.core.model.DeviceId
+import app.kinsight.core.model.DeviceKeys
+import app.kinsight.core.model.Membership
+import app.kinsight.core.model.MembershipState
 import app.kinsight.core.transport.ble.CloudSync
+import app.kinsight.core.transport.ble.GroupStore
 import app.kinsight.core.transport.cloud.OwnerLeaveBlock
 import app.kinsight.core.transport.cloud.OwnerLifecycle
+import app.kinsight.core.usage.SettingsStore
+import app.kinsight.core.usage.UsageSettings
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The cloud as the settings screen shows it. [available]: this build has a Yandex client. [problem]: what this device's
@@ -120,11 +134,13 @@ object CloudViews {
 
     /**
      * The cloud for the sync service and the one sync status (Task 13): on while this phone is an active member of a
-     * group with a storage owner (the conditions of CloudRunner.isOn), with the last successful run of [state].
+     * group with a storage owner, and, for a child, agreed to the current consent text (CloudRunner skips a child
+     * otherwise, so the Disk carries nothing for it), with the last successful run of [state].
      */
-    fun sync(s: GroupSnapshot, state: CloudState): CloudSync {
-        val r = s as? GroupSnapshot.Ready ?: return CloudSync()
-        if (r.membership.storageOwner == null || r.self !in r.membership.active) return CloudSync()
+    fun sync(membership: MembershipState?, self: DeviceId, settings: UsageSettings, state: CloudState): CloudSync {
+        val me = membership?.active?.get(self) ?: return CloudSync()
+        if (membership.storageOwner == null) return CloudSync()
+        if (me.isChild && (settings.consentAtMs == null || settings.consentOutdated)) return CloudSync()
         return CloudSync(on = true, lastSyncMs = state.lastSyncMs)
     }
 
@@ -199,5 +215,39 @@ class CloudRepository(
     private companion object {
         const val DEFAULT_DEVICE_NAME = "Kinsight"
         const val TAG = "KinsightCloud"
+    }
+}
+
+/**
+ * The always-on sync service's view of the cloud (review Important 1): the cloud state and the consent drive it, and each
+ * change reads only the group file and the membership entries (as CloudRunner.isOn), never the full group snapshot. A
+ * storage owner learned over Bluetooth shows at the next cloud state write (the session schedules a run). A failed read
+ * counts as the cloud off.
+ */
+class CloudSyncSource(
+    private val db: KinsightDatabase,
+    private val groups: GroupStore,
+    private val keys: suspend () -> DeviceKeys,
+    settings: SettingsStore,
+    state: CloudStateStore,
+    private val io: CoroutineDispatcher = Dispatchers.IO,
+) {
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val flow: Flow<CloudSync> = combine(state.state, settings.settings) { st, s -> st to s }
+        .mapLatest { (st, s) -> read(s, st) }
+        .distinctUntilChanged()
+
+    private suspend fun read(settings: UsageSettings, state: CloudState): CloudSync = try {
+        val group = withContext(io) { groups.read() }
+        if (group == null) {
+            CloudSync()
+        } else {
+            CloudViews.sync(Membership.compute(group.groupId, RoomEntryStore(db, group.groupId).membershipEntries()), keys().deviceId, settings, state)
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w("KinsightCloud", "cloud state for the service unreadable: ${e.javaClass.simpleName}")
+        CloudSync()
     }
 }

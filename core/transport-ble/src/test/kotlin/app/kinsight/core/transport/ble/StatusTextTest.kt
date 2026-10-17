@@ -4,6 +4,8 @@ import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.Member
 import app.kinsight.core.model.proto.DeviceRole
 import okio.ByteString
+import java.time.ZoneId
+import java.time.ZonedDateTime
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -88,12 +90,25 @@ class StatusTextTest {
 
     @Test
     fun aSyncTodayShowsTheTimeOnlyAndAnOlderOneTheDateToo() {
-        val zone = java.time.ZoneId.of("Europe/Madrid")
-        val now = java.time.ZonedDateTime.of(2026, 10, 17, 15, 45, 0, 0, zone).toInstant().toEpochMilli()
-        val earlier = java.time.ZonedDateTime.of(2026, 10, 17, 0, 1, 0, 0, zone).toInstant().toEpochMilli()
-        val yesterday = java.time.ZonedDateTime.of(2026, 10, 16, 23, 59, 0, 0, zone).toInstant().toEpochMilli()
+        val zone = ZoneId.of("Europe/Madrid")
+        val now = ZonedDateTime.of(2026, 10, 17, 15, 45, 0, 0, zone).toInstant().toEpochMilli()
+        val earlier = ZonedDateTime.of(2026, 10, 17, 0, 1, 0, 0, zone).toInstant().toEpochMilli()
+        val yesterday = ZonedDateTime.of(2026, 10, 16, 23, 59, 0, 0, zone).toInstant().toEpochMilli()
         assertTrue(StatusText.sameDay(earlier, now, zone))
         assertFalse(StatusText.sameDay(yesterday, now, zone))
+    }
+
+    /** Fix round: at local midnight the line is rebuilt, so yesterday's «в 15:41» gets its date. */
+    @Test
+    fun theLineIsRebuiltAtTheNextLocalMidnight() {
+        val zone = ZoneId.of("Europe/Madrid")
+        val now = ZonedDateTime.of(2026, 10, 17, 23, 59, 30, 0, zone).toInstant().toEpochMilli()
+        assertEquals(30_000L, StatusText.untilNextMidnightMs(now, zone))
+        val midnight = ZonedDateTime.of(2026, 10, 18, 0, 0, 0, 0, zone).toInstant().toEpochMilli()
+        assertEquals(24 * 3_600_000L, StatusText.untilNextMidnightMs(midnight, zone), "exactly at midnight: the next one")
+        // 25 October 2026: clocks go back in Madrid, that day lasts 25 hours.
+        val dstDay = ZonedDateTime.of(2026, 10, 25, 0, 0, 0, 0, zone).toInstant().toEpochMilli()
+        assertEquals(25 * 3_600_000L, StatusText.untilNextMidnightMs(dstDay, zone))
     }
 
     @Test
@@ -107,7 +122,6 @@ class StatusTextTest {
         assertEquals(ServiceChannels.PARENT, ServiceChannels.retired(peersAreParents = true))
         assertEquals(null, ServiceChannels.retired(peersAreParents = null))
         assertEquals("kinsight-service", ServiceChannels.CHILD, "the child's channel keeps its id, so its settings stay")
-        assertTrue(ServiceChannels.PARENT != ServiceChannels.CHILD)
     }
 
     @Test

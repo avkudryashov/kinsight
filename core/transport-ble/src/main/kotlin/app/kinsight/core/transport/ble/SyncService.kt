@@ -37,6 +37,7 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.time.ZoneId
 
 /**
  * Foreground service of type connectedDevice (spec §8): advertising, GATT and L2CAP servers, the background scan and
@@ -87,6 +88,7 @@ class SyncService : Service() {
     private var fastEnd: Job? = null
     private val scanThrottle = ScanThrottle.PROCESS // shared with pairing: Android counts scan starts per app
     private var lastVisible: Boolean? = null // serial dispatcher only
+    private var retiredTried = false // serial dispatcher only: the other role's channel was asked to go once
     private var scanWanted: Boolean? = null
     private var scanActive: Boolean? = null
     private var scanRetry: Job? = null
@@ -148,6 +150,13 @@ class SyncService : Service() {
                     snapshot = snapshot.copy(cloudOn = c.on, cloudLastSyncMs = c.lastSyncMs)
                     if (snapshot.state != ServiceState.STARTING) publish()
                 }
+        }
+        // At local midnight today's «в 15:41» becomes yesterday's: rebuild the line so it gets its date.
+        scope.launch {
+            while (true) {
+                delay(StatusText.untilNextMidnightMs(System.currentTimeMillis(), ZoneId.systemDefault()) + MIDNIGHT_SLACK_MS)
+                if (snapshot.state != ServiceState.STARTING) publish()
+            }
         }
         val filter = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
         // A system broadcast still reaches a NOT_EXPORTED runtime receiver; nobody else can fake it.
@@ -676,18 +685,22 @@ class SyncService : Service() {
             lastVisible = visible
             scope.launch { quietly("notification visibility") { SyncGraph.onNotificationVisibility(applicationContext, visible) } }
         }
-        if (!stopping) {
+        if (stopping) return
+        val retired = ServiceChannels.retired(snapshot.peersAreParents)?.takeIf { nm.getNotificationChannel(it) != null }
+        if (retired == null || retiredTried || !foreground) {
             nm.notify(NOTIFICATION_ID, notification(snapshot))
-            // Once the role is known and the notification sits on its channel, the other one goes (never the one in use).
-            ServiceChannels.retired(snapshot.peersAreParents)?.let { old ->
-                if (nm.getNotificationChannel(old) != null) {
-                    try {
-                        nm.deleteNotificationChannel(old)
-                    } catch (e: Exception) {
-                        log("channel $old not deleted: $e")
-                    }
-                }
-            }
+            return
+        }
+        // Once the role is known the other channel goes. Android refuses to delete the channel its foreground
+        // notification was started on, so the service goes foreground again on the new channel first. Tried once per
+        // service instance: a refusal is logged once, not on every publish.
+        retiredTried = true
+        try {
+            startForeground(NOTIFICATION_ID, notification(snapshot), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+            nm.deleteNotificationChannel(retired)
+        } catch (e: Exception) {
+            log("channel $retired not deleted: $e")
+            nm.notify(NOTIFICATION_ID, notification(snapshot))
         }
     }
 
@@ -714,10 +727,13 @@ class SyncService : Service() {
         StatusLine.Kind.NEVER_SYNCED -> getString(R.string.kinsight_never_synced)
         StatusLine.Kind.SYNCED -> {
             val at = line.lastSyncWallMs ?: 0L
-            if (StatusText.sameDay(at, System.currentTimeMillis(), java.time.ZoneId.systemDefault())) {
-                getString(R.string.kinsight_synced_at, DateUtils.formatDateTime(this, at, DateUtils.FORMAT_SHOW_TIME))
+            val time = DateUtils.formatDateTime(this, at, DateUtils.FORMAT_SHOW_TIME)
+            if (StatusText.sameDay(at, System.currentTimeMillis(), ZoneId.systemDefault())) {
+                getString(R.string.kinsight_synced_at, time)
             } else {
-                getString(R.string.kinsight_synced_on, DateUtils.formatDateTime(this, at, DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_SHOW_DATE))
+                // «Синхронизировано 17 октября в 15:41»: the date without the year, as absoluteMoment shows it.
+                val date = DateUtils.formatDateTime(this, at, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_NO_YEAR)
+                getString(R.string.kinsight_synced_on, date, time)
             }
         }
     }
@@ -794,6 +810,9 @@ class SyncService : Service() {
         private const val NOTIFICATION_ID = 1
         private const val REQUEST_STOP = 10
         private const val REQUEST_REPOST = 11
+
+        /** The midnight rebuild runs a little after midnight, so the new day has begun on every clock read. */
+        private const val MIDNIGHT_SLACK_MS = 1_000L
         /** One fast-mode window after «Sync now» (also how long Overview says it is looking, U6). */
         const val FAST_MS = 60_000L
 

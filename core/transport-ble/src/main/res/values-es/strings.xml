@@ -8,7 +8,7 @@
     <string name="kinsight_status_radio_error">Error de la radio Bluetooth: sincronización en pausa</string>
     <string name="kinsight_status_peer_needs_update">Un teléfono de la familia necesita actualizar la aplicación</string>
     <string name="kinsight_synced_at">Sincronizado a las %1$s</string>
-    <string name="kinsight_synced_on">Sincronizado el %1$s</string>
+    <string name="kinsight_synced_on">Sincronizado el %1$s a las %2$s</string>
     <string name="kinsight_never_synced">Todavía no se ha sincronizado</string>
     <string name="kinsight_peers">Se sincroniza con: %1$s</string>
     <string name="kinsight_sharing_paused">El intercambio está en pausa: no se envía el tiempo de pantalla nuevo</string>

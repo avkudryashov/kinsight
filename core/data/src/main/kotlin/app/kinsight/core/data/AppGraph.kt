@@ -25,7 +25,6 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -147,7 +146,7 @@ class Graph internal constructor(app: Context) {
         elapsed = { ElapsedSample(SystemClock.elapsedRealtime(), Settings.Global.getInt(app.contentResolver, Settings.Global.BOOT_COUNT, 0)) },
     )
     /** One sync status for both paths (Task 13): this phone's cloud, for the sync service's notification and the screens. */
-    val cloudSync: Flow<CloudSync> = combine(snapshots.snapshots, cloudState.state) { s, st -> CloudViews.sync(s, st) }.distinctUntilChanged()
+    val cloudSync: Flow<CloudSync> = CloudSyncSource(db, groups, keys, settings, cloudState).flow
     val service = ServiceRepository(
         SyncGraph.snapshot, transport, { BlePermissions.missing(app) }, sync, usageAccess = { AppOpsUsageAccess(app).granted() },
         cloud = cloudSync, cloudNow = { CloudWork.opened(app) },

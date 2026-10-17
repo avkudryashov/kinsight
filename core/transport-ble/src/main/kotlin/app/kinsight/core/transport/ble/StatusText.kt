@@ -2,6 +2,8 @@ package app.kinsight.core.transport.ble
 
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.Member
+import java.time.Instant
+import java.time.ZoneId
 
 enum class ServiceState { STOPPED, STARTING, NO_GROUP, STORAGE_ERROR, NO_PERMISSION, BLUETOOTH_OFF, RADIO_ERROR, RUNNING }
 
@@ -119,8 +121,14 @@ object StatusText {
     }
 
     /** A sync of today shows its time only; an older one its date too. */
-    fun sameDay(atMs: Long, nowMs: Long, zone: java.time.ZoneId): Boolean =
-        java.time.Instant.ofEpochMilli(atMs).atZone(zone).toLocalDate() == java.time.Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
+    fun sameDay(atMs: Long, nowMs: Long, zone: ZoneId): Boolean =
+        Instant.ofEpochMilli(atMs).atZone(zone).toLocalDate() == Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
+
+    /** How long until the next local midnight after [nowMs], when the line is rebuilt (today's time gets its date). */
+    fun untilNextMidnightMs(nowMs: Long, zone: ZoneId): Long {
+        val next = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate().plusDays(1).atStartOfDay(zone)
+        return next.toInstant().toEpochMilli() - nowMs
+    }
 
     /**
      * Names for the notification (spec §9.6): a CHILD lists who sees its data, the parents; everyone else lists the
