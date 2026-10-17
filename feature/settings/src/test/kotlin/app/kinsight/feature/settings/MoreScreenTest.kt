@@ -4,11 +4,11 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -204,8 +204,11 @@ class MoreScreenTest {
     fun aboutShowsTheOpenSourceLicenses() {
         rule.setContent { KinsightTheme { AboutScreen("0.9.0", onPrivacyPolicy = {}, onLanguage = null, onBack = {}) } }
         rule.onNodeWithTag("about_licenses").assertTextEquals("Open source licenses").performClick()
-        rule.onNodeWithTag("about_licenses_text").assertTextContains("© OpenStreetMap contributors", substring = true)
-        rule.onNodeWithTag("about_licenses_text").assertTextContains("MapLibre", substring = true)
-        rule.onNodeWithTag("about_licenses_text").assertTextContains("SIL OPEN FONT LICENSE", substring = true)
+        rule.waitUntil(5_000) { rule.onAllNodes(hasTestTag("about_licenses_text")).fetchSemanticsNodes().isNotEmpty() }
+        // The list is lazy: scroll to each notice, then it is on screen.
+        for (needle in listOf("© OpenStreetMap contributors", "MapLibre Native Android", "SIL OPEN FONT LICENSE", "MIT License")) {
+            rule.onNodeWithTag("about_licenses_text").performScrollToNode(hasText(needle, substring = true, ignoreCase = true))
+            rule.onAllNodes(hasText(needle, substring = true, ignoreCase = true)).onFirst().assertExists()
+        }
     }
 }

@@ -8,11 +8,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -24,7 +25,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -33,6 +34,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import app.kinsight.core.designsystem.openPrivacyPolicy
 
 @Composable
@@ -84,20 +87,48 @@ fun AboutScreen(appVersion: String, onPrivacyPolicy: () -> Unit, onLanguage: (()
     if (licenses) LicensesDialog(onDismiss = { licenses = false })
 }
 
+/** One row of the licenses list: a «== Title ==» heading or a paragraph of license text. */
+private data class LicenseRow(val heading: Boolean, val text: String)
+
+private fun licenseRows(raw: String): List<LicenseRow> = raw.split("\n\n").map { it.trim('\n') }.filter { it.isNotBlank() }.flatMap { block ->
+    // A heading line starts a block; it becomes its own row so it can be styled, the rest follows as text.
+    if (block.startsWith("== ")) {
+        val head = block.lineSequence().first()
+        val rest = block.substring(head.length).trim('\n')
+        listOfNotNull(LicenseRow(true, head.trim('=', ' ')), rest.takeIf { it.isNotBlank() }?.let { LicenseRow(false, it) })
+    } else {
+        listOf(LicenseRow(false, block))
+    }
+}
+
 @Composable
 private fun LicensesDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
-    val text = remember { context.resources.openRawResource(R.raw.open_source_licenses).use { it.readBytes().decodeToString() } }
+    // ~100 KB: read off the main thread and shown row by row, not as one giant Text.
+    val rows by produceState<List<LicenseRow>?>(null) {
+        value = withContext(Dispatchers.IO) {
+            context.resources.openRawResource(R.raw.open_source_licenses).use { licenseRows(it.readBytes().decodeToString()) }
+        }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = { TextButton(onDismiss) { Text(stringResource(R.string.about_licenses_close)) } },
         title = { Text(stringResource(R.string.about_licenses)) },
         text = {
-            Text(
-                text,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.verticalScroll(rememberScrollState()).testTag("about_licenses_text"),
-            )
+            val loaded = rows
+            if (loaded == null) {
+                CircularProgressIndicator(Modifier.testTag("about_licenses_loading"))
+            } else {
+                LazyColumn(Modifier.testTag("about_licenses_text")) {
+                    items(loaded) { row ->
+                        Text(
+                            row.text,
+                            style = if (row.heading) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = if (row.heading) 12.dp else 4.dp),
+                        )
+                    }
+                }
+            }
         },
     )
 }

@@ -6,6 +6,12 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 out="$root/feature/settings/src/main/res/raw/open_source_licenses.txt"
 mkdir -p "$(dirname "$out")"
 get() { curl -sSfL "$1"; echo; }
+# The full Apache 2.0 terms are printed once, in the last section; copies embedded in a notice file are replaced by a pointer.
+strip_apache() {
+  awk '/^ *Apache License *$/ { skip = 1; print "[Apache License 2.0, Version 2.0, January 2004: the full terms are in the last section.]" }
+       !skip { print }
+       /END OF TERMS AND CONDITIONS/ { skip = 0 }'
+}
 {
   echo "Kinsight uses the following open source software and data."
   echo
@@ -23,7 +29,7 @@ get() { curl -sSfL "$1"; echo; }
   get https://raw.githubusercontent.com/tangrams/icons/92510779634f4a006c61ea70e50cb8c52c765a81/LICENSE.md
   echo "== MapLibre Native Android =="
   get https://raw.githubusercontent.com/maplibre/maplibre-native/android-v13.7.1/LICENSE.md
-  get https://raw.githubusercontent.com/maplibre/maplibre-native/android-v13.7.1/LICENSES.core.md
+  get https://raw.githubusercontent.com/maplibre/maplibre-native/android-v13.7.1/LICENSES.core.md | strip_apache
   echo "== MapLibre gestures for Android =="
   get https://raw.githubusercontent.com/maplibre/maplibre-gestures-android/823df84b427c6f8a320c2f14660f986243f6987b/LICENSE.md
   echo "== MapLibre Java (GeoJSON, Turf) =="
@@ -31,7 +37,7 @@ get() { curl -sSfL "$1"; echo; }
   echo "== Nunito (app font) =="
   cat "$root/core/designsystem/fonts/OFL.txt"; echo
   echo "== Apache License 2.0 =="
-  echo "Applies to Kinsight itself, OkHttp, Okio and Timber."
+  echo "Applies to Kinsight itself and to the libraries it ships under it: OkHttp, Okio, Timber, Gson and Wire."
   echo
   get https://www.apache.org/licenses/LICENSE-2.0.txt
 } > "$out"
