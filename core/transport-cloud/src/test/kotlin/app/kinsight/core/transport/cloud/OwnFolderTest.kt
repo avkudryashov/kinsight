@@ -62,21 +62,40 @@ class OwnFolderTest {
         assertContentEquals(id, disk.files(CloudPaths.storageIdFile(g)).values.single())
     }
 
+    /**
+     * Only the file deleted in the Disk UI, the root stays: the owner's next run sees the root without it and writes it
+     * again. That a member's run never writes it is pinned where the owned id is chosen (core/data CloudOwnerMoveTest
+     * `onlyTheOwnersRunWritesTheStorageId`): a CloudSync without an owned id has nothing to write.
+     */
     @Test
-    fun aMemberNeverWritesTheStorageId() = runTest {
+    fun theOwnerPutsBackAStorageIdDeletedAlone() = runTest {
         val (mom, kid) = family(DeviceRole.CHILD)
         val g = kid.store.groupId
         val id = ByteArray(16) { 7 }
         val owner = CloudSync(mom.store, mom.keys, SyncPolicy(mom.id, today = { TODAY }), disk, mom.ring, mom.cursor, { 1_000L }, ownedStorageId = id)
         owner.run()
         assertContentEquals(id, disk.files(CloudPaths.storageIdFile(g)).values.single())
-        disk.delete(CloudPaths.storageIdFile(g)) // only the file, the root stays
+        disk.delete(CloudPaths.storageIdFile(g))
         kid.publish(kid.author.summary("2026-10-13", 1))
         kid.sync(disk).run()
         assertTrue(disk.files(CloudPaths.storageIdFile(g)).isEmpty())
-        // The owner's next run sees the root without it and writes it again.
         owner.run()
         assertContentEquals(id, disk.files(CloudPaths.storageIdFile(g)).values.single())
+    }
+
+    /** A storage.id of another storage (same size, other bytes) is never overwritten: telling storages apart relies on it. */
+    @Test
+    fun aStorageIdOfAnotherStorageIsNeverOverwritten() = runTest {
+        val (mom, _) = family(DeviceRole.CHILD)
+        val g = mom.store.groupId
+        val theirs = ByteArray(16) { 9 }
+        disk.mkdir(CloudPaths.APP_ROOT)
+        disk.mkdir(CloudPaths.root(g))
+        disk.upload(CloudPaths.storageIdFile(g), theirs)
+        val owner = CloudSync(mom.store, mom.keys, SyncPolicy(mom.id, today = { TODAY }), disk, mom.ring, mom.cursor, { 1_000L }, ownedStorageId = ByteArray(16) { 7 })
+        assertIs<CloudResult.Synced>(owner.run())
+        assertIs<CloudResult.Synced>(owner.run())
+        assertContentEquals(theirs, disk.files(CloudPaths.storageIdFile(g)).values.single())
     }
 
     @Test

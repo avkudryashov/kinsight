@@ -92,6 +92,20 @@ class CloudOwnerMoveTest {
         return out
     }
 
+    /** storage.id deleted alone (the Disk UI): a child's or another parent's run never writes it, the owner's puts it back. */
+    @Test
+    fun onlyTheOwnersRunWritesTheStorageId() = runBlocking<Unit> {
+        family()
+        val g = mom.groups.read()!!.groupId
+        assertEquals(CloudRun.SYNCED, mom.runner(disks::disk).run(CloudTrigger.NOW))
+        momDisk.delete(CloudPaths.storageIdFile(g))
+        assertEquals(CloudRun.SYNCED, kid.runner(disks::disk).run(CloudTrigger.NOW))
+        assertEquals(CloudRun.SYNCED, dad.runner(disks::disk).run(CloudTrigger.NOW))
+        assertTrue(momDisk.files(CloudPaths.storageIdFile(g)).isEmpty())
+        assertEquals(CloudRun.SYNCED, mom.runner(disks::disk).run(CloudTrigger.NOW))
+        assertContentEquals(ByteArray(16) { 1 }, StorageMove.storageIdOf(momDisk, g))
+    }
+
     @Test
     fun aChildOnTheOldDiskFollowsTheMove() = runBlocking<Unit> {
         family()
