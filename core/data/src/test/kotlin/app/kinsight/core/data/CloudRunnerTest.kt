@@ -108,8 +108,8 @@ class CloudRunnerTest {
 
     /**
      * Task 14: a pack the storage will not give (a 500 on its download) does not stop the run: it is synced (own uploads,
-     * the time of the last sync, no problem shown), tells that it skipped one, so a follow-up run is queued, and the next
-     * run reads the pack.
+     * the time of the last sync, no problem shown), tells that it skipped one and when it comes due (its first backoff, about
+     * 5 minutes), so a follow-up run is queued for then, and the run then reads the pack.
      */
     @Test
     fun aPackTheStorageWillNotGiveStillLeavesARunSynced() = runBlocking<Unit> {
@@ -125,15 +125,17 @@ class CloudRunnerTest {
                 if (kidDir in path) throw DiskException.Server(500, "storage get $path") else disk.download(path)
         }
         val outcome = mom.runner { _ -> broken }.runCounted(CloudTrigger.NOW)
-        assertEquals(CloudRunOutcome(CloudRun.SYNCED, received = 0, skipped = 1), outcome)
-        assertTrue(CloudWork.retrySkippedNeeded(outcome))
+        assertEquals(CloudRun.SYNCED to 1, outcome.run to outcome.skipped)
+        val delay = CloudWork.retryDelayMs(outcome)!!
+        assertTrue(delay in 270_000L..330_000L, "the first backoff, 5 minutes ± 10 %: $delay")
         assertNotNull(mom.cloudState.current().lastSyncMs)
         assertNull(mom.cloudState.current().problem)
         assertTrue(disk.files("app:").keys.any { mom.keys.deviceId.hex in it && it.endsWith(".kb") }, "own pack uploaded")
         assertTrue(day !in mom.store().liveEntries())
+        mom.now += delay
         val healed = mom.runner(disk).runCounted(CloudTrigger.NOW)
         assertEquals(0, healed.skipped)
-        assertFalse(CloudWork.retrySkippedNeeded(healed))
+        assertNull(CloudWork.retryDelayMs(healed))
         assertTrue(day in mom.store().liveEntries())
         assertTrue(own in mom.store().liveEntries())
     }

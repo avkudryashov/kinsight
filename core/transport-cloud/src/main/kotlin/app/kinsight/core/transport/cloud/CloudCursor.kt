@@ -35,10 +35,11 @@ data class DeferredPack(val epoch: Int, val failedKey: String? = null, val membe
 
 /**
  * A pack the Disk would not hand out (Task 14: a storage 5xx, a dropped read, bytes that do not match the listing):
- * [count] failures in a row, the last at [lastMs] on the sync's clock. Not final: read again at the next run, and after
- * CloudSync.FAILS_BEFORE_BACKOFF failures at most once per CloudSync.FAILED_PACK_RETRY_MS.
+ * [count] failures in a row (a network drop never counts), not tried again before [nextAtMs] on the sync's clock. The wait
+ * doubles like ImagePullBackOff: CloudSync.retryDelayMs (5, 10, 20, 40, then 60 minutes), with jitter. The first successful
+ * download of the pack forgets it.
  */
-data class PackFailure(val count: Int, val lastMs: Long)
+data class PackFailure(val count: Int, val nextAtMs: Long)
 
 /**
  * Per-device cloud progress. [uploadedUpTo]: own seqs up to here are in packs on the Disk. [seen]: packs already handled,
@@ -80,10 +81,12 @@ class InMemoryCursorStore(var cursor: CloudCursor = CloudCursor()) : CloudCursor
  * The cursor at rest (Y2: one Room row). Version byte, then the fields in declaration order, maps as a count and their
  * entries. [decode] throws IOException for anything it did not write, including a cut or longer buffer. Version 1 (before
  * Y4) has no [CloudCursor.locationDue]: no own pack carried a LOCATION entry then, so it decodes to an empty map.
- * Version 2 (before Task 14) has no [CloudCursor.failing]: it decodes to an empty map.
+ * Version 2 (before Task 14) has no [CloudCursor.failing]: it decodes to an empty map. Version 3 (Task 14 before its
+ * fix round) stored the last failure time instead of the next attempt: it decodes to that time plus the count's wait.
  */
 object CloudCursorCodec {
-    private const val VERSION = 3
+    private const val VERSION = 4
+    private const val VERSION_3 = 3
     private const val VERSION_2 = 2
     private const val VERSION_1 = 1
     private const val MAX_ITEMS = 1_000_000
@@ -121,7 +124,7 @@ object CloudCursorCodec {
             for ((k, v) in c.failing) {
                 o.writeUTF(k)
                 o.writeInt(v.count)
-                o.writeLong(v.lastMs)
+                o.writeLong(v.nextAtMs)
             }
         }
         return bytes.toByteArray()
@@ -131,14 +134,18 @@ object CloudCursorCodec {
         val input = ByteArrayInputStream(bytes)
         val i = DataInputStream(input)
         val version = i.readUnsignedByte()
-        if (version != VERSION && version != VERSION_2 && version != VERSION_1) throw IOException("unknown cloud cursor version")
+        if (version !in VERSION_1..VERSION) throw IOException("unknown cloud cursor version")
         val uploaded = i.readLong()
         val compaction = i.readLong()
         val seen = i.readMap { readInt() }
         val own = i.readMap { KeyId(readInt(), readUTF()) }
         val deferred = i.readMap { DeferredPack(readInt(), readOptional(), readOptional()) }
         val due = if (version == VERSION_1) emptyMap() else i.readMap { readLong() }
-        val failing = if (version == VERSION) i.readMap { PackFailure(readInt(), readLong()) } else emptyMap()
+        val failing = when (version) {
+            VERSION -> i.readMap { PackFailure(readInt(), readLong()) }
+            VERSION_3 -> i.readMap { readInt().let { n -> PackFailure(n, readLong() + CloudSync.retryDelayMs(n)) } }
+            else -> emptyMap()
+        }
         if (input.available() != 0) throw IOException("trailing bytes in cloud cursor")
         return CloudCursor(uploaded, seen, compaction, own, deferred, due, failing)
     }

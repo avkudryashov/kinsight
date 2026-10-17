@@ -125,13 +125,20 @@ class CloudWorkResultTest {
         assertEquals(true, CloudWork.alertsNeeded(CloudRunOutcome(CloudRun.STORAGE_FULL, received = 2)))
     }
 
-    /** Task 14: only a synced run that skipped a pack the Disk would not hand out queues a follow-up run. */
+    /**
+     * Task 14: a synced run whose skipped packs come due before the next periodic run gets a follow-up at the earliest
+     * due time; one due later is left to the periodic job.
+     */
     @Test
-    fun onlyASyncedRunThatSkippedAPackQueuesAFollowUp() {
-        assertEquals(true, CloudWork.retrySkippedNeeded(CloudRunOutcome(CloudRun.SYNCED, received = 0, skipped = 1)))
-        assertEquals(false, CloudWork.retrySkippedNeeded(CloudRunOutcome(CloudRun.SYNCED, received = 4)))
+    fun theFollowUpComesWhenTheEarliestSkippedPackIsDue() {
+        assertEquals(300_000L, CloudWork.retryDelayMs(CloudRunOutcome(CloudRun.SYNCED, received = 0, skipped = 1, retryInMs = 300_000L)))
+        assertEquals(15 * 60_000L, CloudWork.retryDelayMs(CloudRunOutcome(CloudRun.SYNCED, 0, skipped = 2, retryInMs = 15 * 60_000L)))
+        assertEquals(null, CloudWork.retryDelayMs(CloudRunOutcome(CloudRun.SYNCED, 0, skipped = 1, retryInMs = 15 * 60_000L + 1)))
+        assertEquals(null, CloudWork.retryDelayMs(CloudRunOutcome(CloudRun.SYNCED, received = 4)))
         for (run in CloudRun.entries - CloudRun.SYNCED) {
-            assertEquals(false, CloudWork.retrySkippedNeeded(CloudRunOutcome(run, received = 0, skipped = 1)), run.name)
+            assertEquals(null, CloudWork.retryDelayMs(CloudRunOutcome(run, 0, skipped = 1, retryInMs = 1_000L)), run.name)
         }
+        assertEquals(androidx.work.ExistingWorkPolicy.REPLACE, CloudWork.retryPolicy(fromRetry = false))
+        assertEquals(androidx.work.ExistingWorkPolicy.APPEND_OR_REPLACE, CloudWork.retryPolicy(fromRetry = true))
     }
 }

@@ -21,13 +21,15 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.random.Random
 
 sealed interface CloudResult {
     /**
      * [skipped]: packs of others (or own kept ones) the Disk would not hand out in this run (Task 14). They are read again
-     * at the next runs; the caller schedules a follow-up run when it is above zero.
+     * at later runs. [retryAtMs]: on the sync's clock, the earliest time a pack that failed may be tried again (its backoff,
+     * or a few minutes after a network drop); the caller schedules a follow-up run for it. Null when none waits.
      */
-    data class Synced(val uploadedPacks: Int, val received: Int, val skipped: Int = 0) : CloudResult
+    data class Synced(val uploadedPacks: Int, val received: Int, val skipped: Int = 0, val retryAtMs: Long? = null) : CloudResult
     data object NotMember : CloudResult
 
     /** The ring holds no generation of the group key: nothing can be sealed or read (Y2 seeds it at pairing). */
@@ -66,6 +68,8 @@ class CloudSync(
      * bytes is a wiring error: told once and ignored, never a run retried forever.
      */
     ownedStorageId: ByteArray? = null,
+    /** The jitter factor of a pack's backoff (Task 14), within 1 ± [RETRY_JITTER]. */
+    private val jitter: () -> Double = { Random.nextDouble(1 - RETRY_JITTER, 1 + RETRY_JITTER) },
 ) {
     private val self = keys.deviceId
     private val groupId = store.groupId
@@ -88,6 +92,15 @@ class CloudSync(
 
     /** Packs the Disk would not hand out in this run (Task 14): each one is skipped, the run goes on. */
     private var skipped = 0
+
+    /** Keys of the packs skipped in this run. */
+    private val skippedKeys = HashSet<String>()
+
+    /** A read of this run dropped without an HTTP status (the network went away): no more downloads in this run. */
+    private var networkLost = false
+
+    /** When a pack skipped for a network drop in this run may be tried again. */
+    private var droppedRetryAtMs: Long? = null
 
     /** The version key of this run for a listing without any version (see [versionOf]); new for every exchange. */
     private var runVersion = ""
@@ -120,6 +133,9 @@ class CloudSync(
         // The counter, not the clock alone: two runs at one clock reading (a fixed test clock) must not share the key.
         runVersion = "run:${clock()}:${RUNS.incrementAndGet()}"
         skipped = 0
+        skippedKeys.clear()
+        networkLost = false
+        droppedRetryAtMs = null
         absorbRotation(before)
         writeEpoch(before) ?: return CloudResult.NoGroupKey
         var cursor = cursors.load()
@@ -148,7 +164,7 @@ class CloudSync(
         val afterExpiry = if (storageFull) afterCompaction else expireLocations(epoch, afterCompaction)
         val (received, afterDownload) = download(listing, membership, afterExpiry)
         cursors.save(afterDownload)
-        return if (storageFull) CloudResult.StorageFull(received) else CloudResult.Synced(uploaded, received, skipped)
+        return if (storageFull) CloudResult.StorageFull(received) else CloudResult.Synced(uploaded, received, skipped, retryAt(afterDownload))
     }
 
     /**
@@ -374,11 +390,13 @@ class CloudSync(
                 disk.download("$dir/${p.name}")
             } catch (e: DiskException.NotFound) {
                 continue
-            } catch (e: IOException) {
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
                 // Task 14: a kept pack retried is read again later, as one of the others. A pack above what we hold is
                 // not: its range must be known before we sign again (A-4), so its failure still ends the run.
-                if (p !in retry || !perFile(e)) throw e
-                skip(failing, key(self, p), "$dir/${p.name}", reasonOf(e), now)
+                if (p !in retry || (e is IOException && !perFile(e))) throw e
+                skip(failing, key(self, p), "$dir/${p.name}", e, now)
                 continue
             }
             failing.remove(key(self, p))
@@ -386,7 +404,7 @@ class CloudSync(
             when (val outcome = PackCodec.open(bytes, keys, groupId, self, membership, expected = p.range)) {
                 is PackOutcome.Opened -> {
                     // A kept pack read now: its seqs are accounted since the lift, its entries are not in the store.
-                    membership = ingest(outcome.pack, membership, restore = p.range.last <= held).first
+                    membership = ingest(outcome.pack, membership, restore = p.range.last <= held).membership
                     lifted = maxOf(lifted, outcome.pack.to)
                     ownPacks = ownPacks + (p.name to KeyId(outcome.pack.epoch, GroupKey.fingerprint(keys.getValue(outcome.pack.epoch))))
                     // Its LOCATION entries leave the Disk like those of a pack sealed here (spec §8).
@@ -565,7 +583,7 @@ class CloudSync(
         throw e // network trouble: the whole run is retried
     } catch (e: Exception) {
         if (damaged(p, bytes)) {
-            skip(failing, key(device, p), "${CloudPaths.deviceDir(groupId, device)}/${p.name}", DAMAGED, now)
+            skip(failing, key(device, p), "${CloudPaths.deviceDir(groupId, device)}/${p.name}", null, now)
         } else {
             log("pack ${device.hex.take(8)}/${p.name} skipped: $e")
             key(device, p).let { seen[it] = REJECTED; deferred.remove(it) }
@@ -580,20 +598,56 @@ class CloudSync(
     private fun perFile(e: IOException) =
         e !is DiskException.Unauthorized && e !is DiskException.StorageFull && e !is DiskException.RateLimited
 
-    /** After [FAILS_BEFORE_BACKOFF] failures in a row a pack is tried at most once per [FAILED_PACK_RETRY_MS]. */
+    /**
+     * A pack that failed waits until its [PackFailure.nextAtMs]. One whose wait is longer than any backoff could give (the
+     * clock went back) is due.
+     */
     private fun backedOff(f: PackFailure?, now: Long) =
-        f != null && f.count >= FAILS_BEFORE_BACKOFF && now - f.lastMs in 0 until FAILED_PACK_RETRY_MS
+        f != null && now < f.nextAtMs && f.nextAtMs - now <= (MAX_RETRY_MS * (1 + RETRY_JITTER)).toLong()
 
-    /** One line per skipped pack: its app-folder path and the reason (a DiskException names the path only, no token). */
-    private fun skip(failing: MutableMap<String, PackFailure>, k: String, path: String, reason: String, now: Long) {
-        val n = (failing[k]?.count ?: 0) + 1
-        failing[k] = PackFailure(n, now)
+    /** A read that ended without an HTTP status: the network went away, not the file. Never counted against the pack. */
+    private fun dropped(e: Exception) = e is IOException && e !is DiskException
+
+    /**
+     * One line per skipped pack: its app-folder path and the reason. [e] null: bytes that do not match the listing. A network
+     * drop ([dropped]) leaves the pack's count alone and stops the downloads of this run; anything else counts a failure and
+     * sets the pack's next attempt [retryDelayMs] (with jitter) from [now].
+     */
+    private fun skip(failing: MutableMap<String, PackFailure>, k: String, path: String, e: Exception?, now: Long) {
         skipped++
-        log("pack $path skipped this run ($reason), failure $n")
+        skippedKeys += k
+        if (e != null && dropped(e)) {
+            networkLost = true
+            droppedRetryAtMs = now + FIRST_RETRY_MS
+            log("pack $path skipped this run (${reasonOf(e)}): the network dropped, not counted")
+            return
+        }
+        val n = (failing[k]?.count ?: 0) + 1
+        val wait = (retryDelayMs(n) * jitter()).toLong()
+        failing[k] = PackFailure(n, now + wait)
+        log("pack $path skipped this run (${e?.let(::reasonOf) ?: DAMAGED}), failure $n, next try in ${wait / 60_000} min")
     }
 
-    /** A plain IOException's message may carry a download link: only its class is told. */
-    private fun reasonOf(e: IOException): String = if (e is DiskException) e.message ?: e.javaClass.simpleName else e.javaClass.simpleName
+    /**
+     * The reason told for [e]: a Server error by its status and Yandex's error name (its path is told once, by [skip]),
+     * another DiskException by its message (the path only, no token), anything else by its class only (a plain
+     * IOException's message may carry a download link).
+     */
+    private fun reasonOf(e: Exception): String = when (e) {
+        is DiskException.Server -> "server error ${e.code}" + (e.error?.let { ": $it" } ?: "")
+        is DiskException -> e.message ?: e.javaClass.simpleName
+        else -> e.javaClass.simpleName
+    }
+
+    /**
+     * The earliest time a pack that failed may be tried again: a backoff still ahead (one already past whose pack was not
+     * tried waits for something else, a key or a membership change, never for a follow-up run), or a network drop's retry.
+     */
+    private fun retryAt(cursor: CloudCursor): Long? {
+        val now = clock()
+        val ahead = cursor.failing.values.map { it.nextAtMs }.filter { it > now }
+        return (ahead + listOfNotNull(droppedRetryAtMs)).minOrNull()
+    }
 
     /**
      * Bytes that do not match the sha256 the listing gave (damaged on the way, or rewritten since the listing): asked only of
@@ -628,8 +682,9 @@ class CloudSync(
             .sortedWith(compareBy({ it.first }, { it.second.range.first }))
         var received = 0
         var ingested = false
+        val fetchedOk = HashSet<String>()
         var round = 0
-        while (pending.isNotEmpty() && round++ < MAX_ROUNDS) {
+        rounds@ while (!networkLost && pending.isNotEmpty() && round++ < MAX_ROUNDS) {
             val next = mutableListOf<Pair<DeviceId, PackItem>>()
             for ((device, p) in pending) {
                 val k = key(device, p)
@@ -647,11 +702,16 @@ class CloudSync(
                     disk.download(path)
                 } catch (e: DiskException.NotFound) {
                     continue // compacted away since the listing
-                } catch (e: IOException) {
-                    if (!perFile(e)) throw e
-                    skip(failing, k, path, reasonOf(e), now)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // A RuntimeException of the HTTP layer is the file's trouble too, never a run retried forever.
+                    if (e is IOException && !perFile(e)) throw e
+                    skip(failing, k, path, e, now)
+                    if (networkLost) break@rounds
                     continue
                 }
+                fetchedOk += k
                 // Only the hostile part of a file (decoding, opening) is guarded: a file that fails there is marked
                 // seen = -1. Local store errors below propagate and abort the run, leaving the pack unseen.
                 val fetched = guarded(seen, deferred, failing, device, p, bytes, now) {
@@ -676,7 +736,7 @@ class CloudSync(
                     }
                     // Bytes damaged on the way look like a wrong key or a forgery: read again, never deferred or rejected.
                     is PackOutcome.KeyMismatch, is PackOutcome.Rejected -> if (damaged(p, fetched.bytes)) {
-                        skip(failing, k, path, DAMAGED, now)
+                        skip(failing, k, path, null, now)
                     } else if (outcome is PackOutcome.KeyMismatch) {
                         log("pack ${device.hex.take(8)}/${p.name} does not open under our key of generation ${outcome.epoch}")
                         deferred[k] = DeferredPack(outcome.epoch, GroupKey.fingerprint(held.getValue(outcome.epoch)))
@@ -692,12 +752,18 @@ class CloudSync(
                         deferred.remove(k)
                     } else {
                         val r = ingest(outcome.pack, membership)
-                        if (r.first !== membership) absorbRotation(r.first)
-                        membership = r.first
-                        received += r.second
+                        if (r.membership !== membership) absorbRotation(r.membership)
+                        membership = r.membership
+                        received += r.accepted
                         ingested = true
-                        seen[k] = outcome.pack.epoch
                         deferred.remove(k)
+                        if (r.doubtful && failing.keys.any { it.startsWith("${device.hex}/") }) {
+                            // Judged before an earlier pack of its author (skipped) was read: not seen, so it is read and
+                            // judged again once that one is in, and the gap completion never makes a refusal final.
+                            log("pack ${device.hex.take(8)}/${p.name} read ahead of a missing one of its author: read again later")
+                        } else {
+                            seen[k] = outcome.pack.epoch
+                        }
                     }
                 }
             }
@@ -712,7 +778,10 @@ class CloudSync(
         val allKeys = listed.map { it.second }.toSet() + listing[self].orEmpty().map { key(self, it) }
         val keptSeen = seen.filterKeys { it in allKeys }
         val keptDeferred = deferred.filterKeys { it in allKeys && it !in keptSeen }
-        val keptFailing = failing.filterKeys { it in allKeys && it !in keptSeen && it !in keptDeferred }
+        // A failure is forgotten at the first good download of the pack, or once the pack is gone or settled for good; a pack
+        // still waiting (deferred, or covered and unread) keeps it, so its backoff holds.
+        val resolved = fetchedOk - skippedKeys
+        val keptFailing = failing.filterKeys { it in allKeys && it !in resolved && (keptSeen[it] ?: COVERED_UNREAD) == COVERED_UNREAD }
         // A pack read after a skipped one of its author could not complete the author's log; read now, the gap may be gone.
         if (ingested) completeHealedGaps(listing, keptSeen)
         // Spec §5: keep a previous generation only while files sealed with it remain (and the CloudAccess is sealed with it).
@@ -788,8 +857,14 @@ class CloudSync(
         return next
     }
 
+    /**
+     * [accepted]: entries stored. [doubtful]: the pack was read while we lack seqs of its author below it (an earlier pack
+     * skipped, Task 14) and some entry of it was refused (Invalid, Skipped), maybe for lack of what that earlier pack holds.
+     */
+    private class Ingested(val membership: MembershipState, val accepted: Int, val doubtful: Boolean)
+
     /** [restore]: our own kept pack read late, whose seqs were accounted at the lift (A-4) while its entries are missing. */
-    private suspend fun ingest(pack: OpenedPack, start: MembershipState, restore: Boolean = false): Pair<MembershipState, Int> {
+    private suspend fun ingest(pack: OpenedPack, start: MembershipState, restore: Boolean = false): Ingested {
         val author = pack.author
         val entries = pack.entries.mapNotNull { raw -> runCatching { DecodedEntry.decode(raw) }.getOrNull() }
             .filter { it.author == author && it.seq in pack.from..pack.to }
@@ -805,6 +880,7 @@ class CloudSync(
         val accepted = mutableListOf<DecodedEntry>()
         val expired = mutableSetOf<Long>()
         var liveSet: LiveSet? = null
+        var refused = false
         fun noteLiveSet(e: DecodedEntry) {
             val s = LiveSet.of(e) ?: return
             if (liveSet == null || s.upTo > liveSet!!.upTo) liveSet = s
@@ -818,15 +894,16 @@ class CloudSync(
                 Verdict.Expired -> expired += e.seq
                 Verdict.Duplicate -> noteLiveSet(e)
                 Verdict.Unwanted -> Unit
-                is Verdict.Invalid -> log("invalid ${author.hex.take(8)}#${e.seq} in pack: ${v.reason}")
-                is Verdict.Skipped -> log("skipped ${author.hex.take(8)}#${e.seq} in pack: ${v.reason}")
+                is Verdict.Invalid -> log("invalid ${author.hex.take(8)}#${e.seq} in pack: ${v.reason}").also { refused = true }
+                is Verdict.Skipped -> log("skipped ${author.hex.take(8)}#${e.seq} in pack: ${v.reason}").also { refused = true }
             }
         }
         store.applyBatch(accepted, if (expired.isEmpty()) emptyMap() else mapOf(author to expired))
         liveSet?.let { store.accountLiveSet(author, it) }
         // The author signed that this range is complete; it closes our gap only if we hold everything below it.
-        if (policy.showOthers && store.versionVector()[author] >= pack.from - 1) store.completeAuthor(author, pack.to)
-        return membership to accepted.size
+        val inOrder = store.versionVector()[author] >= pack.from - 1
+        if (policy.showOthers && inOrder) store.completeAuthor(author, pack.to)
+        return Ingested(membership, accepted.size, doubtful = refused && !inOrder)
     }
 
     private fun key(device: DeviceId, p: PackItem) = "${device.hex}/${p.name}/${p.sha}"
@@ -861,9 +938,16 @@ class CloudSync(
         /** After its newest LOCATION is past retention, a pack is re-sealed this much later (a clock step, a late run). */
         const val LOCATION_MARGIN_MS = 60L * 60 * 1000
 
-        /** Task 14: failures in a row after which a pack the Disk would not hand out waits [FAILED_PACK_RETRY_MS]. */
-        const val FAILS_BEFORE_BACKOFF = 3
-        const val FAILED_PACK_RETRY_MS = 60L * 60 * 1000
+        /** Task 14: the first wait of a pack the Disk would not hand out; it doubles per failure up to [MAX_RETRY_MS]. */
+        const val FIRST_RETRY_MS = 5L * 60 * 1000
+        const val MAX_RETRY_MS = 60L * 60 * 1000
+
+        /** Each wait is spread by up to this fraction either way, so the packs of a bad hour do not all come due at once. */
+        const val RETRY_JITTER = 0.1
+
+        /** The wait after [failures] failures in a row, before jitter: 5, 10, 20, 40, then 60 minutes (like ImagePullBackOff). */
+        fun retryDelayMs(failures: Int): Long =
+            if (failures >= 5) MAX_RETRY_MS else minOf(FIRST_RETRY_MS shl (maxOf(failures, 1) - 1), MAX_RETRY_MS)
 
         private const val DAMAGED = "bytes do not match the listing"
         private val SHA256_HEX = Regex("^[0-9a-fA-F]{64}$")

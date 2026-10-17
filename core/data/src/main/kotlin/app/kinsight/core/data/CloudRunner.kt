@@ -41,9 +41,11 @@ enum class CloudRun { OFF, SKIPPED, SYNCED, NO_ACCESS, UNAUTHORIZED, STORAGE_FUL
 
 /**
  * A run and how many entries of others it brought (Y4 final review: a zone exit raises its alert at once, spec §9).
- * [skipped]: packs the Disk would not hand out in a synced run (Task 14); a follow-up run reads them again.
+ * [skipped]: packs the Disk would not hand out in a synced run (Task 14). [retryInMs]: how long from the run's end until
+ * the earliest of them may be tried again (CloudSync's backoff), or null; the worker queues a follow-up run for it. A
+ * STORAGE_FULL run reports neither: the periodic job reads its skipped packs.
  */
-data class CloudRunOutcome(val run: CloudRun, val received: Int, val skipped: Int = 0)
+data class CloudRunOutcome(val run: CloudRun, val received: Int, val skipped: Int = 0, val retryInMs: Long? = null)
 
 /**
  * One cloud run of this device (spec §9, §11): nothing without a storage owner; a child's periodic run only when its own
@@ -130,15 +132,21 @@ class CloudRunner(
     suspend fun runCounted(trigger: CloudTrigger): CloudRunOutcome = runLock.withLock {
         received = 0
         skipped = 0
+        retryAtMs = null
         val run = runLocked(trigger)
-        CloudRunOutcome(run, received, if (run == CloudRun.SYNCED) skipped else 0)
+        if (run == CloudRun.SYNCED) {
+            CloudRunOutcome(run, received, skipped, retryAtMs?.let { maxOf(0L, it - clock()) })
+        } else {
+            CloudRunOutcome(run, received)
+        }
     }
 
     /** Entries of others the current run's sync brought; written and read only under [runLock]. */
     private var received = 0
 
-    /** Packs the current run's sync skipped (Task 14); written and read only under [runLock]. */
+    /** Packs the current run's sync skipped and its earliest retry (Task 14); written and read only under [runLock]. */
     private var skipped = 0
+    private var retryAtMs: Long? = null
 
     private suspend fun runLocked(trigger: CloudTrigger): CloudRun {
         val group = withContext(io) { groups.read() } ?: return CloudRun.OFF
@@ -220,6 +228,7 @@ class CloudRunner(
         if (result is CloudResult.Synced) {
             received = result.received
             skipped = result.skipped
+            retryAtMs = result.retryAtMs
         }
         if (result is CloudResult.StorageFull) received = result.received
         observeOwner(store, membership, now)

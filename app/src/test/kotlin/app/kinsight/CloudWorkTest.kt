@@ -39,17 +39,21 @@ class CloudWorkTest {
         assertTrue(WorkManager.getInstance(app).getWorkInfosForUniqueWork(CloudWork.PERIODIC).get().all { it.state == WorkInfo.State.CANCELLED })
     }
 
-    /** Task 14: a run that skipped a pack queues one more run a few minutes later, with a network; cancelled with the rest. */
+    /**
+     * Task 14: a run that skipped a pack queues one more run when the pack comes due, with a network; a later run moves it
+     * to its own earliest due time; cancelled with the rest.
+     */
     @Test
-    fun aSkippedPackQueuesAFollowUpRun() {
-        CloudWork.retrySkipped(app, fromRetry = false)
+    fun aSkippedPackQueuesAFollowUpRunWhenItIsDue() {
+        CloudWork.retrySkipped(app, 600_000L, fromRetry = false)
         val wm = WorkManager.getInstance(app)
         val info = wm.getWorkInfosForUniqueWork(CloudWork.RETRY).get().single()
         assertEquals(WorkInfo.State.ENQUEUED, info.state)
         assertEquals(NetworkType.CONNECTED, info.constraints.requiredNetworkType)
-        assertEquals(CloudWork.RETRY_SKIPPED_MINUTES * 60_000L, info.initialDelayMillis)
-        CloudWork.retrySkipped(app, fromRetry = false)
-        assertEquals("one waiting follow-up is kept", info.id, wm.getWorkInfosForUniqueWork(CloudWork.RETRY).get().single { it.state != WorkInfo.State.CANCELLED }.id)
+        assertEquals(600_000L, info.initialDelayMillis)
+        CloudWork.retrySkipped(app, 300_000L, fromRetry = false)
+        val live = wm.getWorkInfosForUniqueWork(CloudWork.RETRY).get().single { it.state != WorkInfo.State.CANCELLED }
+        assertEquals("the newest earliest due time wins", 300_000L, live.initialDelayMillis)
         CloudWork.cancel(app)
         assertTrue(wm.getWorkInfosForUniqueWork(CloudWork.RETRY).get().all { it.state == WorkInfo.State.CANCELLED })
     }

@@ -65,9 +65,9 @@ class CloudCursorCodecTest {
     @Test
     fun aVersionOneCursorReadsWithoutLocationDue() {
         val c = CloudCursor(uploadedUpTo = 7, ownPacks = mapOf(CloudPaths.packName(1, 7) to KeyId(0, "00ff")))
-        val v3 = CloudCursorCodec.encode(c)
-        // Version 1 is version 3 without the trailing empty locationDue and failing counts.
-        val v1 = v3.copyOf(v3.size - 8).also { it[0] = 1 }
+        val v4 = CloudCursorCodec.encode(c)
+        // Version 1 is version 4 without the trailing empty locationDue and failing counts.
+        val v1 = v4.copyOf(v4.size - 8).also { it[0] = 1 }
         assertEquals(c, CloudCursorCodec.decode(v1))
     }
 
@@ -75,9 +75,17 @@ class CloudCursorCodecTest {
     @Test
     fun aVersionTwoCursorReadsWithoutFailingPacks() {
         val c = CloudCursor(uploadedUpTo = 7, locationDue = mapOf(CloudPaths.packName(1, 7) to 9L))
-        val v3 = CloudCursorCodec.encode(c)
-        // Version 2 is version 3 without the trailing empty failing count.
-        val v2 = v3.copyOf(v3.size - 4).also { it[0] = 2 }
+        val v4 = CloudCursorCodec.encode(c)
+        // Version 2 is version 4 without the trailing empty failing count.
+        val v2 = v4.copyOf(v4.size - 4).also { it[0] = 2 }
         assertEquals(c, CloudCursorCodec.decode(v2))
+    }
+
+    /** A cursor of Task 14 before its fix round (version 3) kept the last failure time: the next attempt is that plus the wait. */
+    @Test
+    fun aVersionThreeCursorReadsTheNextAttemptFromTheLastFailure() {
+        val v4 = CloudCursorCodec.encode(CloudCursor(failing = mapOf("p/q/r" to PackFailure(2, 1_000L))))
+        val v3 = v4.copyOf().also { it[0] = 3 }
+        assertEquals(mapOf("p/q/r" to PackFailure(2, 1_000L + CloudSync.retryDelayMs(2))), CloudCursorCodec.decode(v3).failing)
     }
 }
