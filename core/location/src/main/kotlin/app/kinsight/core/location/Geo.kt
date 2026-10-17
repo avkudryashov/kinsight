@@ -14,12 +14,12 @@ import kotlin.math.sqrt
 data class Zone(val id: String, val latE7: Int, val lonE7: Int, val radiusM: Int) {
     val signature: String get() = "$id:$latE7:$lonE7:$radiusM"
 
-    override fun toString() = "Zone(${id.take(8)}, r=$radiusM)"
+    override fun toString() = "Zone(${id.take(8)})" // no radius: with a known centre it narrows the place
 }
 
 /** One fix (spec §8: one fixation through LocationManager; [timeMs] = Location.time). Never logged. */
 data class Fix(val latE7: Int, val lonE7: Int, val accuracyM: Int, val timeMs: Long, val provider: Location.Provider) {
-    override fun toString() = "Fix(±${accuracyM}m)"
+    override fun toString() = "Fix" // nothing of the fix: not even its accuracy is logged
 }
 
 object Geo {
