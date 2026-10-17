@@ -6,6 +6,8 @@ import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.storageOffEntry
 import app.kinsight.core.transport.cloud.CloudAccessView
 import app.kinsight.core.transport.cloud.CloudPaths
+import app.kinsight.core.transport.cloud.DiskApi
+import app.kinsight.core.transport.cloud.YandexOAuth
 import app.kinsight.core.transport.cloud.InMemoryDisk
 import app.kinsight.core.transport.cloud.StorageMove
 import kotlinx.coroutines.runBlocking
@@ -38,7 +40,7 @@ class CloudOffTest {
     private fun revoked(): List<String> = http.forms.filter { "client_secret" in it && "access_token" in it }.map { it["access_token"]!! }
 
     /** Mom turns the cloud on by the sign-in; Dad (an admin) and the kid are handed her token. */
-    private suspend fun family(): CloudSignIn {
+    private suspend fun family() {
         mom.group.createGroup("Mom")
         dad.joinAsAdminOf(mom)
         kid.joinGroupOf(mom)
@@ -47,7 +49,6 @@ class CloudOffTest {
         assertEquals(CloudEnableResult.ENABLED, s.finish("1234567"))
         dad.learnsStorageFrom(mom, token = "AT1")
         kid.learnsStorageFrom(mom, token = "AT1")
-        return s
     }
 
     /** A Bluetooth meeting with [from]: the membership and [from]'s own log arrive. */
@@ -56,107 +57,166 @@ class CloudOffTest {
         store().applyBatch(from.store().entriesAfter(from.keys.deviceId, 0, 10_000))
     }
 
+    private val notes = mutableListOf<CloudOffNote>()
+
+    private fun TestDevice.cloud(d: (suspend () -> String) -> DiskApi = { _ -> disk }): CloudRunner = CloudRunner(
+        db, groups, keyProvider, settings, cloudSecrets, cloudState, appendOwn, d, cloudSecrets.runLock, clock = { now },
+        config = { TEST_CLOUD }, oauth = { c -> YandexOAuth(c.clientId, c.clientSecret, http = http, clock = { now }) },
+        onTurnedOff = { notes += it },
+    )
+
+    private suspend fun offGeneration(d: TestDevice) = membershipOf(d).storageOff!!.generation
+
     @Test
-    fun theOwnerTurnsTheCloudOffAndRevokesItsTokenOnce() = runBlocking<Unit> {
-        mom.group.createGroup("Mom")
-        dad.joinAsAdminOf(mom)
-        kid.joinGroupOf(mom)
-        var off = 0
-        val s = mom.signIn(http, { disk }, onTurnedOff = { off++ })
-        s.start("Pixel")
-        assertEquals(CloudEnableResult.ENABLED, s.finish("1234567"))
+    fun theOwnerUploadsTheOffAndKeepsItsTokenForTheRevoke() = runBlocking<Unit> {
+        family()
+        val g = mom.groups.read()!!
         val before = membershipOf(mom).storageOwner!!
-        assertEquals(CloudOffResult.OFF, s.turnOff())
-        assertEquals(1, off, "the app stops the cloud work")
+        val momPacks = disk.files(CloudPaths.deviceDir(g.groupId, mom.keys.deviceId)).size
+        assertEquals(CloudOffResult.OFF, mom.cloud().turnOff())
         val m = membershipOf(mom)
         assertNull(m.storageOwner)
         assertEquals(before.generation + 1, m.storageOff!!.generation)
         assertEquals(before.storageId, m.storageOff!!.storageId)
-        assertEquals(listOf("AT1"), revoked(), "the owner's token is revoked once")
+        assertTrue(disk.files(CloudPaths.deviceDir(g.groupId, mom.keys.deviceId)).size > momPacks, "the off record went up with the token")
+        assertTrue(revoked().isEmpty(), "not revoked at once")
+        assertEquals(listOf(CloudOffNote(mom.now + CloudOff.REVOKE_AFTER_MS, revokePending = true)), notes)
         assertNull(mom.cloudSecrets.tokens(), "the vault goes")
-        assertEquals(CloudState(), mom.cloudState.current())
-        val runner = mom.runner { _ -> disk }
+        assertEquals(listOf("AT1"), mom.cloudSecrets.retired(g.groupId).map { it.accessToken }, "kept for the revoke")
+        assertEquals(m.storageOff!!.generation, mom.cloudState.current().syncedGeneration, "the Heartbeat reports the off")
+        val runner = mom.cloud()
         assertFalse(runner.isOn())
         assertEquals(CloudRun.OFF, runner.run(CloudTrigger.NOW))
-        assertNull(mom.cloudSecrets.access(mom.store(), m, mom.keys.deviceId, mom.cloudSecrets.ring(mom.groups.read()!!)))
-        assertTrue(disk.files(CloudPaths.root(mom.groups.read()!!.groupId)).isNotEmpty(), "the family folder stays on the Disk")
-        assertEquals(CloudOffResult.NOT_OWNER, s.turnOff(), "nothing left to turn off")
-        assertEquals(1, revoked().size)
-        assertEquals(1, off)
+        assertTrue(disk.files(CloudPaths.root(g.groupId)).isNotEmpty(), "the family folder stays on the Disk")
+        assertEquals(CloudOffResult.NOT_OWNER, runner.turnOff(), "nothing left to turn off")
+        assertEquals(1, notes.size)
     }
 
     @Test
-    fun aRevokeWithoutAnAnswerDoesNotKeepTheCloudOn() = runBlocking<Unit> {
-        val s = family()
-        val posts = http.forms.size
+    fun aCloudOnlyMemberLearnsTheOffThroughTheDisk() = runBlocking<Unit> {
+        family()
+        assertEquals(CloudRun.SYNCED, kid.cloud().run(CloudTrigger.NOW))
+        assertEquals(CloudOffResult.OFF, mom.cloud().turnOff())
+        // No Bluetooth meeting: the kid's next run reads the off record with the token that still works.
+        assertNotNull(membershipOf(kid).storageOwner)
+        assertEquals(CloudRun.OFF, kid.cloud().run(CloudTrigger.NOW))
+        assertTrue(CloudOff.inForce(membershipOf(kid)))
+        assertNull(kid.cloudSecrets.tokens(), "the handed token goes, as over Bluetooth")
+        assertEquals(offGeneration(mom), kid.cloudState.current().syncedGeneration)
+        assertEquals(offGeneration(mom), kid.cloudState.current().offRevoke!!.generation)
+        assertEquals(CloudRun.OFF, kid.cloud().run(CloudTrigger.NOW))
+        assertTrue(revoked().isEmpty(), "a child revokes nothing")
+        assertEquals(CloudOffNote(kid.now + CloudOff.REVOKE_AFTER_MS, revokePending = false), kid.cloud().settleOff())
+    }
+
+    @Test
+    fun theRevokeWaitsUntilEveryMemberConfirmedTheOff() = runBlocking<Unit> {
+        family()
+        val g = mom.groups.read()!!
+        val runner = mom.cloud()
+        assertEquals(CloudOffResult.OFF, runner.turnOff())
+        assertEquals(RevokeRun.WAITING, runner.revokePending())
+        // Dad learns it over Bluetooth, the kid through the Disk; each signs a Heartbeat with the off generation.
+        dad.meets(mom)
+        assertNotNull(dad.cloud().settleOff())
+        assertNull(dad.cloudSecrets.tokens())
+        dad.beat(dad.cloudState.current().syncedGeneration!!)
+        assertEquals(CloudRun.OFF, kid.cloud().run(CloudTrigger.NOW))
+        kid.beat(kid.cloudState.current().syncedGeneration!!)
+        mom.meets(dad)
+        assertEquals(RevokeRun.WAITING, runner.revokePending(), "the kid has not confirmed here yet")
+        mom.meets(kid)
+        assertEquals(RevokeRun.REVOKED, runner.revokePending())
+        assertEquals(listOf("AT1"), revoked())
+        assertTrue(mom.cloudSecrets.retired(g.groupId).isEmpty())
+        assertEquals(RevokeRun.NOTHING, runner.revokePending())
+        assertEquals(1, revoked().size, "revoked once")
+    }
+
+    @Test
+    fun theRevokeGoesAfterAWeekAndNoAnswerIsRetried() = runBlocking<Unit> {
+        family()
+        val g = mom.groups.read()!!
+        val runner = mom.cloud()
+        assertEquals(CloudOffResult.OFF, runner.turnOff())
+        mom.now += CloudOff.REVOKE_AFTER_MS - 1
+        assertEquals(RevokeRun.WAITING, runner.revokePending())
+        mom.now += 1
         http.unreachable = true
-        assertEquals(CloudOffResult.OFF, s.turnOff())
-        assertEquals(posts, http.forms.size, "the revoke never reached Yandex")
-        assertNull(mom.cloudSecrets.tokens())
-        assertNull(membershipOf(mom).storageOwner)
+        assertEquals(RevokeRun.RETRY, runner.revokePending())
+        assertEquals(listOf("AT1"), mom.cloudSecrets.retired(g.groupId).map { it.accessToken }, "not dropped")
+        assertTrue(revoked().isEmpty())
+        assertEquals(RevokeRun.REVOKED, runner.revokePending())
+        assertEquals(listOf("AT1"), revoked())
+        assertTrue(mom.cloudSecrets.retired(g.groupId).isEmpty())
+    }
+
+    @Test
+    fun aParentsOwnRetiredTokenWaitsForTheSameRevoke() = runBlocking<Unit> {
+        family()
+        val g = dad.groups.read()!!
+        dad.cloudSecrets.retire(g.groupId, 1, "OLD")
+        assertEquals(CloudOffResult.OFF, mom.cloud().turnOff())
+        dad.meets(mom)
+        val note = dad.cloud().settleOff()!!
+        assertTrue(note.revokePending)
+        assertEquals(listOf("OLD"), dad.cloudSecrets.retired(g.groupId).map { it.accessToken }, "the handed token is not his to revoke")
+        dad.now += CloudOff.REVOKE_AFTER_MS
+        assertEquals(RevokeRun.REVOKED, dad.cloud().revokePending())
+        assertEquals(listOf("OLD"), revoked())
     }
 
     @Test
     fun onlyTheOwnerTurnsItOff() = runBlocking<Unit> {
         family()
-        assertEquals(CloudOffResult.NOT_OWNER, dad.signIn(http, { disk }).turnOff())
-        assertEquals(CloudOffResult.NOT_OWNER, kid.signIn(http, { disk }).turnOff())
+        assertEquals(CloudOffResult.NOT_OWNER, dad.cloud().turnOff())
+        assertEquals(CloudOffResult.NOT_OWNER, kid.cloud().turnOff())
         assertNotNull(membershipOf(mom).storageOwner)
-        assertTrue(revoked().isEmpty())
         // Dad's own off record is void everywhere (the owner in force signs it alone).
-        val g = dad.groups.read()!!
         val owner = membershipOf(dad).storageOwner!!
         check(dad.pipeline.appendOwn { a -> listOf(a.storageOffEntry(owner.storageId.toByteArray(), owner.generation + 1)) })
         mom.meets(dad)
         assertEquals(mom.keys.deviceId, membershipOf(mom).storageOwner!!.deviceId)
-    }
-
-    @Test
-    fun theOtherPhonesDropTheirTokensWhenTheyLearnIt() = runBlocking<Unit> {
-        val s = family()
-        val g = dad.groups.read()!!
-        dad.cloudSecrets.retire(g.groupId, 1, "OLD") // a token Dad still had to revoke
-        assertEquals(CloudOffResult.OFF, s.turnOff())
-        assertEquals(listOf("AT1"), revoked())
-        // Over Bluetooth: the session hook lets go of the tokens and stops the cloud work.
-        dad.meets(mom)
-        val dadRunner = dad.runner({ _ -> disk }, http)
-        assertTrue(dadRunner.settleOff())
-        assertNull(dad.cloudSecrets.tokens(), "the handed token goes")
-        assertTrue(dad.cloudSecrets.retired(g.groupId).isEmpty())
-        assertEquals(listOf("AT1", "OLD"), revoked(), "Dad revokes his own retired token, not the owner's handed one")
-        assertFalse(dadRunner.isOn())
-        assertTrue(dadRunner.settleOff(), "still off")
-        assertEquals(2, revoked().size, "nothing held: nothing revoked again")
-        // The kid at its next cloud run (the record came over Bluetooth after its last session).
-        kid.meets(mom)
-        assertNotNull(kid.cloudSecrets.tokens())
-        assertEquals(CloudRun.OFF, kid.runner({ _ -> disk }, http).run(CloudTrigger.NOW))
-        assertNull(kid.cloudSecrets.tokens())
-        assertEquals(2, revoked().size, "a child revokes nothing")
+        assertTrue(notes.isEmpty())
     }
 
     @Test
     fun theChildsTrackingGateClosesWhenTheCloudGoesOff() = runBlocking<Unit> {
-        val s = family()
+        family()
         kid.settings.recordConsent(kid.now)
         kid.pipeline.setSharing(true)
         val host = FamilyLocation(kid.db, kid.groups, kid.keyProvider, kid.settings, kid.appendOwn, kid.snapshots, upload = {}, clock = { kid.now })
         assertNotNull(host.zones())
-        assertEquals(CloudOffResult.OFF, s.turnOff())
+        assertEquals(CloudOffResult.OFF, mom.cloud().turnOff())
         kid.meets(mom)
         assertNull(host.zones(), "no cloud: the location engine stops")
     }
 
     @Test
+    fun turningItOnAgainRevokesTheOldTokenFirst() = runBlocking<Unit> {
+        family()
+        assertEquals(CloudOffResult.OFF, mom.cloud().turnOff())
+        http.accessToken = "AT7"
+        val again = mom.signIn(http, { disk })
+        again.start("Pixel")
+        assertEquals(CloudEnableResult.ENABLED, again.finish("1234567"))
+        assertEquals(listOf("AT1"), revoked())
+        val revokeAt = http.urls.indexOfFirst { it.endsWith("/revoke_token") }
+        assertTrue(revokeAt > http.urls.indexOfLast { it.endsWith("/token") && !it.endsWith("/revoke_token") }, "after the exchange, before the new storage is used")
+        assertEquals("AT7", mom.cloudSecrets.tokens()!!.accessToken)
+        assertTrue(mom.cloudSecrets.retired(mom.groups.read()!!.groupId).isEmpty())
+        assertEquals(RevokeRun.NOTHING, mom.cloud().revokePending(), "the cloud is on again")
+    }
+
+    @Test
     fun anyAdminParentTurnsItOnAgainOnTheSameFolder() = runBlocking<Unit> {
-        val s = family()
+        family()
         val g = mom.groups.read()!!
         val first = membershipOf(mom).storageOwner!!
         assertEquals(CloudRun.SYNCED, mom.runner({ _ -> disk }, http).run(CloudTrigger.NOW))
-        assertEquals(CloudOffResult.OFF, s.turnOff())
+        assertEquals(CloudOffResult.OFF, mom.cloud().turnOff())
         dad.meets(mom)
-        dad.runner({ _ -> disk }, http).settleOff()
+        dad.cloud().settleOff()
         // Dad signs in to the same Yandex account: the folder the off left is that storage, its id goes on.
         http.accessToken = "AT9"
         val dadSignIn = dad.signIn(http, { disk })
@@ -188,10 +248,10 @@ class CloudOffTest {
 
     @Test
     fun turningOnAgainOnAnotherAccountWritesAFreshStorageId() = runBlocking<Unit> {
-        val s = family()
+        family()
         val g = mom.groups.read()!!
         val first = membershipOf(mom).storageOwner!!
-        assertEquals(CloudOffResult.OFF, s.turnOff())
+        assertEquals(CloudOffResult.OFF, mom.cloud().turnOff())
         val other = InMemoryDisk()
         http.accessToken = "AT5"
         val again = mom.signIn(http, { other })

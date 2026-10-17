@@ -159,16 +159,17 @@ class Graph internal constructor(app: Context) {
         disk = CloudGraph::disk, runLock = cloudSecrets.runLock,
         // The run holds runLock; the Heartbeat takes the transport state lock and the pipeline lock after it (lock order).
         config = { CloudGraph.config }, afterSync = { SyncGraph.emitHeartbeatIfDue(app) },
+        // The owner turned the cloud off for the family: no more cloud work, the child's tracking gate closes, and the
+        // revoke job waits for the others.
+        onTurnedOff = { CloudWork.turnedOff(app, it) },
     )
     val cloudSignIn = CloudSignIn(
         db, groups, keys, ownAppend, cloudSecrets, cloudState,
         config = { CloudGraph.config },
         disk = CloudGraph::disk,
         onEnabled = { CloudWork.runSoon(app) },
-        // The owner turned the cloud off for the family: no more cloud work, and the child's tracking gate closes.
-        onTurnedOff = { CloudWork.turnedOff(app) },
     )
-    val cloudRepository = CloudRepository(snapshots, cloudState, cloudSignIn, prefs, config = { CloudGraph.config }, scope = scope, secrets = cloudSecrets)
+    val cloudRepository = CloudRepository(snapshots, cloudState, cloudSignIn, prefs, config = { CloudGraph.config }, scope = scope, secrets = cloudSecrets, cloudOff = cloud::turnOff)
 
     /**
      * Spec §10 on a child's phone: location access and the system switch (LocationWatch), at every cloud worker run, on

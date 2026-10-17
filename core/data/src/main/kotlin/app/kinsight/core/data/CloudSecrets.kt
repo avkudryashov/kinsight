@@ -190,26 +190,16 @@ class CloudSecrets(
     }
 
     /**
-     * The owner turned the cloud off for the family (CloudOff): the vault of [groupId] (owner's or handed) and its retired
-     * tokens go; the group key ring stays (it is the group's, and the packs left on the Disk are sealed with it). This
-     * phone's own tokens, an owner vault's access token and the retired ones, go to [revoke] first, each once (the caller
-     * makes it best effort); a handed token is the owner's to revoke. True when anything was held.
+     * The owner turned the cloud off for the family (CloudOff): the vault of [groupId] goes. An owner's own access token is
+     * kept in the retired list first, revoked later by the revoke job (CloudRunner.revokePending); a handed token is the
+     * owner's to revoke. The group key ring stays (it is the group's, and the packs left on the Disk are sealed with it).
+     * True when a vault of [groupId] was held.
      */
-    suspend fun forgetTokens(groupId: GroupId, revoke: suspend (String) -> Unit): Boolean {
-        val held = tokens()?.takeIf { it.groupHex == groupId.hex }
-        val retired = retired(groupId)
-        if (held == null && retired.isEmpty()) return false
-        val own = listOfNotNull(held?.takeIf { it.owner }?.accessToken) + retired.map { it.accessToken }
-        for (token in own.distinct()) revoke(token)
-        vaultLock.withLock { withContext(io) { if (tokens()?.groupHex == groupId.hex) vault.delete() } }
-        retiredLock.withLock {
-            withContext(io) {
-                val all = readRetired() ?: emptyList()
-                val others = all.filter { it.groupHex != groupId.hex }
-                if (others.isEmpty()) retiredFile.delete() else if (others.size != all.size) retiredFile.write(others)
-            }
-        }
-        return true
+    suspend fun dropForOff(groupId: GroupId): Boolean = vaultLock.withLock {
+        val held = tokens()?.takeIf { it.groupHex == groupId.hex } ?: return@withLock false
+        if (held.owner) retire(groupId, held.storageGeneration, held.accessToken)
+        withContext(io) { vault.delete() }
+        true
     }
 
     /**

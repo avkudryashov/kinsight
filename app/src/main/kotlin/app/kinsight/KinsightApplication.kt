@@ -69,7 +69,7 @@ open class KinsightApplication : Application() {
             val graph = AppGraph.get(it)
             graph.scope.launch {
                 // The session may have brought the owner's «выключить»: this phone lets go of its tokens and stops.
-                attempt("cloud off") { if (graph.cloud.settleOff()) CloudWork.turnedOff(it) }
+                attempt("cloud off") { graph.cloud.settleOff()?.let { note -> CloudWork.turnedOff(it, note) } }
                 attempt("owner heard") { graph.cloud.noteOwnerHeard() }
             }
         }

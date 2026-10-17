@@ -104,14 +104,50 @@ object CloudWork {
     }
 
     /**
-     * The owner turned the cloud off for the family (CloudSignIn.turnOff, or this phone learned the off record over
-     * Bluetooth: CloudRunner.settleOff): the cloud work stops and the location engine refreshes (its gate needs the
-     * cloud, so a child's tracking stops).
+     * The cloud is off for the family on this phone ([note]: CloudRunner.turnOff on the owner, CloudRunner.settleOff after a
+     * Bluetooth session or a cloud run that brought the off record): the cloud work stops, the location engine refreshes
+     * (its gate needs the cloud, so a child's tracking stops), a Heartbeat reports the off generation, and the revoke job
+     * is scheduled while this phone keeps tokens to revoke.
      */
-    fun turnedOff(context: Context) {
+    fun turnedOff(context: Context, note: CloudOffNote) {
         cancel(context)
         LocationGraph.refresh(context)
+        val g = AppGraph.get(context.applicationContext)
+        g.scope.launch {
+            try {
+                SyncGraph.emitHeartbeatIfDue(context.applicationContext)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "no Heartbeat after the cloud went off: ${e.javaClass.simpleName}")
+            }
+        }
+        if (note.revokePending) scheduleRevoke(context, note.revokeAtMs)
     }
+
+    const val REVOKE_NOW = "kinsight-cloud-revoke-now"
+    const val REVOKE_AT = "kinsight-cloud-revoke-at"
+
+    /**
+     * The revoke of the tokens kept after the cloud went off (CloudRunner.revokePending): a check now (a Heartbeat that
+     * came may have made it due) and one at [atMs], the deadline. Both wait for a network and retry with backoff while
+     * Yandex does not answer. Not cancelled with the cloud work ([cancel]).
+     */
+    fun scheduleRevoke(context: Context, atMs: Long) {
+        val wm = WorkManager.getInstance(context)
+        wm.enqueueUniqueWork(REVOKE_NOW, ExistingWorkPolicy.KEEP, revokeRequest(0))
+        wm.enqueueUniqueWork(REVOKE_AT, ExistingWorkPolicy.REPLACE, revokeRequest(maxOf(0L, atMs - System.currentTimeMillis())))
+    }
+
+    private fun revokeRequest(delayMs: Long) = OneTimeWorkRequestBuilder<CloudRevokeWorker>()
+        .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
+        .setConstraints(network())
+        .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
+        .build()
+
+    /** The revoke job's result: Yandex out of reach is retried with backoff, never dropped. */
+    fun revokeResult(run: RevokeRun): ListenableWorker.Result =
+        if (run == RevokeRun.RETRY) ListenableWorker.Result.retry() else ListenableWorker.Result.success()
 
     /** The follow-up run queues its successor behind itself; any other run leaves a waiting one alone. */
     fun followPolicy(fromFollow: Boolean): ExistingWorkPolicy =
@@ -294,7 +330,10 @@ class CloudWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
             Log.i(TAG, "cloud run $trigger: $run")
             // Entries of others came in (a zone exit above all): an alerts pass now, like after a Bluetooth session.
             if (CloudWork.alertsNeeded(outcome)) CloudWork.onReceived?.invoke(applicationContext)
-            if (run == CloudRun.OFF) CloudWork.cancel(applicationContext)
+            if (run == CloudRun.OFF) {
+                // Off by the owner's record (it may have come with this very run): settled, the revoke scheduled.
+                g.cloud.settleOff()?.let { CloudWork.turnedOff(applicationContext, it) } ?: CloudWork.cancel(applicationContext)
+            }
             // After the run (never inside its runLock): a child takes the zones this run brought (spec §8.1)...
             LocationGraph.refresh(applicationContext)
             // ...and a parent keeps reading while a child is outside (spec §9).
@@ -311,6 +350,24 @@ class CloudWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         } catch (e: Exception) {
             Log.w(TAG, "$what failed: ${e.javaClass.simpleName}")
         }
+    }
+
+    private companion object {
+        const val TAG = "KinsightCloud"
+    }
+}
+
+/** The revoke of the tokens kept after the owner turned the cloud off (CloudRunner.revokePending); thin. */
+class CloudRevokeWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result = try {
+        val run = AppGraph.get(applicationContext).cloud.revokePending()
+        Log.i(TAG, "revoke after the cloud went off: $run")
+        CloudWork.revokeResult(run)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "revoke check failed: ${e.javaClass.simpleName}")
+        Result.retry()
     }
 
     private companion object {

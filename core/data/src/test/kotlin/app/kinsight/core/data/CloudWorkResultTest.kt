@@ -16,6 +16,13 @@ class CloudWorkResultTest {
         for (run in CloudRun.entries - CloudRun.RETRY) assertEquals(ListenableWorker.Result.success(), CloudWork.resultOf(run), run.name)
     }
 
+    /** A revoke Yandex did not answer is retried by the revoke job, never dropped. */
+    @Test
+    fun theRevokeJobRetriesOnlyWhenARevokeGotNoAnswer() {
+        assertEquals(ListenableWorker.Result.retry(), CloudWork.revokeResult(RevokeRun.RETRY))
+        for (run in RevokeRun.entries - RevokeRun.RETRY) assertEquals(ListenableWorker.Result.success(), CloudWork.revokeResult(run), run.name)
+    }
+
     /** Rulings Q1: an unexpected failure is retried, so an APPEND_OR_REPLACE follow-up queued behind it is not dropped. */
     @Test
     fun anUnexpectedFailureIsRetriedAndACancelIsNot() = runBlocking<Unit> {

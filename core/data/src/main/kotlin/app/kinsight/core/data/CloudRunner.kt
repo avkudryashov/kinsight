@@ -11,6 +11,7 @@ import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.MembershipState
+import app.kinsight.core.model.storageOffEntry
 import app.kinsight.core.transport.ble.GroupStore
 import app.kinsight.core.transport.ble.SyncPolicies
 import app.kinsight.core.transport.cloud.CloudAccessView
@@ -68,6 +69,8 @@ class CloudRunner(
     private val oauth: (CloudConfig) -> YandexOAuth = { YandexOAuth(it.clientId, it.clientSecret) },
     /** After the first sync with a storage generation: the app signs a Heartbeat saying so (spec §7 «подтвердили»). */
     private val afterSync: suspend () -> Unit = {},
+    /** After the owner turned the cloud off here ([turnOff]): the app stops the cloud work and schedules the revoke. */
+    private val onTurnedOff: (CloudOffNote) -> Unit = {},
 ) {
     private data class Key(
         val groupId: GroupId,
@@ -137,8 +140,8 @@ class CloudRunner(
         val store = RoomEntryStore(db, group.groupId)
         var membership = Membership.compute(group.groupId, store.membershipEntries()) ?: return CloudRun.OFF
         val me = membership.active[self] ?: return CloudRun.OFF
-        // The owner turned the cloud off for the family: this phone lets go of its tokens (its first run after the off).
-        if (CloudOff.inForce(membership)) CloudOff.settle(group.groupId, secrets, state, config, oauth)
+        // The owner turned the cloud off for the family (learned over Bluetooth): this phone lets go of its access.
+        if (CloudOff.inForce(membership)) CloudOff.settle(group.groupId, membership, secrets, state, clock())
         val owner = membership.storageOwner ?: return CloudRun.OFF
         val consent = settings.current()
         if (me.isChild && (consent.consentAtMs == null || consent.consentOutdated)) {
@@ -205,22 +208,18 @@ class CloudRunner(
         if (oldMark != null && state.current().deadOldToken == oldMark) return record(now, CloudRun.UNAUTHORIZED, CloudProblem.NO_ACCESS)
         // The generation this run actually syncs with: the Heartbeat never claims a storage this phone has not reached.
         val syncedGeneration = if (access != null) owner.generation else previous!!.storageGeneration
-        token = accessToken
-        currentDisk = disk { token ?: throw DiskException.Unauthorized() }
-        val policy = SyncPolicies.forDevice(membership, self, settings.current())
         val ownedStorage = if (isOwner) owner.storageId.toByteArray() else null
-        val key = Key(group.groupId, self, policy.showOthers, policy.detailRetentionDays, policy.summaryRetentionDays, ownedStorage?.toHex())
-        val sync = cached?.takeIf { it.first == key }?.second
-            ?: CloudSync(
-                store, k, policy, runDisk, ring, cursors, clock,
-                log = { Log.i(TAG, it) }, running = Mutex(), // [runLock] is already held around the whole run
-                ownedStorageId = ownedStorage,
-            ).also { cached = key to it }
-        val result = sync.run()
+        val result = sync(store, k, membership, ring, cursors, accessToken, ownedStorage)
         if (result is CloudResult.Synced) received = result.received
         if (result is CloudResult.StorageFull) received = result.received
         observeOwner(store, membership, now)
         val after = Membership.compute(group.groupId, store.membershipEntries())
+        if (after != null && CloudOff.inForce(after)) {
+            // The owner's off record came through the Disk (its last upload, while the token still works): this phone
+            // settles exactly as over Bluetooth, and the worker stops the cloud work.
+            CloudOff.settle(group.groupId, after, secrets, state, clock())
+            return CloudRun.OFF
+        }
         if (!isOwner && after != null) {
             dropFollowed(store, group.groupId, after, ring, keep = !me.isChild)
             if (!me.isChild) retireOlderAccess(store, after, ring)
@@ -257,6 +256,94 @@ class CloudRunner(
      */
     private suspend fun dropFollowed(store: RoomEntryStore, groupId: GroupId, m: MembershipState, ring: GroupKeyRing, keep: Boolean) {
         if (CloudAccessView.current(store, m, ring.keys()) != null) secrets.retireStale(groupId, m, keep = keep)
+    }
+
+    /** One CloudSync exchange with [accessToken]; [ownedStorage] on the owner's phone (it writes storage.id). Under [runLock]. */
+    private suspend fun sync(
+        store: RoomEntryStore,
+        k: DeviceKeys,
+        membership: MembershipState,
+        ring: GroupKeyRing,
+        cursors: RoomCloudCursorStore,
+        accessToken: String,
+        ownedStorage: ByteArray?,
+    ): CloudResult {
+        token = accessToken
+        currentDisk = disk { token ?: throw DiskException.Unauthorized() }
+        val policy = SyncPolicies.forDevice(membership, k.deviceId, settings.current())
+        val key = Key(store.groupId, k.deviceId, policy.showOthers, policy.detailRetentionDays, policy.summaryRetentionDays, ownedStorage?.toHex())
+        val sync = cached?.takeIf { it.first == key }?.second
+            ?: CloudSync(
+                store, k, policy, runDisk, ring, cursors, clock,
+                log = { Log.i(TAG, it) }, running = Mutex(), // [runLock] is already held around the whole run
+                ownedStorageId = ownedStorage,
+            ).also { cached = key to it }
+        return sync.run()
+    }
+
+    /**
+     * «Выключить синхронизацию через Яндекс Диск»: the storage owner turns the cloud off for the whole family. It signs
+     * StorageOwner(generation + 1, off) naming itself and its storage and uploads it in one last exchange with its token,
+     * so a phone that meets the family only through the Disk learns it at its next run. Then it lets go of its access
+     * (CloudOff.settle): the token waits in the retired list until every other member's Heartbeat reports the off, or
+     * [CloudOff.REVOKE_AFTER_MS] passed, and the revoke job revokes it (retried until Yandex answers). The family folder
+     * stays on the Disk. Under [runLock]; [onTurnedOff] follows (the app stops the cloud work and schedules the revoke).
+     */
+    suspend fun turnOff(): CloudOffResult {
+        var note: CloudOffNote? = null
+        val result = runLock.withLock { turnOffLocked { note = it } }
+        note?.let(onTurnedOff)
+        return result
+    }
+
+    private suspend fun turnOffLocked(settled: (CloudOffNote) -> Unit): CloudOffResult {
+        val group = withContext(io) { groups.read() } ?: return CloudOffResult.NOT_OWNER
+        val k = keys()
+        val store = RoomEntryStore(db, group.groupId)
+        val m = Membership.compute(group.groupId, store.membershipEntries()) ?: return CloudOffResult.NOT_OWNER
+        val owner = m.storageOwner ?: return CloudOffResult.NOT_OWNER
+        val me = m.active[k.deviceId]
+        if (owner.deviceId != k.deviceId || me == null || !me.isAdmin || me.isChild) return CloudOffResult.NOT_OWNER
+        val storageId = owner.storageId.toByteArray()
+        val held = secrets.tokens()?.takeIf {
+            it.owner && it.groupHex == group.groupId.hex && it.storageGeneration == owner.generation && it.storageId.contentEquals(storageId)
+        }
+        if (!appendOwn { a -> listOf(a.storageOffEntry(storageId, owner.generation + 1)) }) return CloudOffResult.FAILED
+        val after = Membership.compute(group.groupId, store.membershipEntries())
+        if (after == null || !CloudOff.inForce(after)) return CloudOffResult.FAILED
+        if (held != null) {
+            // Best effort: a phone that misses it learns the off over Bluetooth.
+            val r = try {
+                sync(store, k, after, secrets.ring(group), RoomCloudCursorStore(db) { Log.w(TAG, it) }, held.accessToken, storageId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "the off record was not uploaded: ${e.javaClass.simpleName}")
+                null
+            }
+            Log.i(TAG, "off record upload: ${r?.javaClass?.simpleName}")
+        }
+        settled(CloudOff.settle(group.groupId, after, secrets, state, clock()))
+        return CloudOffResult.OFF
+    }
+
+    /**
+     * The revoke job (CloudWork): while the off record is in force, the tokens this phone keeps for the revoke are revoked
+     * once every other active member's newest Heartbeat reports the off generation (spec §7 «Когда все активные
+     * подтвердили», OwnerLifecycle.allSwitched) or once [OffRevoke.untilMs] passed. [RevokeRun.RETRY]: Yandex did not
+     * answer for some (they stay, the job retries with backoff). Under [runLock].
+     */
+    suspend fun revokePending(): RevokeRun = runLock.withLock {
+        val group = withContext(io) { groups.read() } ?: return@withLock RevokeRun.NOTHING
+        val store = RoomEntryStore(db, group.groupId)
+        val m = Membership.compute(group.groupId, store.membershipEntries()) ?: return@withLock RevokeRun.NOTHING
+        if (!CloudOff.inForce(m)) return@withLock RevokeRun.NOTHING
+        val note = CloudOff.settle(group.groupId, m, secrets, state, clock())
+        if (!note.revokePending) return@withLock RevokeRun.NOTHING
+        val off = m.storageOff!!
+        val switched = OwnerLifecycle.allSwitched(m, store.heartbeats(), off.generation - 1, keys().deviceId)
+        if (!switched && clock() < note.revokeAtMs) return@withLock RevokeRun.WAITING
+        if (CloudOff.revokeAll(group.groupId, secrets, config, oauth)) RevokeRun.REVOKED else RevokeRun.RETRY
     }
 
     /**
@@ -421,16 +508,15 @@ class CloudRunner(
 
     /**
      * After a Bluetooth session (the app's session hook): when the owner has turned the cloud off for the family
-     * (StorageOwner.off in force), this phone drops its cloud tokens now (CloudOff.settle) and the caller stops the cloud
-     * work and refreshes the location engine. True while the off record is in force. Under [runLock] (never called while
+     * (StorageOwner.off in force), this phone drops its cloud access now (CloudOff.settle) and the caller stops the cloud
+     * work, refreshes the location engine and schedules the revoke job. Null unless the off record is in force. Under [runLock] (never called while
      * holding it): a run in flight ends first, and a wipe's cleared group leaves nothing to do.
      */
-    suspend fun settleOff(): Boolean = runLock.withLock {
-        val group = withContext(io) { groups.read() } ?: return@withLock false
-        val m = Membership.compute(group.groupId, RoomEntryStore(db, group.groupId).membershipEntries()) ?: return@withLock false
-        if (!CloudOff.inForce(m)) return@withLock false
-        CloudOff.settle(group.groupId, secrets, state, config, oauth)
-        true
+    suspend fun settleOff(): CloudOffNote? = runLock.withLock {
+        val group = withContext(io) { groups.read() } ?: return@withLock null
+        val m = Membership.compute(group.groupId, RoomEntryStore(db, group.groupId).membershipEntries()) ?: return@withLock null
+        if (!CloudOff.inForce(m)) return@withLock null
+        CloudOff.settle(group.groupId, m, secrets, state, clock())
     }
 
     private suspend fun observeOwner(store: RoomEntryStore, membership: MembershipState, nowMs: Long) {

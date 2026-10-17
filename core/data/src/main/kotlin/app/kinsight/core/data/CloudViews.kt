@@ -142,6 +142,8 @@ class CloudRepository(
     private val scope: CoroutineScope,
     /** For [CloudStatus.canTransfer]; null: never offered. */
     private val secrets: CloudSecrets? = null,
+    /** The owner's «выключить» (CloudRunner.turnOff). */
+    private val cloudOff: suspend () -> CloudOffResult = { CloudOffResult.NOT_OWNER },
 ) {
     // The vault is read again on every change; a sign-in that stores a refresh token also appends to the log.
     val status: Flow<CloudStatus> = combine(snapshots.snapshots, state.state) { s, st ->
@@ -156,10 +158,10 @@ class CloudRepository(
         signIn.start(prefs.current().deviceName ?: DEFAULT_DEVICE_NAME, mode)
 
     /**
-     * «Выключить синхронизацию через Яндекс Диск»: the owner turns the cloud off for the family (CloudSignIn.turnOff). On
-     * the app scope, like a finish: leaving the screen must not cut it between the signed record and the revoke.
+     * «Выключить синхронизацию через Яндекс Диск»: the owner turns the cloud off for the family (CloudRunner.turnOff). On
+     * the app scope, like a finish: leaving the screen must not cut it between the signed record and its upload.
      */
-    suspend fun turnOff(): CloudOffResult = scope.async { signIn.turnOff() }.await()
+    suspend fun turnOff(): CloudOffResult = scope.async { cloudOff() }.await()
 
     /** Spec §7.1: the owner asks [to] to take the storage. */
     suspend fun requestHandover(to: DeviceId): Boolean = signIn.requestHandover(to)

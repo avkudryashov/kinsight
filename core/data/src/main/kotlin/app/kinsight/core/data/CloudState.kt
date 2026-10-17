@@ -27,6 +27,13 @@ import java.io.File
 enum class CloudProblem { UNAUTHORIZED, NO_ACCESS, STORAGE_FULL, NETWORK, RENEW_ACCESS }
 
 /**
+ * The cloud of group [groupHex] was turned off with the off record of [generation]: this phone's tokens kept for the revoke
+ * (the retired list) are revoked once every other active member's newest Heartbeat reports [generation], or from [untilMs]
+ * on (this phone's clock), whichever comes first. Never a token.
+ */
+data class OffRevoke(val groupHex: String, val generation: Long, val untilMs: Long)
+
+/**
  * [syncedGeneration]: the storage generation of the last successful sync (the Heartbeat reports it, spec §7);
  * [refreshCheckMs]: the owner's last token check (spec §6 «Продление», weekly); [tokenSinceMs]: when the owner's token
  * was last refreshed, or first checked here (rulings Q9: refreshed at 30 days of age); [ownerHeard]: when this device
@@ -36,7 +43,8 @@ enum class CloudProblem { UNAUTHORIZED, NO_ACCESS, STORAGE_FULL, NETWORK, RENEW_
  * the revoke or found in use), so a token once revoked is never taken from the log again; [heartbeatPending]: a sync
  * reached a new storage generation and its Heartbeat is not signed yet (rulings Q18), kept across a process death;
  * [deadOldToken]: the child's kept older token got a 401 from the old Disk under this mark (see CloudRunner), so it is not
- * tried again until the mark changes.
+ * tried again until the mark changes. [offRevoke]: the owner turned the cloud off (StorageOwner.off); this phone's tokens
+ * still to revoke wait for it (CloudRunner.revokePending).
  */
 data class CloudState(
     val lastRunMs: Long? = null,
@@ -50,6 +58,7 @@ data class CloudState(
     val olderAccessGeneration: Long? = null,
     val heartbeatPending: Boolean = false,
     val deadOldToken: String? = null,
+    val offRevoke: OffRevoke? = null,
 ) {
     /** This device's time of the last sighting of the tracked owner (rulings Q14), or null when none is tracked. */
     val ownerHeardAtMs: Long? get() = ownerHeard?.heardAtMs
@@ -73,7 +82,27 @@ class CloudStateStore(private val store: DataStore<Preferences>) {
             p[OLDER_ACCESS],
             p[HEARTBEAT_PENDING] == true,
             p[DEAD_OLD_TOKEN],
+            offRevoke(p),
         )
+    }
+
+    private fun offRevoke(p: Preferences): OffRevoke? {
+        return OffRevoke(p[OFF_GROUP] ?: return null, p[OFF_GENERATION] ?: return null, p[OFF_UNTIL] ?: return null)
+    }
+
+    /**
+     * The cloud was turned off with the off record of [generation]: the cloud state of the storage goes, the Heartbeat
+     * reports [generation] from now on (so the phone holding a token to revoke learns this one switched), and [OffRevoke]
+     * is kept with [untilMs].
+     */
+    suspend fun turnedOff(groupHex: String, generation: Long, untilMs: Long) {
+        store.edit { p ->
+            p.clear()
+            p[SYNCED_GENERATION] = generation
+            p[OFF_GROUP] = groupHex
+            p[OFF_GENERATION] = generation
+            p[OFF_UNTIL] = untilMs
+        }
     }
 
     suspend fun current(): CloudState = state.first()
@@ -202,6 +231,9 @@ class CloudStateStore(private val store: DataStore<Preferences>) {
         private val OLDER_ACCESS = longPreferencesKey("older_access_generation")
         private val HEARTBEAT_PENDING = booleanPreferencesKey("heartbeat_pending")
         private val DEAD_OLD_TOKEN = stringPreferencesKey("dead_old_token")
+        private val OFF_GROUP = stringPreferencesKey("off_group")
+        private val OFF_GENERATION = longPreferencesKey("off_generation")
+        private val OFF_UNTIL = longPreferencesKey("off_revoke_until_ms")
 
         /** [file] must end with ".preferences_pb". */
         fun create(file: File, scope: CoroutineScope): CloudStateStore = CloudStateStore(
