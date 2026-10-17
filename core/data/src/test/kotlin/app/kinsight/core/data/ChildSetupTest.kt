@@ -36,4 +36,14 @@ class ChildSetupTest {
         assertNull(ChildSetup.next(all, setOf(USAGE_ACCESS, LOCATION, BATTERY)))
         assertEquals(LOCATION_BACKGROUND, ChildSetup.next(ChildSetup.pending(true, State.WHILE_IN_USE, true), emptySet()))
     }
+
+    /** A held-back background step is not a page: the last visible page reads «N of N». */
+    @Test
+    fun progressDoesNotCountTheHeldBackBackgroundStep() {
+        val pending = listOf(LOCATION, LOCATION_BACKGROUND, BATTERY)
+        assertEquals(1 to 2, ChildSetup.progress(0, pending, emptySet()), "location, then battery")
+        assertEquals(2 to 2, ChildSetup.progress(1, pending, setOf(LOCATION)), "«Позже» on location: battery is the last page")
+        // Precise location granted: the background step is a page again.
+        assertEquals(1 to 2, ChildSetup.progress(0, listOf(LOCATION_BACKGROUND, BATTERY), emptySet()))
+    }
 }

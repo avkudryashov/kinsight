@@ -21,9 +21,19 @@ object ChildSetup {
      * The step to show: the first of [pending] not in [skipped] («Позже»). The background step waits while precise
      * location is pending: Android grants «all the time» only on top of a foreground grant (Review Focus 4).
      */
-    fun next(pending: List<SetupItem>, skipped: Set<SetupItem>): SetupItem? = pending.firstOrNull { item ->
+    fun next(pending: List<SetupItem>, skipped: Set<SetupItem>): SetupItem? = showable(pending, skipped).firstOrNull()
+
+    /** The steps of [pending] that can still be shown: not skipped, and not the held-back background step. */
+    fun showable(pending: List<SetupItem>, skipped: Set<SetupItem>): List<SetupItem> = pending.filter { item ->
         item !in skipped && !(item == SetupItem.LOCATION_BACKGROUND && SetupItem.LOCATION in pending)
     }
+
+    /**
+     * «Шаг N из M» for the page of [current]: [passed] are the steps already shown and left behind (granted or
+     * skipped), M adds the steps still to show, so the last visible page always reads «N из N».
+     */
+    fun progress(passed: Int, pending: List<SetupItem>, skipped: Set<SetupItem>): Pair<Int, Int> =
+        (passed + 1) to (passed + showable(pending, skipped).size.coerceAtLeast(1))
 
     /** [pending] for this phone now. */
     fun read(context: Context): List<SetupItem> = pending(

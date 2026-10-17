@@ -29,7 +29,6 @@ import app.kinsight.core.location.LocationPermissions
 fun ChildSetupRoute(onDone: () -> Unit) {
     val context = LocalContext.current
     var pending by remember { mutableStateOf(ChildSetup.read(context)) }
-    val total = remember { pending.size.coerceAtLeast(1) }
     // SetupItem names: a Bundle keeps a string list across a recreation.
     var skipped by rememberSaveable { mutableStateOf(listOf<String>()) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { pending = ChildSetup.read(context) }
@@ -42,11 +41,15 @@ fun ChildSetupRoute(onDone: () -> Unit) {
     }
     val location = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { answered(SetupItem.LOCATION) }
     val background = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { answered(SetupItem.LOCATION_BACKGROUND) }
-    val item = ChildSetup.next(pending, skipped.mapNotNull { n -> SetupItem.entries.firstOrNull { it.name == n } }.toSet())
+    val skippedItems = skipped.mapNotNull { n -> SetupItem.entries.firstOrNull { it.name == n } }.toSet()
+    val item = ChildSetup.next(pending, skippedItems)
     LaunchedEffect(item) { if (item == null) onDone() }
+    // Pages already shown and left behind (granted or skipped): the step number counts them, not the held-back ones.
+    var passed by rememberSaveable { mutableStateOf(listOf<String>()) }
+    LaunchedEffect(item) { if (item != null && item.name !in passed) passed = passed + item.name }
     if (item == null) return
-    val left = pending.count { it.name !in skipped }
-    CompositionLocalProvider(LocalStepProgress provides StepProgress((total - left + 1).coerceIn(1, total), total)) {
+    val (step, total) = ChildSetup.progress((passed - item.name).size, pending, skippedItems)
+    CompositionLocalProvider(LocalStepProgress provides StepProgress(step, total)) {
         ChildSetupStep(
             item,
             onAllow = {
