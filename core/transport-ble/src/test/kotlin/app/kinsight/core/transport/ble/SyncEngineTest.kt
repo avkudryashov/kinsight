@@ -279,7 +279,8 @@ class SyncEngineTest {
             mono += 1_000 // a fast-mode scan reports every advert at once: one batch a second for a minute
         }
         assertTrue(d0.store.versionVector() != d1.store.versionVector())
-        assertTrue(connects.get() <= 2, "a fast minute dialled ${connects.get()} times")
+        // One session: it records the vectors as its completions left them, so it is «nothing new» right away.
+        assertEquals(1, connects.get(), "a fast minute dialled ${connects.get()} times")
         assertTrue(logs.count { it.contains(": skip ") } <= 4 * 2, "skip lines are rate-limited: ${logs.filter { it.contains(": skip ") }}")
     }
 

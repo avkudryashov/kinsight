@@ -3,6 +3,7 @@ package app.kinsight.core.sync
 import app.kinsight.core.crypto.CryptoException
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
+import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.MembershipLimits
 import app.kinsight.core.model.MembershipState
@@ -58,8 +59,10 @@ sealed interface SessionResult {
     /** [protocolVersion]: the version both sides agreed on in Hello. */
     data class Completed(val peer: DeviceId, val received: Int, val sentBatches: Int, val protocolVersion: Int) : SessionResult {
         /**
-         * Both vectors (canonical bytes) as exchanged at the start of the session; the transport's «nothing new» rule
-         * keys on them. Outside equals on purpose (arrays); empty when not recorded.
+         * Both vectors (canonical bytes) as exchanged at the start of the session plus the authors' completions the
+         * session made (ours of the peer's log, the peer's of ours), so they are what the next session starts from when
+         * nothing else moved; the transport's «nothing new» rule keys on them. Outside equals on purpose (arrays);
+         * empty when not recorded.
          */
         var ourVector: ByteArray = ByteArray(0)
             internal set
@@ -327,6 +330,10 @@ class SyncSession internal constructor(
             var acks = 0
             var peerDone = false
             var sentBatches = -1 // -1 until our sender has finished
+            // The lowest seq of the peer's own log that we (showOthers off) dropped this session as a share entry we cannot
+            // take yet (Skipped, or Unwanted of a share kind or of a kind we do not know): completion stops below it.
+            var heldBack = Long.MAX_VALUE
+            var completedTo = 0L
             while (!(peerDone && sentBatches >= 0 && acks >= sentBatches)) {
                 val msg = select<SyncMessage?> {
                     if (sentBatches < 0) sentTotal.onAwait { sentBatches = it; null }
@@ -363,12 +370,15 @@ class SyncSession internal constructor(
                                     inBatch += e.author to e.seq
                                 }
                                 Verdict.Duplicate -> noteLiveSet(e!!) // still useful while gaps remain below it
-                                Verdict.Unwanted -> Unit
+                                Verdict.Unwanted -> if (holdsBack(e!!, peer.id)) heldBack = minOf(heldBack, e.seq)
                                 is Verdict.Invalid -> {
                                     invalid++
                                     log("invalid entry from ${peer.id.hex}: ${verdict.reason}")
                                 }
-                                is Verdict.Skipped -> log("skipped ${e!!.author.hex.take(8)}#${e.seq} from ${peer.id.hex}: ${verdict.reason}")
+                                is Verdict.Skipped -> {
+                                    log("skipped ${e!!.author.hex.take(8)}#${e.seq} from ${peer.id.hex}: ${verdict.reason}")
+                                    if (holdsBack(e, peer.id)) heldBack = minOf(heldBack, e.seq)
+                                }
                             }
                         }
                         if (invalid > MAX_INVALID) {
@@ -398,7 +408,12 @@ class SyncSession internal constructor(
                         // keep of it, so the rest of its log is accounted for and our position follows its own (no
                         // resend in the next session). A protocol 2 peer sends a child nothing: no completion then.
                         // Only the author completes its own log: a relay never makes us skip a seq of another author.
-                        if (policy.showOthers || agreed >= CLOUD_PROTOCOL_VERSION) store.completeAuthor(peer.id, peerVector[peer.id])
+                        // A child never completes over a share entry it dropped in this session ([holdsBack]): a later
+                        // build that takes it (a wider FROM_PARENTS_TO_ALL, a relaxed rule) still receives it then.
+                        if (policy.showOthers || agreed >= CLOUD_PROTOCOL_VERSION) {
+                            completedTo = minOf(peerVector[peer.id], heldBack - 1)
+                            store.completeAuthor(peer.id, completedTo)
+                        }
                     }
                     msg.reject != null -> {
                         sender.cancel()
@@ -407,9 +422,16 @@ class SyncSession internal constructor(
                     else -> throw ProtocolException("unexpected message")
                 }
             }
+            // The vectors as the session left them, but only by the authors' completions: ours of the peer's log, and the
+            // peer's of ours (it completes ours whenever it asked for foreign entries or the session ran on protocol 3+).
+            // A session that only completed a log is then «nothing new» at once, while an entry written meanwhile still
+            // counts as new. Not the full end vectors: those would hide a publish made during the session.
+            val ourEnd = ourVector.with(peer.id, maxOf(ourVector[peer.id], completedTo))
+            val peerCompletes = agreed >= CLOUD_PROTOCOL_VERSION || hello.wants_foreign_entries
+            val peerEnd = if (peerCompletes) peerVector.with(policy.self, maxOf(peerVector[policy.self], ourVector[policy.self])) else peerVector
             val completed = SessionResult.Completed(peer.id, received, sentBatches, agreed).also {
-                it.ourVector = ourVector.canonicalBytes()
-                it.peerVector = peerVector.canonicalBytes()
+                it.ourVector = ourEnd.canonicalBytes()
+                it.peerVector = peerEnd.canonicalBytes()
             }
             closingHandshake(ch, inbox)
             completed
@@ -477,21 +499,26 @@ class SyncSession internal constructor(
 
         // Everything we hold above the peer's contiguous vector. Relaying above our own contig is safe: the peer
         // accounts for exactly the seqs it receives, so a gap stays a gap until someone (or the author) fills it.
-        // For a child (SendScope.FROM_PARENTS): only parents' entries of the FROM_PARENTS_TO_ALL kinds, the ones its
-        // EntryValidator takes (the admin check is the reader's, as on every phone). Selected per kind, so the child
-        // accounts those seqs only; the parent's own completion (at its Done) then lifts the child's position past the
-        // rest of its log.
+        // For a child (SendScope.FROM_PARENTS): only parents' entries of the share kinds (SyncPolicy.shareKinds), the
+        // ones its EntryValidator takes (the admin check is the reader's, as on every phone). Child authors are skipped
+        // before any read on purpose, so siblings' logs cost nothing; a parent's log is read through the kind index
+        // (EntryStore.entriesAfter with kinds), not page by page. Selected per kind, so the child accounts those seqs
+        // only; the parent's own completion (at its Done) then lifts the child's position past the rest of its log.
         for (author in (membership.active.keys + membership.departed.keys).sorted()) {
             if (author == peerId) continue
             if (scope == SendScope.FROM_PARENTS && membership.roleOf(author) == DeviceRole.CHILD) continue
             var after = peerVector[author]
             while (true) {
-                val page = store.entriesAfter(author, after, PAGE)
+                val page = if (scope == SendScope.FROM_PARENTS) {
+                    store.entriesAfter(author, after, policy.shareKinds, PAGE)
+                } else {
+                    store.entriesAfter(author, after, PAGE)
+                }
                 if (page.isEmpty()) break
                 for (e in page) {
                     after = e.seq
                     if (!membership.acceptsEntryFrom(e.author, e.seq)) continue
-                    if (scope == SendScope.FROM_PARENTS && e.kind !in SyncPolicy.FROM_PARENTS_TO_ALL) continue
+                    if (scope == SendScope.FROM_PARENTS && e.kind !in policy.shareKinds) continue
                     if (e.bytes.size > BATCH_BYTES) {
                         log("skipping oversized entry ${e.author.hex}#${e.seq}")
                         continue
@@ -529,6 +556,13 @@ class SyncSession internal constructor(
             send(ch, SyncMessage(membership = MembershipOffer(entries = entriesOfPage, more = i < pages.lastIndex)))
         }
     }
+
+    /**
+     * A share entry of [peerId]'s own log that we (showOthers off) did not take: of a FROM_PARENTS_TO_ALL kind this build
+     * knows, or of a kind it does not know (a newer share kind decodes as UNKNOWN). Completion must not account it.
+     */
+    private fun holdsBack(e: DecodedEntry, peerId: DeviceId): Boolean =
+        !policy.showOthers && e.author == peerId && (e.kind == EntryKind.UNKNOWN || e.kind in SyncPolicy.FROM_PARENTS_TO_ALL)
 
     /** What [sendData] sends: everything, a child's share (parents' FROM_PARENTS_TO_ALL entries), or nothing. */
     private enum class SendScope { ALL, FROM_PARENTS, NONE }

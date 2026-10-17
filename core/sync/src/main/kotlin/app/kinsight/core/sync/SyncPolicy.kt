@@ -13,6 +13,11 @@ data class SyncPolicy(
     val today: () -> LocalDate = LocalDate::now,
     /** The receiver's clock for LOCATION expiry (spec §8: today plus a margin, 48 h). */
     val nowMs: () -> Long = System::currentTimeMillis,
+    /**
+     * The parent-signed kinds a member with [showOthers] off takes, and the kinds a session sends to a child. Always
+     * [FROM_PARENTS_TO_ALL] in the app; a test narrows it to play an older build.
+     */
+    val shareKinds: Set<EntryKind> = FROM_PARENTS_TO_ALL,
 ) {
     fun isExpired(e: DecodedEntry): Boolean {
         e.body.location?.let { l ->
@@ -31,9 +36,9 @@ data class SyncPolicy(
 
     /**
      * With showOthers off (a child), only membership and the kinds every member needs from the parents flow in
-     * ([FROM_PARENTS_TO_ALL]); the parents' other entries are not taken.
+     * ([shareKinds]); the parents' other entries are not taken.
      */
-    fun acceptsFromPeers(e: DecodedEntry): Boolean = showOthers || e.author == self || e.kind in FROM_PARENTS_TO_ALL
+    fun acceptsFromPeers(e: DecodedEntry): Boolean = showOthers || e.author == self || e.kind in shareKinds
 
     companion object {
         /** Spec §8: LOCATION entries older than the current day plus a margin, 48 h, go at prune and on receipt. */
@@ -42,6 +47,11 @@ data class SyncPolicy(
         /**
          * Parent-signed kinds a child takes as well (R5 of the cloud plan): storage access, the safe zones it watches (spec
          * §8.1) and the parents' PIN it checks (spec §10).
+         *
+         * Invariant for widening it (a new kind, or a share rule that accepts more): a child on an older build drops such
+         * an entry (Unwanted as UNKNOWN, or Skipped) and SyncSession then keeps the author's log open below it instead of
+         * completing over it, so the child takes it after its update. Keep that hold-back (SyncSession.holdsBack) in step
+         * with this set.
          */
         val FROM_PARENTS_TO_ALL: Set<EntryKind> = setOf(EntryKind.CLOUD_ACCESS, EntryKind.SAFE_ZONE, EntryKind.PARENT_PIN)
     }

@@ -130,6 +130,66 @@ class ChildDeliveryTest {
     }
 
     @Test
+    fun aParentRelaysTheOtherParentsShareButNeverTheirUsageOrLocation() = runBlocking<Unit> {
+        val (mom, dad, kid) = family()
+        val usage = dad.author.summary(TODAY.toString(), 4)
+        val point = dad.author.point()
+        val pin = dad.author.pin()
+        dad.publish(usage, pin)
+        syncPair(dad, mom)
+        // A parent's point is refused on receipt (LocationRules); put it on mom's phone anyway, as a relay that held it.
+        mom.publish(point)
+        assertTrue(mom.holds(usage) && mom.holds(point) && mom.holds(pin))
+        syncPair(mom, kid)
+        assertEquals(listOf(pin), kid.store.liveEntries().filter { it.author == dad.keys.deviceId && !it.isMembershipRelevant })
+    }
+
+    @Test
+    fun aCompletionOnlySessionRecordsTheVectorsItLeaves() = runBlocking<Unit> {
+        val (mom, _, kid) = family()
+        mom.publish(mom.author.summary(TODAY.toString(), 3)) // nothing the child takes, but it moves mom's log
+        val (rm, rk) = syncPair(mom, kid)
+        val m = assertIs<SessionResult.Completed>(rm)
+        val k = assertIs<SessionResult.Completed>(rk)
+        assertEquals(0, m.sentBatches + k.sentBatches)
+        // The next session starts from exactly these: «nothing new» holds after one session, not two.
+        val momNow = mom.store.versionVector().canonicalBytes()
+        val kidNow = kid.store.versionVector().canonicalBytes()
+        assertTrue(m.ourVector.contentEquals(momNow) && m.peerVector.contentEquals(kidNow), "mom's record")
+        assertTrue(k.ourVector.contentEquals(kidNow) && k.peerVector.contentEquals(momNow), "the child's record")
+    }
+
+    @Test
+    fun aShareKindAnOlderChildDropsStaysOpenUntilItsUpdate() = runBlocking<Unit> {
+        val (mom, _, kid) = family()
+        // An older build: it does not take PINs yet (Unwanted), so it must not complete mom's log over the PIN.
+        kid.policy = kid.policy.copy(shareKinds = SyncPolicy.FROM_PARENTS_TO_ALL - EntryKind.PARENT_PIN)
+        val pin = mom.author.pin()
+        mom.publish(mom.author.summary(TODAY.toString(), 1), pin, mom.author.summary(TODAY.minusDays(1).toString(), 2))
+        syncPair(mom, kid)
+        assertTrue(!kid.holds(pin))
+        assertEquals(pin.seq - 1, kid.store.versionVector()[mom.keys.deviceId], "completed up to the PIN, not over it")
+        assertTrue(!kid.store.isAccounted(mom.keys.deviceId, pin.seq))
+        // After the update the PIN arrives and mom's log completes.
+        kid.policy = kid.policy.copy(shareKinds = SyncPolicy.FROM_PARENTS_TO_ALL)
+        syncPair(mom, kid)
+        assertTrue(kid.holds(pin))
+        assertEquals(mom.store.versionVector()[mom.keys.deviceId], kid.store.versionVector()[mom.keys.deviceId])
+    }
+
+    @Test
+    fun aSkippedShareEntryStaysOpenOnTheChild() = runBlocking<Unit> {
+        val (mom, _, kid) = family()
+        // A PIN the child's rules refuse (another build's cost range), held by its author.
+        val odd = mom.author.parentPinEntry(ByteArray(16) { 1 }, ByteArray(32) { 2 }, ParentPinRules.MEMORY_KIB.last + 1, 2, 1)
+        mom.publish(odd, mom.author.summary(TODAY.toString(), 1))
+        syncPair(mom, kid)
+        assertTrue(!kid.holds(odd))
+        assertEquals(odd.seq - 1, kid.store.versionVector()[mom.keys.deviceId])
+        assertTrue(!kid.store.isAccounted(mom.keys.deviceId, odd.seq))
+    }
+
+    @Test
     fun aProtocolTwoChildGetsNoBatchAndStillCompletes() = runBlocking<Unit> {
         val (mom, _, kid) = family()
         mom.publish(mom.author.pin(), mom.author.summary(TODAY.toString(), 1))
