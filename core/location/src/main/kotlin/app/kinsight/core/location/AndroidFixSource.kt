@@ -13,7 +13,11 @@ import kotlin.coroutines.resume
 import app.kinsight.core.model.proto.Location as WireLocation
 
 object LocationPermissions {
-    enum class State { NONE, WHILE_IN_USE, ALWAYS }
+    /**
+     * [COARSE_ONLY]: only the approximate location (Android 12+ «Approximate»), which the safe zones cannot use (proximity
+     * alerts need the precise one): asked again for the precise one, and told apart from [NONE] on the screen.
+     */
+    enum class State { NONE, COARSE_ONLY, WHILE_IN_USE, ALWAYS }
 
     /** Precise location, with the approximate one Android 12+ asks for in the same request. */
     val FOREGROUND = arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
@@ -23,9 +27,10 @@ object LocationPermissions {
         context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
     fun state(context: Context): State = when {
-        !foregroundGranted(context) -> State.NONE
-        context.checkSelfPermission(BACKGROUND) == PackageManager.PERMISSION_GRANTED -> State.ALWAYS
-        else -> State.WHILE_IN_USE
+        foregroundGranted(context) ->
+            if (context.checkSelfPermission(BACKGROUND) == PackageManager.PERMISSION_GRANTED) State.ALWAYS else State.WHILE_IN_USE
+        context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED -> State.COARSE_ONLY
+        else -> State.NONE
     }
 
     /**

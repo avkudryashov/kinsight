@@ -111,6 +111,18 @@ class AndroidAdaptersTest {
         assertEquals(LocationPermissions.State.ALWAYS, LocationPermissions.state(app))
     }
 
+    /** «Approximate» on Android 12+: told apart from no access, and still not enough to track (zones need precise). */
+    @Test
+    fun anApproximateOnlyGrantIsItsOwnState() {
+        shadowOf(app).grantPermissions(Manifest.permission.ACCESS_COARSE_LOCATION)
+        assertEquals(LocationPermissions.State.COARSE_ONLY, LocationPermissions.state(app))
+        shadowOf(app).grantPermissions(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        assertEquals("all the time, but approximate", LocationPermissions.State.COARSE_ONLY, LocationPermissions.state(app))
+        assertFalse(AndroidFixSource(app).ready())
+        shadowOf(app).grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION)
+        assertEquals(LocationPermissions.State.ALWAYS, LocationPermissions.state(app))
+    }
+
     @Test
     fun stopAndCancelAreSafeWhenNothingRuns() {
         // Ruling L6: the engine's off() calls these on every refresh of a phone that never tracks.

@@ -144,6 +144,7 @@
     <string name="set_cloud_new_phone_restore">Para pasar a un teléfono nuevo, primero restablece el acceso al Disco: inicia sesión en Yandex en este teléfono.</string>
     <string name="set_location">Ubicación para tu familia</string>
     <string name="set_location_none">Tus padres verán dónde está este teléfono y sabrán cuándo sale de una zona segura. Hace falta acceso a la ubicación.</string>
+    <string name="set_location_coarse">Activa «Usar ubicación exacta» para Kinsight: las zonas seguras necesitan la ubicación exacta, la aproximada no basta.</string>
     <string name="set_location_while_in_use">Elige «Permitir siempre» para que tu familia vea la ubicación con Kinsight cerrado.</string>
     <string name="set_location_always">Tus padres ven dónde está este teléfono y reciben un aviso cuando sale de una zona segura.</string>
     <string name="set_location_allow">Permitir</string>

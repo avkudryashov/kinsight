@@ -872,6 +872,27 @@ class SettingsScreenTest {
         }
     }
 
+    /** Y4 Task 6 review Minor 4: «Approximate» is named as such, and «Allow» asks for the precise location again. */
+    @Test
+    fun anApproximateOnlyChildIsToldToTurnOnPreciseLocation() {
+        val asked = mutableListOf<LocationPermissions.State>()
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                SettingsScreen(
+                    SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1L), Prefs(), running),
+                    "0.4.0", onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
+                    onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {}, onResetIdentity = {}, nowMs = NOW,
+                    location = LocationPermissions.State.COARSE_ONLY, onLocationAccess = { asked += it },
+                )
+            }
+        }
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_location_allow"))
+        rule.onNodeWithText("Use precise location", substring = true).assertExists()
+        rule.onNodeWithTag("set_location_allow").assertTextEquals("Allow")
+        rule.onNodeWithTag("set_location_allow").performClick()
+        assertEquals(listOf(LocationPermissions.State.COARSE_ONLY), asked)
+    }
+
     @Test
     fun aChildIsAskedForPreciseThenBackgroundLocation() {
         val asked = mutableListOf<LocationPermissions.State>()

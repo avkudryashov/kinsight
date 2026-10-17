@@ -159,7 +159,8 @@ fun SettingsRoute(
         onLocationSettings = { context.open(appSettings(context.packageName)) },
         onLocationAccess = { st ->
             when (st) {
-                LocationPermissions.State.NONE -> foreground.launch(LocationPermissions.FOREGROUND)
+                // Asking for the precise one again: Android 12+ offers to switch an approximate grant to precise.
+                LocationPermissions.State.NONE, LocationPermissions.State.COARSE_ONLY -> foreground.launch(LocationPermissions.FOREGROUND)
                 LocationPermissions.State.WHILE_IN_USE -> background.launch(LocationPermissions.BACKGROUND)
                 LocationPermissions.State.ALWAYS -> Unit
             }
@@ -412,6 +413,7 @@ fun SettingsScreen(
                                 stringResource(
                                     when (location) {
                                         LocationPermissions.State.NONE -> R.string.set_location_none
+                                        LocationPermissions.State.COARSE_ONLY -> R.string.set_location_coarse
                                         LocationPermissions.State.WHILE_IN_USE -> R.string.set_location_while_in_use
                                         LocationPermissions.State.ALWAYS -> R.string.set_location_always
                                     },
@@ -430,7 +432,7 @@ fun SettingsScreen(
                         }
                     } else if (location != LocationPermissions.State.ALWAYS) {
                         Button({ onLocationAccess(location) }, Modifier.padding(horizontal = 16.dp).testTag("set_location_allow")) {
-                            Text(stringResource(if (location == LocationPermissions.State.NONE) R.string.set_location_allow else R.string.set_location_allow_always))
+                            Text(stringResource(if (location == LocationPermissions.State.WHILE_IN_USE) R.string.set_location_allow_always else R.string.set_location_allow))
                         }
                     }
                     ListItem(
