@@ -1,6 +1,7 @@
 package app.kinsight.core.data
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -183,10 +184,36 @@ object CloudWork {
         runNow(context, TOKEN_POLICY)
     }
 
-    /** The app was opened (spec §9: a parent reads at once): the periodic job and a fresh run now. */
+    /**
+     * The app was opened (spec §9: a parent reads at once): the periodic job and a fresh run now. A run now that started
+     * under [FRESH_RUN_MS] ago is left alone (parked Y2 minor): it reads the Disk already, and REPLACE would cancel it
+     * halfway only to start the same run again on every foreground.
+     */
     fun opened(context: Context): Job = whenOn(context) {
         schedule(context)
-        runNow(context, ExistingWorkPolicy.REPLACE)
+        openedPolicy(nowRunStartedMs, SystemClock.elapsedRealtime())?.let { runNow(context, it) }
+    }
+
+    /** Spec §9 «сразу»: a run now younger than this counts as the app-open read. */
+    const val FRESH_RUN_MS = 30_000L
+
+    /** The elapsed-realtime start of the [NOW] run in progress in this process, or null (set by [nowRun]). */
+    @Volatile
+    var nowRunStartedMs: Long? = null
+        private set
+
+    /** The policy of the app-open run: null (keep the run in progress) when one started under [FRESH_RUN_MS] ago. */
+    fun openedPolicy(runningSinceMs: Long?, nowMs: Long): ExistingWorkPolicy? =
+        if (runningSinceMs != null && nowMs - runningSinceMs in 0 until FRESH_RUN_MS) null else ExistingWorkPolicy.REPLACE
+
+    /** Brackets the [NOW] run in progress, so [opened] knows how old it is. */
+    suspend fun <T> nowRun(clock: () -> Long = SystemClock::elapsedRealtime, block: suspend () -> T): T {
+        nowRunStartedMs = clock()
+        try {
+            return block()
+        } finally {
+            nowRunStartedMs = null
+        }
     }
 
     fun resultOf(run: CloudRun): ListenableWorker.Result =
@@ -233,6 +260,12 @@ class CloudWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
     override suspend fun doWork(): Result {
         val trigger = inputData.getString(CloudWork.KEY_TRIGGER)?.let { n -> CloudTrigger.entries.firstOrNull { it.name == n } } ?: CloudTrigger.PERIODIC
         val follow = inputData.getBoolean(CloudWork.KEY_FOLLOW, false)
+        // The unique NOW work (the follow-up and the periodic job are other works): the app open sees its age.
+        if (trigger == CloudTrigger.NOW && !follow) return CloudWork.nowRun { work(trigger, follow) }
+        return work(trigger, follow)
+    }
+
+    private suspend fun work(trigger: CloudTrigger, follow: Boolean): Result {
         return CloudWork.outcome {
             val g = AppGraph.get(applicationContext)
             // Spec §10, before the run and never inside its runLock: what the child turned off is signed now and goes up

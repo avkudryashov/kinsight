@@ -24,6 +24,22 @@ class CloudWorkResultTest {
         assertFailsWith<CancellationException> { CloudWork.outcome { throw CancellationException("stopped") } }
     }
 
+    /** Parked Y2 minor: opening the app replaces a stuck or old run now, never one that started under 30 s ago. */
+    @Test
+    fun theAppOpenLeavesAFreshRunAlone() = runBlocking<Unit> {
+        assertEquals(androidx.work.ExistingWorkPolicy.REPLACE, CloudWork.openedPolicy(null, 100_000))
+        assertEquals(null, CloudWork.openedPolicy(100_000, 100_000))
+        assertEquals(null, CloudWork.openedPolicy(100_000, 129_999))
+        assertEquals(androidx.work.ExistingWorkPolicy.REPLACE, CloudWork.openedPolicy(100_000, 130_000))
+        assertEquals(androidx.work.ExistingWorkPolicy.REPLACE, CloudWork.openedPolicy(100_000, 99_000), "a clock that went back")
+        var seen: Long? = null
+        assertEquals(CloudRun.SYNCED, CloudWork.nowRun({ 42L }) { seen = CloudWork.nowRunStartedMs; CloudRun.SYNCED })
+        assertEquals(42L, seen)
+        assertEquals(null, CloudWork.nowRunStartedMs, "cleared when the run ends")
+        assertFailsWith<IOException> { CloudWork.nowRun({ 42L }) { throw IOException("boom") } }
+        assertEquals(null, CloudWork.nowRunStartedMs, "and when it fails")
+    }
+
     /** Spec §9: the follow-up run queues its successor behind itself; any other run keeps a waiting one. */
     @Test
     fun aFollowUpChainsItselfAndOtherRunsKeepIt() {
