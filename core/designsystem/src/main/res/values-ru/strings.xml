@@ -11,4 +11,7 @@
     <string name="ds_moment_with_child">%1$s (у ребёнка %2$s)</string>
     <string name="ds_heat_less">Меньше</string>
     <string name="ds_heat_more">Больше</string>
+    <string name="ds_limit_left">Осталось %1$s из %2$s</string>
+    <string name="ds_limit_over">Больше лимита на %1$s</string>
+    <string name="ds_limit_reached">Лимит исчерпан</string>
 </resources>
