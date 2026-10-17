@@ -65,6 +65,14 @@ class MainActivityTest {
         // Spec §2: the cloud is an option of the same app, off by default; the permissions are in the manifest.
         assertEquals(true, "android.permission.INTERNET" in requested)
         assertEquals(true, "android.permission.ACCESS_NETWORK_STATE" in requested)
+        // Spec §8, §12: the child's location sharing (core/location) needs these, merged into the app.
+        val location = listOf(
+            "android.permission.ACCESS_COARSE_LOCATION",
+            "android.permission.ACCESS_FINE_LOCATION",
+            "android.permission.ACCESS_BACKGROUND_LOCATION",
+            "android.permission.FOREGROUND_SERVICE_LOCATION",
+        )
+        assertEquals(emptyList<String>(), location.filterNot { it in requested })
     }
 
     /** Spec §3, §14: the Android platform's yx<client_id> redirect opens the running app. */
@@ -74,6 +82,16 @@ class MainActivityTest {
             .addCategory(Intent.CATEGORY_BROWSABLE)
         val main = ComponentName(app, MainActivity::class.java)
         assertEquals(main, app.packageManager.resolveActivity(link, 0)?.activityInfo?.let { ComponentName(it.packageName, it.name) })
+    }
+
+    /** Only the two schemes of the manifest open it: another scheme, or another host of kinsight://, resolves to nothing here. */
+    @Test
+    fun anotherSchemeDoesNotOpenMainActivity() {
+        val pm = app.packageManager
+        for (uri in listOf("yx0000://authorize?code=1234567&state=s", "https://oauth.yandex.ru/verification_code?code=1", "kinsight://other/1")) {
+            val link = Intent(Intent.ACTION_VIEW, Uri.parse(uri)).addCategory(Intent.CATEGORY_BROWSABLE).setPackage(app.packageName)
+            assertEquals(uri, null, pm.resolveActivity(link, 0))
+        }
     }
 
     /** A deep link must land in the running instance (onNewIntent), never in a second copy of the app. */
