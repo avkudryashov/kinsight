@@ -100,6 +100,18 @@ class LocationRulesTest {
         assertEquals(Verdict.Accept, v.check(kid.point(at = now - 60_000), alreadyAccounted = false))
     }
 
+    /**
+     * A point the receiver already accounted for and pruned since (or took and let expire) comes again from a peer: it is a
+     * Duplicate, so the session's seen set and vector see nothing new, not Expired.
+     */
+    @Test
+    fun aPrunedPointReceivedAgainIsADuplicate() {
+        val v = EntryValidator(genesis.groupId, state, SyncPolicy(momKeys.deviceId, today = { TODAY }, nowMs = { now }))
+        val old = kid.point(at = now - SyncPolicy.LOCATION_RETENTION_MS - 1)
+        assertEquals(Verdict.Duplicate, v.check(old, alreadyAccounted = true))
+        assertEquals(Verdict.Expired, v.check(old, alreadyAccounted = false))
+    }
+
     /** Y4 parked minor: the caps a hostile peer might try, each skipped for its own reason. */
     @Test
     fun theCapsHold() {
