@@ -130,6 +130,9 @@ internal interface SettingsActions {
 
     fun dismissCloudSignIn() = Unit
 
+    /** The sign-in page answered with an error (CloudRepository.refuseSignIn). */
+    fun refuseCloudSignIn() = Unit
+
     /** Spec §10: the family PIN and this phone's wait (ChildLock.status). */
     val childLock: Flow<ChildLockStatus> get() = flowOf(ChildLockStatus())
 
@@ -193,6 +196,8 @@ private class RepositoryActions(
 
     /** Closes the dialog only: a pending sign-in stays, so an app link arriving later still completes it. */
     override fun dismissCloudSignIn() = cloudRepo.dismissSignIn()
+
+    override fun refuseCloudSignIn() = cloudRepo.refuseSignIn()
 
     override val childLock = lock.status
 
@@ -289,8 +294,8 @@ class SettingsViewModel internal constructor(
     }
 
     /**
-     * The switch, «Войти в Яндекс», or taking the storage ([takeOver], spec §7): [open] gets the address for the browser
-     * (a plain ACTION_VIEW, no Custom Tabs library).
+     * The switch, «Войти в Яндекс», or taking the storage ([takeOver], spec §7): [open] gets the authorize address (the
+     * in-app sign-in for the verification page, else a plain ACTION_VIEW, no Custom Tabs library).
      */
     fun startCloudSignIn(takeOver: Boolean = false, open: (String) -> Unit) {
         viewModelScope.launch {
@@ -320,6 +325,9 @@ class SettingsViewModel internal constructor(
 
     /** Closes the dialog; a pending sign-in stays, so the app link still completes it (CloudSignIn.dismiss). */
     fun dismissCloudSignIn() = actions.dismissCloudSignIn()
+
+    /** The user refused or cancelled on the Yandex page: the sign-in failure shows (CloudSignIn.refused). */
+    fun refuseCloudSignIn() = actions.refuseCloudSignIn()
 
     /** A PIN typed on a child's phone; the PIN goes to ChildLock only, never into state or a log. */
     fun unlock(pin: String) {

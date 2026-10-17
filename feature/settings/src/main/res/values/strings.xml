@@ -115,6 +115,7 @@
     <string name="set_cloud_sign_in">Sign in to Yandex</string>
     <string name="set_cloud_dialog_body">Confirm the access in the browser. If it shows a code, paste it here.</string>
     <string name="set_cloud_code">Code</string>
+    <string name="set_cloud_web_fallback">Could not read the code from the page. Type the code shown above.</string>
     <string name="set_cloud_done">Done</string>
     <string name="set_cloud_cancel">Cancel</string>
     <string name="set_cloud_working">Connecting…</string>

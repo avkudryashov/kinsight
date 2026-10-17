@@ -143,15 +143,17 @@ internal fun CloudHandoverDialog(targets: List<MemberView>, onPick: (DeviceId) -
 }
 
 /**
- * The browser shows a code on the verification page: it is pasted here. An app link finishes the sign-in by itself.
+ * The browser opened by an app redirect: its app link finishes the sign-in by itself, a code is pasted here. The
+ * verification page is shown inside the app instead (CloudWebSignIn), which reads the code itself.
  * [SignInState.Waiting] keeps the paste field after a paste that held no code or a token endpoint out of reach, with
  * the reason under it, so the user tries again. A failed [SignInState.Done] (the code is spent or the sign-in expired)
  * offers to start again from the browser ([onSignIn]); a result the user cannot fix from here only has «OK».
  */
 @Composable
-internal fun CloudSignInDialog(state: SignInState, onCode: (String) -> Unit, onSignIn: () -> Unit, onDismiss: () -> Unit) {
-    // A new sign-in (a new address) starts with an empty field: a spent code must not be sent to it.
-    var code by rememberSaveable((state as? SignInState.Waiting)?.url) { mutableStateOf("") }
+internal fun CloudSignInDialog(state: SignInState, onCode: (String) -> Unit, onSignIn: () -> Unit, onDismiss: () -> Unit, initialCode: String = "") {
+    // A new sign-in (a new address) starts with an empty field: a spent code must not be sent to it. [initialCode]: the
+    // code the in-app sign-in read, back after the token endpoint was out of reach, to send again.
+    var code by rememberSaveable((state as? SignInState.Waiting)?.url, initialCode) { mutableStateOf(initialCode) }
     AlertDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier.dialogTestTags(), // its own window: the root flag does not reach it

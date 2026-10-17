@@ -107,6 +107,10 @@ class SettingsViewModelTest {
             calls += "dismissCloudSignIn"
         }
 
+        override fun refuseCloudSignIn() {
+            calls += "refuseCloudSignIn"
+        }
+
         var handoverAccepted = true
 
         override suspend fun requestHandover(to: DeviceId): Boolean {
@@ -225,7 +229,8 @@ class SettingsViewModelTest {
         vm.finishCloudSignIn("1234567")
         advanceUntilIdle()
         vm.dismissCloudSignIn()
-        assertEquals(listOf("startCloudSignIn", "finishCloudSignIn:1234567", "dismissCloudSignIn"), actions.calls)
+        vm.refuseCloudSignIn()
+        assertEquals(listOf("startCloudSignIn", "finishCloudSignIn:1234567", "dismissCloudSignIn", "refuseCloudSignIn"), actions.calls)
     }
 
     @Test

@@ -119,6 +119,7 @@
     <string name="set_cloud_sign_in">Войти в Яндекс</string>
     <string name="set_cloud_dialog_body">Подтвердите доступ в браузере. Если там показан код, вставьте его сюда.</string>
     <string name="set_cloud_code">Код</string>
+    <string name="set_cloud_web_fallback">Не удалось прочитать код со страницы. Введите код, показанный выше.</string>
     <string name="set_cloud_done">Готово</string>
     <string name="set_cloud_cancel">Отмена</string>
     <string name="set_cloud_working">Подключаем…</string>

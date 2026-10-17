@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import android.webkit.WebView
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -137,6 +138,12 @@ fun SettingsRoute(
         // Back from Android's settings page: a grant or revoke made there starts or stops tracking now (Y4 review Minor 8).
         if (LocationPermissions.state(context) != locationState) locationChanged()
     }
+    // The authorize address shown inside the app (spec §3: the verification page); the app redirect opens the browser.
+    var cloudWeb by rememberSaveable { mutableStateOf<String?>(null) }
+    val openSignIn: (String) -> Unit = { url ->
+        cloudWeb = url.takeIf(YandexCodePage::inApp)
+        if (cloudWeb == null) context.open(Intent(Intent.ACTION_VIEW, url.toUri()))
+    }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -148,10 +155,13 @@ fun SettingsRoute(
         ui, appVersion, vm::setSharing, onConsent, onTransparency, vm::stopSync, vm::startSync, vm::setRetention,
         vm::setSummaryMode, vm::setNoContactHours, onBattery, onDiagnostics, vm::resetIdentity, vm::dismissError,
         onSyncNow = vm::syncNow, onPrivacyPolicy = { openPrivacyPolicy(context) }, nowMs = now,
-        onCloudSignIn = { vm.startCloudSignIn { url -> context.open(Intent(Intent.ACTION_VIEW, url.toUri())) } },
+        onCloudSignIn = { vm.startCloudSignIn(open = openSignIn) },
         onCloudCode = vm::finishCloudSignIn,
         onCloudDismiss = vm::dismissCloudSignIn,
-        onCloudTakeOver = { vm.startCloudSignIn(takeOver = true) { url -> context.open(Intent(Intent.ACTION_VIEW, url.toUri())) } },
+        onCloudTakeOver = { vm.startCloudSignIn(takeOver = true, open = openSignIn) },
+        cloudWeb = cloudWeb,
+        onCloudRefused = vm::refuseCloudSignIn,
+        onCloudExternal = { context.open(Intent(Intent.ACTION_VIEW, it.toUri())) },
         onCloudHandover = vm::requestHandover,
         onNewPhone = onNewPhone,
         location = locationRow(ui.cloud.on, ui.cloud.isChild, locationState),
@@ -221,6 +231,12 @@ fun SettingsScreen(
     onCloudTakeOver: () -> Unit = {},
     onCloudHandover: (DeviceId) -> Unit = {},
     onNewPhone: () -> Unit = {},
+    /** The authorize address the in-app sign-in shows (CloudWebSignIn), or null when the browser has it. */
+    cloudWeb: String? = null,
+    onCloudRefused: () -> Unit = {},
+    onCloudExternal: (String) -> Unit = {},
+    /** Builds the sign-in's WebView (tests capture it). */
+    webView: (Context) -> WebView = ::WebView,
     /** Spec §8, §12: the child's location access, shown on a child's phone while the cloud is on; null hides the row. */
     location: LocationPermissions.State? = null,
     onLocationAccess: (LocationPermissions.State) -> Unit = {},
@@ -567,7 +583,26 @@ fun SettingsScreen(
         }
         null -> Unit
     }
-    if (ui.signIn !is SignInState.Idle) CloudSignInDialog(ui.signIn, onCloudCode, onCloudSignIn, onCloudDismiss)
+    // The in-app sign-in stays until the code it handed over moves the sign-in on (Working closes it). A code that came
+    // back unexchanged (no network, or not a code) goes to the paste dialog, already in its field: the page is not
+    // shown again for a sign-in that already answered.
+    var webCode by remember(cloudWeb) { mutableStateOf<String?>(null) }
+    val waiting = ui.signIn as? SignInState.Waiting
+    if (waiting != null && waiting.url == cloudWeb && !waiting.networkError && !waiting.rejected) {
+        CloudWebSignIn(
+            waiting.url,
+            onCode = {
+                webCode = it
+                onCloudCode(it)
+            },
+            onRefused = onCloudRefused,
+            onExternal = onCloudExternal,
+            onDismiss = onCloudDismiss,
+            webView = webView,
+        )
+    } else if (ui.signIn !is SignInState.Idle) {
+        CloudSignInDialog(ui.signIn, onCloudCode, onCloudSignIn, onCloudDismiss, initialCode = webCode.orEmpty())
+    }
     if (handover && ui.cloud.handoverTargets.isNotEmpty()) {
         CloudHandoverDialog(ui.cloud.handoverTargets, onPick = { onCloudHandover(it); handover = false }, onDismiss = { handover = false })
     }
