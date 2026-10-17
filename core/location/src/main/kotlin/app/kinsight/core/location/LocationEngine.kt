@@ -127,6 +127,12 @@ class LocationEngine(
         apply(ZoneTracker.fix(s, zones, fix(), clock()))
     }
 
+    /**
+     * The saved tracker state, read without the lock (a fix may hold it for [FIX_TIMEOUT_MS]); the debug build's
+     * LOCATION_STATUS (LocationDebug) reports its mode, tick and zone count, never [TrackerState.inside] ids or a point.
+     */
+    internal suspend fun savedState(): TrackerState = store.load()
+
     /** LocalReset and leaving (under the cloud runLock): every alert, the service, the tick, the check and the state go. */
     suspend fun forget(): Unit = lock.withLock { off() }
 
