@@ -42,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -65,6 +66,7 @@ import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.DashboardState
 import app.kinsight.core.data.DeviceUsage
 import app.kinsight.core.data.MemberView
+import app.kinsight.core.data.LocationReadModel
 import app.kinsight.core.data.PlaceStatus
 import app.kinsight.core.data.Role as MemberRole
 import app.kinsight.core.data.ServiceStatus
@@ -499,7 +501,10 @@ private fun DataAt(updatedMs: Long, nowMs: Long, childZoneId: String?) {
     )
 }
 
-/** Spec §8: where a child is, on a parent's card; the time is the child's last word. */
+/**
+ * Spec §8: where a child is, on a parent's card; the time is the child's last word. An old word is marked like old data
+ * (LocationReadModel.PLACE_STALE_MS): it may be out of date.
+ */
 @Composable
 private fun Place(p: PlaceStatus, nowMs: Long) {
     val ago = relativeTime(p.atMs, nowMs)
@@ -507,7 +512,13 @@ private fun Place(p: PlaceStatus, nowMs: Long) {
         is PlaceStatus.InZone -> p.zoneName?.let { stringResource(R.string.dash_place_in_zone, it, ago) } ?: stringResource(R.string.dash_place_in_unknown, ago)
         is PlaceStatus.Outside -> stringResource(R.string.dash_place_outside, ago)
     }
-    Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("dash_place"))
+    val stale = LocationReadModel.isStale(p, nowMs)
+    Text(
+        if (stale) stringResource(R.string.dash_place_stale, text) else text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = if (stale) MaterialTheme.colorScheme.tertiary else Color.Unspecified,
+        modifier = Modifier.testTag("dash_place"),
+    )
 }
 
 /** U2: «usual by this time» with hourly detail, whole days only late in the day, else nothing. */

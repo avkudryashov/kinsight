@@ -58,6 +58,7 @@
     <string name="dash_place_in_zone">In the zone “%1$s”, %2$s</string>
     <string name="dash_place_in_unknown">In a safe zone, %1$s</string>
     <string name="dash_place_outside">Outside the safe zones, %1$s</string>
+    <string name="dash_place_stale">%1$s (may be out of date)</string>
     <string name="dash_reconsent_body">Kinsight can now also send your screen time and where this phone is through a parent\'s Yandex Disk. See what changed and decide.</string>
     <string name="dash_reconsent_open">See what changed</string>
 </resources>

@@ -44,6 +44,14 @@ object LocationReadModel {
     /** Spec §9: a parent reads more often while a child is outside, as long as the child's word is this fresh. */
     const val FOLLOW_FOR_MS = 30 * 60_000L
 
+    /**
+     * A place older than this may be out of date (Y4 parked minor): even in a zone a child reports every 30 to 60
+     * minutes (spec §8.1) and uploads at least hourly (spec §9), so two hours without a word means something stopped.
+     */
+    const val PLACE_STALE_MS = 2 * 3_600_000L
+
+    fun isStale(p: PlaceStatus, nowMs: Long): Boolean = nowMs - p.atMs > PLACE_STALE_MS
+
     /** The fix of a point entry; null for «in zone» and for other kinds. */
     fun point(e: DecodedEntry): GeoPoint? =
         e.body.location?.takeIf { it.zone_id.size == 0 }?.let { GeoPoint(it.lat_e7, it.lon_e7, it.accuracy_m, it.fix_time_ms) }

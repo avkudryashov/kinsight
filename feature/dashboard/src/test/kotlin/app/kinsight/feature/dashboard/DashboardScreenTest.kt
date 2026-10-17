@@ -1,5 +1,6 @@
 package app.kinsight.feature.dashboard
 
+import app.kinsight.core.data.LocationReadModel
 import app.kinsight.core.data.PlaceStatus
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -8,6 +9,8 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -542,6 +545,21 @@ class DashboardScreenTest {
         val inZone = usage(kid, 30, 30).copy(place = PlaceStatus.InZone("aa".repeat(16), "Home", now - 5 * 60_000))
         show(DashboardUi(DashboardState(mom, null, listOf(inZone), listOf(dad)), running, true))
         rule.onNodeWithTag("dash_place", useUnmergedTree = true).assertTextContains("In the zone “Home”", substring = true)
+    }
+
+    /** Y4 parked minor: an old place says it may be out of date (like old data), a fresh one does not. */
+    @Test
+    fun anOldPlaceIsMarkedAsMaybeOutOfDate() {
+        val old = usage(kid, 30, 30).copy(place = PlaceStatus.InZone("aa".repeat(16), "Home", now - LocationReadModel.PLACE_STALE_MS - 60_000))
+        show(DashboardUi(DashboardState(mom, null, listOf(old), listOf(dad)), running, true))
+        rule.onNodeWithTag("dash_place", useUnmergedTree = true).assertTextContains("may be out of date", substring = true)
+    }
+
+    @Test
+    fun aFreshPlaceIsNotMarked() {
+        val fresh = usage(kid, 30, 30).copy(place = PlaceStatus.Outside(null, now - LocationReadModel.PLACE_STALE_MS + 60_000))
+        show(DashboardUi(DashboardState(mom, null, listOf(fresh), listOf(dad)), running, true))
+        rule.onNode(hasTestTag("dash_place") and hasText("may be out of date", substring = true), useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test
