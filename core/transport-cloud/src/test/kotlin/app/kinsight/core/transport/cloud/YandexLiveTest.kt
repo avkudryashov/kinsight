@@ -4,8 +4,10 @@ import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.sync.summary
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assumptions.assumeTrue
+import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
@@ -24,15 +26,24 @@ class YandexLiveTest {
         assumeTrue(enabled, "live Yandex test is opt in")
         val disk = YandexDisk({ token!! })
         val (mom, kid) = family(DeviceRole.CHILD)
-        try {
+        keepingTheFailure({ disk.delete(CloudPaths.root(mom.store.groupId)) }) {
             val day = kid.author.summary("2026-10-13", 60_000)
             kid.publish(day)
             assertEquals(CloudResult.Synced(uploadedPacks = 1, received = 0), kid.sync(disk).run())
             assertIs<CloudResult.Synced>(mom.sync(disk).run())
             assertTrue(day in mom.store.liveEntries())
-        } finally {
-            disk.delete(CloudPaths.root(mom.store.groupId))
         }
+    }
+
+    @Test
+    fun aFailingCleanUpDoesNotHideTheFailure() = runTest {
+        val failure = assertFailsWith<AssertionError> {
+            keepingTheFailure({ throw IOException("delete failed") }) { throw AssertionError("the real failure") }
+        }
+        assertEquals("the real failure", failure.message)
+        assertEquals("delete failed", failure.suppressed.single().message)
+        val cleanUp = assertFailsWith<IOException> { keepingTheFailure({ throw IOException("delete failed") }) { } }
+        assertEquals("delete failed", cleanUp.message)
     }
 
     /**
@@ -55,4 +66,23 @@ class YandexLiveTest {
         val days = (t.expiresAtMs - System.currentTimeMillis()) / (24L * 60 * 60 * 1000)
         println("live refresh: access token changed=${token != null && t.accessToken != token}, refresh token changed=${t.refreshToken != refresh}, days left=$days")
     }
+}
+
+/**
+ * Runs [body], then [cleanUp]. A failure of [body] is the one reported: a clean-up that fails as well is attached to it as
+ * suppressed instead of replacing it (a plain `finally` would). A clean-up failure after a passing body is reported.
+ */
+internal suspend fun <T> keepingTheFailure(cleanUp: suspend () -> Unit, body: suspend () -> T): T {
+    val result = try {
+        body()
+    } catch (e: Throwable) {
+        try {
+            cleanUp()
+        } catch (c: Throwable) {
+            e.addSuppressed(c)
+        }
+        throw e
+    }
+    cleanUp()
+    return result
 }
