@@ -3,6 +3,7 @@ package app.kinsight.core.designsystem.theme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.SemanticsPropertyKey
 
 private val White = Color(0xFFFFFFFF)
 
@@ -59,6 +60,31 @@ internal val DarkColors = darkColorScheme(
  * #7B5EE6 is the nearest tone with 4.5:1.
  */
 val ChildCardGradient: List<Color> = listOf(Color(0xFF6A4FD8), Color(0xFF7B5EE6))
+
+/**
+ * One child's colour (Task 12): [base] starts the card's gradient and [light], a slightly lighter tone of it, ends it;
+ * white text keeps 4.5:1 on both. [onDark] marks the child on the dark theme's map, where [base] is too dim.
+ */
+data class ChildColor(val base: Color, val light: Color, val onDark: Color) {
+    val gradient: List<Color> get() = listOf(base, light)
+}
+
+/** A child's mark carries its colour in the semantics, so a test can tell which colour a card or a status got. */
+val ChildColorKey: SemanticsPropertyKey<ChildColor> = SemanticsPropertyKey("ChildColor")
+
+/** The children's colours: violet (the card as it was), teal, coral, blue (ChildColorsTest pins the contrasts). */
+val ChildPalette: List<ChildColor> = listOf(
+    ChildColor(Color(0xFF6A4FD8), Color(0xFF7B5EE6), Color(0xFF9E8DE6)),
+    ChildColor(Color(0xFF0F7C78), Color(0xFF1B837F), Color(0xFF63AAA7)),
+    ChildColor(Color(0xFFC2453D), Color(0xFFC54E47), Color(0xFFD78681)),
+    ChildColor(Color(0xFF2D5DB8), Color(0xFF4A74C2), Color(0xFF7696D1)),
+)
+
+/**
+ * The stable colour of the child with this device id hex: the same child gets the same colour on every phone and in
+ * every session (String.hashCode is fixed by the Java spec), whatever the hex case.
+ */
+fun childColor(deviceIdHex: String): ChildColor = ChildPalette[Math.floorMod(deviceIdHex.lowercase().hashCode(), ChildPalette.size)]
 
 /** Text and icons on [ChildCardGradient]. */
 val OnChildCard: Color = White
