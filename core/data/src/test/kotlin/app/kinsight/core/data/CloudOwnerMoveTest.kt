@@ -9,6 +9,7 @@ import app.kinsight.core.transport.cloud.CloudAccessView
 import app.kinsight.core.transport.cloud.CloudPaths
 import app.kinsight.core.transport.cloud.DiskApi
 import app.kinsight.core.transport.cloud.DiskException
+import app.kinsight.core.transport.cloud.DiskItem
 import app.kinsight.core.transport.cloud.GroupKey
 import app.kinsight.core.transport.cloud.InMemoryDisk
 import app.kinsight.core.transport.cloud.OwnerLifecycle
@@ -145,6 +146,41 @@ class CloudOwnerMoveTest {
         assertEquals(2L, kid.cloudState.current().syncedGeneration)
         assertEquals(CloudRun.SYNCED, dad.runner(disks::disk).run(CloudTrigger.NOW))
         assertTrue(day in dad.store().liveEntries(), "the kid reached Dad's Disk")
+    }
+
+    /** Parked Y3 minor: a kept old token the old Disk refuses is not tried on every run, only after something changed. */
+    @Test
+    fun aChildStopsCallingTheOldDiskOnceItsKeptTokenIsDead() = runBlocking<Unit> {
+        family()
+        val g = mom.groups.read()!!
+        assertEquals(CloudRun.SYNCED, kid.runner(disks::disk).run(CloudTrigger.NOW))
+        assertTrue(mom.signIn(http, disks::disk).requestHandover(dad.keys.deviceId))
+        dadHearsFromMom()
+        assertEquals(CloudEnableResult.TAKEN_OVER, takeOver(dad))
+        kid.store().storeMembership(dad.store().membershipEntries()) // the new owner over Bluetooth, no access it opens
+        var calls = 0
+        val revoked = AccountDisks(mapOf("DAD1" to dadDisk)) // AT was revoked: Mom's Disk answers 401
+        val counting: (suspend () -> String) -> DiskApi = { t ->
+            val d = revoked.disk(t)
+            object : DiskApi by d {
+                override suspend fun list(path: String): List<DiskItem> {
+                    calls++
+                    return d.list(path)
+                }
+            }
+        }
+        val runner = kid.runner(counting)
+        assertEquals(CloudRun.UNAUTHORIZED, runner.run(CloudTrigger.NOW))
+        assertTrue(calls > 0)
+        assertEquals(CloudProblem.NO_ACCESS, kid.cloudState.current().problem)
+        val after = calls
+        repeat(2) { assertEquals(CloudRun.UNAUTHORIZED, runner.run(CloudTrigger.NOW)) }
+        assertEquals(after, calls, "the dead token is not tried again")
+        assertEquals(CloudProblem.NO_ACCESS, kid.cloudState.current().problem)
+        // Dad's CloudAccess reaches the kid (Bluetooth): the new storage opens, the run goes to Dad's Disk.
+        kid.store().applyBatch(dad.store().entriesAfter(dad.keys.deviceId, 0, 10_000))
+        assertNotNull(CloudAccessView.current(kid.store(), membershipOf(kid), kid.cloudSecrets.ring(g).keys()))
+        assertEquals(CloudRun.SYNCED, kid.runner(disks::disk).run(CloudTrigger.NOW))
     }
 
     @Test

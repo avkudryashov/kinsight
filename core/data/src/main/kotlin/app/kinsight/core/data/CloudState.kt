@@ -33,7 +33,10 @@ enum class CloudProblem { UNAUTHORIZED, NO_ACCESS, STORAGE_FULL, NETWORK, RENEW_
  * last saw the storage owner's log grow, on its own clock (rulings Q14, for «Владелец недоступен»); [transfer]: the owner's
  * transfer invite this phone welcomed (spec §7.3), until the new phone's StorageOwner arrives and this phone leaves;
  * [olderAccessGeneration]: the newest older storage generation whose CloudAccess token this parent dealt with (taken for
- * the revoke or found in use), so a token once revoked is never taken from the log again.
+ * the revoke or found in use), so a token once revoked is never taken from the log again; [heartbeatPending]: a sync
+ * reached a new storage generation and its Heartbeat is not signed yet (rulings Q18), kept across a process death;
+ * [deadOldToken]: the child's kept older token got a 401 from the old Disk under this mark (see CloudRunner), so it is not
+ * tried again until the mark changes.
  */
 data class CloudState(
     val lastRunMs: Long? = null,
@@ -46,6 +49,7 @@ data class CloudState(
     val transfer: OwnerTransferRecord? = null,
     val olderAccessGeneration: Long? = null,
     val heartbeatPending: Boolean = false,
+    val deadOldToken: String? = null,
 ) {
     /** This device's time of the last sighting of the tracked owner (rulings Q14), or null when none is tracked. */
     val ownerHeardAtMs: Long? get() = ownerHeard?.heardAtMs
@@ -68,6 +72,7 @@ class CloudStateStore(private val store: DataStore<Preferences>) {
             transfer(p),
             p[OLDER_ACCESS],
             p[HEARTBEAT_PENDING] == true,
+            p[DEAD_OLD_TOKEN],
         )
     }
 
@@ -120,6 +125,11 @@ class CloudStateStore(private val store: DataStore<Preferences>) {
     /** The Heartbeat owed after a new storage generation was signed. */
     suspend fun heartbeatSigned() {
         store.edit { p -> p.remove(HEARTBEAT_PENDING) }
+    }
+
+    /** The kept older token was refused under [mark]. */
+    suspend fun markDeadOldToken(mark: String) {
+        store.edit { p -> p[DEAD_OLD_TOKEN] = mark }
     }
 
     /** Final review, Important 3: the CloudAccess token of storage [generation] was dealt with (CloudRunner). */
@@ -176,6 +186,7 @@ class CloudStateStore(private val store: DataStore<Preferences>) {
         private val TRANSFER_UNTIL = longPreferencesKey("transfer_until_ms")
         private val OLDER_ACCESS = longPreferencesKey("older_access_generation")
         private val HEARTBEAT_PENDING = booleanPreferencesKey("heartbeat_pending")
+        private val DEAD_OLD_TOKEN = stringPreferencesKey("dead_old_token")
 
         /** [file] must end with ".preferences_pb". */
         fun create(file: File, scope: CoroutineScope): CloudStateStore = CloudStateStore(

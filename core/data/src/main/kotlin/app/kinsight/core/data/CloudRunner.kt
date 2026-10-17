@@ -191,6 +191,10 @@ class CloudRunner(
             } else {
                 record(now, CloudRun.NO_ACCESS, CloudProblem.NO_ACCESS)
             }
+        // Parked Y3 minor: an older token the old Disk already refused is not tried again on every run (battery) until
+        // something changes: a new owner record, another kept token, or the new access opening here.
+        val oldMark = previous?.let { oldTokenMark(it.storageGeneration, owner.generation, owner.deviceId) }
+        if (oldMark != null && state.current().deadOldToken == oldMark) return record(now, CloudRun.UNAUTHORIZED, CloudProblem.NO_ACCESS)
         // The generation this run actually syncs with: the Heartbeat never claims a storage this phone has not reached.
         val syncedGeneration = if (access != null) owner.generation else previous!!.storageGeneration
         token = accessToken
@@ -225,7 +229,10 @@ class CloudRunner(
                     if (state.current().heartbeatPending && signHeartbeat()) state.heartbeatSigned()
                 }
             }
-            CloudResult.Unauthorized -> record(now, CloudRun.UNAUTHORIZED, if (isOwner) CloudProblem.UNAUTHORIZED else CloudProblem.NO_ACCESS)
+            CloudResult.Unauthorized -> {
+                if (oldMark != null) state.markDeadOldToken(oldMark)
+                record(now, CloudRun.UNAUTHORIZED, if (isOwner) CloudProblem.UNAUTHORIZED else CloudProblem.NO_ACCESS)
+            }
             is CloudResult.StorageFull -> record(now, CloudRun.STORAGE_FULL, CloudProblem.STORAGE_FULL)
             // Rare (every rotation is sealed to the owner): a new sign-in cannot fix a missing key, so the owner is not
             // asked for one; it waits like on a network problem (no message). Another device waits for the owner.
@@ -255,6 +262,9 @@ class CloudRunner(
         if (older.generation <= (state.current().olderAccessGeneration ?: 0L)) return
         if (secrets.retireOlderAccess(store, m, older, ring)) state.markOlderAccess(older.generation)
     }
+
+    /** What a 401 to the kept older token is remembered under (no token in it): its generation and the owner record in force. */
+    private fun oldTokenMark(heldGeneration: Long, ownerGeneration: Long, owner: DeviceId) = "$heldGeneration/$ownerGeneration/${owner.hex}"
 
     /** The handed token of an older storage generation of [groupId] still in the vault, or null. */
     private suspend fun olderHanded(groupId: GroupId, generation: Long) =
