@@ -11,6 +11,8 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -90,7 +92,7 @@ class DashboardScreenTest {
         rule.onNodeWithText("Mom, Dad", substring = true).assertExists()
         rule.onNodeWithTag("dash_parent_only").assertExists()
         rule.onNodeWithText("Only a parent can change sharing", substring = true).assertExists()
-        rule.onNodeWithTag("dash_pause").assertDoesNotExist()
+        assertNoPauseButton()
     }
 
     @Test
@@ -122,7 +124,7 @@ class DashboardScreenTest {
         rule.onNodeWithText("Last sync", substring = true).assertDoesNotExist()
         rule.onNodeWithTag("dash_sync_now").assertDoesNotExist()
         rule.onNodeWithTag("dash_banner").assertDoesNotExist()
-        rule.onNodeWithTag("dash_pause").assertDoesNotExist()
+        assertNoPauseButton()
         rule.onNodeWithTag("dash_consent").assertDoesNotExist()
     }
 
@@ -361,7 +363,7 @@ class DashboardScreenTest {
     fun pausedOffersResume() {
         var resumed = false
         show(childUi(Sharing.Paused(now - hour)), onResume = { resumed = true })
-        rule.onNodeWithTag("dash_pause").assertDoesNotExist()
+        assertNoPauseButton()
         rule.onNodeWithTag("dash_resume").performClick()
         rule.waitForIdle()
         assertTrue(resumed)
@@ -371,7 +373,7 @@ class DashboardScreenTest {
     fun neverSharedOffersConsent() {
         var consent = false
         show(childUi(Sharing.Never), onConsent = { consent = true })
-        rule.onNodeWithTag("dash_pause").assertDoesNotExist()
+        assertNoPauseButton()
         rule.onNodeWithTag("dash_consent").performClick()
         rule.waitForIdle()
         assertTrue(consent)
@@ -381,7 +383,7 @@ class DashboardScreenTest {
     fun leftChildHeaderSaysSo() {
         show(childUi(Sharing.Left))
         rule.onNodeWithText("You left the group", substring = true).assertExists()
-        rule.onNodeWithTag("dash_pause").assertDoesNotExist()
+        assertNoPauseButton()
         rule.onNodeWithTag("dash_consent").assertDoesNotExist()
     }
 
@@ -583,5 +585,13 @@ class DashboardScreenTest {
     fun aCurrentConsentShowsNoCard() {
         show(childUi(Sharing.On))
         rule.onNodeWithTag("dash_reconsent").assertDoesNotExist()
+    }
+
+    /**
+     * Y5 T8 parked minor: the pause button is gone with its tag, so a tag check could never fail. Nothing clickable on the
+     * screen speaks of pausing (spec §10: no switch on a child's phone).
+     */
+    private fun assertNoPauseButton() {
+        rule.onAllNodes(hasClickAction() and hasText("pause", substring = true, ignoreCase = true), useUnmergedTree = true).assertCountEquals(0)
     }
 }
