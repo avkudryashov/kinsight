@@ -190,6 +190,29 @@ class CloudSecrets(
     }
 
     /**
+     * The owner turned the cloud off for the family (CloudOff): the vault of [groupId] (owner's or handed) and its retired
+     * tokens go; the group key ring stays (it is the group's, and the packs left on the Disk are sealed with it). This
+     * phone's own tokens, an owner vault's access token and the retired ones, go to [revoke] first, each once (the caller
+     * makes it best effort); a handed token is the owner's to revoke. True when anything was held.
+     */
+    suspend fun forgetTokens(groupId: GroupId, revoke: suspend (String) -> Unit): Boolean {
+        val held = tokens()?.takeIf { it.groupHex == groupId.hex }
+        val retired = retired(groupId)
+        if (held == null && retired.isEmpty()) return false
+        val own = listOfNotNull(held?.takeIf { it.owner }?.accessToken) + retired.map { it.accessToken }
+        for (token in own.distinct()) revoke(token)
+        vaultLock.withLock { withContext(io) { if (tokens()?.groupHex == groupId.hex) vault.delete() } }
+        retiredLock.withLock {
+            withContext(io) {
+                val all = readRetired() ?: emptyList()
+                val others = all.filter { it.groupHex != groupId.hex }
+                if (others.isEmpty()) retiredFile.delete() else if (others.size != all.size) retiredFile.write(others)
+            }
+        }
+        return true
+    }
+
+    /**
      * The vault says this device owns the storage of [groupId], but the StorageOwner record names another device (two
      * parents turned the cloud on at once and the other one won, or a later hand-over): the owner role and the refresh
      * token go, so handed tokens are accepted again. The whole vault goes: its access token belongs to the owner role (a

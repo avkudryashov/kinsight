@@ -103,6 +103,16 @@ object CloudWork {
         wm.cancelUniqueWork(FOLLOW)
     }
 
+    /**
+     * The owner turned the cloud off for the family (CloudSignIn.turnOff, or this phone learned the off record over
+     * Bluetooth: CloudRunner.settleOff): the cloud work stops and the location engine refreshes (its gate needs the
+     * cloud, so a child's tracking stops).
+     */
+    fun turnedOff(context: Context) {
+        cancel(context)
+        LocationGraph.refresh(context)
+    }
+
     /** The follow-up run queues its successor behind itself; any other run leaves a waiting one alone. */
     fun followPolicy(fromFollow: Boolean): ExistingWorkPolicy =
         if (fromFollow) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.KEEP

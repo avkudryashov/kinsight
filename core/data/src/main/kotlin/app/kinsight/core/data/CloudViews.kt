@@ -7,6 +7,7 @@ import app.kinsight.core.transport.cloud.OwnerLifecycle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -54,6 +55,8 @@ data class CloudStatus(
      * access to the Disk first (that sign-in stores a refresh token).
      */
     val canTransfer: Boolean = false,
+    /** Off, because the storage owner turned the cloud off for the family (StorageOwner.off): the folder stays on its Disk. */
+    val turnedOff: Boolean = false,
 )
 
 object CloudViews {
@@ -72,7 +75,12 @@ object CloudViews {
         val me = r.membership.active[r.self] ?: return CloudStatus(available = available)
         val transfer = OwnerTransfers.phase(state.transfer, r.groupId, r.membership, nowMs)
         val owner = r.membership.storageOwner
-            ?: return CloudStatus(available = available, canEnable = available && me.isAdmin && !me.isChild, isChild = me.isChild)
+            ?: return CloudStatus(
+                available = available,
+                canEnable = available && me.isAdmin && !me.isChild,
+                isChild = me.isChild,
+                turnedOff = r.membership.storageOff != null,
+            )
         val selfIsOwner = owner.deviceId == r.self
         val m = r.membership
         val adminParent = me.isAdmin && !me.isChild
@@ -146,6 +154,12 @@ class CloudRepository(
     /** The address to open in the browser, or null when this device may not sign in now ([signInState] says why). */
     suspend fun startSignIn(mode: SignInMode = SignInMode.ENABLE): String? =
         signIn.start(prefs.current().deviceName ?: DEFAULT_DEVICE_NAME, mode)
+
+    /**
+     * «Выключить синхронизацию через Яндекс Диск»: the owner turns the cloud off for the family (CloudSignIn.turnOff). On
+     * the app scope, like a finish: leaving the screen must not cut it between the signed record and the revoke.
+     */
+    suspend fun turnOff(): CloudOffResult = scope.async { signIn.turnOff() }.await()
 
     /** Spec §7.1: the owner asks [to] to take the storage. */
     suspend fun requestHandover(to: DeviceId): Boolean = signIn.requestHandover(to)

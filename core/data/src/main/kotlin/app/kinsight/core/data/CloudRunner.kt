@@ -137,6 +137,8 @@ class CloudRunner(
         val store = RoomEntryStore(db, group.groupId)
         var membership = Membership.compute(group.groupId, store.membershipEntries()) ?: return CloudRun.OFF
         val me = membership.active[self] ?: return CloudRun.OFF
+        // The owner turned the cloud off for the family: this phone lets go of its tokens (its first run after the off).
+        if (CloudOff.inForce(membership)) CloudOff.settle(group.groupId, secrets, state, config, oauth)
         val owner = membership.storageOwner ?: return CloudRun.OFF
         val consent = settings.current()
         if (me.isChild && (consent.consentAtMs == null || consent.consentOutdated)) {
@@ -417,6 +419,20 @@ class CloudRunner(
         observeOwner(store, membership, clock())
     }
 
+    /**
+     * After a Bluetooth session (the app's session hook): when the owner has turned the cloud off for the family
+     * (StorageOwner.off in force), this phone drops its cloud tokens now (CloudOff.settle) and the caller stops the cloud
+     * work and refreshes the location engine. True while the off record is in force. Under [runLock] (never called while
+     * holding it): a run in flight ends first, and a wipe's cleared group leaves nothing to do.
+     */
+    suspend fun settleOff(): Boolean = runLock.withLock {
+        val group = withContext(io) { groups.read() } ?: return@withLock false
+        val m = Membership.compute(group.groupId, RoomEntryStore(db, group.groupId).membershipEntries()) ?: return@withLock false
+        if (!CloudOff.inForce(m)) return@withLock false
+        CloudOff.settle(group.groupId, secrets, state, config, oauth)
+        true
+    }
+
     private suspend fun observeOwner(store: RoomEntryStore, membership: MembershipState, nowMs: Long) {
         val owner = membership.storageOwner ?: return
         state.observeOwner(owner.deviceId, store.versionVector()[owner.deviceId], nowMs)
@@ -428,7 +444,7 @@ class CloudRunner(
         val self = keys().deviceId
         val store = RoomEntryStore(db, group.groupId)
         val m = Membership.compute(group.groupId, store.membershipEntries()) ?: return "cloud=off membership=none"
-        val owner = m.storageOwner ?: return "cloud=off"
+        val owner = m.storageOwner ?: return m.storageOff?.let { "cloud=off turnedOffBy=${it.deviceId.hex.take(8)} generation=${it.generation}" } ?: "cloud=off"
         val ring = secrets.ring(group)
         val access = secrets.access(store, m, self, ring)
         val s = state.current()

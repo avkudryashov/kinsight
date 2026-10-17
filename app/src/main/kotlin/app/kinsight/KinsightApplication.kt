@@ -67,7 +67,11 @@ open class KinsightApplication : Application() {
             LocationGraph.refresh(it) // a session may have brought new zones
             // Rulings Q14: the session may have brought the storage owner's new entries.
             val graph = AppGraph.get(it)
-            graph.scope.launch { attempt("owner heard") { graph.cloud.noteOwnerHeard() } }
+            graph.scope.launch {
+                // The session may have brought the owner's «выключить»: this phone lets go of its tokens and stops.
+                attempt("cloud off") { if (graph.cloud.settleOff()) CloudWork.turnedOff(it) }
+                attempt("owner heard") { graph.cloud.noteOwnerHeard() }
+            }
         }
         SyncGraph.onboardingDone = { AppGraph.get(it).prefs.current().onboardingDone }
         UsageAccessWatcher.register(this)

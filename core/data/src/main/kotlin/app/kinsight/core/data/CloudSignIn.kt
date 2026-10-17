@@ -12,6 +12,7 @@ import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.StorageOwnerState
 import app.kinsight.core.model.grantAdminEntry
 import app.kinsight.core.model.storageHandoverEntry
+import app.kinsight.core.model.storageOffEntry
 import app.kinsight.core.sync.CLOUD_PROTOCOL_VERSION
 import app.kinsight.core.transport.ble.GroupConfig
 import app.kinsight.core.transport.ble.GroupStore
@@ -106,6 +107,8 @@ class CloudSignIn(
     private val disk: (accessToken: suspend () -> String) -> DiskApi,
     private val oauth: (CloudConfig) -> YandexOAuth = { YandexOAuth(it.clientId, it.clientSecret) },
     private val onEnabled: () -> Unit = {},
+    /** After the owner turned the cloud off ([turnOff]): the app stops the cloud work and refreshes the location engine. */
+    private val onTurnedOff: () -> Unit = {},
     private val clock: () -> Long = System::currentTimeMillis,
     private val random: SecureRandom = SecureRandom(),
     private val io: CoroutineDispatcher = Dispatchers.IO,
@@ -358,21 +361,27 @@ class CloudSignIn(
         }
         if (oldAppInGroup(store, m, self)) return CloudEnableResult.OLD_APP_IN_GROUP
         m = rotatedIfNeeded(store, k, m, ring) ?: return CloudEnableResult.NOT_ADMIN
-        val storageId = Primitives.randomBytes(16, random)
+        // Turned on before and off by its owner since (StorageOwner.off): the new op goes above the off record.
+        val generation = m.storageGeneration + 1
         val d = disk { t.accessToken }
-        try {
-            for (dir in listOf(CloudPaths.APP_ROOT, CloudPaths.root(group.groupId))) d.mkdir(dir)
-            d.upload(CloudPaths.storageIdFile(group.groupId), storageId)
+        val storageId = try {
+            // The family folder the off left on this Disk (the same Yandex account): its storage.id stays, as a role change
+            // on the same Disk keeps it (spec §7.3, rulings Q5), and the packs there go on. Any other Disk gets a fresh id.
+            val off = m.storageOff?.storageId?.toByteArray()
+            off?.takeIf { StorageMove.storageIdOf(d, group.groupId)?.contentEquals(it) == true } ?: Primitives.randomBytes(16, random).also { id ->
+                for (dir in listOf(CloudPaths.APP_ROOT, CloudPaths.root(group.groupId))) d.mkdir(dir)
+                d.upload(CloudPaths.storageIdFile(group.groupId), id)
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: IOException) {
             return diskFailure(e)
         }
         // Rulings Q3, Q15: the op names a fresh token id and every departure this phone knows of.
-        if (OwnerRecords.claim(appendOwn, store, k, ring, storageId, 1, t.accessToken, t.expiresAtMs) == null) return CloudEnableResult.NOT_ADMIN
+        if (OwnerRecords.claim(appendOwn, store, k, ring, storageId, generation, t.accessToken, t.expiresAtMs) == null) return CloudEnableResult.NOT_ADMIN
         // After the signed StorageOwner, so the vault never claims a storage no record names. Should this write fail, the
         // owner without tokens is asked to sign in again (spec §11), which restores them for this same storage.
-        secrets.saveOwner(group.groupId, 1, storageId, t)
+        secrets.saveOwner(group.groupId, generation, storageId, t)
         return CloudEnableResult.ENABLED
     }
 
@@ -515,6 +524,34 @@ class CloudSignIn(
         if (owner.deviceId != self || self !in m.active || to == self || target.isChild) return false
         // Each create takes the next seq: the grant is created only when it is signed.
         return appendOwn { a -> listOfNotNull(if (target.isAdmin) null else a.grantAdminEntry(to), a.storageHandoverEntry(to, owner.generation)) }
+    }
+
+    /**
+     * «Выключить синхронизацию через Яндекс Диск»: the storage owner turns the cloud off for the whole family. It signs
+     * StorageOwner(generation + 1, off) naming itself and its storage, then lets go of its tokens: the access token (and
+     * any retired one) is revoked at Yandex, best effort, and the vault goes (CloudOff.settle). Every other phone does the
+     * same once it learns the record, over Bluetooth or at its next cloud run. The family folder stays on the Disk. Under
+     * the cloud run lock, like [enable]: a run in flight ends first. [onTurnedOff] follows (the app stops the cloud work).
+     */
+    suspend fun turnOff(): CloudOffResult {
+        val result = secrets.runLock.withLock { turnOffLocked() }
+        if (result == CloudOffResult.OFF) onTurnedOff()
+        return result
+    }
+
+    private suspend fun turnOffLocked(): CloudOffResult {
+        val group = withContext(io) { groups.read() } ?: return CloudOffResult.NOT_OWNER
+        val k = keys()
+        val store = RoomEntryStore(db, group.groupId)
+        val m = Membership.compute(group.groupId, store.membershipEntries()) ?: return CloudOffResult.NOT_OWNER
+        val owner = m.storageOwner ?: return CloudOffResult.NOT_OWNER
+        val me = m.active[k.deviceId]
+        if (owner.deviceId != k.deviceId || me == null || !me.isAdmin || me.isChild) return CloudOffResult.NOT_OWNER
+        if (!appendOwn { a -> listOf(a.storageOffEntry(owner.storageId.toByteArray(), owner.generation + 1)) }) return CloudOffResult.FAILED
+        val after = Membership.compute(group.groupId, store.membershipEntries())
+        if (after == null || !CloudOff.inForce(after)) return CloudOffResult.FAILED
+        CloudOff.settle(group.groupId, secrets, cloudState, config, oauth)
+        return CloudOffResult.OFF
     }
 
     /** A member whose newest Heartbeat says protocol below 3 could not take the cloud entries. No Heartbeat: no refusal. */

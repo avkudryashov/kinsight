@@ -165,6 +165,8 @@ class Graph internal constructor(app: Context) {
         config = { CloudGraph.config },
         disk = CloudGraph::disk,
         onEnabled = { CloudWork.runSoon(app) },
+        // The owner turned the cloud off for the family: no more cloud work, and the child's tracking gate closes.
+        onTurnedOff = { CloudWork.turnedOff(app) },
     )
     val cloudRepository = CloudRepository(snapshots, cloudState, cloudSignIn, prefs, config = { CloudGraph.config }, scope = scope, secrets = cloudSecrets)
 

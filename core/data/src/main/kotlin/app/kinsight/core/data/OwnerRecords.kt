@@ -61,7 +61,8 @@ internal object OwnerRecords {
         val entries = store.membershipEntries()
         val m = Membership.compute(store.groupId, entries) ?: return null
         val me = m.active[keys.deviceId]
-        if (me == null || !me.isAdmin || me.isChild || generation <= (m.storageOwner?.generation ?: 0L)) return null
+        // Above an owner's off record too (StorageOwner.off): turning the cloud on again signs above it.
+        if (me == null || !me.isAdmin || me.isChild || generation <= m.storageGeneration) return null
         val (epoch, key) = writeKey(keys, m, ring)
         val id = tokenId ?: Primitives.randomBytes(TOKEN_ID_BYTES)
         // Rulings Q16: over 256 lifetime departures the rest stay "exposed" (one renewal prompt per check), out of scope.
