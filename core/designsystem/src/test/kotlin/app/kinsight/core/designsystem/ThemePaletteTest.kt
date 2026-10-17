@@ -80,4 +80,20 @@ class ThemePaletteTest {
         assertEquals(Color(0xFF7B5EE6), ChildCardGradient.last(), "#8A6CF0 lightened white text to 3.83:1")
         ChildCardGradient.forEach { assertTrue(contrastRatio(OnChildCard, it) >= 4.5, "white on $it") }
     }
+
+    @Test
+    fun snackbarsUseThePaletteAndKeepContrast() {
+        assertEquals(Color(0xFF2F3256), LightColors.inverseSurface)
+        assertEquals(Color(0xFFF3F0F9), LightColors.inverseOnSurface)
+        assertEquals(DarkColors.primary, LightColors.inversePrimary)
+        assertEquals(Color(0xFFE9E6F5), DarkColors.inverseSurface)
+        assertEquals(Color(0xFF17151F), DarkColors.inverseOnSurface)
+        assertEquals(LightColors.primary, DarkColors.inversePrimary)
+        assertEquals(Color.Black, LightColors.scrim)
+        assertEquals(Color.Black, DarkColors.scrim)
+        for ((theme, scheme) in listOf("light" to LightColors, "dark" to DarkColors)) {
+            val ratio = contrastRatio(scheme.inverseOnSurface, scheme.inverseSurface)
+            assertTrue(ratio >= 4.5, "$theme inverseOnSurface/inverseSurface: $ratio")
+        }
+    }
 }

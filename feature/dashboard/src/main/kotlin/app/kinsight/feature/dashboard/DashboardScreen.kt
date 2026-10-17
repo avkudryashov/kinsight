@@ -1,5 +1,7 @@
 package app.kinsight.feature.dashboard
 
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Home
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -159,7 +161,7 @@ fun DashboardScreen(
             if (!ui.loaded) {
                 CircularProgressIndicator()
             } else {
-                EmptyState(stringResource(R.string.dash_no_group_title), stringResource(R.string.dash_no_group_body))
+                EmptyState(stringResource(R.string.dash_no_group_title), stringResource(R.string.dash_no_group_body), icon = Icons.Filled.Home)
             }
         }
         return
@@ -226,7 +228,7 @@ fun DashboardScreen(
                 }
             } else if (d.children.isEmpty()) {
                 item {
-                    EmptyState(stringResource(R.string.dash_empty_title), stringResource(R.string.dash_empty_body)) {
+                    EmptyState(stringResource(R.string.dash_empty_title), stringResource(R.string.dash_empty_body), icon = Icons.Filled.Person) {
                         Button(onInviteChild, Modifier.testTag("dash_invite_child")) { Text(stringResource(R.string.dash_invite_child)) }
                     }
                 }

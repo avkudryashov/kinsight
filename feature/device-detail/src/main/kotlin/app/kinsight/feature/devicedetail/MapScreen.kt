@@ -1,5 +1,7 @@
 package app.kinsight.feature.devicedetail
 
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.Icons
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.text.format.DateUtils
@@ -101,7 +103,7 @@ fun MapScreen(state: MapState, nowMs: Long, selectedId: String? = null, onSelect
             Text(stringResource(R.string.map_title), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
         }
         if (child == null) {
-            item(key = "empty") { EmptyState(stringResource(R.string.map_no_children_title), stringResource(R.string.map_no_children_body)) }
+            item(key = "empty") { EmptyState(stringResource(R.string.map_no_children_title), stringResource(R.string.map_no_children_body), icon = Icons.Filled.LocationOn) }
             return@LazyColumn
         }
         items(state.children, key = { "status:${it.member.id.hex}" }) { c ->

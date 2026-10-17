@@ -28,6 +28,8 @@ internal val LightColors = lightColorScheme(
     surfaceBright = White, surfaceDim = Color(0xFFE4E0EE),
     surfaceContainerLowest = White, surfaceContainerLow = White, surfaceContainer = White,
     surfaceContainerHigh = White, surfaceContainerHighest = White,
+    inverseSurface = Color(0xFF2F3256), inverseOnSurface = Color(0xFFF3F0F9), inversePrimary = Color(0xFFA28BF5),
+    scrim = Color.Black,
 )
 
 /** The same palette on a dark background (UI refresh §1): cards one step lighter, a lighter accent. */
@@ -48,6 +50,8 @@ internal val DarkColors = darkColorScheme(
     surfaceBright = Color(0xFF2E2A3D), surfaceDim = Color(0xFF17151F),
     surfaceContainerLowest = Color(0xFF1C1A26), surfaceContainerLow = Color(0xFF221F2E), surfaceContainer = Color(0xFF221F2E),
     surfaceContainerHigh = Color(0xFF221F2E), surfaceContainerHighest = Color(0xFF221F2E),
+    inverseSurface = Color(0xFFE9E6F5), inverseOnSurface = Color(0xFF17151F), inversePrimary = Color(0xFF6A4FD8),
+    scrim = Color.Black,
 )
 
 /**
