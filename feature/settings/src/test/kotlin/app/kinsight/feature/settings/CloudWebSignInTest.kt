@@ -66,8 +66,8 @@ class CloudWebSignInTest {
     private fun show(state: MutableState<SettingsUi> = ui) = rule.setContent {
         KinsightTheme() {
             SettingsScreen(
-                state.value, "0.4.0", onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {},
-                onRetention = { _, _ -> }, onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {},
+                state.value, onSharing = {}, onConsent = {}, onStopSync = {}, onStartSync = {},
+                onRetention = { _, _ -> }, onBattery = {}, onDiagnostics = {},
                 onResetIdentity = {}, nowMs = 2L,
                 onCloudCode = {
                     codes += it

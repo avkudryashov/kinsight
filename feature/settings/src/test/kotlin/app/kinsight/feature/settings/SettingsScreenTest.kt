@@ -80,8 +80,6 @@ class SettingsScreenTest {
         onReset: () -> Unit = {},
         onConsent: () -> Unit = {},
         onRetention: (Int, Int) -> Unit = { _, _ -> },
-        onPrivacyPolicy: () -> Unit = {},
-        onTransparency: () -> Unit = {},
         nowMs: Long = NOW,
         onCloudSignIn: () -> Unit = {},
         onCloudCode: (String) -> Unit = {},
@@ -92,28 +90,18 @@ class SettingsScreenTest {
         onCloudTurnOff: () -> Unit = {},
         onUnlock: (String) -> Unit = {},
         onLock: () -> Unit = {},
-        onSetPin: (String) -> Unit = {},
     ) = rule.setContent {
         KinsightTheme() {
             SettingsScreen(
-                ui, "0.4.0", onSharing = onSharing, onConsent = onConsent, onTransparency = onTransparency,
+                ui, onSharing = onSharing, onConsent = onConsent,
                 onStopSync = { calls += "stop" }, onStartSync = { calls += "start" },
-                onRetention = onRetention, onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {},
-                onResetIdentity = onReset, onSyncNow = { calls += "syncNow" }, onPrivacyPolicy = onPrivacyPolicy, nowMs = nowMs,
+                onRetention = onRetention, onBattery = {}, onDiagnostics = {},
+                onResetIdentity = onReset, onSyncNow = { calls += "syncNow" }, nowMs = nowMs,
                 onCloudSignIn = onCloudSignIn, onCloudCode = onCloudCode, onCloudDismiss = onCloudDismiss,
                 onCloudTakeOver = onCloudTakeOver, onCloudHandover = onCloudHandover, onNewPhone = onNewPhone,
-                onCloudTurnOff = onCloudTurnOff, onUnlock = onUnlock, onLock = onLock, onSetPin = onSetPin,
+                onCloudTurnOff = onCloudTurnOff, onUnlock = onUnlock, onLock = onLock,
             )
         }
-    }
-
-    @Test
-    fun thePrivacyPolicyRowOpensThePolicy() {
-        var opened = false
-        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), Prefs(), running), onPrivacyPolicy = { opened = true })
-        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_privacy"))
-        rule.onNodeWithTag("set_privacy").assertTextEquals("Privacy policy").performClick()
-        assertTrue(opened)
     }
 
     // The sync section is the first section: its nodes exist without scrolling the list.
@@ -183,11 +171,10 @@ class SettingsScreenTest {
     }
 
     @Test
-    fun parentSeesSummariesAndNoShareSwitch() {
+    fun parentSeesNoShareSwitch() {
         show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running))
         rule.onNodeWithTag("set_share").assertDoesNotExist()
         rule.onNodeWithText("is not shared", substring = true).assertExists()
-        rule.onNodeWithTag("set_list").performScrollToNode(hasText("Daily"))
     }
 
     @Test
@@ -345,46 +332,6 @@ class SettingsScreenTest {
     fun aPausedChildSeesTheUsageAccessRow() {
         show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), Prefs(), running.copy(usageAccessGranted = false), ownSharing = Sharing.Paused(1)))
         rule.onNodeWithTag("set_usage_access").assertExists()
-    }
-
-    private fun showScaled(fontScale: Float, onSummaryMode: (SummaryMode) -> Unit) = rule.setContent {
-        val d = LocalDensity.current
-        CompositionLocalProvider(LocalDensity provides Density(d.density, fontScale)) {
-            KinsightTheme() {
-                SettingsScreen(
-                    SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running), "0.4.0",
-                    onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
-                    onSummaryMode = onSummaryMode, onNoContactHours = {}, onBattery = {}, onDiagnostics = {}, onResetIdentity = {}, nowMs = NOW,
-                )
-            }
-        }
-    }
-
-    @Test
-    fun largeFontsTurnTheChoicesIntoAVerticalList() {
-        var picked: SummaryMode? = null
-        showScaled(2f) { picked = it }
-        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_mode_weekly"))
-        rule.onNodeWithTag("set_mode_list").assertExists()
-        rule.onNodeWithTag("set_mode_weekly").performClick()
-        assertEquals(SummaryMode.WEEKLY, picked)
-    }
-
-    @Test
-    fun normalFontsKeepTheSegmentedRow() {
-        showScaled(1f) {}
-        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_mode_weekly"))
-        rule.onNodeWithTag("set_mode_list").assertDoesNotExist()
-    }
-
-    @Test
-    fun theTransparencyRowIsTheButton() {
-        var opened = 0
-        show(SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1), Prefs(), running), onTransparency = { opened++ })
-        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_transparency"))
-        rule.onNodeWithTag("set_transparency").performClick()
-        assertEquals(1, opened)
-        rule.onNodeWithText("Open").assertDoesNotExist() // no separate button under the row any more
     }
 
     @Test
@@ -581,8 +528,8 @@ class SettingsScreenTest {
         rule.setContent {
             KinsightTheme() {
                 SettingsScreen(
-                    ui, "0.4.0", onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {},
-                    onRetention = { _, _ -> }, onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {},
+                    ui, onSharing = {}, onConsent = {}, onStopSync = {}, onStartSync = {},
+                    onRetention = { _, _ -> }, onBattery = {}, onDiagnostics = {},
                     onResetIdentity = {}, nowMs = NOW, onCloudCode = { codes += it },
                 )
             }
@@ -876,8 +823,8 @@ class SettingsScreenTest {
             KinsightTheme() {
                 val ui = ownerUi().let { it.copy(cloud = it.cloud.copy(ownerTransfer = transfer)) }
                 SettingsScreen(
-                    ui, "0.4.0", onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {},
-                    onRetention = { _, _ -> }, onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {},
+                    ui, onSharing = {}, onConsent = {}, onStopSync = {}, onStartSync = {},
+                    onRetention = { _, _ -> }, onBattery = {}, onDiagnostics = {},
                     onResetIdentity = {}, nowMs = NOW,
                 )
             }
@@ -917,8 +864,8 @@ class SettingsScreenTest {
         KinsightTheme() {
             SettingsScreen(
                 SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1L), Prefs(), running),
-                "0.4.0", onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
-                onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {}, onResetIdentity = {}, nowMs = NOW,
+                onSharing = {}, onConsent = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
+                onBattery = {}, onDiagnostics = {}, onResetIdentity = {}, nowMs = NOW,
                 location = state, onLocationAccess = { asked += it },
             )
         }
@@ -932,8 +879,8 @@ class SettingsScreenTest {
             KinsightTheme() {
                 SettingsScreen(
                     SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1L), Prefs(), running),
-                    "0.4.0", onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
-                    onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {}, onResetIdentity = {}, nowMs = NOW,
+                    onSharing = {}, onConsent = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
+                    onBattery = {}, onDiagnostics = {}, onResetIdentity = {}, nowMs = NOW,
                     location = LocationPermissions.State.COARSE_ONLY, onLocationAccess = { asked += it },
                 )
             }
@@ -953,8 +900,8 @@ class SettingsScreenTest {
             KinsightTheme() {
                 SettingsScreen(
                     SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1L), Prefs(), running),
-                    "0.4.0", onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
-                    onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {}, onResetIdentity = {}, nowMs = NOW,
+                    onSharing = {}, onConsent = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
+                    onBattery = {}, onDiagnostics = {}, onResetIdentity = {}, nowMs = NOW,
                     location = state, onLocationAccess = { asked += it },
                 )
             }
@@ -979,8 +926,8 @@ class SettingsScreenTest {
             KinsightTheme() {
                 SettingsScreen(
                     SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1L), Prefs(), running),
-                    "0.4.0", onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
-                    onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {}, onResetIdentity = {}, nowMs = NOW,
+                    onSharing = {}, onConsent = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
+                    onBattery = {}, onDiagnostics = {}, onResetIdentity = {}, nowMs = NOW,
                     location = LocationPermissions.State.NONE, locationBlocked = true, onLocationSettings = { opened++ },
                 )
             }
@@ -1026,8 +973,8 @@ class SettingsScreenTest {
             KinsightTheme() {
                 SettingsScreen(
                     SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1L), Prefs(), running),
-                    "0.4.0", onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
-                    onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {}, onResetIdentity = {}, nowMs = NOW,
+                    onSharing = {}, onConsent = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
+                    onBattery = {}, onDiagnostics = {}, onResetIdentity = {}, nowMs = NOW,
                     location = LocationPermissions.State.ALWAYS, onZones = { opened++ },
                 )
             }
@@ -1097,40 +1044,6 @@ class SettingsScreenTest {
         rule.onNodeWithTag("set_parent_unlock").assertIsNotEnabled()
     }
 
-    @Test
-    fun anAdminParentSetsThePinTypedTwice() {
-        val set = mutableListOf<String>()
-        show(
-            SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running, lock = LockUi(ChildLockStatus(canSetPin = true))),
-            onSetPin = { set += it },
-        )
-        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_pin_set"))
-        rule.onNodeWithText("No PIN yet", substring = true).assertExists()
-        rule.onNodeWithTag("set_pin_set").performClick()
-        rule.onNodeWithTag("set_pin_new").performTextInput("2468")
-        rule.onNodeWithTag("set_pin_repeat").performTextInput("2469")
-        rule.onNodeWithTag("set_pin_save").assertIsNotEnabled()
-        rule.onNodeWithTag("set_pin_repeat").performTextClearance()
-        rule.onNodeWithTag("set_pin_repeat").performTextInput("2468")
-        rule.onNodeWithTag("set_pin_save").assertIsEnabled().performClick()
-        assertEquals(listOf("2468"), set)
-    }
-
-    @Test
-    fun aParentWhoIsNotAnAdminHasNoPinSection() {
-        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running))
-        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_reset"))
-        rule.onNodeWithTag("set_pin_set").assertDoesNotExist()
-    }
-
-    /** Rulings P6: a PIN that could not be saved is said, in red, under the button. */
-    @Test
-    fun aPinThatCouldNotBeSavedIsSaid() {
-        val lock = LockUi(ChildLockStatus(canSetPin = true), pinSaved = PinSave.FAILED)
-        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running, lock = lock))
-        rule.onNodeWithTag("set_list").performScrollToNode(hasText("Could not save the PIN."))
-    }
-
     /** Ruling (fix round 1): while the group loads this phone may be a child's, so Settings stay locked. */
     @Test
     fun whileTheGroupLoadsNothingCanBeChanged() {
@@ -1138,7 +1051,7 @@ class SettingsScreenTest {
         rule.onNodeWithTag("set_sync_now").assertExists()
         rule.onNodeWithTag("set_stop").assertDoesNotExist()
         rule.onNodeWithTag("set_share").assertDoesNotExist()
-        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_privacy"))
+        rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_battery"))
         rule.onNodeWithTag("set_reset").assertDoesNotExist()
         rule.onNodeWithTag("set_detail_30").assertDoesNotExist()
         rule.onNodeWithTag("set_advanced").assertDoesNotExist()
@@ -1153,8 +1066,8 @@ class SettingsScreenTest {
         rule.setContent {
             KinsightTheme() {
                 SettingsScreen(
-                    ui, "0.4.0", onSharing = { shared = it }, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {},
-                    onRetention = { _, _ -> }, onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {},
+                    ui, onSharing = { shared = it }, onConsent = {}, onStopSync = {}, onStartSync = {},
+                    onRetention = { _, _ -> }, onBattery = {}, onDiagnostics = {},
                     onResetIdentity = {}, nowMs = NOW,
                 )
             }

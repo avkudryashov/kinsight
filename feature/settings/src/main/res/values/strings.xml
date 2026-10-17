@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="set_title">Settings</string>
+    <string name="set_title">Sync and this phone</string>
     <string name="set_role_child">Child\'s phone</string>
     <string name="set_role_parent">Parent\'s phone</string>
     <string name="set_admin">admin</string>
@@ -172,12 +172,26 @@
     <string name="set_pin_section">PIN for children\'s phones</string>
     <string name="set_pin_none">No PIN yet: settings on a child\'s phone cannot be changed there.</string>
     <string name="set_pin_set_body">A child\'s phone asks for this PIN before its settings can be changed. A new PIN reaches the children\'s phones at their next sync.</string>
-    <string name="set_pin_set">Set PIN</string>
-    <string name="set_pin_change">Change PIN</string>
     <string name="set_pin_new">New PIN, 4 to 8 digits</string>
     <string name="set_pin_repeat">Repeat the PIN</string>
     <string name="set_pin_save">Save</string>
     <string name="set_pin_saved">PIN saved.</string>
     <string name="set_pin_failed">Could not save the PIN.</string>
     <string name="set_pin_check_failed">Could not check the PIN. Try again.</string>
+    <string name="more_title">More</string>
+    <string name="more_family">Family</string>
+    <string name="more_family_body">Parents and children of your group</string>
+    <string name="more_limits">Limits and notifications</string>
+    <string name="more_limits_body">Daily limits, summaries, no contact</string>
+    <string name="more_sync">Sync</string>
+    <string name="more_sync_ok">All good</string>
+    <string name="more_pin">Parent PIN</string>
+    <string name="more_about">About the app</string>
+    <string name="more_setup">Setup is not finished</string>
+    <string name="more_setup_usage">usage access</string>
+    <string name="more_setup_location">location</string>
+    <string name="more_setup_background">location in the background</string>
+    <string name="more_setup_battery">background work</string>
+    <string name="lim_children">Limits</string>
+    <string name="lim_no_children">No children yet</string>
 </resources>

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="set_title">Настройки</string>
+    <string name="set_title">Синхронизация и телефон</string>
     <string name="set_role_child">Телефон ребёнка</string>
     <string name="set_role_parent">Телефон родителя</string>
     <string name="set_admin">администратор</string>
@@ -176,12 +176,26 @@
     <string name="set_pin_section">PIN для телефонов детей</string>
     <string name="set_pin_none">PIN не задан: на телефоне ребёнка его настройки изменить нельзя.</string>
     <string name="set_pin_set_body">Телефон ребёнка спрашивает этот PIN, прежде чем дать изменить свои настройки. Новый PIN дойдёт до телефонов детей при следующей синхронизации.</string>
-    <string name="set_pin_set">Задать PIN</string>
-    <string name="set_pin_change">Сменить PIN</string>
     <string name="set_pin_new">Новый PIN, от 4 до 8 цифр</string>
     <string name="set_pin_repeat">Повторите PIN</string>
     <string name="set_pin_save">Сохранить</string>
     <string name="set_pin_saved">PIN сохранён.</string>
     <string name="set_pin_failed">Не удалось сохранить PIN.</string>
     <string name="set_pin_check_failed">Не удалось проверить PIN. Попробуйте ещё раз.</string>
+    <string name="more_title">Ещё</string>
+    <string name="more_family">Семья</string>
+    <string name="more_family_body">Родители и дети вашей группы</string>
+    <string name="more_limits">Лимиты и уведомления</string>
+    <string name="more_limits_body">Лимиты, сводки и «нет связи»</string>
+    <string name="more_sync">Синхронизация</string>
+    <string name="more_sync_ok">В порядке</string>
+    <string name="more_pin">PIN родителей</string>
+    <string name="more_about">О приложении</string>
+    <string name="more_setup">Настройка не завершена</string>
+    <string name="more_setup_usage">доступ к статистике</string>
+    <string name="more_setup_location">геолокация</string>
+    <string name="more_setup_background">геолокация в фоне</string>
+    <string name="more_setup_battery">работа в фоне</string>
+    <string name="lim_children">Лимиты</string>
+    <string name="lim_no_children">Детей пока нет</string>
 </resources>

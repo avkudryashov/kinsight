@@ -256,9 +256,7 @@ private fun MainScaffold(appVersion: String, openDevice: StateFlow<String?>, onD
                 }
                 composable<SettingsDest> {
                     SettingsRoute(
-                        appVersion = appVersion,
                         onConsent = { nav.navigate(ConsentDest) },
-                        onTransparency = { nav.navigate(TransparencyDest) },
                         onBattery = { nav.navigate(BatteryDest) },
                         onDiagnostics = { context.startActivity(Intent(context, DiagnosticsActivity::class.java)) },
                         onNewPhone = { nav.openTransferInvite() }, // spec §7.3

@@ -22,8 +22,8 @@ private val RUNNING = ServiceStatus(ServiceState.RUNNING, false, NOW - 300_000, 
 @Composable
 private fun Frame(ui: SettingsUi) = PreviewTheme {
     SettingsScreen(
-        ui, "0.8.0", onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
-        onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {}, onResetIdentity = {}, nowMs = NOW,
+        ui, onSharing = {}, onConsent = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
+        onBattery = {}, onDiagnostics = {}, onResetIdentity = {}, nowMs = NOW,
     )
 }
 

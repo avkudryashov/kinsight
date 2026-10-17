@@ -3,8 +3,6 @@ package app.kinsight.feature.settings
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import android.os.Build
-import android.provider.Settings
 import android.util.Log
 import android.webkit.WebView
 import androidx.activity.compose.LocalActivity
@@ -70,16 +68,12 @@ import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.GroupState
-import app.kinsight.core.data.PinSave
 import app.kinsight.core.data.Role
 import app.kinsight.core.data.ServiceStatus
 import app.kinsight.core.data.SignInState
-import app.kinsight.core.data.SummaryMode
 import app.kinsight.core.data.UsageReadModel
-import app.kinsight.core.designsystem.openPrivacyPolicy
 import app.kinsight.core.location.LocationGraph
 import app.kinsight.core.location.LocationPermissions
 import app.kinsight.core.designsystem.component.dialogTestTags
@@ -94,19 +88,14 @@ import kotlinx.coroutines.delay
 
 @Composable
 fun SettingsRoute(
-    appVersion: String,
     onConsent: () -> Unit,
-    onTransparency: () -> Unit,
     onBattery: () -> Unit,
     onDiagnostics: () -> Unit,
     onNewPhone: () -> Unit = {},
     onZones: () -> Unit = {},
 ) {
     val context = LocalContext.current
-    val vm: SettingsViewModel = viewModel {
-        val g = AppGraph.get(context)
-        SettingsViewModel(g.group, g.settingsRepository, g.service, g.reset, g.usage, g.cloudRepository, g.childLock)
-    }
+    val vm = settingsViewModel()
     val ui by vm.ui.collectAsStateWithLifecycle()
     var locationState by remember { mutableStateOf(LocationPermissions.state(context)) }
     // Y4 parked minor: a request that changed nothing (Android no longer shows the dialog once it was refused for good)
@@ -152,9 +141,9 @@ fun SettingsRoute(
         }
     }
     SettingsScreen(
-        ui, appVersion, vm::setSharing, onConsent, onTransparency, vm::stopSync, vm::startSync, vm::setRetention,
-        vm::setSummaryMode, vm::setNoContactHours, onBattery, onDiagnostics, vm::resetIdentity, vm::dismissError,
-        onSyncNow = vm::syncNow, onPrivacyPolicy = { openPrivacyPolicy(context) }, nowMs = now,
+        ui, vm::setSharing, onConsent, vm::stopSync, vm::startSync, vm::setRetention,
+        onBattery, onDiagnostics, vm::resetIdentity, vm::dismissError,
+        onSyncNow = vm::syncNow, nowMs = now,
         onCloudSignIn = { vm.startCloudSignIn(open = openSignIn) },
         onCloudCode = vm::finishCloudSignIn,
         onCloudDismiss = vm::dismissCloudSignIn,
@@ -179,7 +168,6 @@ fun SettingsRoute(
         onZones = onZones,
         onUnlock = vm::unlock,
         onLock = vm::lock,
-        onSetPin = vm::setPin,
     )
 }
 
@@ -210,21 +198,16 @@ internal fun appSettings(packageName: String): Intent =
 @Composable
 fun SettingsScreen(
     ui: SettingsUi,
-    appVersion: String,
     onSharing: (Boolean) -> Unit,
     onConsent: () -> Unit,
-    onTransparency: () -> Unit,
     onStopSync: () -> Unit,
     onStartSync: () -> Unit,
     onRetention: (Int, Int) -> Unit,
-    onSummaryMode: (SummaryMode) -> Unit,
-    onNoContactHours: (Int) -> Unit,
     onBattery: () -> Unit,
     onDiagnostics: () -> Unit,
     onResetIdentity: () -> Unit,
     onDismissError: () -> Unit = {},
     onSyncNow: () -> Unit = {},
-    onPrivacyPolicy: () -> Unit = {},
     nowMs: Long = System.currentTimeMillis(), // the route passes a 30 s tick
     onCloudSignIn: () -> Unit = {},
     onCloudCode: (String) -> Unit = {},
@@ -251,7 +234,6 @@ fun SettingsScreen(
     /** Spec §10: the parent PIN typed on a child's phone; «Закрыть настройки»; an admin parent's new PIN. */
     onUnlock: (String) -> Unit = {},
     onLock: () -> Unit = {},
-    onSetPin: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val ready = ui.group as? GroupState.Ready
@@ -278,7 +260,6 @@ fun SettingsScreen(
     val loading = ui.group is GroupState.Loading
     val childLocked = (child && !unlocked) || loading
     var askPin by rememberSaveable { mutableStateOf(false) }
-    var setPin by rememberSaveable { mutableStateOf(false) }
     var advanced by rememberSaveable { mutableStateOf(false) }
     // A storage error sends the user to Diagnostics and the disconnect button: on a child's phone they must be in sight.
     // The same precedence as the sync line: Advanced opens for a key error only when the line says so.
@@ -485,60 +466,10 @@ fun SettingsScreen(
                 }
             }
         }
-        item {
-            // U21: the row is the button (no separate «Open» under it).
-            ListItem(
-                headlineContent = { Text(stringResource(R.string.set_transparency)) },
-                supportingContent = { Text(stringResource(R.string.set_transparency_body)) },
-                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
-                modifier = Modifier.clickable(onClickLabel = stringResource(R.string.set_open), role = SemanticsRole.Button, onClick = onTransparency)
-                    .testTag("set_transparency"),
-            )
-        }
         if (!child && !loading) retentionSection()
-        if (role == Role.PARENT) {
-            section(R.string.set_notifications) {
-                Text(stringResource(R.string.set_summaries))
-                Choices(SummaryMode.entries, ui.prefs.summaryMode, "set_mode", {
-                    stringResource(
-                        when (it) {
-                            SummaryMode.OFF -> R.string.set_summary_off
-                            SummaryMode.DAILY -> R.string.set_summary_daily
-                            SummaryMode.WEEKLY -> R.string.set_summary_weekly
-                        },
-                    )
-                }, onSummaryMode)
-                Text(stringResource(R.string.set_no_contact))
-                Choices(RetentionRules.NO_CONTACT, ui.prefs.noContactHours, "set_no_contact", { stringResource(R.string.set_hours, it) }, onNoContactHours)
-                TextButton({
-                    context.open(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
-                }) { Text(stringResource(R.string.set_notification_settings)) }
-            }
-        }
-        if (role == Role.PARENT && ui.lock.status.canSetPin) {
-            section(R.string.set_pin_section) {
-                Text(stringResource(if (ui.lock.status.pinSet) R.string.set_pin_set_body else R.string.set_pin_none))
-                OutlinedButton({ setPin = true }, Modifier.testTag("set_pin_set")) {
-                    Text(stringResource(if (ui.lock.status.pinSet) R.string.set_pin_change else R.string.set_pin_set))
-                }
-                when (ui.lock.pinSaved) {
-                    PinSave.SAVED -> Text(stringResource(R.string.set_pin_saved))
-                    PinSave.INVALID, PinSave.NOT_ALLOWED, PinSave.FAILED ->
-                        Text(stringResource(R.string.set_pin_failed), color = MaterialTheme.colorScheme.error)
-                    null -> Unit
-                }
-            }
-        }
         section(R.string.set_device) {
-            TextButton(onBattery) { Text(stringResource(R.string.set_battery)) }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                TextButton({
-                    context.open(Intent(Settings.ACTION_APP_LOCALE_SETTINGS, "package:${context.packageName}".toUri()))
-                }) { Text(stringResource(R.string.set_language)) }
-            }
-            TextButton(onPrivacyPolicy, Modifier.testTag("set_privacy")) { Text(stringResource(R.string.set_privacy)) }
+            TextButton(onBattery, Modifier.testTag("set_battery")) { Text(stringResource(R.string.set_battery)) }
             if (!child && !loading) adultActions()
-            Text(stringResource(R.string.set_version, appVersion), style = MaterialTheme.typography.bodySmall)
         }
         // U22: on a child's phone what is for adults waits under «Advanced», and only while a parent unlocked it (spec §10);
         // a storage error still opens it by itself, it is the way out of a broken phone.
@@ -620,15 +551,6 @@ fun SettingsScreen(
     }
     // A right PIN unlocks, so childLocked turns false and the dialog closes by itself.
     if (askPin && childLocked) UnlockDialog(ui.lock, onUnlock = onUnlock, onDismiss = { askPin = false })
-    if (setPin) {
-        SetPinDialog(
-            onSave = {
-                onSetPin(it)
-                setPin = false
-            },
-            onDismiss = { setPin = false },
-        )
-    }
 }
 
 @Composable
@@ -663,7 +585,7 @@ internal fun syncState(s: ServiceStatus?): SyncStateLine = when {
 }
 
 @Composable
-private fun syncStateText(s: ServiceStatus?): String = stringResource(
+internal fun syncStateText(s: ServiceStatus?): String = stringResource(
     when (syncState(s)) {
         SyncStateLine.RUNNING -> R.string.set_sync_running
         SyncStateLine.STOPPED -> R.string.set_sync_stopped
@@ -692,7 +614,7 @@ private fun Context.open(intent: Intent) {
     }
 }
 
-private fun LazyListScope.section(title: Int, content: @Composable () -> Unit) {
+internal fun LazyListScope.section(title: Int, content: @Composable () -> Unit) {
     item {
         Column(Modifier.fillMaxWidth().padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(title), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
@@ -709,7 +631,7 @@ internal const val VERTICAL_FONT_SCALE = 1.3f
  * [VERTICAL_FONT_SCALE] a vertical radio list (tagged "<tagPrefix>_list") with 48 dp rows.
  */
 @Composable
-private fun <T> Choices(options: List<T>, selected: T, tagPrefix: String, label: @Composable (T) -> String, onSelect: (T) -> Unit) {
+internal fun <T> Choices(options: List<T>, selected: T, tagPrefix: String, label: @Composable (T) -> String, onSelect: (T) -> Unit) {
     if (LocalDensity.current.fontScale > VERTICAL_FONT_SCALE) {
         Column(Modifier.fillMaxWidth().selectableGroup().testTag("${tagPrefix}_list")) {
             options.forEach { o ->
