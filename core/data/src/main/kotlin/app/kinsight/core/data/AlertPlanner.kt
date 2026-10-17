@@ -61,8 +61,9 @@ enum class AlertLevel { IMPORTANT, MINOR, TRANSPARENCY, SUMMARY, THRESHOLD }
 
 /**
  * A child's today as the thresholds read it (AlertPlanner.input): its actual date (the zone of its latest summary; one
- * day before or after the parent's, UsageReadModel.childToday with thresholds = true) and the usage of that date; [usage] null when no summary of that date arrived yet (nothing to evaluate,
- * never the day before). [appLabels]: catalog labels of the apps the parent's rules name.
+ * day before or after the parent's, UsageReadModel.childToday with thresholds = true) and the usage of that date;
+ * [usage] null when no summary of that date arrived yet (nothing to evaluate, never the day before). [appLabels]:
+ * catalog labels of the apps the parent's rules name.
  */
 data class ThresholdDay(val date: LocalDate, val usage: TodayUsage?, val appLabels: Map<String, String> = emptyMap())
 

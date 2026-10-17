@@ -319,7 +319,7 @@ class CloudRunnerTest {
         val day = kid.ownSummary("2026-10-13", 60_000)
         assertEquals(CloudRun.SKIPPED, kid.runner(disk).run(CloudTrigger.NOW))
         assertTrue(disk.files("app:").keys.none { it.contains(kid.keys.deviceId.hex) }, "nothing of the child's on the Disk")
-        assertTrue(kid.runner(disk).isOn(), "the worker stays scheduled")
+        assertTrue(kid.runner(disk).isOn(), "on, and the run said SKIPPED (not OFF): CloudWork keeps the schedule")
         kid.settings.upgradeConsent()
         assertEquals(kid.now, kid.settings.current().consentAtMs, "the first consent time stays")
         assertEquals(CloudRun.SYNCED, kid.runner(disk).run(CloudTrigger.NOW))
@@ -339,7 +339,7 @@ class CloudRunnerTest {
         val before = disk.files("app:").mapValues { it.value.toList() }
         assertEquals(CloudRun.SKIPPED, kid.runner(disk).run(CloudTrigger.NOW))
         assertEquals(before, disk.files("app:").mapValues { it.value.toList() }, "the Disk is untouched by the child")
-        assertTrue(kid.runner(disk).isOn(), "the worker stays scheduled")
+        assertTrue(kid.runner(disk).isOn(), "on, and the run said SKIPPED (not OFF): CloudWork keeps the schedule")
         kid.settings.recordConsent(kid.now)
         assertEquals(CloudRun.SYNCED, kid.runner(disk).run(CloudTrigger.NOW))
         assertTrue(disk.files("app:").keys.any { it.contains(kid.keys.deviceId.hex) }, "after consent the child's folder appears")
