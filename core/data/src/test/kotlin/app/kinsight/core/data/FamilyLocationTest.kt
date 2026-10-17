@@ -164,7 +164,8 @@ class FamilyLocationTest {
                 assertEquals(emptyList(), h.zones())
                 assertTrue(h.record(emptyList(), Report.Point(Fix(1, 2, 10, kid.now, Location.Provider.GPS))))
             }
-            // The upload's only suspending step is CloudWork's isOn check (CloudRunner.isOn), then an enqueue.
+            // The upload's only suspending step is CloudWork's isOn check (CloudRunner.isOn), then an enqueue; on the real app
+            // graph: app CloudWorkTest `anUploadIsQueuedWhileACloudRunHoldsTheLock`.
             val enqueued = AtomicInteger()
             withTimeout(10_000) { CloudWork.enqueueIfOn(kid.scope, kid.runner(InMemoryDisk())::isOn) { enqueued.incrementAndGet() }.join() }
             assertEquals(1, enqueued.get(), "the upload is enqueued while a cloud run holds runLock")

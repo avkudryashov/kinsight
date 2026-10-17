@@ -11,7 +11,10 @@ import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.CloudGraph
 import app.kinsight.core.data.CloudWork
 import app.kinsight.notifications.AlertsWork
+import app.kinsight.core.database.wipeAll
+import app.kinsight.core.model.storageOwnerEntry
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertSame
@@ -101,6 +104,31 @@ class CloudWorkTest {
         assertEquals(1, pending.size)
         assertEquals(WorkInfo.State.ENQUEUED, pending.single().state)
         CloudWork.cancel(app)
+    }
+
+    /**
+     * Rulings L8 (Y4 Task 7 review Minor 4), on the real app graph: with the cloud on and a cloud run holding the process
+     * runLock, the location host's upload (CloudWork.uploadSoon) still checks the cloud and queues its run at once.
+     */
+    @Test
+    fun anUploadIsQueuedWhileACloudRunHoldsTheLock() = runBlocking<Unit> {
+        val g = AppGraph.get(app)
+        g.group.createGroup("Mom")
+        val self = g.keys().deviceId
+        assertTrue(g.pipeline.appendOwn { a -> listOf(a.storageOwnerEntry(self, ByteArray(16) { 1 }, 1)) })
+        assertTrue("the cloud is on", g.cloud.isOn())
+        val wm = WorkManager.getInstance(app)
+        g.cloud.runLock.lock()
+        try {
+            withTimeout(10_000) { CloudWork.uploadSoon(app).join() }
+            assertEquals(1, wm.getWorkInfosForUniqueWork(CloudWork.NOW).get().count { !it.state.isFinished })
+        } finally {
+            g.cloud.runLock.unlock()
+            CloudWork.cancel(app)
+            // The graph outlives this test (one per process): the next test starts without a group again.
+            g.groups.delete()
+            g.db.wipeAll()
+        }
     }
 
     /** Y4 final review Important 1: the app hooks a cloud run that brought entries of others to an alerts pass soon. */
