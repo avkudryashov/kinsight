@@ -57,7 +57,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.temporal.WeekFields
 import java.util.Locale
 
@@ -600,6 +602,8 @@ class Pruner(
             self = keys().deviceId,
             detailRetentionDays = s.detailRetentionDays.toLong(),
             summaryRetentionDays = s.summaryRetentionDays.toLong(),
+            // One clock for everything: LOCATION's 48 h and the usage days' date (not the wall date).
+            today = { LocalDate.ofInstant(Instant.ofEpochMilli(clock()), ZoneId.systemDefault()) },
             nowMs = clock,
         )
         val store = RoomEntryStore(db, group.groupId)
