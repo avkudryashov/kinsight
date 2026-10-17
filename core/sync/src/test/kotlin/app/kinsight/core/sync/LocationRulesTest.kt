@@ -99,4 +99,27 @@ class LocationRulesTest {
         assertEquals(Verdict.Expired, v.check(kid.point(at = now - SyncPolicy.LOCATION_RETENTION_MS - 1), alreadyAccounted = false))
         assertEquals(Verdict.Accept, v.check(kid.point(at = now - 60_000), alreadyAccounted = false))
     }
+
+    /** Y4 parked minor: the caps a hostile peer might try, each skipped for its own reason. */
+    @Test
+    fun theCapsHold() {
+        fun reason(e: DecodedEntry) = (verdict(e) as Verdict.Skipped).reason
+        // Body caps: the size check comes first, so an oversized body is refused as such.
+        val bigPoint = kid.create { it.copy(location = Location(fix_time_ms = now, zone_id = ByteArray(LocationRules.MAX_BODY_BYTES).toByteString())) }
+        assertTrue(bigPoint.bodySize > LocationRules.MAX_BODY_BYTES)
+        assertEquals("location over ${LocationRules.MAX_BODY_BYTES} bytes", reason(bigPoint))
+        val bigZone = mom.zone(name = "x".repeat(SafeZoneRules.MAX_BODY_BYTES))
+        assertTrue(bigZone.bodySize > SafeZoneRules.MAX_BODY_BYTES)
+        assertEquals("safe zone over ${SafeZoneRules.MAX_BODY_BYTES} bytes", reason(bigZone))
+        // uint32 accuracy of 2^31 and above reads negative here.
+        assertEquals("accuracy out of range", reason(kid.point(acc = (1L shl 31).toInt())))
+        assertEquals("accuracy out of range", reason(kid.point(acc = -1))) // 2^32 - 1 on the wire
+        assertEquals(Verdict.Accept, verdict(kid.point(acc = Int.MAX_VALUE)))
+        // A zone id is exactly 16 bytes on SAFE_ZONE too.
+        for (size in listOf(0, 15, 17)) {
+            val z = mom.safeZoneEntry(ByteArray(size) { 7 }, "Home", 404_168_000, -37_038_000, 150, 1)
+            assertEquals("zone id of $size bytes", reason(z))
+        }
+        assertEquals("centre out of range", reason(mom.safeZoneEntry(zoneId, "Home", 0, LocationRules.MAX_LON_E7 + 1, 150, 1)))
+    }
 }
