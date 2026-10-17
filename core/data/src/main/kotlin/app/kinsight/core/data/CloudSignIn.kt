@@ -260,6 +260,17 @@ class CloudSignIn(
         }
     }
 
+    /**
+     * The sign-in page answered with an error instead of a code (the user refused or cancelled at Yandex): the pending
+     * sign-in ends as [CloudEnableResult.SIGN_IN_FAILED]. Nothing changes when none is pending (an exchange under way
+     * reports its own outcome).
+     */
+    fun refused() {
+        synchronized(stateLock) {
+            if (pending.getAndSet(null) != null) _state.value = SignInState.Done(CloudEnableResult.SIGN_IN_FAILED)
+        }
+    }
+
     /** What a finish that waited for another reports: that one's outcome. */
     private fun outcome(): CloudEnableResult = when (val s = _state.value) {
         is SignInState.Done -> s.result

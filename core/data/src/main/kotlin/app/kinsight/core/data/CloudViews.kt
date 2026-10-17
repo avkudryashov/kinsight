@@ -166,6 +166,9 @@ class CloudRepository(
 
     fun dismissSignIn() = signIn.dismiss()
 
+    /** The sign-in page answered with an error (CloudSignIn.refused). */
+    fun refuseSignIn() = signIn.refused()
+
     private companion object {
         const val DEFAULT_DEVICE_NAME = "Kinsight"
         const val TAG = "KinsightCloud"

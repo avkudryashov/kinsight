@@ -97,6 +97,20 @@ class CloudSignInTest {
     }
 
     @Test
+    fun anErrorFromTheSignInPageEndsTheSignIn() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val s = mom.signIn(http, { disk })
+        s.start("Pixel")!!
+        s.refused()
+        assertEquals(SignInState.Done(CloudEnableResult.SIGN_IN_FAILED), s.state.value)
+        assertEquals(CloudEnableResult.SIGN_IN_EXPIRED, s.finish("1234567"), "the refused sign-in is over")
+        assertTrue(http.forms.isEmpty())
+        s.dismiss()
+        s.refused()
+        assertEquals(SignInState.Idle, s.state.value, "nothing pending: nothing changes")
+    }
+
+    @Test
     fun anOldPhoneInTheGroupBlocksTurningOn() = runBlocking<Unit> {
         mom.group.createGroup("Mom")
         kid.joinGroupOf(mom)
