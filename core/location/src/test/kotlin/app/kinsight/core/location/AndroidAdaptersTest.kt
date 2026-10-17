@@ -316,4 +316,25 @@ class AndroidAdaptersTest {
         runService(1)
         assertTrue(ServiceGate.isForeground)
     }
+
+    /** Y4 parked minor: a forgotten start arriving late settles itself only, never the newer start still on its way. */
+    @Test
+    fun aLateForgottenStartDoesNotSettleANewerOne() {
+        var now = 1_000L
+        ServiceGate.clock = { now }
+        val sent = mutableListOf<Intent>()
+        val cadence = AndroidCadence(app) { sent += it; android.content.ComponentName(app, LocationService::class.java) }
+        assertTrue(cadence.startService())
+        now += ServiceGate.PENDING_EXPIRY_MS
+        cadence.startService() // the first is forgotten: a second start goes out
+        assertEquals(2, sent.size)
+        assertTrue(sent[0].getLongExtra(ServiceGate.EXTRA_START, 0) != sent[1].getLongExtra(ServiceGate.EXTRA_START, 0))
+        Robolectric.buildService(LocationService::class.java, sent[0]).create().startCommand(0, 1)
+        assertEquals("the newer start is still on its way", 1, ServiceGate.pendingStarts)
+        cadence.stopService()
+        assertNull("never stopped from outside before the newer start went foreground", shadowOf(app).nextStoppedService)
+        val newer = Robolectric.buildService(LocationService::class.java, sent[1]).create().startCommand(0, 2).get()
+        assertTrue("it stops itself once foreground", shadowOf(newer).isStoppedBySelf)
+        assertEquals(0, ServiceGate.pendingStarts)
+    }
 }

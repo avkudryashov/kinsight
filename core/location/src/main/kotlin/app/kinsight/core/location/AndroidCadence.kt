@@ -34,21 +34,21 @@ class AndroidCadence internal constructor(context: Context, start: ((Intent) -> 
      * start that throws or that the system drops (null) is uncounted at once, so the next tick tries again.
      */
     override fun startService(): Boolean {
-        if (!ServiceGate.wantStart()) return true
+        val id = ServiceGate.wantStart() ?: return true
         return try {
-            if (start(Intent(app, LocationService::class.java)) != null) {
+            if (start(Intent(app, LocationService::class.java).putExtra(ServiceGate.EXTRA_START, id)) != null) {
                 true
             } else {
-                ServiceGate.startFailed()
+                ServiceGate.startFailed(id)
                 Log.w(TAG, "location service start dropped")
                 false
             }
         } catch (e: ForegroundServiceStartNotAllowedException) {
-            ServiceGate.startFailed()
+            ServiceGate.startFailed(id)
             Log.w(TAG, "location service not allowed from the background") // spec §14, Android 12+ / 14+
             false
         } catch (e: Exception) {
-            ServiceGate.startFailed()
+            ServiceGate.startFailed(id)
             Log.w(TAG, "location service refused: ${e.javaClass.simpleName}")
             false
         }

@@ -36,7 +36,8 @@ class LocationService : Service() {
             false
         }
         // By start id: a newer start already sent keeps the service and gets its own onStartCommand (and check).
-        if (ServiceGate.started(ok)) stopSelf(startId)
+        val sent = intent?.getLongExtra(ServiceGate.EXTRA_START, 0L)?.takeIf { it > 0 }
+        if (ServiceGate.started(ok, sent)) stopSelf(startId)
         return START_NOT_STICKY
     }
 
@@ -71,10 +72,15 @@ class LocationService : Service() {
  * have not reached onStartCommand yet. While a start is pending nothing stops the service from outside (its own
  * onStartCommand checks [wanted] after going foreground) and no second start is sent. A pending start older than
  * [PENDING_EXPIRY_MS] is forgotten: Android gives a started service about 10 s to call startForeground, so by then it
- * either ran or never will (a start dropped without an error must not block the service for good).
+ * either ran or never will (a start dropped without an error must not block the service for good). Each start carries
+ * its own id ([EXTRA_START]) with its own send time (Y4 parked minor): a forgotten start arriving late settles only
+ * itself, never a newer start still on its way.
  */
 internal object ServiceGate {
     const val PENDING_EXPIRY_MS = 15_000L
+
+    /** The start id a startForegroundService intent carries. */
+    const val EXTRA_START = "app.kinsight.location.START"
 
     /** Elapsed realtime; replaced in tests. */
     @Volatile
@@ -82,28 +88,34 @@ internal object ServiceGate {
 
     private var wanted = false
     private var foreground = false
-    private var pending = 0
-    private var pendingSinceMs = 0L
+
+    /** Start id to its send time, oldest first. */
+    private val pending = LinkedHashMap<Long, Long>()
+    private var nextId = 1L
 
     private fun expire() {
-        if (pending > 0 && clock() - pendingSinceMs >= PENDING_EXPIRY_MS) pending = 0
+        val now = clock()
+        pending.entries.removeAll { now - it.value >= PENDING_EXPIRY_MS }
     }
 
-    /** The engine wants the service; true when the caller must send startForegroundService (counted as pending). */
+    /**
+     * The engine wants the service; the id to send with startForegroundService (counted as pending), or null when no
+     * start is to be sent (one is on its way, or the service is foreground).
+     */
     @Synchronized
-    fun wantStart(): Boolean {
+    fun wantStart(): Long? {
         wanted = true
         expire()
-        if (foreground || pending > 0) return false
-        pending++
-        pendingSinceMs = clock()
-        return true
+        if (foreground || pending.isNotEmpty()) return null
+        val id = nextId++
+        pending[id] = clock()
+        return id
     }
 
     /** startForegroundService threw: that start never comes. */
     @Synchronized
-    fun startFailed() {
-        if (pending > 0) pending--
+    fun startFailed(id: Long) {
+        pending.remove(id)
     }
 
     /** The engine no longer wants it; true when the caller must stop it now (foreground, no start pending). */
@@ -111,15 +123,18 @@ internal object ServiceGate {
     fun wantStop(): Boolean {
         wanted = false
         expire()
-        if (!foreground || pending > 0) return false
+        if (!foreground || pending.isNotEmpty()) return false
         foreground = false
         return true
     }
 
-    /** A start command reached the service ([ok]: it is foreground); true when it must stop itself. */
+    /**
+     * A start command reached the service ([ok]: it is foreground) for start [id] (null: an intent without one, taken as
+     * the oldest pending); true when it must stop itself.
+     */
     @Synchronized
-    fun started(ok: Boolean): Boolean {
-        if (pending > 0) pending--
+    fun started(ok: Boolean, id: Long? = null): Boolean {
+        if (id != null) pending.remove(id) else pending.keys.firstOrNull()?.let { pending.remove(it) }
         foreground = ok && wanted
         return !foreground
     }
@@ -135,15 +150,14 @@ internal object ServiceGate {
     @get:Synchronized
     val pendingStarts: Int get() {
         expire()
-        return pending
+        return pending.size
     }
 
     @Synchronized
     fun reset() {
         wanted = false
         foreground = false
-        pending = 0
-        pendingSinceMs = 0L
+        pending.clear()
         clock = SystemClock::elapsedRealtime
     }
 }
