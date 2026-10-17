@@ -81,10 +81,20 @@ val ChildPalette: List<ChildColor> = listOf(
 )
 
 /**
- * The stable colour of the child with this device id hex: the same child gets the same colour on every phone and in
- * every session (String.hashCode is fixed by the Java spec), whatever the hex case.
+ * The palette index of the child [childHex] among the group's children [allChildHexes]: its position in the
+ * ascending, case-insensitive, de-duplicated hex list, modulo the palette size. Every phone of the family sees the same
+ * children, so it computes the same index, and up to four children never share a colour. A child that is not in the
+ * list (a child's own phone knows no siblings) falls back to the hash of its hex (String.hashCode is fixed by the Java
+ * spec, so that is stable too).
  */
-fun childColor(deviceIdHex: String): ChildColor = ChildPalette[Math.floorMod(deviceIdHex.lowercase().hashCode(), ChildPalette.size)]
+fun childColorIndex(childHex: String, allChildHexes: Collection<String>): Int {
+    val me = childHex.lowercase()
+    val position = allChildHexes.map { it.lowercase() }.distinct().sorted().indexOf(me)
+    return Math.floorMod(if (position >= 0) position else me.hashCode(), ChildPalette.size)
+}
+
+/** The stable colour of the child [childHex] within its group (see [childColorIndex]). */
+fun childColor(childHex: String, allChildHexes: Collection<String>): ChildColor = ChildPalette[childColorIndex(childHex, allChildHexes)]
 
 /** Text and icons on [ChildCardGradient]. */
 val OnChildCard: Color = White

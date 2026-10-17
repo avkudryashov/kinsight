@@ -198,6 +198,8 @@ fun DashboardScreen(
     // Start is the way back.
     val canSync = attention != SyncAttention.STOPPED
     val searching = canSync && stillSearching(searchSince, ui.service?.lastSyncMs)
+    // The group's children fix each one's colour (same on every phone); a child's own phone knows no siblings.
+    val childHexes = if (child) emptyList() else d.children.map { it.member.id.hex }
     val listState = rememberLazyListState() // kept when the pull comes and goes with the Stop
     val list: @Composable BoxScope.() -> Unit = {
         LazyColumn(
@@ -226,7 +228,7 @@ fun DashboardScreen(
             if (child) {
                 item { ChildTransparencyRow(d.parents, d.selfUsage?.sharing ?: Sharing.Never, ui.sharingFailed, onResume, onConsent) }
                 d.selfUsage?.let { u ->
-                    item { ChildCard(u, nowMs, noContactMs, totalLimit(ui.thresholds, u)) { onOpenDevice(u.member.id) } }
+                    item { ChildCard(u, childHexes, nowMs, noContactMs, totalLimit(ui.thresholds, u)) { onOpenDevice(u.member.id) } }
                     item { TopApps(u, ui.thresholds) }
                 }
             } else if (d.children.isEmpty()) {
@@ -238,14 +240,14 @@ fun DashboardScreen(
             } else if (d.children.size == 1) {
                 items(d.children, key = { it.member.id.hex }) { u ->
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ChildCard(u, nowMs, noContactMs, totalLimit(ui.thresholds, u)) { onOpenDevice(u.member.id) }
+                        ChildCard(u, childHexes, nowMs, noContactMs, totalLimit(ui.thresholds, u)) { onOpenDevice(u.member.id) }
                         TopApps(u, ui.thresholds)
                     }
                 }
             } else {
                 // Task 12: two children or more get compact cards, so the second one is on screen without scrolling.
                 items(d.children, key = { it.member.id.hex }) { u ->
-                    CompactChildCard(u, nowMs, noContactMs, totalLimit(ui.thresholds, u)) { onOpenDevice(u.member.id) }
+                    CompactChildCard(u, childHexes, nowMs, noContactMs, totalLimit(ui.thresholds, u)) { onOpenDevice(u.member.id) }
                 }
             }
         }
@@ -494,9 +496,9 @@ internal fun totalLimit(rules: List<ThresholdRule>, u: DeviceUsage): Long? =
  * open location problems, «no contact», a pause. Tapping it opens the report. White on the gradient keeps 4.5:1.
  */
 @Composable
-private fun ChildCard(u: DeviceUsage, nowMs: Long, noContactMs: Long, limitMs: Long?, onClick: () -> Unit) {
+private fun ChildCard(u: DeviceUsage, childHexes: List<String>, nowMs: Long, noContactMs: Long, limitMs: Long?, onClick: () -> Unit) {
     Column(
-        Modifier.childCard(u, "dash_card", onClick).padding(20.dp),
+        Modifier.childCard(u, childHexes, "dash_card", onClick).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         CompositionLocalProvider(LocalContentColor provides OnChildCard) {
@@ -524,9 +526,9 @@ private fun ChildCard(u: DeviceUsage, nowMs: Long, noContactMs: Long, limitMs: L
  * clickable to the report, tagged [tag]. White on every palette gradient keeps 4.5:1 (ChildColorsTest).
  */
 @Composable
-private fun Modifier.childCard(u: DeviceUsage, tag: String, onClick: () -> Unit): Modifier {
+private fun Modifier.childCard(u: DeviceUsage, childHexes: List<String>, tag: String, onClick: () -> Unit): Modifier {
     val label = stringResource(R.string.dash_open_details, u.member.name)
-    val color = childColor(u.member.id.hex)
+    val color = childColor(u.member.id.hex, childHexes)
     return fillMaxWidth().clip(MaterialTheme.shapes.large)
         .background(Brush.linearGradient(color.gradient))
         .semantics { set(ChildColorKey, color) }
@@ -540,9 +542,9 @@ private fun Modifier.childCard(u: DeviceUsage, tag: String, onClick: () -> Unit)
  * the full card. The comparison and «Данные на» stay in the report; the top apps block is left out.
  */
 @Composable
-private fun CompactChildCard(u: DeviceUsage, nowMs: Long, noContactMs: Long, limitMs: Long?, onClick: () -> Unit) {
+private fun CompactChildCard(u: DeviceUsage, childHexes: List<String>, nowMs: Long, noContactMs: Long, limitMs: Long?, onClick: () -> Unit) {
     Column(
-        Modifier.childCard(u, "dash_compact_card", onClick).padding(16.dp),
+        Modifier.childCard(u, childHexes, "dash_compact_card", onClick).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         CompositionLocalProvider(LocalContentColor provides OnChildCard) {

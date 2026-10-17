@@ -148,7 +148,7 @@ class MapScreenTest {
     @Test
     fun theStatusAvatarCarriesTheChildsColour() {
         show(ChildLocation(kid, null, null, emptyList(), listOf(home), emptyList(), Sharing.On))
-        rule.onNode(hasTestTag("loc_avatar_${kid.id.hex}") and SemanticsMatcher.expectValue(ChildColorKey, childColor(kid.id.hex)), useUnmergedTree = true).assertExists()
+        rule.onNode(hasTestTag("loc_avatar_${kid.id.hex}") and SemanticsMatcher.expectValue(ChildColorKey, childColor(kid.id.hex, listOf(kid.id.hex))), useUnmergedTree = true).assertExists()
     }
 
     @Test

@@ -44,6 +44,7 @@ import app.kinsight.core.transport.ble.SyncService
 import app.kinsight.core.transport.ble.SyncProblem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -654,9 +655,19 @@ class DashboardScreenTest {
     }
 
     @Test
+    fun twoChildrenGetDifferentColours() {
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 80, 60), usage(sis, 90, 60)), listOf(dad)), running, true))
+        val all = listOf(kid.id.hex, sis.id.hex)
+        for (m in listOf(kid, sis)) {
+            rule.onNode(hasTestTag("dash_compact_card") and SemanticsMatcher.expectValue(ChildColorKey, childColor(m.id.hex, all))).assertExists()
+        }
+        assertNotEquals(childColor(kid.id.hex, all), childColor(sis.id.hex, all))
+    }
+
+    @Test
     fun aChildKeepsItsColourOnTheCard() {
         show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), listOf(dad)), running, true))
-        rule.onNode(hasTestTag("dash_card") and SemanticsMatcher.expectValue(ChildColorKey, childColor(kid.id.hex))).assertExists()
+        rule.onNode(hasTestTag("dash_card") and SemanticsMatcher.expectValue(ChildColorKey, childColor(kid.id.hex, listOf(kid.id.hex)))).assertExists()
     }
 
     @Test
