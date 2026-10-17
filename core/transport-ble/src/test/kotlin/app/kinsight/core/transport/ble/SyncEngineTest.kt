@@ -263,11 +263,12 @@ class SyncEngineTest {
 
     @Test
     fun twoFastPeersWhoseVectorsNeverMatchStopAfterOneEmptySession() = runBlocking<Unit> {
-        val g = TestGroup.create(2)
-        val (d0, d1) = g.devices
-        d0.store.applyBatch(listOf(d0.author.summary(TODAY.toString(), 5)))
+        val g = TestGroup.create(3)
+        val (d0, d1, d2) = g.devices
+        d0.store.applyBatch(listOf(d0.author.summary(TODAY.toString(), 5), d2.author.summary(TODAY.toString(), 7)))
         val e0 = engine(g, d0)
-        // A child: it never takes the other's own entries, so the two vectors never match (emulator run 2026-10-10).
+        // A child (emulator run 2026-10-10): its position for d0 follows d0's own log, but it never takes the third
+        // member's usage that d0 holds, and only that member can complete its log, so the two vectors never match.
         val e1 = engine(g, d1, syncPolicy = d1.policy().copy(showOthers = false))
         e0.setFast(Long.MAX_VALUE)
         e1.setFast(Long.MAX_VALUE)
