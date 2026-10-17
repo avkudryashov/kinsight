@@ -39,6 +39,21 @@ class CloudWorkTest {
         assertTrue(WorkManager.getInstance(app).getWorkInfosForUniqueWork(CloudWork.PERIODIC).get().all { it.state == WorkInfo.State.CANCELLED })
     }
 
+    /** Task 14: a run that skipped a pack queues one more run a few minutes later, with a network; cancelled with the rest. */
+    @Test
+    fun aSkippedPackQueuesAFollowUpRun() {
+        CloudWork.retrySkipped(app, fromRetry = false)
+        val wm = WorkManager.getInstance(app)
+        val info = wm.getWorkInfosForUniqueWork(CloudWork.RETRY).get().single()
+        assertEquals(WorkInfo.State.ENQUEUED, info.state)
+        assertEquals(NetworkType.CONNECTED, info.constraints.requiredNetworkType)
+        assertEquals(CloudWork.RETRY_SKIPPED_MINUTES * 60_000L, info.initialDelayMillis)
+        CloudWork.retrySkipped(app, fromRetry = false)
+        assertEquals("one waiting follow-up is kept", info.id, wm.getWorkInfosForUniqueWork(CloudWork.RETRY).get().single { it.state != WorkInfo.State.CANCELLED }.id)
+        CloudWork.cancel(app)
+        assertTrue(wm.getWorkInfosForUniqueWork(CloudWork.RETRY).get().all { it.state == WorkInfo.State.CANCELLED })
+    }
+
     /** Off by default (review Minor 1): without a group with a storage owner no app hook schedules anything. */
     @Test
     fun withoutACloudNothingIsScheduled() = runBlocking<Unit> {

@@ -106,6 +106,38 @@ class CloudRunnerTest {
         assertEquals(before, disk.downloads.size, "nothing read twice afterwards")
     }
 
+    /**
+     * Task 14: a pack the storage will not give (a 500 on its download) does not stop the run: it is synced (own uploads,
+     * the time of the last sync, no problem shown), tells that it skipped one, so a follow-up run is queued, and the next
+     * run reads the pack.
+     */
+    @Test
+    fun aPackTheStorageWillNotGiveStillLeavesARunSynced() = runBlocking<Unit> {
+        family()
+        mom.ownStorage()
+        kid.learnsStorageFrom(mom)
+        val day = kid.ownSummary("2026-10-17", 60_000)
+        assertEquals(CloudRun.SYNCED, kid.runner(disk).run(CloudTrigger.NOW))
+        val own = mom.ownSummary("2026-10-17", 1_000)
+        val kidDir = kid.keys.deviceId.hex
+        val broken = object : DiskApi by disk {
+            override suspend fun download(path: String): ByteArray =
+                if (kidDir in path) throw DiskException.Server(500, "storage get $path") else disk.download(path)
+        }
+        val outcome = mom.runner { _ -> broken }.runCounted(CloudTrigger.NOW)
+        assertEquals(CloudRunOutcome(CloudRun.SYNCED, received = 0, skipped = 1), outcome)
+        assertTrue(CloudWork.retrySkippedNeeded(outcome))
+        assertNotNull(mom.cloudState.current().lastSyncMs)
+        assertNull(mom.cloudState.current().problem)
+        assertTrue(disk.files("app:").keys.any { mom.keys.deviceId.hex in it && it.endsWith(".kb") }, "own pack uploaded")
+        assertTrue(day !in mom.store().liveEntries())
+        val healed = mom.runner(disk).runCounted(CloudTrigger.NOW)
+        assertEquals(0, healed.skipped)
+        assertFalse(CloudWork.retrySkippedNeeded(healed))
+        assertTrue(day in mom.store().liveEntries())
+        assertTrue(own in mom.store().liveEntries())
+    }
+
     /** Y4 final review Important 1: the run tells how many entries of others it brought, so alerts follow (spec §9). */
     @Test
     fun aRunTellsWhetherItBroughtEntriesOfOthers() = runBlocking<Unit> {

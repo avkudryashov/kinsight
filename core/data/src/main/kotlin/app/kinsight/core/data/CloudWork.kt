@@ -66,6 +66,11 @@ object CloudWork {
     const val KEY_TRIGGER = "trigger"
     const val FOLLOW = "kinsight-cloud-follow"
     const val KEY_FOLLOW = "follow"
+    const val RETRY = "kinsight-cloud-retry"
+    const val KEY_RETRY = "retry"
+
+    /** Task 14: a run that skipped a pack the Disk would not hand out is followed by one more this much later. */
+    const val RETRY_SKIPPED_MINUTES = 5L
 
     /** Spec §9: while a child is outside its zones, a parent reads every 5 minutes. */
     const val FOLLOW_MINUTES = 5L
@@ -101,6 +106,7 @@ object CloudWork {
         wm.cancelUniqueWork(PERIODIC)
         wm.cancelUniqueWork(NOW)
         wm.cancelUniqueWork(FOLLOW)
+        wm.cancelUniqueWork(RETRY)
     }
 
     /**
@@ -209,6 +215,26 @@ object CloudWork {
      */
     fun alertsNeeded(outcome: CloudRunOutcome): Boolean = outcome.received > 0
 
+    /**
+     * Task 14: a synced run that skipped a pack the Disk would not hand out gets a follow-up run. A pack that keeps failing
+     * waits in CloudSync's backoff and is not tried (so not skipped) meanwhile: the follow-ups stop by themselves.
+     */
+    fun retrySkippedNeeded(outcome: CloudRunOutcome): Boolean = outcome.run == CloudRun.SYNCED && outcome.skipped > 0
+
+    /**
+     * One run [RETRY_SKIPPED_MINUTES] from now. The periodic job keeps its cadence (the run itself succeeded, no WorkManager
+     * backoff stretches it); the follow-up run queues its successor behind itself, another run keeps a waiting one.
+     */
+    fun retrySkipped(context: Context, fromRetry: Boolean) {
+        val request = OneTimeWorkRequestBuilder<CloudWorker>()
+            .setInitialDelay(RETRY_SKIPPED_MINUTES, TimeUnit.MINUTES)
+            .setConstraints(network())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .setInputData(workDataOf(KEY_TRIGGER to CloudTrigger.NOW.name, KEY_RETRY to true))
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(RETRY, followPolicy(fromRetry), request)
+    }
+
     /** Spec §9: a follow-up is queued only after a run that read the Disk, while a child is outside ([needed] is asked then). */
     suspend fun followNext(run: CloudRun, needed: suspend () -> Boolean): Boolean = run == CloudRun.SYNCED && needed()
 
@@ -311,12 +337,13 @@ class CloudWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
     override suspend fun doWork(): Result {
         val trigger = inputData.getString(CloudWork.KEY_TRIGGER)?.let { n -> CloudTrigger.entries.firstOrNull { it.name == n } } ?: CloudTrigger.PERIODIC
         val follow = inputData.getBoolean(CloudWork.KEY_FOLLOW, false)
-        // The unique NOW work (the follow-up and the periodic job are other works): the app open sees its age.
-        if (trigger == CloudTrigger.NOW && !follow) return CloudWork.nowRun { work(trigger, follow) }
-        return work(trigger, follow)
+        val retry = inputData.getBoolean(CloudWork.KEY_RETRY, false)
+        // The unique NOW work (the follow-ups and the periodic job are other works): the app open sees its age.
+        if (trigger == CloudTrigger.NOW && !follow && !retry) return CloudWork.nowRun { work(trigger, follow, retry) }
+        return work(trigger, follow, retry)
     }
 
-    private suspend fun work(trigger: CloudTrigger, follow: Boolean): Result {
+    private suspend fun work(trigger: CloudTrigger, follow: Boolean, retry: Boolean): Result {
         return CloudWork.outcome {
             val g = AppGraph.get(applicationContext)
             // Spec §10, before the run and never inside its runLock: what the child turned off is signed now and goes up
@@ -327,7 +354,9 @@ class CloudWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
             attempt("heartbeat") { SyncGraph.emitHeartbeatIfDue(applicationContext) }
             val outcome = g.cloud.runCounted(trigger)
             val run = outcome.run
-            Log.i(TAG, "cloud run $trigger: $run")
+            Log.i(TAG, "cloud run $trigger: $run" + if (outcome.skipped > 0) ", ${outcome.skipped} pack(s) skipped" else "")
+            // Task 14: a pack the Disk would not hand out is read again by a follow-up run; this run still counts as synced.
+            if (CloudWork.retrySkippedNeeded(outcome)) CloudWork.retrySkipped(applicationContext, fromRetry = retry)
             // Entries of others came in (a zone exit above all): an alerts pass now, like after a Bluetooth session.
             if (CloudWork.alertsNeeded(outcome)) CloudWork.onReceived?.invoke(applicationContext)
             if (run == CloudRun.OFF) {

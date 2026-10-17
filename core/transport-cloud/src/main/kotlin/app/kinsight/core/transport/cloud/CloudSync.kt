@@ -1,5 +1,6 @@
 package app.kinsight.core.transport.cloud
 
+import app.kinsight.core.crypto.Primitives
 import app.kinsight.core.crypto.toHex
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
@@ -22,7 +23,11 @@ import java.io.IOException
 import java.util.concurrent.atomic.AtomicLong
 
 sealed interface CloudResult {
-    data class Synced(val uploadedPacks: Int, val received: Int) : CloudResult
+    /**
+     * [skipped]: packs of others (or own kept ones) the Disk would not hand out in this run (Task 14). They are read again
+     * at the next runs; the caller schedules a follow-up run when it is above zero.
+     */
+    data class Synced(val uploadedPacks: Int, val received: Int, val skipped: Int = 0) : CloudResult
     data object NotMember : CloudResult
 
     /** The ring holds no generation of the group key: nothing can be sealed or read (Y2 seeds it at pairing). */
@@ -81,6 +86,9 @@ class CloudSync(
     /** Set by [listAll] when the Disk refused `storage.id` for lack of space: the run still reads the others. */
     private var storageIdFull = false
 
+    /** Packs the Disk would not hand out in this run (Task 14): each one is skipped, the run goes on. */
+    private var skipped = 0
+
     /** The version key of this run for a listing without any version (see [versionOf]); new for every exchange. */
     private var runVersion = ""
 
@@ -111,6 +119,7 @@ class CloudSync(
         if (before == null || self !in before.active) return CloudResult.NotMember
         // The counter, not the clock alone: two runs at one clock reading (a fixed test clock) must not share the key.
         runVersion = "run:${clock()}:${RUNS.incrementAndGet()}"
+        skipped = 0
         absorbRotation(before)
         writeEpoch(before) ?: return CloudResult.NoGroupKey
         var cursor = cursors.load()
@@ -139,7 +148,7 @@ class CloudSync(
         val afterExpiry = if (storageFull) afterCompaction else expireLocations(epoch, afterCompaction)
         val (received, afterDownload) = download(listing, membership, afterExpiry)
         cursors.save(afterDownload)
-        return if (storageFull) CloudResult.StorageFull(received) else CloudResult.Synced(uploaded, received)
+        return if (storageFull) CloudResult.StorageFull(received) else CloudResult.Synced(uploaded, received, skipped)
     }
 
     /**
@@ -347,10 +356,13 @@ class CloudSync(
             if (seen.put(key(self, p), FAR) != FAR) log("own folder: ${p.name} is too far above $held, ignored")
         }
         val ring0 = ring.keys()
+        val now = clock()
+        val failing = cursor.failing.toMutableMap()
         val retry = own.filter { p ->
             val k = cursor.ownPacks[p.name]?.takeIf { it.kept } ?: return@filter false
-            p.range.last <= held && seen[key(self, p)] != REJECTED && mayOpen(DeferredPack(k.epoch, k.failedKey), ring0)
-        }
+            p.range.last <= held && seen[key(self, p)] != REJECTED && mayOpen(DeferredPack(k.epoch, k.failedKey), ring0) &&
+                !backedOff(failing[key(self, p)], now)
+        }.toSet()
         val sorted = (above.filter { seen[key(self, it)] != REJECTED } + retry).sortedBy { it.range.first }
         var membership = start
         var lifted = held
@@ -362,7 +374,14 @@ class CloudSync(
                 disk.download("$dir/${p.name}")
             } catch (e: DiskException.NotFound) {
                 continue
+            } catch (e: IOException) {
+                // Task 14: a kept pack retried is read again later, as one of the others. A pack above what we hold is
+                // not: its range must be known before we sign again (A-4), so its failure still ends the run.
+                if (p !in retry || !perFile(e)) throw e
+                skip(failing, key(self, p), "$dir/${p.name}", reasonOf(e), now)
+                continue
             }
+            failing.remove(key(self, p))
             val keys = ring.keys()
             when (val outcome = PackCodec.open(bytes, keys, groupId, self, membership, expected = p.range)) {
                 is PackOutcome.Opened -> {
@@ -388,7 +407,7 @@ class CloudSync(
                 }
             }
         }
-        val next = cursor.copy(seen = seen, ownPacks = ownPacks, locationDue = due)
+        val next = cursor.copy(seen = seen, ownPacks = ownPacks, locationDue = due, failing = failing)
         if (lifted > held) {
             store.completeAuthor(self, lifted)
             log("own log found on the Disk up to $lifted, held $held: those seqs are not reused (A-4)")
@@ -522,13 +541,17 @@ class CloudSync(
 
     /**
      * Runs the hostile-file part of one pack. A failure of the file itself (garbage, a decoder error) marks it seen = -1 and
-     * yields null; network, auth and quota trouble propagates (the run is retried), as does cancellation.
+     * yields null, unless its bytes do not match the listing ([damaged]): then it is skipped for this run (Task 14). Auth
+     * and quota trouble propagates (the run is retried), as does cancellation.
      */
     private inline fun <T : Any> guarded(
         seen: MutableMap<String, Int>,
         deferred: MutableMap<String, DeferredPack>,
+        failing: MutableMap<String, PackFailure>,
         device: DeviceId,
         p: PackItem,
+        bytes: ByteArray,
+        now: Long,
         block: () -> T?,
     ): T? = try {
         block()
@@ -541,14 +564,50 @@ class CloudSync(
     } catch (e: IOException) {
         throw e // network trouble: the whole run is retried
     } catch (e: Exception) {
-        log("pack ${device.hex.take(8)}/${p.name} skipped: $e")
-        key(device, p).let { seen[it] = REJECTED; deferred.remove(it) }
+        if (damaged(p, bytes)) {
+            skip(failing, key(device, p), "${CloudPaths.deviceDir(groupId, device)}/${p.name}", DAMAGED, now)
+        } else {
+            log("pack ${device.hex.take(8)}/${p.name} skipped: $e")
+            key(device, p).let { seen[it] = REJECTED; deferred.remove(it) }
+        }
         null
     }
+
+    /**
+     * Task 14: a failure of one file the Disk would not hand out (a storage 5xx, a dropped read, an unexpected answer), not
+     * of the run. A refused token, a full Disk and a rate limit still end the whole run (spec §11).
+     */
+    private fun perFile(e: IOException) =
+        e !is DiskException.Unauthorized && e !is DiskException.StorageFull && e !is DiskException.RateLimited
+
+    /** After [FAILS_BEFORE_BACKOFF] failures in a row a pack is tried at most once per [FAILED_PACK_RETRY_MS]. */
+    private fun backedOff(f: PackFailure?, now: Long) =
+        f != null && f.count >= FAILS_BEFORE_BACKOFF && now - f.lastMs in 0 until FAILED_PACK_RETRY_MS
+
+    /** One line per skipped pack: its app-folder path and the reason (a DiskException names the path only, no token). */
+    private fun skip(failing: MutableMap<String, PackFailure>, k: String, path: String, reason: String, now: Long) {
+        val n = (failing[k]?.count ?: 0) + 1
+        failing[k] = PackFailure(n, now)
+        skipped++
+        log("pack $path skipped this run ($reason), failure $n")
+    }
+
+    /** A plain IOException's message may carry a download link: only its class is told. */
+    private fun reasonOf(e: IOException): String = if (e is DiskException) e.message ?: e.javaClass.simpleName else e.javaClass.simpleName
+
+    /**
+     * Bytes that do not match the sha256 the listing gave (damaged on the way, or rewritten since the listing): asked only of
+     * a pack that did not open, so a listing whose sha256 means something else can never stop a pack that opens.
+     */
+    private fun damaged(p: PackItem, bytes: ByteArray): Boolean =
+        SHA256_HEX.matches(p.sha) && !Primitives.sha256(bytes).toHex().equals(p.sha, ignoreCase = true)
 
     private suspend fun download(listing: Map<DeviceId, List<PackItem>>, start: MembershipState, cursor: CloudCursor): Pair<Int, CloudCursor> {
         var membership = start
         val seen = cursor.seen.toMutableMap()
+        val now = clock()
+        // Task 14: packs the Disk would not hand out; a pack failing again and again waits (see [backedOff]).
+        val failing = cursor.failing.toMutableMap()
         // Deferred packs (author, key generation or key unknown) are not final: kept apart from [seen], retried once the ring
         // holds a key that may open them.
         val deferred = cursor.deferred.toMutableMap()
@@ -564,10 +623,11 @@ class CloudSync(
             .filter { (device, p) ->
                 val k = key(device, p)
                 val unread = seen[k] == COVERED_UNREAD && generationMatters(ringAtStart)
-                (k !in seen || unread) && retryNow(deferred[k], ringAtStart, membership)
+                (k !in seen || unread) && retryNow(deferred[k], ringAtStart, membership) && !backedOff(failing[k], now)
             }
             .sortedWith(compareBy({ it.first }, { it.second.range.first }))
         var received = 0
+        var ingested = false
         var round = 0
         while (pending.isNotEmpty() && round++ < MAX_ROUNDS) {
             val next = mutableListOf<Pair<DeviceId, PackItem>>()
@@ -581,19 +641,25 @@ class CloudSync(
                     deferred.remove(k)
                     continue
                 }
-                // Only the hostile part of a file (download, decoding, opening) is guarded: a file that fails there is marked
+                // Task 14: a file the Disk would not hand out is skipped for this run, never the run itself.
+                val path = "${CloudPaths.deviceDir(groupId, device)}/${p.name}"
+                val bytes = try {
+                    disk.download(path)
+                } catch (e: DiskException.NotFound) {
+                    continue // compacted away since the listing
+                } catch (e: IOException) {
+                    if (!perFile(e)) throw e
+                    skip(failing, k, path, reasonOf(e), now)
+                    continue
+                }
+                // Only the hostile part of a file (decoding, opening) is guarded: a file that fails there is marked
                 // seen = -1. Local store errors below propagate and abort the run, leaving the pack unseen.
-                val fetched = guarded(seen, deferred, device, p) {
-                    val bytes = try {
-                        disk.download("${CloudPaths.deviceDir(groupId, device)}/${p.name}")
-                    } catch (e: DiskException.NotFound) {
-                        return@guarded null // compacted away since the listing
-                    }
+                val fetched = guarded(seen, deferred, failing, device, p, bytes, now) {
                     Fetched(bytes, PackCodec.epochOf(bytes), PackCodec.keyUpdates(bytes))
                 } ?: continue
                 if (!covered) membership = learnKeyUpdates(fetched.updates, membership)
                 val held = ring.keys() // outside the guard: a ring failure is ours, not the file's
-                val outcome = guarded(seen, deferred, device, p) {
+                val outcome = guarded(seen, deferred, failing, device, p, bytes, now) {
                     PackCodec.open(fetched.bytes, held, groupId, device, membership, expected = p.range)
                 } ?: continue
                 when (outcome) {
@@ -608,13 +674,15 @@ class CloudSync(
                         deferred[k] = DeferredPack(outcome.epoch)
                         next += device to p
                     }
-                    is PackOutcome.KeyMismatch -> {
+                    // Bytes damaged on the way look like a wrong key or a forgery: read again, never deferred or rejected.
+                    is PackOutcome.KeyMismatch, is PackOutcome.Rejected -> if (damaged(p, fetched.bytes)) {
+                        skip(failing, k, path, DAMAGED, now)
+                    } else if (outcome is PackOutcome.KeyMismatch) {
                         log("pack ${device.hex.take(8)}/${p.name} does not open under our key of generation ${outcome.epoch}")
                         deferred[k] = DeferredPack(outcome.epoch, GroupKey.fingerprint(held.getValue(outcome.epoch)))
                         next += device to p
-                    }
-                    is PackOutcome.Rejected -> {
-                        log("rejected pack ${device.hex.take(8)}/${p.name}: ${outcome.reason}")
+                    } else {
+                        log("rejected pack ${device.hex.take(8)}/${p.name}: ${(outcome as PackOutcome.Rejected).reason}")
                         seen[k] = REJECTED
                         deferred.remove(k)
                     }
@@ -627,6 +695,7 @@ class CloudSync(
                         if (r.first !== membership) absorbRotation(r.first)
                         membership = r.first
                         received += r.second
+                        ingested = true
                         seen[k] = outcome.pack.epoch
                         deferred.remove(k)
                     }
@@ -643,6 +712,9 @@ class CloudSync(
         val allKeys = listed.map { it.second }.toSet() + listing[self].orEmpty().map { key(self, it) }
         val keptSeen = seen.filterKeys { it in allKeys }
         val keptDeferred = deferred.filterKeys { it in allKeys && it !in keptSeen }
+        val keptFailing = failing.filterKeys { it in allKeys && it !in keptSeen && it !in keptDeferred }
+        // A pack read after a skipped one of its author could not complete the author's log; read now, the gap may be gone.
+        if (ingested) completeHealedGaps(listing, keptSeen)
         // Spec §5: keep a previous generation only while files sealed with it remain (and the CloudAccess is sealed with it).
         // Only packs of members count: a folder planted by a token holder must not keep an old key alive. A covered pack
         // skipped unread has an unknown generation: it blocks dropping while the ring holds a key nothing pins.
@@ -661,7 +733,28 @@ class CloudSync(
                 .filter { it >= 0 }.toSet()
             ring.retain(inUse + keep)
         }
-        return received to cursor.copy(seen = keptSeen, deferred = keptDeferred)
+        return received to cursor.copy(seen = keptSeen, deferred = keptDeferred, failing = keptFailing)
+    }
+
+    /**
+     * Task 14: a pack opened while an earlier one of its author was skipped was ingested, but its signed range could not
+     * complete the author (we did not hold everything below it). Walks each author's opened packs in order and completes
+     * every signed range that now starts right above what we hold, as [ingest] would have.
+     */
+    private suspend fun completeHealedGaps(listing: Map<DeviceId, List<PackItem>>, seen: Map<String, Int>) {
+        if (!policy.showOthers) return
+        val vector = store.versionVector()
+        for ((device, items) in listing) {
+            if (device == self) continue
+            var top = vector[device]
+            for (p in items.sortedBy { it.range.first }) {
+                if ((seen[key(device, p)] ?: continue) < 0) continue
+                if (p.range.first - 1 <= top && p.range.last > top) {
+                    store.completeAuthor(device, p.range.last)
+                    top = p.range.last
+                }
+            }
+        }
     }
 
     /**
@@ -767,6 +860,13 @@ class CloudSync(
 
         /** After its newest LOCATION is past retention, a pack is re-sealed this much later (a clock step, a late run). */
         const val LOCATION_MARGIN_MS = 60L * 60 * 1000
+
+        /** Task 14: failures in a row after which a pack the Disk would not hand out waits [FAILED_PACK_RETRY_MS]. */
+        const val FAILS_BEFORE_BACKOFF = 3
+        const val FAILED_PACK_RETRY_MS = 60L * 60 * 1000
+
+        private const val DAMAGED = "bytes do not match the listing"
+        private val SHA256_HEX = Regex("^[0-9a-fA-F]{64}$")
 
         /** [CloudCursor.seen] value of a pack that did not open and never will. */
         const val REJECTED = -1

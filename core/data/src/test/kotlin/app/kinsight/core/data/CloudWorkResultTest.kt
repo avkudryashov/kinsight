@@ -124,4 +124,14 @@ class CloudWorkResultTest {
         // A full Disk still reads the others: what it brought gets its alerts too.
         assertEquals(true, CloudWork.alertsNeeded(CloudRunOutcome(CloudRun.STORAGE_FULL, received = 2)))
     }
+
+    /** Task 14: only a synced run that skipped a pack the Disk would not hand out queues a follow-up run. */
+    @Test
+    fun onlyASyncedRunThatSkippedAPackQueuesAFollowUp() {
+        assertEquals(true, CloudWork.retrySkippedNeeded(CloudRunOutcome(CloudRun.SYNCED, received = 0, skipped = 1)))
+        assertEquals(false, CloudWork.retrySkippedNeeded(CloudRunOutcome(CloudRun.SYNCED, received = 4)))
+        for (run in CloudRun.entries - CloudRun.SYNCED) {
+            assertEquals(false, CloudWork.retrySkippedNeeded(CloudRunOutcome(run, received = 0, skipped = 1)), run.name)
+        }
+    }
 }

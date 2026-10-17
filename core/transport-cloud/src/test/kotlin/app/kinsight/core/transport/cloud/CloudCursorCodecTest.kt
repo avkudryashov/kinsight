@@ -21,6 +21,7 @@ class CloudCursorCodecTest {
                 "m/n/o" to DeferredPack(3),
             ),
             locationDue = mapOf(CloudPaths.packName(1, 41) to 1_760_172_800_000L),
+            failing = mapOf("p/q/r" to PackFailure(3, 1_760_000_123_000L)),
         )
         assertEquals(c, CloudCursorCodec.decode(CloudCursorCodec.encode(c)))
         assertEquals(CloudCursor(), CloudCursorCodec.decode(CloudCursorCodec.encode(CloudCursor())))
@@ -64,9 +65,19 @@ class CloudCursorCodecTest {
     @Test
     fun aVersionOneCursorReadsWithoutLocationDue() {
         val c = CloudCursor(uploadedUpTo = 7, ownPacks = mapOf(CloudPaths.packName(1, 7) to KeyId(0, "00ff")))
-        val v2 = CloudCursorCodec.encode(c)
-        // Version 1 is version 2 without the trailing empty locationDue count.
-        val v1 = v2.copyOf(v2.size - 4).also { it[0] = 1 }
+        val v3 = CloudCursorCodec.encode(c)
+        // Version 1 is version 3 without the trailing empty locationDue and failing counts.
+        val v1 = v3.copyOf(v3.size - 8).also { it[0] = 1 }
         assertEquals(c, CloudCursorCodec.decode(v1))
+    }
+
+    /** A cursor written before Task 14 (version 2) reads with no pack failing. */
+    @Test
+    fun aVersionTwoCursorReadsWithoutFailingPacks() {
+        val c = CloudCursor(uploadedUpTo = 7, locationDue = mapOf(CloudPaths.packName(1, 7) to 9L))
+        val v3 = CloudCursorCodec.encode(c)
+        // Version 2 is version 3 without the trailing empty failing count.
+        val v2 = v3.copyOf(v3.size - 4).also { it[0] = 2 }
+        assertEquals(c, CloudCursorCodec.decode(v2))
     }
 }

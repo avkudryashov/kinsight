@@ -34,6 +34,13 @@ data class KeyId(val epoch: Int, val fingerprint: String) {
 data class DeferredPack(val epoch: Int, val failedKey: String? = null, val membershipHash: String? = null)
 
 /**
+ * A pack the Disk would not hand out (Task 14: a storage 5xx, a dropped read, bytes that do not match the listing):
+ * [count] failures in a row, the last at [lastMs] on the sync's clock. Not final: read again at the next run, and after
+ * CloudSync.FAILS_BEFORE_BACKOFF failures at most once per CloudSync.FAILED_PACK_RETRY_MS.
+ */
+data class PackFailure(val count: Int, val lastMs: Long)
+
+/**
  * Per-device cloud progress. [uploadedUpTo]: own seqs up to here are in packs on the Disk. [seen]: packs already handled,
  * "<device>/<name>/<sha256>" to the key generation they were sealed with (-1 when they did not open, -2 when skipped as
  * covered by their name without reading the generation), pruned to the last listing. [lastCompactionMs]: wall clock of the
@@ -41,7 +48,8 @@ data class DeferredPack(val epoch: Int, val failedKey: String? = null, val membe
  * could not be opened yet (unknown author, key generation or key), same keys as [seen]; retried once the ring holds a key
  * that may open them, and they keep their generation in the ring. [locationDue]: own packs that carry LOCATION entries
  * to the wall clock time when every one of them is past the 48 h retention (spec §8); the pack is re-sealed once then,
- * without them, and leaves the map ("location-clean"). A pack not in the map carries none.
+ * without them, and leaves the map ("location-clean"). A pack not in the map carries none. [failing]: packs skipped
+ * because the Disk would not hand them out, same keys as [seen], never in [seen]; pruned to the last listing.
  */
 data class CloudCursor(
     val uploadedUpTo: Long = 0,
@@ -50,6 +58,7 @@ data class CloudCursor(
     val ownPacks: Map<String, KeyId> = emptyMap(),
     val deferred: Map<String, DeferredPack> = emptyMap(),
     val locationDue: Map<String, Long> = emptyMap(),
+    val failing: Map<String, PackFailure> = emptyMap(),
 )
 
 interface CloudCursorStore {
@@ -71,9 +80,11 @@ class InMemoryCursorStore(var cursor: CloudCursor = CloudCursor()) : CloudCursor
  * The cursor at rest (Y2: one Room row). Version byte, then the fields in declaration order, maps as a count and their
  * entries. [decode] throws IOException for anything it did not write, including a cut or longer buffer. Version 1 (before
  * Y4) has no [CloudCursor.locationDue]: no own pack carried a LOCATION entry then, so it decodes to an empty map.
+ * Version 2 (before Task 14) has no [CloudCursor.failing]: it decodes to an empty map.
  */
 object CloudCursorCodec {
-    private const val VERSION = 2
+    private const val VERSION = 3
+    private const val VERSION_2 = 2
     private const val VERSION_1 = 1
     private const val MAX_ITEMS = 1_000_000
 
@@ -106,6 +117,12 @@ object CloudCursorCodec {
                 o.writeUTF(k)
                 o.writeLong(v)
             }
+            o.writeInt(c.failing.size)
+            for ((k, v) in c.failing) {
+                o.writeUTF(k)
+                o.writeInt(v.count)
+                o.writeLong(v.lastMs)
+            }
         }
         return bytes.toByteArray()
     }
@@ -114,15 +131,16 @@ object CloudCursorCodec {
         val input = ByteArrayInputStream(bytes)
         val i = DataInputStream(input)
         val version = i.readUnsignedByte()
-        if (version != VERSION && version != VERSION_1) throw IOException("unknown cloud cursor version")
+        if (version != VERSION && version != VERSION_2 && version != VERSION_1) throw IOException("unknown cloud cursor version")
         val uploaded = i.readLong()
         val compaction = i.readLong()
         val seen = i.readMap { readInt() }
         val own = i.readMap { KeyId(readInt(), readUTF()) }
         val deferred = i.readMap { DeferredPack(readInt(), readOptional(), readOptional()) }
         val due = if (version == VERSION_1) emptyMap() else i.readMap { readLong() }
+        val failing = if (version == VERSION) i.readMap { PackFailure(readInt(), readLong()) } else emptyMap()
         if (input.available() != 0) throw IOException("trailing bytes in cloud cursor")
-        return CloudCursor(uploaded, seen, compaction, own, deferred, due)
+        return CloudCursor(uploaded, seen, compaction, own, deferred, due, failing)
     }
 
     /** A key written twice never comes from [encode] (it writes a map): refused rather than collapsed. */

@@ -39,8 +39,11 @@ enum class CloudTrigger { PERIODIC, NOW }
 
 enum class CloudRun { OFF, SKIPPED, SYNCED, NO_ACCESS, UNAUTHORIZED, STORAGE_FULL, RETRY }
 
-/** A run and how many entries of others it brought (Y4 final review: a zone exit raises its alert at once, spec §9). */
-data class CloudRunOutcome(val run: CloudRun, val received: Int)
+/**
+ * A run and how many entries of others it brought (Y4 final review: a zone exit raises its alert at once, spec §9).
+ * [skipped]: packs the Disk would not hand out in a synced run (Task 14); a follow-up run reads them again.
+ */
+data class CloudRunOutcome(val run: CloudRun, val received: Int, val skipped: Int = 0)
 
 /**
  * One cloud run of this device (spec §9, §11): nothing without a storage owner; a child's periodic run only when its own
@@ -126,12 +129,16 @@ class CloudRunner(
     /** [run], with the number of entries of others the sync brought (read under the same [runLock] hold). */
     suspend fun runCounted(trigger: CloudTrigger): CloudRunOutcome = runLock.withLock {
         received = 0
+        skipped = 0
         val run = runLocked(trigger)
-        CloudRunOutcome(run, received)
+        CloudRunOutcome(run, received, if (run == CloudRun.SYNCED) skipped else 0)
     }
 
     /** Entries of others the current run's sync brought; written and read only under [runLock]. */
     private var received = 0
+
+    /** Packs the current run's sync skipped (Task 14); written and read only under [runLock]. */
+    private var skipped = 0
 
     private suspend fun runLocked(trigger: CloudTrigger): CloudRun {
         val group = withContext(io) { groups.read() } ?: return CloudRun.OFF
@@ -210,7 +217,10 @@ class CloudRunner(
         val syncedGeneration = if (access != null) owner.generation else previous!!.storageGeneration
         val ownedStorage = if (isOwner) owner.storageId.toByteArray() else null
         val result = sync(store, k, membership, ring, cursors, accessToken, ownedStorage)
-        if (result is CloudResult.Synced) received = result.received
+        if (result is CloudResult.Synced) {
+            received = result.received
+            skipped = result.skipped
+        }
         if (result is CloudResult.StorageFull) received = result.received
         observeOwner(store, membership, now)
         val after = Membership.compute(group.groupId, store.membershipEntries())
