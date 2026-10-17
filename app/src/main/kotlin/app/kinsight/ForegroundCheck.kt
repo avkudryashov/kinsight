@@ -18,15 +18,27 @@ object ForegroundCheck {
         if (registered.compareAndSet(false, true)) app.registerActivityLifecycleCallbacks(Watch(onForeground))
     }
 
-    /** Counts started activities on the main thread; 0 to 1 is the app coming to the foreground. */
+    /**
+     * Counts started activities on the main thread; 0 to 1 is the app coming to the foreground. An activity stopped only
+     * to be recreated (rotation, dark mode, locale) is no trip to the background: its new instance's start is not counted.
+     */
     class Watch(private val onForeground: (Context) -> Unit) : Application.ActivityLifecycleCallbacks {
         private var started = 0
+        private var recreating = 0
 
         override fun onActivityStarted(activity: Activity) {
+            if (recreating > 0) {
+                recreating--
+                return
+            }
             if (started++ == 0) onForeground(activity.applicationContext)
         }
 
         override fun onActivityStopped(activity: Activity) {
+            if (activity.isChangingConfigurations) {
+                recreating++
+                return
+            }
             if (started > 0) started--
         }
 
