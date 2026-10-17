@@ -45,7 +45,7 @@
     <string name="onb_notifications_body_child">Kinsight siempre muestra una notificación que dice que este teléfono está en un grupo familiar de Kinsight y quién ve tus datos. Kinsight también te avisa cuando se une un adulto nuevo. Si desactivas las notificaciones, tu familia verá que la notificación está desactivada en este teléfono.</string>
     <string name="onb_notifications_body_parent">Kinsight muestra una notificación mientras sincroniza, te avisa cuando se desactiva algo en el teléfono del menor o se pierde el contacto con él, y envía un resumen diario.</string>
     <string name="onb_battery_title">Mantén Kinsight en funcionamiento</string>
-    <string name="onb_battery_body">Algunos teléfonos detienen las aplicaciones en segundo plano. Deja que Kinsight funcione sin restricciones de batería para que los teléfonos de tu familia sigan sincronizados.</string>
+    <string name="onb_battery_body">Algunos teléfonos detienen las aplicaciones en segundo plano. Deja que Kinsight funcione sin restricciones de batería para que la aplicación no se detenga en segundo plano.</string>
     <string name="onb_battery_open">Abrir los ajustes de batería</string>
     <string name="onb_battery_ok">Kinsight ya funciona sin restricciones de batería.</string>
     <string name="onb_battery_samsung">Ajustes → Batería → Límites de uso en segundo plano → Aplicaciones que nunca entran en suspensión → añade Kinsight. Además: Ajustes → Aplicaciones → Kinsight → Batería → Sin restricciones.</string>
@@ -76,4 +76,10 @@
     <string name="onb_open_settings">Abrir los ajustes de la aplicación</string>
     <string name="onb_nearby_blocked">El permiso «Dispositivos cercanos» está desactivado para Kinsight y Android no volverá a preguntar. Abre los ajustes de la aplicación y luego Permisos → Dispositivos cercanos → Permitir.</string>
     <string name="onb_done_body_joined_parent">Este teléfono está en tu grupo familiar. Mostrará el tiempo de pantalla de los menores en cuanto sus teléfonos se sincronicen.</string>
+    <string name="onb_later">Más tarde</string>
+    <string name="onb_location_title">Dónde está el teléfono</string>
+    <string name="onb_location_body">Para que los adultos de tu familia vean dónde está el teléfono y sepan cuándo sales de una zona segura, Kinsight necesita la ubicación precisa. Android te lo preguntará ahora: elige «Precisa» y «Mientras se usa la app».</string>
+    <string name="onb_location_agree">Permitir</string>
+    <string name="onb_background_title">Ubicación en segundo plano</string>
+    <string name="onb_background_body">El teléfono avisa de que sales de una zona con Kinsight cerrado solo si la ubicación está permitida siempre. Ahora se abrirán los ajustes: elige «Permitir todo el tiempo».</string>
 </resources>

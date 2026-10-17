@@ -162,6 +162,9 @@ class OnboardingViewModel(
             Step.NOTIFICATIONS -> env.notificationsGranted
             Step.USAGE_ACCESS -> env.usageAccessGranted
             Step.CAMERA -> env.cameraGranted
+            Step.LOCATION -> env.locationPrecise
+            Step.LOCATION_BACKGROUND -> env.locationAlways
+            Step.BATTERY -> env.batteryUnrestricted
             else -> false
         }
         if (granted) next()
@@ -200,6 +203,13 @@ class OnboardingViewModel(
         this.env = env
         envKnown = true
         if (_state.value.step == Step.CAMERA) next()
+    }
+
+    /** A location request (precise, or «all the time») returned, granted or not: go on («Позже» is the other way). */
+    fun onLocationResult(env: Env) {
+        this.env = env
+        envKnown = true
+        if (_state.value.step == Step.LOCATION || _state.value.step == Step.LOCATION_BACKGROUND) next()
     }
 
     /** A new choice drops whatever an earlier path left: create never carries an invite or a consent. */

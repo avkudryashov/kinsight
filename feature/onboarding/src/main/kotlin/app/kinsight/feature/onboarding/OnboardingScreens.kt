@@ -205,6 +205,7 @@ fun DisclosureScreen(
     onNotNow: () -> Unit,
     note: String? = null,
     onOpenSettings: (() -> Unit)? = null,
+    notNowLabel: String? = null,
 ) = Page(
     title = title,
     actions = {
@@ -213,7 +214,7 @@ fun DisclosureScreen(
         } else {
             Primary(agreeLabel, "onb_agree", onAgree)
         }
-        Secondary(stringResource(R.string.onb_not_now), "onb_not_now", onNotNow)
+        Secondary(notNowLabel ?: stringResource(R.string.onb_not_now), "onb_not_now", onNotNow)
     },
 ) {
     Body(body)
@@ -248,12 +249,17 @@ internal fun ScanScreen(
     message?.let { ErrorNote(it) }
 }
 
+/** UI refresh §6 step 4: the honest reason, the way to the settings, «Позже»; «Продолжить» once Kinsight is unrestricted. */
 @Composable
 fun BatteryScreen(vendor: BatteryVendor, unrestricted: Boolean, onOpenSettings: () -> Unit, onNext: () -> Unit) = Page(
     title = stringResource(R.string.onb_battery_title),
     actions = {
-        if (!unrestricted) Secondary(stringResource(R.string.onb_battery_open), "onb_battery_open", onOpenSettings)
-        Primary(stringResource(R.string.onb_continue), "onb_continue", onNext)
+        if (unrestricted) {
+            Primary(stringResource(R.string.onb_continue), "onb_continue", onNext)
+        } else {
+            Primary(stringResource(R.string.onb_battery_open), "onb_battery_open", onOpenSettings)
+            Secondary(stringResource(R.string.onb_later), "onb_later", onNext)
+        }
     },
 ) {
     Body(stringResource(R.string.onb_battery_body))

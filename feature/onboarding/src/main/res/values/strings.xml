@@ -45,7 +45,7 @@
     <string name="onb_notifications_body_child">Kinsight always shows a notification saying that this phone is in a Kinsight family group and who sees your data. Kinsight also tells you when a new parent joins. If you turn notifications off, your family will see that the notification is off on this phone.</string>
     <string name="onb_notifications_body_parent">Kinsight shows a notification while it syncs, tells you when something is turned off on a child\'s phone or it is out of contact, and sends a daily summary.</string>
     <string name="onb_battery_title">Keep Kinsight running</string>
-    <string name="onb_battery_body">Some phones stop apps in the background. Let Kinsight run without battery restrictions so your family\'s phones stay in sync.</string>
+    <string name="onb_battery_body">Some phones stop apps in the background. Let Kinsight run without battery restrictions so that the app is not stopped in the background.</string>
     <string name="onb_battery_open">Open battery settings</string>
     <string name="onb_battery_ok">Kinsight already runs without battery restrictions.</string>
     <string name="onb_battery_samsung">Settings → Battery → Background usage limits → Never sleeping apps → add Kinsight. Also: Settings → Apps → Kinsight → Battery → Unrestricted.</string>
@@ -76,4 +76,10 @@
     <string name="onb_open_settings">Open app settings</string>
     <string name="onb_nearby_blocked">Nearby devices is turned off for Kinsight and Android will not ask again. Open the app\'s settings, then Permissions → Nearby devices → Allow.</string>
     <string name="onb_done_body_joined_parent">This phone is in your family group. It shows your children\'s screen time once their phones sync.</string>
+    <string name="onb_later">Later</string>
+    <string name="onb_location_title">Where the phone is</string>
+    <string name="onb_location_body">So that your parents see where the phone is and hear when you leave a safe zone, Kinsight needs the precise location. Android will ask now: choose “Precise” and “While using the app”.</string>
+    <string name="onb_location_agree">Allow</string>
+    <string name="onb_background_title">Location in the background</string>
+    <string name="onb_background_body">The phone reports leaving a zone while Kinsight is closed only if location is allowed all the time. The settings open now: choose “Allow all the time”.</string>
 </resources>

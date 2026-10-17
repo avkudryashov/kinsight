@@ -41,6 +41,8 @@ import app.kinsight.core.data.Graph
 import app.kinsight.core.data.GroupState
 import app.kinsight.core.data.Role
 import app.kinsight.core.designsystem.openPrivacyPolicy
+import app.kinsight.core.location.LocationGraph
+import app.kinsight.core.location.LocationPermissions
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.sync.pairing.Invite
 import app.kinsight.core.transport.ble.BlePermissions
@@ -59,6 +61,9 @@ internal fun readEnv(context: Context) = Env(
         context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
     usageAccessGranted = AppOpsUsageAccess(context).granted(),
     cameraGranted = context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED,
+    locationPrecise = LocationPermissions.foregroundGranted(context),
+    locationAlways = LocationPermissions.state(context) == LocationPermissions.State.ALWAYS,
+    batteryUnrestricted = unrestrictedBattery(context),
 )
 
 internal fun unrestrictedBattery(context: Context): Boolean =
@@ -176,6 +181,14 @@ fun OnboardingRoute(
         cameraBlocked = cameraBlocked(granted, activity)
         vm.onCameraResult(readEnv(context))
     }
+    // A grant starts the location tracking now (as Settings' location row does), then the flow goes on either way.
+    val locationAnswered: () -> Unit = {
+        LocationGraph.refresh(context, rearm = true)
+        AppGraph.get(context).launchLocationCheck()
+        vm.onLocationResult(readEnv(context))
+    }
+    val location = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { locationAnswered() }
+    val background = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { locationAnswered() }
     if (!restored) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         return
@@ -234,6 +247,22 @@ fun OnboardingRoute(
                 onAgree = { openUsageAccessSettings(context) },
                 onNotNow = vm::next,
             )
+            Step.LOCATION -> DisclosureScreen(
+                title = stringResource(R.string.onb_location_title),
+                body = stringResource(R.string.onb_location_body),
+                agreeLabel = stringResource(R.string.onb_location_agree),
+                onAgree = { location.launch(LocationPermissions.FOREGROUND) },
+                onNotNow = vm::next,
+                notNowLabel = stringResource(R.string.onb_later),
+            )
+            Step.LOCATION_BACKGROUND -> DisclosureScreen(
+                title = stringResource(R.string.onb_background_title),
+                body = stringResource(R.string.onb_background_body),
+                agreeLabel = stringResource(R.string.onb_open_settings),
+                onAgree = { background.launch(LocationPermissions.BACKGROUND) },
+                onNotNow = vm::next,
+                notNowLabel = stringResource(R.string.onb_later),
+            )
             Step.NOTIFICATIONS -> DisclosureScreen(
                 title = stringResource(R.string.onb_notifications_title),
                 body = stringResource(if (child) R.string.onb_notifications_body_child else R.string.onb_notifications_body_parent),
@@ -261,7 +290,7 @@ fun OnboardingRoute(
  * (Overview's card): only the version moves, the first consent time stays (ruling P5).
  */
 @Composable
-fun ConsentRoute(onDone: () -> Unit) {
+fun ConsentRoute(onDone: () -> Unit, onAgreed: () -> Unit = onDone) {
     val context = LocalContext.current
     val graph = remember { AppGraph.get(context) }
     val group by graph.group.state.collectAsState(initial = GroupState.Loading)
@@ -283,7 +312,7 @@ fun ConsentRoute(onDone: () -> Unit) {
                 try {
                     // Roadmap Y5: a child that agreed to the older text agrees to this one; sharing stays as it was.
                     graph.settingsRepository.agreeToConsent()
-                    onDone()
+                    onAgreed()
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
