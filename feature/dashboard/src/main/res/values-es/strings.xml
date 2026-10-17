@@ -12,8 +12,8 @@
     <string name="dash_start">Iniciar la sincronización</string>
     <string name="dash_no_permission">La sincronización necesita el permiso «Dispositivos cercanos». Permítelo en los ajustes de la aplicación.</string>
     <string name="dash_bluetooth_off">El Bluetooth está desactivado. Actívalo para sincronizar.</string>
-    <string name="dash_storage_error">Problema con el almacenamiento seguro: la sincronización no puede funcionar en este teléfono. En los ajustes de Kinsight, abre «Diagnóstico» o usa «Desconectar este teléfono y volver a emparejarlo».</string>
-    <string name="dash_open_kinsight_settings">Abrir los ajustes de Kinsight</string>
+    <string name="dash_storage_error">Problema con el almacenamiento seguro: la sincronización no puede funcionar en este teléfono. En Más → Sincronización, abre «Diagnóstico» o usa «Desconectar este teléfono y volver a emparejarlo».</string>
+    <string name="dash_open_kinsight_settings">Abrir Sincronización</string>
     <string name="dash_sync_now">Sincronizar ahora</string>
     <string name="dash_radio_error">Error de Bluetooth. La sincronización se reintentará sola.</string>
     <string name="dash_empty_title">Todavía no hay menores</string>

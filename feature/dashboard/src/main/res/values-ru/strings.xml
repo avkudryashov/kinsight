@@ -12,8 +12,8 @@
     <string name="dash_start">Запустить синхронизацию</string>
     <string name="dash_no_permission">Для синхронизации нужно разрешение «Устройства поблизости». Разрешите его в настройках приложения.</string>
     <string name="dash_bluetooth_off">Bluetooth выключен. Включите его для синхронизации.</string>
-    <string name="dash_storage_error">Сбой защищённого хранилища: синхронизация на этом телефоне не работает. В настройках Kinsight откройте «Диагностику» или нажмите «Отключить этот телефон и подключить заново».</string>
-    <string name="dash_open_kinsight_settings">Открыть настройки Kinsight</string>
+    <string name="dash_storage_error">Сбой защищённого хранилища: синхронизация на этом телефоне не работает. В разделе Ещё → Синхронизация откройте «Диагностику» или нажмите «Отключить этот телефон и подключить заново».</string>
+    <string name="dash_open_kinsight_settings">Открыть синхронизацию</string>
     <string name="dash_sync_now">Синхронизировать сейчас</string>
     <string name="dash_radio_error">Ошибка Bluetooth. Синхронизация повторится сама.</string>
     <string name="dash_empty_title">Детей пока нет</string>

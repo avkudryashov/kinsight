@@ -12,8 +12,8 @@
     <string name="dash_start">Start sync</string>
     <string name="dash_no_permission">Sync needs the Nearby devices permission. Allow it in the app settings.</string>
     <string name="dash_bluetooth_off">Bluetooth is off. Turn it on to sync.</string>
-    <string name="dash_storage_error">Secure storage problem: sync cannot run on this phone. In Kinsight settings, open Diagnostics or use “Disconnect this phone and pair again”.</string>
-    <string name="dash_open_kinsight_settings">Open Kinsight settings</string>
+    <string name="dash_storage_error">Secure storage problem: sync cannot run on this phone. In More → Sync, open Diagnostics or use “Disconnect this phone and pair again”.</string>
+    <string name="dash_open_kinsight_settings">Open Sync</string>
     <string name="dash_sync_now">Sync now</string>
     <string name="dash_radio_error">Bluetooth error. Sync will retry by itself.</string>
     <string name="dash_empty_title">No children yet</string>

@@ -30,7 +30,7 @@
     <string name="onb_nearby_body">Kinsight finds your family\'s phones nearby over Bluetooth and exchanges screen time with them. Kinsight does not use Bluetooth to find out where you are.</string>
     <string name="onb_nearby_required">To join a group, Kinsight needs Nearby devices. Tap Agree and allow it, or allow it in the app\'s settings.</string>
     <string name="onb_scan_title">Scan the invitation</string>
-    <string name="onb_scan_body">On the admin\'s phone open Group, tap an invite button and scan the QR code shown there. You can also scan it with this phone\'s camera app.</string>
+    <string name="onb_scan_body">On the admin\'s phone open More → Family, tap an invite button and scan the QR code shown there. You can also scan it with this phone\'s camera app.</string>
     <string name="onb_scan_invalid">This is not a Kinsight invitation.</string>
     <string name="onb_scan_unsupported">This invitation is from another version of Kinsight. Update Kinsight on both phones.</string>
     <string name="onb_scan_unavailable">The camera could not be opened. Scan the code with this phone\'s camera app.</string>
@@ -57,7 +57,7 @@
     <string name="onb_battery_vivo">Settings → Battery → Background power consumption management → Kinsight → Allow.</string>
     <string name="onb_battery_other">Tap the button below, then: App info → App battery usage → Unrestricted. The exact path depends on the phone maker.</string>
     <string name="onb_done_title">All set</string>
-    <string name="onb_done_body_parent">Next: invite your child\'s phone from the Group tab.</string>
+    <string name="onb_done_body_parent">Next: invite your child\'s phone in More → Family.</string>
     <string name="onb_done_body_child">This phone is in your family group.</string>
     <string name="onb_done_open">Open Kinsight</string>
     <string name="onb_create_failed">Could not create the group. Open More → Sync → Diagnostics on this phone.</string>

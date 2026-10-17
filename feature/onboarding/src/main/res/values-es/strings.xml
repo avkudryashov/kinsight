@@ -30,7 +30,7 @@
     <string name="onb_nearby_body">Kinsight encuentra por Bluetooth los teléfonos de tu familia que están cerca e intercambia con ellos el tiempo de pantalla. Kinsight no usa el Bluetooth para saber dónde estás.</string>
     <string name="onb_nearby_required">Para unirse a un grupo, Kinsight necesita el permiso «Dispositivos cercanos». Toca «Aceptar» y permítelo, o permítelo en los ajustes de la aplicación.</string>
     <string name="onb_scan_title">Escanea la invitación</string>
-    <string name="onb_scan_body">En el teléfono del administrador, abre «Grupo», toca un botón de invitación y escanea el código QR que aparece. También puedes escanearlo con la aplicación de cámara de este teléfono.</string>
+    <string name="onb_scan_body">En el teléfono del administrador, abre Más → Familia, toca un botón de invitación y escanea el código QR que aparece. También puedes escanearlo con la aplicación de cámara de este teléfono.</string>
     <string name="onb_scan_invalid">Esto no es una invitación de Kinsight.</string>
     <string name="onb_scan_unsupported">Esta invitación es de otra versión de Kinsight. Actualiza Kinsight en los dos teléfonos.</string>
     <string name="onb_scan_unavailable">No se ha podido abrir la cámara. Escanea el código con la aplicación de cámara de este teléfono.</string>
@@ -57,7 +57,7 @@
     <string name="onb_battery_vivo">Ajustes → Batería → Gestión del consumo en segundo plano → Kinsight → Permitir.</string>
     <string name="onb_battery_other">Toca el botón de abajo y luego: Información de la aplicación → Uso de batería de la aplicación → Sin restricciones. La ruta exacta depende del fabricante del teléfono.</string>
     <string name="onb_done_title">Todo listo</string>
-    <string name="onb_done_body_parent">Siguiente paso: invita al teléfono de un menor desde la pestaña «Grupo».</string>
+    <string name="onb_done_body_parent">Siguiente paso: invita al teléfono de un menor en Más → Familia.</string>
     <string name="onb_done_body_child">Este teléfono está en tu grupo familiar.</string>
     <string name="onb_done_open">Abrir Kinsight</string>
     <string name="onb_create_failed">No se ha podido crear el grupo. Abre Más → Sincronización → Diagnóstico en este teléfono.</string>

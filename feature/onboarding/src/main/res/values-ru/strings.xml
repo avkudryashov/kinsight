@@ -30,7 +30,7 @@
     <string name="onb_nearby_body">Kinsight находит телефоны вашей семьи рядом по Bluetooth и обменивается с ними экранным временем. Kinsight не определяет по Bluetooth, где вы находитесь.</string>
     <string name="onb_nearby_required">Чтобы вступить в группу, Kinsight нужно разрешение «Устройства поблизости». Нажмите «Принимаю» и разрешите его или включите в настройках приложения.</string>
     <string name="onb_scan_title">Отсканируйте приглашение</string>
-    <string name="onb_scan_body">На телефоне администратора откройте «Группа», нажмите кнопку приглашения и отсканируйте показанный QR-код. Можно отсканировать его и приложением камеры этого телефона.</string>
+    <string name="onb_scan_body">На телефоне администратора откройте Ещё → Семья, нажмите кнопку приглашения и отсканируйте показанный QR-код. Можно отсканировать его и приложением камеры этого телефона.</string>
     <string name="onb_scan_invalid">Это не приглашение Kinsight.</string>
     <string name="onb_scan_unsupported">Приглашение от другой версии Kinsight. Обновите Kinsight на обоих телефонах.</string>
     <string name="onb_scan_unavailable">Камеру не удалось открыть. Отсканируйте код приложением камеры этого телефона.</string>
@@ -57,7 +57,7 @@
     <string name="onb_battery_vivo">Настройки → Батарея → Управление энергопотреблением в фоне → Kinsight → Разрешить.</string>
     <string name="onb_battery_other">Нажмите кнопку ниже, затем: Сведения о приложении → Использование батареи → Без ограничений. Точный путь зависит от производителя телефона.</string>
     <string name="onb_done_title">Готово</string>
-    <string name="onb_done_body_parent">Дальше: пригласите телефон ребёнка на вкладке «Группа».</string>
+    <string name="onb_done_body_parent">Дальше: пригласите телефон ребёнка в разделе Ещё → Семья.</string>
     <string name="onb_done_body_child">Этот телефон в вашей семейной группе.</string>
     <string name="onb_done_open">Открыть Kinsight</string>
     <string name="onb_create_failed">Не удалось создать группу. Откройте Ещё → Синхронизация → Диагностика на этом телефоне.</string>
