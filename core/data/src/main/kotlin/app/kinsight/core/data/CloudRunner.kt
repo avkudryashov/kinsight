@@ -121,6 +121,13 @@ class CloudRunner(
         return membership.storageOwner != null && keys().deviceId in membership.active
     }
 
+    /** [isOn], and this device is a parent: offline map spec §3, only a parent's phone keeps street map blocks. */
+    suspend fun isOnAsParent(): Boolean {
+        val group = withContext(io) { groups.read() } ?: return false
+        val membership = Membership.compute(group.groupId, RoomEntryStore(db, group.groupId).membershipEntries()) ?: return false
+        return membership.storageOwner != null && membership.active[keys().deviceId]?.isChild == false
+    }
+
     /**
      * The whole run holds [runLock], the group file and membership are read under it: a run queued behind a local wipe
      * (LocalReset holds the same lock across it) finds no group and does nothing, so it cannot write the old group's

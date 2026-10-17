@@ -198,4 +198,32 @@ class MapSyncTest {
         assertTrue(s.noRoom.isEmpty())
         assertTrue(s.downloading)
     }
+
+    /** A run that may not go on (the cloud went off, the phone left) asks for nothing more. */
+    @Test
+    fun aRunThatMayNotProceedAsksForNothing() {
+        serve("2026-10", valencia, v1)
+        assertTrue(sync.check(listOf(point()), listOf(point())))
+        assertEquals(SyncRun.DONE, sync.sync(proceed = { false }))
+        assertEquals(0, net.catalogCalls)
+        assertTrue(net.opened.isEmpty())
+        var asked = 0
+        assertEquals(SyncRun.DONE, sync.sync(proceed = { asked++ == 0 }), "the catalog may go, the block may not")
+        assertEquals(1, net.catalogCalls)
+        assertTrue(net.opened.isEmpty())
+        assertFalse(store.file(valencia).exists())
+    }
+
+    /** A leave in the middle of a block stops the read; the partial is deleted and no block appears. */
+    @Test
+    fun anAbortedDownloadLeavesNoBlock() {
+        serve("2026-10", valencia, v1)
+        assertTrue(sync.check(listOf(point()), listOf(point())))
+        var reads = 0
+        assertEquals(SyncRun.DONE, sync.sync(aborted = { reads++ > 1 }))
+        assertEquals(1, net.opened.size)
+        assertFalse(store.file(valencia).exists())
+        assertTrue(dir.listFiles().orEmpty().none { it.name.endsWith(".part") })
+        assertTrue(store.ledger().installed.isEmpty())
+    }
 }

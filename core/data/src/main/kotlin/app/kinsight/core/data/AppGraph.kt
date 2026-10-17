@@ -188,14 +188,14 @@ class Graph internal constructor(app: Context) {
 
     /**
      * Offline map spec §3: the street map blocks under filesDir/maps. Only a parent's phone sees children (and marks
-     * cells); nothing is fetched while the family's cloud is off. The WorkManager flow is opened on first collection.
+     * cells, CloudRunner.isOnAsParent); nothing is fetched while the family's cloud is off. The WorkManager flow is opened on first collection.
      */
     private val mapStore = BlockStore(java.io.File(app.filesDir, MapBlocks.DIR))
     val maps = MapBlocks(
         MapSync(mapStore, HttpMapNet()),
         mapStore,
         location.children,
-        cloudOn = { cloud.isOn() },
+        cloudOn = { cloud.isOnAsParent() },
         downloading = flow { emitAll(MapWork.downloading(app)) },
     )
 

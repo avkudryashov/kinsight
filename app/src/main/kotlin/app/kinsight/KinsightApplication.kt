@@ -67,11 +67,11 @@ open class KinsightApplication : Application() {
         // Y4 final review: a cloud run that brought entries of others (a zone exit) gets its alerts pass at once (spec §9).
         CloudWork.onReceived = {
             AlertsWork.runSoon(it)
-            MapWork.checkSoon(it) // a child's new points may need a street map block (offline map spec §3)
+            MapWork.checkSoonIfParent(it) // a child's new points may need a street map block (offline map spec §3)
         }
         SyncGraph.onSessionFinished = {
             AlertsWork.runSoon(it)
-            MapWork.checkSoon(it)
+            MapWork.checkSoonIfParent(it)
             CloudWork.keepScheduled(it)
             LocationGraph.refresh(it) // a session may have brought new zones
             // Rulings Q14: the session may have brought the storage owner's new entries.

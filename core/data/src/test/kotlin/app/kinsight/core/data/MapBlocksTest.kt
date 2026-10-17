@@ -1,16 +1,25 @@
 package app.kinsight.core.data
 
 import app.kinsight.core.maps.BlockStore
+import app.kinsight.core.maps.MapLinks
 import app.kinsight.core.maps.MapNet
 import app.kinsight.core.maps.MapPoint
 import app.kinsight.core.maps.MapSync
 import app.kinsight.core.maps.SyncRun
+import app.kinsight.core.maps.TileGrid
 import app.kinsight.core.model.DeviceId
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
+import java.security.MessageDigest
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -78,10 +87,91 @@ class MapBlocksTest {
 
     /** Review Focus 2: leaving the family takes the blocks (they name the cells the children were in). */
     @Test
-    fun forgettingDeletesEveryBlock() {
+    fun forgettingDeletesEveryBlock() = runTest {
         dir.mkdirs()
         File(dir, "z10-510-389.pmtiles").writeText("block")
         blocks(on = true).forget()
+        assertFalse(dir.exists())
+        assertFalse(blocks(on = false).check())
+        assertFalse(dir.exists(), "a check after leaving writes no ledger")
+    }
+
+    /** A fake GitHub that serves one block and holds the catalog or the block's first read until [release]. */
+    private class GateNet(private val catalogText: String, private val bytes: ByteArray, private val holdCatalog: Boolean) : MapNet {
+        val held = CountDownLatch(1)
+        val release = CountDownLatch(1)
+
+        private fun hold() {
+            held.countDown()
+            check(release.await(10, TimeUnit.SECONDS))
+        }
+
+        override fun catalog(): String {
+            if (holdCatalog) hold()
+            return catalogText
+        }
+
+        override fun open(url: String): InputStream = object : InputStream() {
+            private var i = 0
+
+            override fun read(): Int = if (i < bytes.size) bytes[i++].toInt() and 0xff else -1
+
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                if (i == 0 && !holdCatalog) hold()
+                if (i >= bytes.size) return -1
+                val n = minOf(len, bytes.size - i)
+                System.arraycopy(bytes, i, b, off, n)
+                i += n
+                return n
+            }
+        }
+    }
+
+    private val cell = TileGrid.cellOf(a.latE7, a.lonE7)
+    private val block = "block".repeat(1_000).toByteArray()
+    private val sha = MessageDigest.getInstance("SHA-256").digest(block).joinToString("") { "%02x".format(it) }
+    private val catalog = "${MapLinks.DOWNLOAD_PREFIX}maps-2026-10/${cell.name}.pmtiles".let { url ->
+        """{"version":"2026-10","blocks":[{"x":${cell.x},"y":${cell.y},"bytes":${block.size},"sha256":"$sha","url":"$url"}]}"""
+    }
+
+    private fun gated(holdCatalog: Boolean): Pair<MapBlocks, GateNet> {
+        val gate = GateNet(catalog, block, holdCatalog)
+        return MapBlocks(
+            MapSync(store, gate) { now }, store, flowOf(listOf(child(listOf(a, b), b))),
+            cloudOn = { true }, downloading = flowOf(false),
+        ) to gate
+    }
+
+    /** A check that comes while a download runs waits for it: the ledger, the sweep and the eviction never overlap. */
+    @Test
+    fun aCheckWaitsForTheRunningDownload() = runBlocking {
+        val (maps, gate) = gated(holdCatalog = false)
+        assertTrue(maps.check())
+        val run = async(Dispatchers.IO) { maps.run() }
+        assertTrue(gate.held.await(10, TimeUnit.SECONDS))
+        val check = async(Dispatchers.IO) { maps.check() }
+        delay(300)
+        assertFalse(check.isCompleted, "the check waits for the download")
+        gate.release.countDown()
+        assertEquals(SyncRun.DONE, run.await())
+        assertFalse(check.await(), "the block is here now")
+        assertTrue(store.file(cell).isFile)
+        assertEquals(sha, store.ledger().installed[cell])
+        assertTrue(cell in store.ledger().usage)
+    }
+
+    /** Review Focus 2: leaving while a download runs leaves no block, no catalog and no ledger behind. */
+    @Test
+    fun forgettingDuringADownloadLeavesNothing() = runBlocking {
+        val (maps, gate) = gated(holdCatalog = true)
+        assertTrue(maps.check())
+        val run = async(Dispatchers.IO) { maps.run() }
+        assertTrue(gate.held.await(10, TimeUnit.SECONDS))
+        val forget = async(Dispatchers.IO) { maps.forget() }
+        delay(300)
+        gate.release.countDown()
+        run.await()
+        forget.await()
         assertFalse(dir.exists())
     }
 }

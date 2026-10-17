@@ -17,9 +17,11 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import app.kinsight.core.maps.SyncRun
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 /**
@@ -40,6 +42,27 @@ object MapWork {
     /** A cloud run or a Bluetooth session brought entries of others: a child's new points, maybe. A check now. */
     fun checkSoon(context: Context): Operation =
         WorkManager.getInstance(context).enqueueUniqueWork(CHECK, ExistingWorkPolicy.REPLACE, OneTimeWorkRequestBuilder<MapCheckWorker>().build())
+
+    /** [checkSoon] only when [wanted] (a parent's phone with the cloud on): a child's phone queues nothing. */
+    suspend fun checkIfWanted(context: Context, wanted: suspend () -> Boolean): Boolean {
+        if (!wanted()) return false
+        checkSoon(context).result.get()
+        return true
+    }
+
+    /** The trigger of new entries of others (a cloud run, a Bluetooth session), off the caller's thread. */
+    fun checkSoonIfParent(context: Context): Job {
+        val graph = AppGraph.get(context)
+        return graph.scope.launch {
+            try {
+                checkIfWanted(context, graph.maps::wanted)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "map check trigger failed: ${e.javaClass.simpleName}")
+            }
+        }
+    }
 
     /** Spec §3: only over Wi-Fi, with retry. KEEP: a pending run reads the ledger when it starts and fetches every missing block. */
     fun syncSoon(context: Context): Operation {
@@ -64,6 +87,8 @@ object MapWork {
 
     fun resultOf(run: SyncRun): ListenableWorker.Result =
         if (run == SyncRun.RETRY) ListenableWorker.Result.retry() else ListenableWorker.Result.success()
+
+    private const val TAG = "KinsightMap"
 }
 
 /** Thin: MapBlocks.check; a needed download is queued for Wi-Fi. A failure waits for the next point or the daily check. */

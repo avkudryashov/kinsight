@@ -7,7 +7,9 @@ import androidx.work.NetworkType
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import app.kinsight.core.data.MapWork
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -30,6 +32,22 @@ class MapWorkTest {
         assertEquals("a second ask keeps the queued run", first.id, wm.getWorkInfosForUniqueWork(MapWork.SYNC).get().single().id)
         MapWork.cancel(app)
         assertTrue(wm.getWorkInfosForUniqueWork(MapWork.SYNC).get().all { it.state == WorkInfo.State.CANCELLED })
+    }
+
+    /** Offline map spec §3: a child's phone (or a phone with the cloud off) queues no check when entries come. */
+    @Test
+    fun aChildsPhoneQueuesNoCheck() = runBlocking {
+        assertFalse(MapWork.checkIfWanted(app) { false })
+        assertTrue(wm.getWorkInfosForUniqueWork(MapWork.CHECK).get().isEmpty())
+        assertTrue(MapWork.checkIfWanted(app) { true })
+        assertEquals(1, wm.getWorkInfosForUniqueWork(MapWork.CHECK).get().size)
+    }
+
+    /** The start-up wiring: without a group this phone is no parent, so new entries queue no check. */
+    @Test
+    fun withoutAFamilyTheTriggerQueuesNothing() = runBlocking {
+        MapWork.checkSoonIfParent(app).join()
+        assertTrue(wm.getWorkInfosForUniqueWork(MapWork.CHECK).get().isEmpty())
     }
 
     @Test

@@ -1,5 +1,6 @@
 package app.kinsight.core.maps
 
+import java.io.FilterInputStream
 import java.io.IOException
 import java.io.InputStream
 
@@ -46,14 +47,20 @@ class MapSync(private val store: BlockStore, private val net: MapNet, private va
         return MapPlanner.downloads(wanted, ledger.usage, store.catalog(), installed(store.ledger())).any { MapPlanner.hasRoom(free, it.bytes) }
     }
 
-    /** The network run: the catalog when due, then every wanted listed block that is missing, one by one. */
-    fun sync(): SyncRun {
+    /**
+     * The network run: the catalog when due, then every wanted listed block that is missing, one by one. [proceed] is
+     * asked before every request (the family's cloud may have gone off, or the phone left); [aborted] is asked on every
+     * read of a block, so a leave stops a download at once (cheap: it is called per buffer). Either one ends the run
+     * with DONE and the partial deleted.
+     */
+    fun sync(proceed: () -> Boolean = { true }, aborted: () -> Boolean = { false }): SyncRun {
         store.sweepPartials()
         val now = clock()
         val ledger = store.ledger()
         if (MapPlanner.wanted(ledger.usage, now).isEmpty()) return SyncRun.DONE
         var catalog = store.catalog()
         if (MapPlanner.catalogDue(ledger.catalogFetchedMs, now)) {
+            if (!proceed()) return SyncRun.DONE
             val text = try {
                 net.catalog()
             } catch (e: IOException) {
@@ -75,11 +82,13 @@ class MapSync(private val store: BlockStore, private val net: MapNet, private va
                 .firstOrNull { it.cell !in tried } ?: break
             tried += next.cell
             if (!MapPlanner.hasRoom(store.freeBytes(), next.bytes)) continue
+            if (!proceed()) return SyncRun.DONE
             val result = try {
-                net.open(next.url).use { store.install(next, it) }
+                net.open(next.url).use { store.install(next, Abortable(it, aborted)) }
             } catch (e: IOException) {
                 null
             }
+            if (aborted()) return SyncRun.DONE
             if (result == Install.OK) store.updateLedger { it.copy(installed = it.installed + (next.cell to next.sha256)) } else failed = true
         }
         return if (failed) SyncRun.RETRY else SyncRun.DONE
@@ -91,6 +100,23 @@ class MapSync(private val store: BlockStore, private val net: MapNet, private va
         val free = store.freeBytes()
         val noRoom = catalog?.blocks?.values?.filter { it.cell !in present && !MapPlanner.hasRoom(free, it.bytes) }?.map { it.cell }?.toSet()
         return StreetMaps(present.associateWith { store.file(it).absolutePath }, catalog?.blocks?.keys, noRoom.orEmpty(), downloading)
+    }
+
+    /** A block stream that fails as soon as [aborted] says so: the install then deletes its partial. */
+    private class Abortable(input: InputStream, private val aborted: () -> Boolean) : FilterInputStream(input) {
+        private fun check() {
+            if (aborted()) throw IOException("aborted")
+        }
+
+        override fun read(): Int {
+            check()
+            return super.read().also { check() }
+        }
+
+        override fun read(b: ByteArray, off: Int, len: Int): Int {
+            check()
+            return super.read(b, off, len).also { check() }
+        }
     }
 
     /** A file without a ledger entry (a crash after the rename) counts as unknown, so a listed block replaces it. */

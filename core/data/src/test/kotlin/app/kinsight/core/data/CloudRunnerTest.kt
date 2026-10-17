@@ -219,6 +219,18 @@ class CloudRunnerTest {
         }
     }
 
+    /** Offline map spec §3: only a parent's phone keeps street map blocks, and only while the cloud is on. */
+    @Test
+    fun onlyAParentIsOnForTheStreetMap() = runBlocking<Unit> {
+        family()
+        assertFalse(mom.runner(disk).isOnAsParent())
+        mom.ownStorage()
+        kid.learnsStorageFrom(mom)
+        assertTrue(mom.runner(disk).isOnAsParent())
+        assertTrue(kid.runner(disk).isOn())
+        assertFalse(kid.runner(disk).isOnAsParent())
+    }
+
     /** Review Minor 5: a removed device is not on, so it never schedules runs that only cancel themselves. */
     @Test
     fun aRemovedDeviceIsNotOn() = runBlocking<Unit> {
