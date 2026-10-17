@@ -60,8 +60,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.temporal.WeekFields
-import java.util.Locale
 
 /** The sync engine's session progress: finished sessions (any outcome; from zero after a service restart), one running. */
 data class SessionProgress(val finished: Int, val syncing: Boolean)
@@ -473,18 +471,18 @@ class UsageRepository(
     suspend fun removeThreshold(id: String) = prefs.removeThreshold(id)
 
     /**
-     * [range] of device [id], reloaded on every log change; the device's UsageDetail entries of the range are read with
-     * each snapshot for level 4 (an equal state is not re-emitted). [weekFields]: the same as the range's, it orders the
-     * heatmap's weekday rows.
+     * [range] of device [id], reloaded on every log change (an equal state is not re-emitted). A DAY also reads the
+     * UsageDetail entries of the 7 days before it: the hours of the day and the «usually by this time» comparison.
+     * A week or month needs none.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
-    fun detail(id: DeviceId, range: DetailRange, weekFields: WeekFields = WeekFields.of(Locale.getDefault())): Flow<DeviceDetail?> =
+    fun detail(id: DeviceId, range: DetailRange): Flow<DeviceDetail?> =
         snapshots.snapshots.mapLatest { s ->
             (s as? GroupSnapshot.Ready)?.let {
                 // Overrides from the same snapshot: never paired with another snapshot's map.
                 val o = CategoryOverrides.effective(it)
-                val details = snapshots.details(it.groupId, id, range)
-                SnapshotViews.detail(it, id, range, today(), clock(), overrides = o, details = details, weekFields = weekFields)
+                val details = if (range.period == Period.DAY) snapshots.details(it.groupId, id, range.start.minusDays(7), range.end) else emptyList()
+                SnapshotViews.detail(it, id, range, today(), clock(), overrides = o, details = details)
             }
         }.distinctUntilChanged()
 
