@@ -96,5 +96,6 @@
     <string name="grp_err_leave_cloud_switching">The storage is moving to another Disk. You can leave once every phone has switched to it. A phone that no longer syncs can be removed from the group.</string>
     <string name="grp_leave_cloud_off">Sync through Yandex Disk turns off. The data stays on the phones, and Bluetooth goes on working.</string>
     <string name="inv_transfer_hint">Scan this code with your new phone. It becomes the owner of the family\'s storage, with no new sign-in.</string>
+    <string name="inv_confirm_transfer">Adding it hands it the family\'s storage: it becomes the owner, and this phone then leaves the group by itself.</string>
     <string name="inv_added_transfer">“%1$s” now holds the family\'s storage. This phone leaves the group by itself, there is nothing to tap.</string>
 </resources>

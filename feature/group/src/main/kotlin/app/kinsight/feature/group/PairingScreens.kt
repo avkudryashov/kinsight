@@ -128,6 +128,8 @@ fun InviteScreen(
                                 modifier = Modifier.testTag("inv_code").semantics { contentDescription = spoken },
                             )
                         }
+                        // Spec §7.3: approving is what hands the storage over, so the dialog says so too (not only the QR).
+                        if (transfer) Text(stringResource(R.string.inv_confirm_transfer), Modifier.testTag("inv_confirm_transfer"))
                         if (confirming) {
                             Row(Modifier.testTag("inv_adding"), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                                 CircularProgressIndicator(Modifier.size(24.dp))

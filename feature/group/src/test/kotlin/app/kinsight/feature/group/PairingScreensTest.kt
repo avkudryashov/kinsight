@@ -338,6 +338,20 @@ class PairingScreensTest {
     }
 
     @Test
+    fun theConfirmDialogOfATransferSaysTheStorageGoesWithIt() {
+        var transfer by mutableStateOf(true)
+        rule.setContent {
+            KinsightTheme(dynamicColor = false) {
+                InviteScreen(InviteState.Confirm(uri, now + 60_000, "Pixel", Role.PARENT), Role.PARENT, now, {}, {}, {}, {}, transfer = transfer)
+            }
+        }
+        rule.onNodeWithText("hands it the family's storage", substring = true).assertExists()
+        transfer = false
+        rule.waitForIdle()
+        rule.onNodeWithText("family's storage", substring = true).assertDoesNotExist()
+    }
+
+    @Test
     fun aTransferTheNewPhoneDidNotTakeShowsAPlainAdd() {
         invite(InviteState.Added("Pixel", ownerTransferred = false), role = Role.PARENT)
         rule.onNodeWithText("“Pixel” is in the group", substring = true).assertExists()

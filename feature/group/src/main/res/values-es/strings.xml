@@ -96,5 +96,6 @@
     <string name="grp_err_leave_cloud_switching">El almacenamiento se está mudando a otro Disk. Podrás salir cuando todos los teléfonos se hayan cambiado a él. Si un teléfono ya no se sincroniza, elimínalo del grupo.</string>
     <string name="grp_leave_cloud_off">La sincronización con Yandex Disk se desactivará. Los datos se quedan en los teléfonos y Bluetooth sigue funcionando.</string>
     <string name="inv_transfer_hint">Escanea este código con tu teléfono nuevo. Será el propietario del almacenamiento de la familia, sin volver a iniciar sesión.</string>
+    <string name="inv_confirm_transfer">Al añadirlo, le pasas el almacenamiento de la familia: será el propietario y este teléfono saldrá después del grupo por sí solo.</string>
     <string name="inv_added_transfer">«%1$s» tiene ahora el almacenamiento de la familia. Este teléfono sale del grupo por sí solo, no tienes que tocar nada.</string>
 </resources>
