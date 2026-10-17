@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,8 +27,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -62,12 +66,22 @@ private val PREVIEW_HEIGHT = 240.dp
 /** Offline map spec §4: the street preview when the point's block is here, else the plain family map with its caption. */
 @Composable
 internal fun ChildMap(child: ChildLocation, mark: Color, preview: StreetPreview, apps: MapApps?, slot: StreetMapSlot) {
-    if (preview is StreetPreview.Ready && child.last != null) StreetPreviewCard(child, mark, preview, apps, slot) else PlainMap(child, mark, preview)
+    if (preview is StreetPreview.Ready && child.last != null) StreetPreviewCard(child, mark, preview, apps, slot) else PlainMap(child, mark, preview, apps)
 }
 
 @Composable
-private fun PlainMap(child: ChildLocation, mark: Color, preview: StreetPreview) = Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-    FamilyMap(child.zones, child.route, child.last, mark, Modifier.fillMaxWidth().aspectRatio(4f / 3f).clip(MaterialTheme.shapes.large).testTag("loc_map"))
+private fun PlainMap(child: ChildLocation, mark: Color, preview: StreetPreview, apps: MapApps?) = Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    val context = LocalContext.current
+    val open = apps?.preferred
+    val label = stringResource(R.string.loc_open_in_maps)
+    // The scheme opens the same maps app as the preview (same preference order, same last point).
+    Box(
+        Modifier.fillMaxWidth().aspectRatio(4f / 3f).clip(MaterialTheme.shapes.large).testTag("loc_map")
+            .then(if (open != null) Modifier.clickable(onClickLabel = label, role = Role.Button) { openMaps(context, open) } else Modifier),
+    ) {
+        FamilyMap(child.zones, child.route, child.last, mark, Modifier.fillMaxSize())
+        if (open != null) OpenInMapsHint(Modifier.align(Alignment.TopEnd))
+    }
     val caption = when (preview) {
         StreetPreview.Loading -> R.string.map_streets_loading
         StreetPreview.WaitingWifi -> R.string.map_streets_wifi
@@ -98,10 +112,11 @@ private fun StreetPreviewCard(child: ChildLocation, mark: Color, preview: Street
     }
     val frame = remember(child) { previewFrame(child) }
     val description = stringResource(R.string.loc_preview_description)
+    val openLabel = stringResource(R.string.loc_open_in_maps)
     val open = apps?.preferred
     val ready = style
     if (ready == null) {
-        PlainMap(child, mark, preview)
+        PlainMap(child, mark, preview, apps)
         return
     }
     Box(Modifier.fillMaxWidth().height(PREVIEW_HEIGHT).clip(MaterialTheme.shapes.large).testTag("loc_preview")) {
@@ -110,12 +125,34 @@ private fun StreetPreviewCard(child: ChildLocation, mark: Color, preview: Street
         Box(
             Modifier.matchParentSize()
                 .semantics { contentDescription = description }
-                .then(if (open != null) Modifier.clickable(role = Role.Button) { openMaps(context, open) } else Modifier)
+                .then(if (open != null) Modifier.clickable(onClickLabel = openLabel, role = Role.Button) { openMaps(context, open) } else Modifier)
                 .testTag("loc_preview_tap"),
         )
+        // Top-right: the OSM attribution owns the bottom-right corner.
+        if (open != null) OpenInMapsHint(Modifier.align(Alignment.TopEnd))
         Attribution(Modifier.align(Alignment.BottomEnd))
     }
 }
+
+/** A small «open in maps» cue in a map's top-right corner; decorative, the map surface itself carries the label. */
+@Composable
+private fun OpenInMapsHint(modifier: Modifier) {
+    val colors = MaterialTheme.colorScheme
+    Icon(
+        OpenInNewIcon,
+        contentDescription = null,
+        tint = colors.onSurface,
+        modifier = modifier.padding(8.dp).background(colors.surface.copy(alpha = 0.8f), CircleShape).padding(4.dp).size(16.dp).testTag("loc_open_hint"),
+    )
+}
+
+// Material's open_in_new glyph; the core icon set does not carry it and the extended set is not worth the weight.
+private val OpenInNewIcon: ImageVector = ImageVector.Builder("OpenInNew", 24.dp, 24.dp, 24f, 24f).addPath(
+    PathParser().parsePathString(
+        "M19,19H5V5h7V3H5c-1.11,0 -2,0.9 -2,2v14c0,1.1 0.89,2 2,2h14c1.1,0 2,-0.9 2,-2v-7h-2v7zM14,3v2h3.59l-9.83,9.83 1.41,1.41L19,6.41V10h2V3h-7z",
+    ).toNodes(),
+    fill = SolidColor(Color.Black),
+).build()
 
 private const val ATTRIBUTION_MS = 5_000L
 private const val OSM_COPYRIGHT = "https://www.openstreetmap.org/copyright"

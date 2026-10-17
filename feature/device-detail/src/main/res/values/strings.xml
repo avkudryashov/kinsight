@@ -154,9 +154,7 @@
     <string name="map_streets_loading">Street map is loading</string>
     <string name="map_streets_wifi">The street map will download over Wi-Fi</string>
     <string name="map_osm_attribution" translatable="false">© OpenStreetMap</string>
-    <string name="loc_open_map">Open in Maps</string>
-    <string name="loc_open_yandex">Yandex Maps</string>
-    <string name="loc_open_google">Google Maps</string>
+    <string name="loc_open_in_maps">Open in maps</string>
     <string name="det_map_scale_m">%1$d m</string>
     <string name="det_map_scale_km">%1$d km</string>
     <string name="det_ev_zone_enter">Entered the zone “%1$s”</string>

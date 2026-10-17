@@ -26,10 +26,8 @@ internal object ExternalMaps {
 
 /** The maps apps that can show a point, each null when nothing on the phone opens it (`<queries>` in the manifest). */
 internal data class MapApps(val yandex: Intent?, val google: Intent?, val geo: Intent?) {
-    /** Spec §4: a tap on the preview opens Yandex, else Google, else any geo: app. */
+    /** Spec §4: a tap on the preview or the scheme opens Yandex, else Google, else any geo: app. */
     val preferred: Intent? get() = yandex ?: google ?: geo
-
-    val any: Boolean get() = preferred != null
 
     companion object {
         fun of(p: GeoPoint, pm: PackageManager): MapApps {

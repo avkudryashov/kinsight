@@ -15,6 +15,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertContentDescriptionEquals
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertHasNoClickAction
+import androidx.compose.ui.test.getBoundsInRoot
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasClickAction
 import app.kinsight.core.designsystem.theme.ChildColorKey
@@ -247,24 +253,73 @@ class MapScreenTest {
     }
 
     @Test
-    fun openInMapsHandsTheLastPointToAMapsApp() {
+    fun noMapsButtonsAreRendered() {
+        install(ExternalMaps.yandex(p2.latE7, p2.lonE7), ExternalMaps.YANDEX)
+        install(ExternalMaps.google(p2.latE7, p2.lonE7), ExternalMaps.GOOGLE)
         installMapApp()
-        show(ChildLocation(kid, PlaceStatus.Outside(p2, p2.timeMs), p2, listOf(p1, p2), listOf(home), emptyList(), Sharing.On))
-        rule.onNodeWithTag("loc_list").performScrollToNode(hasTestTag("loc_open_map"))
-        rule.onNodeWithTag("loc_open_map").assertTextEquals("Open in Maps").performClick()
+        show(outside)
+        for (tag in listOf("loc_open_map", "loc_open_yandex", "loc_open_google")) rule.onNodeWithTag(tag).assertDoesNotExist()
+        rule.onNodeWithText("Yandex Maps").assertDoesNotExist()
+        rule.onNodeWithText("Google Maps").assertDoesNotExist()
+    }
+
+    @Test
+    fun tappingTheSchemeOpensAGeoAppWithTheLastPoint() {
+        installMapApp()
+        show(outside)
+        rule.onNodeWithTag("loc_open_hint", useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag("loc_map").assertHasClickAction().performClick()
         val sent = shadowOf(app).nextStartedActivity
         assertEquals(Intent.ACTION_VIEW, sent.action)
         assertEquals(geo, sent.dataString)
     }
 
     @Test
-    fun withoutAMapsAppTheActionIsHidden() {
-        show(ChildLocation(kid, PlaceStatus.Outside(p2, p2.timeMs), p2, listOf(p2), emptyList(), emptyList(), Sharing.On))
-        // The street map caption under the plain map pushes the line below the test screen's fold.
-        rule.onNodeWithTag("loc_list").performScrollToNode(hasTestTag("loc_last"))
-        rule.onNodeWithTag("loc_last").assertExists()
-        rule.onNodeWithTag("loc_open_map").assertDoesNotExist()
+    fun tappingTheSchemeOpensYandexFirstThenGoogle() {
+        install(ExternalMaps.yandex(p2.latE7, p2.lonE7), ExternalMaps.YANDEX)
+        install(ExternalMaps.google(p2.latE7, p2.lonE7), ExternalMaps.GOOGLE)
+        show(outside)
+        rule.onNodeWithTag("loc_map").performClick()
+        val sent = shadowOf(app).nextStartedActivity
+        assertEquals(ExternalMaps.YANDEX, sent.`package`)
+        assertEquals("yandexmaps://maps.yandex.ru/?pt=-3.7080000,40.4120000&z=17&l=map", sent.dataString)
+    }
+
+    @Test
+    fun onlyGoogleOpensGoogleFromTheScheme() {
+        install(ExternalMaps.google(p2.latE7, p2.lonE7), ExternalMaps.GOOGLE)
+        show(outside)
+        rule.onNodeWithTag("loc_map").performClick()
+        val sent = shadowOf(app).nextStartedActivity
+        assertEquals(ExternalMaps.GOOGLE, sent.`package`)
+        assertEquals(geo, sent.dataString)
+    }
+
+    @Test
+    fun withoutAMapsAppTheSchemeIsNotClickableAndHasNoHint() {
+        show(outside)
+        rule.onNodeWithTag("loc_map").assertHasNoClickAction()
+        rule.onNodeWithTag("loc_open_hint", useUnmergedTree = true).assertDoesNotExist()
         assertNull(shadowOf(app).nextStartedActivity)
+    }
+
+    @Test
+    fun theMapSurfaceIsLabelledOpenInMaps() {
+        installMapApp()
+        show(outside)
+        rule.onNodeWithTag("loc_map").assert(SemanticsMatcher("click label") {
+            it.config.getOrNull(SemanticsActions.OnClick)?.label == "Open in maps"
+        })
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun russianClickLabel() {
+        installMapApp()
+        show(outside)
+        rule.onNodeWithTag("loc_map").assert(SemanticsMatcher("click label") {
+            it.config.getOrNull(SemanticsActions.OnClick)?.label == "Открыть в картах"
+        })
     }
 
     @Test
@@ -289,45 +344,6 @@ class MapScreenTest {
     }
 
     private val outside get() = ChildLocation(kid, PlaceStatus.Outside(p2, p2.timeMs), p2, listOf(p1, p2), listOf(home), emptyList(), Sharing.On)
-
-    /** Offline map spec §5: one button per installed maps app; the point leaves only on the tap. */
-    @Test
-    fun yandexAndGoogleButtonsShowWhenInstalled() {
-        install(ExternalMaps.yandex(p2.latE7, p2.lonE7), ExternalMaps.YANDEX)
-        install(ExternalMaps.google(p2.latE7, p2.lonE7), ExternalMaps.GOOGLE)
-        installMapApp()
-        show(outside)
-        rule.onNodeWithTag("loc_list").performScrollToNode(hasTestTag("loc_open_yandex"))
-        rule.onNodeWithTag("loc_open_map").assertDoesNotExist()
-        rule.onNodeWithTag("loc_open_google").assertTextEquals("Google Maps")
-        rule.onNodeWithTag("loc_open_yandex").assertTextEquals("Yandex Maps").performClick()
-        val sent = shadowOf(app).nextStartedActivity
-        assertEquals(ExternalMaps.YANDEX, sent.`package`)
-        assertEquals("yandexmaps://maps.yandex.ru/?pt=-3.7080000,40.4120000&z=17&l=map", sent.dataString)
-    }
-
-    @Test
-    fun onlyGoogleShowsOnlyGoogle() {
-        install(ExternalMaps.google(p2.latE7, p2.lonE7), ExternalMaps.GOOGLE)
-        show(outside)
-        rule.onNodeWithTag("loc_list").performScrollToNode(hasTestTag("loc_open_google"))
-        rule.onNodeWithTag("loc_open_yandex").assertDoesNotExist()
-        rule.onNodeWithTag("loc_open_google").performClick()
-        val sent = shadowOf(app).nextStartedActivity
-        assertEquals(ExternalMaps.GOOGLE, sent.`package`)
-        assertEquals(geo, sent.dataString)
-    }
-
-    @Test
-    @Config(qualifiers = "ru")
-    fun russianButtonNames() {
-        install(ExternalMaps.yandex(p2.latE7, p2.lonE7), ExternalMaps.YANDEX)
-        install(ExternalMaps.google(p2.latE7, p2.lonE7), ExternalMaps.GOOGLE)
-        show(outside)
-        rule.onNodeWithTag("loc_list").performScrollToNode(hasTestTag("loc_open_yandex"))
-        rule.onNodeWithTag("loc_open_yandex").assertTextEquals("Яндекс Карты")
-        rule.onNodeWithTag("loc_open_google").assertTextEquals("Google Карты")
-    }
 
     @Test
     fun theYandexLinkPutsLongitudeFirst() =
@@ -417,6 +433,28 @@ class MapScreenTest {
         awaitPreview()
         rule.onNodeWithTag("loc_preview_tap").performClick()
         assertEquals(ExternalMaps.YANDEX, shadowOf(app).nextStartedActivity.`package`)
+    }
+
+    @Test
+    fun theStreetPreviewHasAHintAwayFromTheAttributionAndALabel() {
+        installMapApp()
+        showStreets(StreetMaps(mapOf(madrid to block), setOf(madrid), emptySet(), downloading = false))
+        awaitPreview()
+        rule.onNodeWithTag("loc_open_hint", useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag("loc_preview_tap").assert(SemanticsMatcher("click label") {
+            it.config.getOrNull(SemanticsActions.OnClick)?.label == "Open in maps"
+        })
+        val hint = rule.onNodeWithTag("loc_open_hint", useUnmergedTree = true).getBoundsInRoot()
+        val osm = rule.onNodeWithTag("loc_osm").getBoundsInRoot()
+        assertTrue(hint.bottom <= osm.top)
+    }
+
+    @Test
+    fun withoutAMapsAppThePreviewIsNotClickableAndHasNoHint() {
+        showStreets(StreetMaps(mapOf(madrid to block), setOf(madrid), emptySet(), downloading = false))
+        awaitPreview()
+        rule.onNodeWithTag("loc_preview_tap").assertHasNoClickAction()
+        rule.onNodeWithTag("loc_open_hint", useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test

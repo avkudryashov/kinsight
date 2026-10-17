@@ -157,9 +157,7 @@
     <string name="loc_preview_description">Карта улиц с местом ребёнка, маршрутом за сегодня и зонами. Нажмите, чтобы открыть её в приложении карт</string>
     <string name="map_streets_loading">Карта улиц загружается</string>
     <string name="map_streets_wifi">Карта улиц будет загружена по Wi-Fi</string>
-    <string name="loc_open_map">Открыть в Картах</string>
-    <string name="loc_open_yandex">Яндекс Карты</string>
-    <string name="loc_open_google">Google Карты</string>
+    <string name="loc_open_in_maps">Открыть в картах</string>
     <string name="det_map_scale_m">%1$d м</string>
     <string name="det_map_scale_km">%1$d км</string>
     <string name="det_ev_zone_enter">Вход в зону «%1$s»</string>

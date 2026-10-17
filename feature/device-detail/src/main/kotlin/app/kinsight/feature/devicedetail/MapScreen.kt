@@ -6,7 +6,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,7 +16,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ListItem
@@ -97,8 +95,8 @@ internal fun MapRoute(vm: MapViewModel, onZones: () -> Unit) {
  * UI refresh §5 (variant A): a big status line per child («В зоне «Дом» с 14:10», «Вне зон · 350 м от «Школа»»,
  * «Последняя точка 2 ч назад», «Местоположения пока нет» with the reason), then the selected child's street preview
  * (offline map spec §4) or, without its block, the family map (zones, today's route, the last point; no tiles), the maps
- * apps' buttons (spec §5: «Яндекс Карты» and «Google Карты» when installed, else «Открыть в Картах» through geo:; the
- * point leaves the phone only on the parent's tap), today's zone events and «Зоны». [selectedId]: a child's id hex; null
+ * (a tap on either map opens Yandex Maps, else Google Maps, else a geo: app; the point leaves the phone only on the
+ * parent's tap), today's zone events and «Зоны». [selectedId]: a child's id hex; null
  * or unknown selects the first child. [streetMap] draws the preview (MapLibre; a stand-in in the JVM tests).
  */
 @Composable
@@ -147,7 +145,6 @@ fun MapScreen(
                 )
             }
         }
-        if (apps != null && apps.any) item(key = "open_map") { MapAppButtons(apps) }
         item(key = "route") { Text(pluralStringResource(R.plurals.loc_route_points, child.route.size, child.route.size)) }
         item(key = "events_title") { SectionTitle(stringResource(R.string.loc_events)) }
         if (child.zoneEvents.isEmpty()) item(key = "no_events") { Text(stringResource(R.string.loc_no_events)) }
@@ -173,20 +170,6 @@ private fun Searching() = Row(
 ) {
     CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
     Text(stringResource(R.string.map_searching), style = MaterialTheme.typography.bodyMedium)
-}
-
-/** Spec §5: «Яндекс Карты» and «Google Карты» when installed; neither, the old «Открыть в Картах» through geo:. */
-@Composable
-private fun MapAppButtons(apps: MapApps) {
-    val context = LocalContext.current
-    // A FlowRow: at a large font scale the two buttons wrap instead of squeezing.
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        apps.yandex?.let { Button({ openMaps(context, it) }, Modifier.testTag("loc_open_yandex")) { Text(stringResource(R.string.loc_open_yandex)) } }
-        apps.google?.let { Button({ openMaps(context, it) }, Modifier.testTag("loc_open_google")) { Text(stringResource(R.string.loc_open_google)) } }
-        if (apps.yandex == null && apps.google == null) {
-            apps.geo?.let { Button({ openMaps(context, it) }, Modifier.testTag("loc_open_map")) { Text(stringResource(R.string.loc_open_map)) } }
-        }
-    }
 }
 
 /** The child's own colour (Task 12), the same as its Overview card; a lighter tone of it on the dark theme's map. */

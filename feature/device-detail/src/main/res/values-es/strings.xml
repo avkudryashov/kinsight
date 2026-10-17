@@ -155,9 +155,7 @@
     <string name="loc_preview_description">Mapa de calles con el lugar del menor, la ruta de hoy y las zonas. Tócalo para abrirlo en una aplicación de mapas</string>
     <string name="map_streets_loading">El mapa de calles se está descargando</string>
     <string name="map_streets_wifi">El mapa de calles se descargará por wifi</string>
-    <string name="loc_open_map">Abrir en Mapas</string>
-    <string name="loc_open_yandex">Yandex Maps</string>
-    <string name="loc_open_google">Google Maps</string>
+    <string name="loc_open_in_maps">Abrir en mapas</string>
     <string name="det_map_scale_m">%1$d m</string>
     <string name="det_map_scale_km">%1$d km</string>
     <string name="det_ev_zone_enter">Entrada en la zona «%1$s»</string>
