@@ -436,8 +436,15 @@ class SyncSession internal constructor(
             // A session that only completed a log is then «nothing new» at once, while an entry written meanwhile still
             // counts as new. Not the full end vectors: those would hide a publish made during the session.
             val ourEnd = ourVector.with(peer.id, maxOf(ourVector[peer.id], completedTo))
+            // The peer's completion of ours is predictable only when we sent no batch: a child holding back an entry we sent
+            // completes only below it. After batches the announced vector is recorded; normal delivery then costs one more
+            // session, which sends nothing and records exactly.
             val peerCompletes = agreed >= CLOUD_PROTOCOL_VERSION || hello.wants_foreign_entries
-            val peerEnd = if (peerCompletes) peerVector.with(policy.self, maxOf(peerVector[policy.self], ourVector[policy.self])) else peerVector
+            val peerEnd = if (peerCompletes && sentBatches == 0) {
+                peerVector.with(policy.self, maxOf(peerVector[policy.self], ourVector[policy.self]))
+            } else {
+                peerVector
+            }
             val completed = SessionResult.Completed(peer.id, received, sentBatches, agreed).also {
                 it.ourVector = ourEnd.canonicalBytes()
                 it.peerVector = peerEnd.canonicalBytes()

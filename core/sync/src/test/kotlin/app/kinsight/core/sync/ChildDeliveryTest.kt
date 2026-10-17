@@ -190,7 +190,7 @@ class ChildDeliveryTest {
         mom.publish(mom.author.summary(TODAY.toString(), 1))
         val hb = mom.heartbeat()
         mom.publish(mom.author.summary(TODAY.minusDays(1).toString(), 2))
-        repeat(2) {
+        repeat(2) { round ->
             val (rm, rk) = syncPair(mom, kid)
             assertEquals(1, assertIs<SessionResult.Completed>(rm).sentBatches, "the heartbeat, again")
             assertEquals(0, assertIs<SessionResult.Completed>(rk).received)
@@ -198,6 +198,10 @@ class ChildDeliveryTest {
             assertTrue(assertIs<SessionResult.Completed>(rm).peerAckUnchanged)
             assertTrue(rk.peerAckUnchanged)
             assertEquals(hb.seq - 1, kid.store.versionVector()[mom.keys.deviceId], "open below the heartbeat")
+            // Mom records the vector the child announced (it sent a batch, so it cannot predict the child's completion).
+            // From the second session on that is what the child advertises: «nothing new» holds at the transport.
+            if (round == 1) assertTrue(rm.peerVector.contentEquals(kid.store.versionVector().canonicalBytes()), "mom's record of the child")
+            assertTrue(rm.ourVector.contentEquals(mom.store.versionVector().canonicalBytes()), "mom's own record")
         }
         kid.policy = kid.policy.copy(shareKinds = SyncPolicy.FROM_PARENTS_TO_ALL + EntryKind.HEARTBEAT)
         syncPair(mom, kid)
