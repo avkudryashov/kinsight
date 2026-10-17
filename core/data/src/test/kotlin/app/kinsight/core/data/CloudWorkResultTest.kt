@@ -24,6 +24,19 @@ class CloudWorkResultTest {
         assertFailsWith<CancellationException> { CloudWork.outcome { throw CancellationException("stopped") } }
     }
 
+    /**
+     * Parked Y2 minor: the debug in-memory Disk is no public switch of main code. The field is internal (its JVM accessors
+     * carry the module suffix), and its only setter, CloudDebugDisk, lives in the debug source set.
+     */
+    @Test
+    fun theFakeDiskHasNoPublicSwitch() {
+        val names = CloudGraph::class.java.methods.map { it.name }
+        assertEquals(emptyList<String>(), names.filter { it == "setFakeDisk" || it == "getFakeDisk" })
+        val main = java.io.File("src/main/kotlin/app/kinsight/core/data/CloudDebugDisk.kt")
+        val debug = java.io.File("src/debug/kotlin/app/kinsight/core/data/CloudDebugDisk.kt")
+        assertEquals(false to true, main.exists() to debug.exists())
+    }
+
     /** Parked Y2 minor: opening the app replaces a stuck or old run now, never one that started under 30 s ago. */
     @Test
     fun theAppOpenLeavesAFreshRunAlone() = runBlocking<Unit> {
