@@ -197,10 +197,13 @@ object CloudWork {
     /** Spec §9 «сразу»: a run now younger than this counts as the app-open read. */
     const val FRESH_RUN_MS = 30_000L
 
-    /** The elapsed-realtime start of the [NOW] run in progress in this process, or null (set by [nowRun]). */
-    @Volatile
-    var nowRunStartedMs: Long? = null
-        private set
+    /** One NOW run's mark: [startedMs] in elapsed realtime; identity tells two runs apart. */
+    private class RunMark(val startedMs: Long)
+
+    private val nowMark = java.util.concurrent.atomic.AtomicReference<RunMark?>(null)
+
+    /** The elapsed-realtime start of the newest [NOW] run in progress in this process, or null (set by [nowRun]). */
+    val nowRunStartedMs: Long? get() = nowMark.get()?.startedMs
 
     /** The policy of the app-open run: null (keep the run in progress) when one started under [FRESH_RUN_MS] ago. */
     fun openedPolicy(runningSinceMs: Long?, nowMs: Long): ExistingWorkPolicy? =
@@ -208,11 +211,13 @@ object CloudWork {
 
     /** Brackets the [NOW] run in progress, so [opened] knows how old it is. */
     suspend fun <T> nowRun(clock: () -> Long = SystemClock::elapsedRealtime, block: suspend () -> T): T {
-        nowRunStartedMs = clock()
+        val mark = RunMark(clock())
+        nowMark.set(mark)
         try {
             return block()
         } finally {
-            nowRunStartedMs = null
+            // Only its own mark (sweep review Minor 2): a run REPLACE cancelled ends after its replacement started.
+            nowMark.compareAndSet(mark, null)
         }
     }
 

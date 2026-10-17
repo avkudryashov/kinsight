@@ -2,6 +2,7 @@ package app.kinsight.core.data
 
 import androidx.work.ListenableWorker
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.io.IOException
 import kotlin.test.Test
@@ -51,6 +52,23 @@ class CloudWorkResultTest {
         assertEquals(null, CloudWork.nowRunStartedMs, "cleared when the run ends")
         assertFailsWith<IOException> { CloudWork.nowRun({ 42L }) { throw IOException("boom") } }
         assertEquals(null, CloudWork.nowRunStartedMs, "and when it fails")
+    }
+
+    /** Sweep review Minor 2: a run cancelled by REPLACE that ends late leaves its replacement's mark in place. */
+    @Test
+    fun aReplacedRunDoesNotClearItsReplacementsMark() = runBlocking<Unit> {
+        val replacementStarted = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val oldEnds = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val replacementEnds = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val old = launch { CloudWork.nowRun({ 1L }) { replacementStarted.await(); oldEnds.await() } }
+        val replacement = launch { CloudWork.nowRun({ 2L }) { replacementStarted.complete(Unit); replacementEnds.await() } }
+        replacementStarted.await()
+        oldEnds.complete(Unit)
+        old.join()
+        assertEquals(2L, CloudWork.nowRunStartedMs, "the replacement is still running")
+        replacementEnds.complete(Unit)
+        replacement.join()
+        assertEquals(null, CloudWork.nowRunStartedMs)
     }
 
     /** Spec §9: the follow-up run queues its successor behind itself; any other run keeps a waiting one. */
