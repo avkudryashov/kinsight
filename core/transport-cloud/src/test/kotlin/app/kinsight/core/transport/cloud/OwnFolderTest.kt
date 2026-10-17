@@ -1,7 +1,9 @@
 package app.kinsight.core.transport.cloud
 
 import app.kinsight.core.crypto.Primitives
+import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
+import app.kinsight.core.model.addMember
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.sync.InMemoryEntryStore
 import app.kinsight.core.sync.SyncPolicy
@@ -17,6 +19,33 @@ import kotlin.test.assertTrue
 
 class OwnFolderTest {
     private val disk = InMemoryDisk()
+
+    /**
+     * Own membership ops lost with the database (here Mom adding Grandma; the keys and the ring survived) come back with
+     * the lift, and the same run already reads with them: Grandma's pack opens in that run instead of waiting, as from an
+     * unknown author, for the next one.
+     */
+    @Test
+    fun aMemberLiftedFromOurOwnPacksIsReadInTheSameRun() = runTest {
+        val (mom, _) = family(DeviceRole.CHILD)
+        val grandmaKeys = DeviceKeys.generate()
+        val addGrandma = mom.author.addMember(grandmaKeys.sign.publicKey, grandmaKeys.dh.publicKey, "Grandma")
+        mom.publish(addGrandma)
+        mom.sync(disk).run()
+        val gid = mom.store.groupId
+        val grandma = Phone(
+            "grandma", grandmaKeys, EntryAuthor(gid, grandmaKeys, lastSeq = 0),
+            InMemoryEntryStore(gid).also { it.storeMembership(mom.store.membershipEntries()) }, isChild = false, ring = InMemoryKeyRing(mapOf(0 to GEN0)),
+        )
+        val day = grandma.author.summary("2026-10-13", 60_000)
+        grandma.publish(day)
+        grandma.sync(disk).run()
+        val fresh = InMemoryEntryStore(gid).also { it.storeMembership(mom.store.membershipEntries() - addGrandma) }
+        val again = Phone("mom", mom.keys, EntryAuthor(gid, mom.keys, lastSeq = 0), fresh, isChild = false, ring = mom.ring)
+        assertIs<CloudResult.Synced>(again.sync(disk).run())
+        assertTrue(grandmaKeys.deviceId in again.membership().active, "lifted from Mom's own pack")
+        assertTrue(day in fresh.liveEntries(), "read in the run that lifted the member")
+    }
 
     @Test
     fun aPhoneThatLostItsDatabaseTakesItsOwnPacksBack() = runTest {

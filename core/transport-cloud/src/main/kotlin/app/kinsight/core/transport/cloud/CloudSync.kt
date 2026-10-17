@@ -107,16 +107,20 @@ class CloudSync(
     }
 
     private suspend fun exchange(forceCompaction: Boolean): CloudResult {
-        val membership = Membership.compute(groupId, store.membershipEntries())
-        if (membership == null || self !in membership.active) return CloudResult.NotMember
+        val before = Membership.compute(groupId, store.membershipEntries())
+        if (before == null || self !in before.active) return CloudResult.NotMember
         // The counter, not the clock alone: two runs at one clock reading (a fixed test clock) must not share the key.
         runVersion = "run:${clock()}:${RUNS.incrementAndGet()}"
-        absorbRotation(membership)
-        val epoch = writeEpoch(membership) ?: return CloudResult.NoGroupKey
+        absorbRotation(before)
+        writeEpoch(before) ?: return CloudResult.NoGroupKey
         var cursor = cursors.load()
         storageIdFull = false
         val listing = listAll()
-        cursor = liftOwn(listing[self].orEmpty(), membership, cursor)
+        val (lifted, membership) = liftOwn(listing[self].orEmpty(), before, cursor)
+        cursor = lifted
+        // Own membership ops lost with the database came back with the lift: this run already seals and reads with them.
+        if (membership !== before) absorbRotation(membership)
+        val epoch = writeEpoch(membership) ?: return CloudResult.NoGroupKey
         // Spec §11: our folder lost what we uploaded (deleted in the Disk UI, or a new storage): upload everything again.
         // Checked by the names we wrote, not by the ranges listed: a renamed file must not stand in for a lost one.
         // A kept pack (A-4) is never written by us: one gone from the Disk leaves its range a hole, never re-sealed empty.
@@ -332,8 +336,9 @@ class CloudSync(
      * more than SyncSession.MAX_OWN_SEQ_JUMP above what we hold is ignored (told once per name). A file that is not ours
      * is remembered by its version in [CloudCursor.seen], so it is not downloaded again on every run. A kept pack is
      * read again once the ring holds a key of its generation that may open it; its entries then come back.
+     * Returns the cursor and the membership with what the lift ingested (own membership ops lost with the database).
      */
-    private suspend fun liftOwn(own: List<PackItem>, start: MembershipState, cursor: CloudCursor): CloudCursor {
+    private suspend fun liftOwn(own: List<PackItem>, start: MembershipState, cursor: CloudCursor): Pair<CloudCursor, MembershipState> {
         val held = store.versionVector()[self]
         val seen = cursor.seen.toMutableMap()
         // Names are not verified yet: only the ones over the bound are dropped, the lift goes on from the others.
@@ -388,11 +393,11 @@ class CloudSync(
             store.completeAuthor(self, lifted)
             log("own log found on the Disk up to $lifted, held $held: those seqs are not reused (A-4)")
         }
-        if (next == cursor) return cursor
+        if (next == cursor) return cursor to membership
         // Only own packs found above what we hold count as uploaded (review Critical): a marker, a retried kept pack or a
         // due change leaves the upload cursor alone, or entries signed here and not uploaded yet would be skipped.
         val uploaded = if (lifted > held) maxOf(cursor.uploadedUpTo, lifted) else cursor.uploadedUpTo
-        return next.copy(uploadedUpTo = uploaded).also { cursors.save(it) }
+        return next.copy(uploadedUpTo = uploaded).also { cursors.save(it) } to membership
     }
 
     /** The ranges of [cursor]'s kept own packs (A-4): never sealed by us. */
