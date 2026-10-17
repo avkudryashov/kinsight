@@ -132,6 +132,27 @@ class CloudSecretsTest {
         assertEquals("SECOND", d.cloudSecrets.tokens()!!.accessToken)
     }
 
+    /**
+     * Y3 final review Minor 2: a token replaced by a refresh is retired under the generation in force and waits for the next
+     * one; a full list never drops a token of an older generation (one a departed phone may know, spec §7.4) for it.
+     */
+    @Test
+    fun aFullRetiredListDropsRefreshedTokensBeforeOlderGenerations() = runBlocking<Unit> {
+        d.group.createGroup("Mom")
+        val g = d.groups.read()!!.groupId
+        val exposed = (1..5).map { "GEN1-$it" }
+        for (t in exposed) d.cloudSecrets.retire(g, 1, t)
+        val refreshed = (1..6).map { "GEN2-$it" }
+        for (t in refreshed) d.cloudSecrets.retire(g, 2, t)
+        val kept = d.cloudSecrets.retired(g)
+        assertEquals(RetiredTokenFile.MAX, kept.size)
+        assertEquals(exposed, kept.filter { it.generation == 1L }.map { it.accessToken }, "every older-generation token stays")
+        assertEquals(refreshed.takeLast(3), kept.filter { it.generation == 2L }.map { it.accessToken }, "the newest refreshed ones")
+        val late = (1..4).map { "GEN1-late-$it" }
+        for (t in late) d.cloudSecrets.retire(g, 1, t)
+        assertEquals(exposed.drop(1) + late, d.cloudSecrets.retired(g).map { it.accessToken }, "generation 2 went first, then the oldest")
+    }
+
     @Test
     fun adoptingAWelcomeSeedsTheNewGroupAndDropsOldTokens() = runBlocking<Unit> {
         d.group.createGroup("Mom")

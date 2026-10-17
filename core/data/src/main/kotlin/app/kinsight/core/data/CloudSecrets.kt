@@ -199,14 +199,24 @@ class CloudSecrets(
         true
     }
 
-    /** Keeps [accessToken] of storage generation [generation] until it is revoked, once every phone switched (spec §7.1, §7.4). */
+    /**
+     * Keeps [accessToken] of storage generation [generation] until it is revoked, once every phone switched (spec §7.1, §7.4).
+     * The list holds [RetiredTokenFile.MAX]; past it, a token of the newest generation listed goes first, the oldest of
+     * them (Y3 final review Minor 2): those are tokens a refresh replaced, known only to the members in force and waiting
+     * for the next generation anyway, while an older generation's token may be known to a departed phone.
+     */
     suspend fun retire(groupId: GroupId, generation: Long, accessToken: String): Unit = retiredLock.withLock {
         withContext(io) {
             val held = readRetired() ?: emptyList()
             if (held.none { it.accessToken == accessToken }) {
-                val next = held + RetiredToken(groupId.hex, generation, accessToken)
-                val evicted = next.size - RetiredTokenFile.MAX
-                if (evicted > 0) Log.w(TAG, "retired tokens over ${RetiredTokenFile.MAX}: the oldest $evicted dropped unrevoked")
+                val next = (held + RetiredToken(groupId.hex, generation, accessToken)).toMutableList()
+                var evicted = 0
+                while (next.size > RetiredTokenFile.MAX) {
+                    val newest = next.maxOf { it.generation }
+                    next.removeAt(next.indexOfFirst { it.generation == newest })
+                    evicted++
+                }
+                if (evicted > 0) Log.w(TAG, "retired tokens over ${RetiredTokenFile.MAX}: $evicted of the newest generation dropped unrevoked")
                 retiredFile.write(next)
             }
         }
