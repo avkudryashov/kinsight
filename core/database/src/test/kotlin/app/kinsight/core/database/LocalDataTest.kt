@@ -9,6 +9,7 @@ import app.kinsight.core.model.proto.AppCatalog
 import app.kinsight.core.model.proto.Heartbeat
 import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.model.proto.UsageSummary
+import app.kinsight.core.transport.cloud.CloudCursor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
@@ -131,6 +132,19 @@ class LocalDataTest {
         db.wipeAll()
         for (table in WIPED_TABLES) assertEquals(0L, count(table), table)
         assertEquals(0L, store.authorState(keys.deviceId).lastSeq)
+    }
+
+    @Test
+    fun aCloudCursorThatFailsToDecodeInAnyWayStartsOver() = runTest {
+        db.cloudCursorDao().set(CloudCursorRow(state = byteArrayOf(42)))
+        val logged = mutableListOf<String>()
+        assertEquals(CloudCursor(), RoomCloudCursorStore(db, { logged += it }).load())
+        val broken = RoomCloudCursorStore(db, { logged += it }, decode = { throw IllegalStateException("codec bug") })
+        assertEquals(CloudCursor(), broken.load())
+        assertEquals(2, logged.size)
+        val c = CloudCursor(uploadedUpTo = 5)
+        RoomCloudCursorStore(db).save(c)
+        assertEquals(c, RoomCloudCursorStore(db).load())
     }
 
     @Test
