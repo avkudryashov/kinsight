@@ -35,19 +35,27 @@ class IntegrityFastSync(
     private var lastStartMs: Long? = null
     private var lastKind: StateEvent.Kind? = null
 
+    /** The last start was a closer let through: the next event of its kind waits for the interval again. */
+    private var lastClosed = false
+
     /** True when this event started fast mode. */
     suspend fun onOwnStateEvent(kind: StateEvent.Kind): Boolean = mutex.withLock {
         if (kind !in KINDS) return@withLock false
         val now = clock()
         val last = lastStartMs
         // The closer of the kind that took the last fast start goes out at once (the parent's notification of it must
-        // not stand for a cooldown); after that the interval holds again, the closer being the last kind now.
-        val closesLast = lastKind?.let { AlertPlanner.CLOSERS[it] } == kind
-        if (last != null && now - last < MIN_INTERVAL_MS && !closesLast) return@withLock false
+        // not stand for a cooldown); after that the interval holds again, the closer being the last kind now. A
+        // self-closing location kind (AlertPlanner.SELF_CLOSING) closes with its own kind: let through like a resume,
+        // once (Y5 parked minor).
+        val closesLast = lastKind?.let { AlertPlanner.CLOSERS[it] } == kind ||
+            (kind == lastKind && kind in AlertPlanner.SELF_CLOSING && !lastClosed)
+        val within = last != null && now - last < MIN_INTERVAL_MS
+        if (within && !closesLast) return@withLock false
         if (stoppedByUser()) return@withLock false
         if (!startFast()) return@withLock false
         lastStartMs = now
         lastKind = kind
+        lastClosed = within && closesLast
         true
     }
 

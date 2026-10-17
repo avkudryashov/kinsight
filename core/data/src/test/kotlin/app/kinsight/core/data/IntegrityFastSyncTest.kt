@@ -45,6 +45,22 @@ class IntegrityFastSyncTest {
         assertEquals(2, starts)
     }
 
+    /** Y5 parked minor: a location problem closes with its own kind; that closer goes out at once too, once. */
+    @Test
+    fun aSelfClosingLocationKindIsLetThroughLikeAResume() = runBlocking<Unit> {
+        for (kind in AlertPlanner.SELF_CLOSING) {
+            now += IntegrityFastSync.MIN_INTERVAL_MS
+            starts = 0
+            assertTrue(fast.onOwnStateEvent(kind), "$kind opens")
+            now += 30_000 // turned back on 30 s later: the parent's «location off» must not stand for a cooldown
+            assertTrue(fast.onOwnStateEvent(kind), "$kind closes")
+            now += 10_000 // a flapping switch: the interval holds again
+            assertFalse(fast.onOwnStateEvent(kind))
+            assertFalse(fast.onOwnStateEvent(kind))
+            assertEquals(2, starts)
+        }
+    }
+
     @Test
     fun aCloserOfAnotherOpenerKeepsTheInterval() = runBlocking<Unit> {
         assertTrue(fast.onOwnStateEvent(StateEvent.Kind.SHARING_PAUSED))
