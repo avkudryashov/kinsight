@@ -56,6 +56,23 @@ class MapProjectionTest {
         assertTrue(p.y(last.latE7) - halo >= pad - 0.5f && p.y(last.latE7) + halo <= h - pad + 0.5f, "halo inside vertically")
     }
 
+    /**
+     * Y4 final review Minor 5: a zone far from today's route and the last point (grandparents in another city) is left
+     * out of the fit, so the route is not zoomed down to a dot; a near one stays. With nothing of the child, every zone.
+     */
+    @Test
+    fun aFarZoneDoesNotZoomTheRouteOut() {
+        val home = ZoneView("aa".repeat(16), "Home", 404_168_000, -37_038_000, 150, DeviceId("aa".repeat(16)))
+        val school = ZoneView("bb".repeat(16), "School", 404_268_000, -37_038_000, 200, DeviceId("aa".repeat(16))) // ~1.1 km
+        val faraway = ZoneView("cc".repeat(16), "Grandma", 413_874_000, 21_686_000, 300, DeviceId("aa".repeat(16))) // ~500 km
+        val route = listOf(GeoPoint(404_168_000, -37_030_000, 10, 1L))
+        val last = GeoPoint(404_170_000, -37_020_000, 20, 2L)
+        val circles = mapCircles(listOf(home, school, faraway), route, last)
+        assertTrue(circles.none { it.first == faraway.latE7 }, "the far zone is not fitted")
+        assertTrue(circles.any { it.first == school.latE7 } && circles.any { it.first == home.latE7 })
+        assertEquals(3, mapCircles(listOf(home, school, faraway), emptyList(), null).size, "no route, no point: every zone")
+    }
+
     @Test
     fun aVagueLastPointDoesNotZoomTheMapOut() {
         val last = GeoPoint(0, 0, 50_000, 1L)

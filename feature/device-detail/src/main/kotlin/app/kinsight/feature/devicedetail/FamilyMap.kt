@@ -23,6 +23,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.kinsight.core.data.GeoPoint
 import app.kinsight.core.data.ZoneView
+import app.kinsight.core.location.Geo
 
 /**
  * The family map (spec §12) without tiles or a map library (spec §15: online only for the user's Disk; no Play
@@ -84,8 +85,22 @@ internal fun FamilyMap(zones: List<ZoneView>, route: List<GeoPoint>, last: GeoPo
 /** The last point's accuracy halo counts in the fit up to this; a vaguer fix is drawn clipped rather than zooming out. */
 internal const val MAX_HALO_M = 1_000
 
-/** What the map must show: zones with their radius, the route as points, the last point with its accuracy halo. */
-internal fun mapCircles(zones: List<ZoneView>, route: List<GeoPoint>, last: GeoPoint?): List<Triple<Int, Int, Int>> =
-    zones.map { Triple(it.latE7, it.lonE7, it.radiusM) } +
+/** A zone whose edge lies further than this from every point of today counts as far: it stays out of the fit. */
+internal const val NEAR_ZONE_M = 5_000
+
+/**
+ * What the map must show: the route as points, the last point with its accuracy halo, and the zones near them with their
+ * radius (Y4 final review Minor 5: one far-away zone would zoom today's route down to a dot; it is still drawn, clipped).
+ * With no point of today, every zone.
+ */
+internal fun mapCircles(zones: List<ZoneView>, route: List<GeoPoint>, last: GeoPoint?): List<Triple<Int, Int, Int>> {
+    val points = route + listOfNotNull(last)
+    val near = if (points.isEmpty()) {
+        zones
+    } else {
+        zones.filter { z -> points.any { p -> Geo.distanceM(z.latE7, z.lonE7, p.latE7, p.lonE7) - z.radiusM <= NEAR_ZONE_M } }
+    }
+    return near.map { Triple(it.latE7, it.lonE7, it.radiusM) } +
         route.map { Triple(it.latE7, it.lonE7, 0) } +
         listOfNotNull(last).map { Triple(it.latE7, it.lonE7, it.accuracyM.coerceIn(0, MAX_HALO_M)) }
+}
