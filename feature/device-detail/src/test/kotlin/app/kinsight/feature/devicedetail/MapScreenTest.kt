@@ -14,6 +14,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasClickAction
 import app.kinsight.core.designsystem.theme.ChildColorKey
@@ -354,11 +355,58 @@ class MapScreenTest {
         awaitPreview()
         rule.onNodeWithTag("fake_maplibre").assertExists()
         rule.onNodeWithTag("loc_map").assertDoesNotExist()
-        rule.onNodeWithTag("loc_osm").assertTextEquals("© OpenStreetMap contributors")
+        rule.onNodeWithTag("loc_osm").assertTextEquals("© OpenStreetMap")
         val (style, frame) = drawn!!
         assertTrue("pmtiles://file://$block" in style)
         assertFalse("http" in style)
         assertTrue(frame.south < 40.412 && 40.412 < frame.north && frame.west < -3.708 && -3.708 < frame.east)
+    }
+
+    private fun showPreviewReady() {
+        install(ExternalMaps.yandex(p2.latE7, p2.lonE7), ExternalMaps.YANDEX)
+        showStreets(StreetMaps(mapOf(madrid to block), setOf(madrid), emptySet(), downloading = false))
+        awaitPreview()
+        rule.mainClock.autoAdvance = false
+    }
+
+    @Test
+    fun attributionShowsAtStartThenCollapsesToInfoButton() {
+        showPreviewReady()
+        rule.onNodeWithTag("loc_osm").assertTextEquals("© OpenStreetMap")
+        rule.onNodeWithTag("loc_osm_info").assertDoesNotExist()
+        rule.mainClock.advanceTimeBy(5_500)
+        rule.onNodeWithTag("loc_osm").assertDoesNotExist()
+        rule.onNodeWithTag("loc_osm_info").assertExists().assertContentDescriptionEquals("Map data licence")
+    }
+
+    @Test
+    fun tappingInfoShowsAttributionAgainAndItCollapsesAgain() {
+        showPreviewReady()
+        rule.mainClock.advanceTimeBy(5_500)
+        rule.onNodeWithTag("loc_osm_info").performClick()
+        rule.mainClock.advanceTimeByFrame()
+        rule.onNodeWithTag("loc_osm").assertTextEquals("© OpenStreetMap")
+        rule.mainClock.advanceTimeBy(5_500)
+        rule.onNodeWithTag("loc_osm").assertDoesNotExist()
+        rule.onNodeWithTag("loc_osm_info").assertExists()
+    }
+
+    @Test
+    fun tappingTheAttributionOpensTheLicenceNotTheMaps() {
+        showPreviewReady()
+        rule.onNodeWithTag("loc_osm").performClick()
+        val sent = shadowOf(app).nextStartedActivity
+        assertEquals(Intent.ACTION_VIEW, sent.action)
+        assertEquals("https://www.openstreetmap.org/copyright", sent.dataString)
+        assertNull(shadowOf(app).nextStartedActivity)
+    }
+
+    @Test
+    fun tappingInfoDoesNotOpenMaps() {
+        showPreviewReady()
+        rule.mainClock.advanceTimeBy(5_500)
+        rule.onNodeWithTag("loc_osm_info").performClick()
+        assertNull(shadowOf(app).nextStartedActivity)
     }
 
     @Test

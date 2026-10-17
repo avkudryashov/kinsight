@@ -153,6 +153,7 @@
     <string name="loc_no_events">Сегодня событий зон не было</string>
     <string name="loc_zones">Безопасные зоны: %1$d</string>
     <string name="loc_map_description">Карта безопасных зон и маршрута за сегодня</string>
+    <string name="loc_osm_info">Лицензия данных карты</string>
     <string name="loc_preview_description">Карта улиц с местом ребёнка, маршрутом за сегодня и зонами. Нажмите, чтобы открыть её в приложении карт</string>
     <string name="map_streets_loading">Карта улиц загружается</string>
     <string name="map_streets_wifi">Карта улиц будет загружена по Wi-Fi</string>
