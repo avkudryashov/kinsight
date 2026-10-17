@@ -57,6 +57,44 @@ class CloudRunnerTest {
         assertNull(mom.cloudState.current().problem)
     }
 
+    /**
+     * Parked Y2 minor: a run cancelled halfway through its downloads (the app open REPLACE, the system stopping the work)
+     * leaves nothing half done: the next run reads the rest, every entry is stored once, and a run after it reads nothing.
+     */
+    @Test
+    fun aReadCancelledHalfwayIsReadAgainOnce() = runBlocking<Unit> {
+        family()
+        mom.ownStorage()
+        kid.learnsStorageFrom(mom)
+        val first = kid.ownSummary("2026-10-12", 60_000)
+        assertEquals(CloudRun.SYNCED, kid.runner(disk).run(CloudTrigger.NOW))
+        val second = kid.ownSummary("2026-10-13", 60_000)
+        assertEquals(CloudRun.SYNCED, kid.runner(disk).run(CloudTrigger.NOW))
+        val kidDir = kid.keys.deviceId.hex
+        var packs = 0
+        val cancelling = object : DiskApi by disk {
+            override suspend fun download(path: String): ByteArray {
+                // The first of the kid's two packs is read, the second never arrives.
+                if (kidDir in path && ++packs == 2) throw kotlinx.coroutines.CancellationException("work stopped")
+                return disk.download(path)
+            }
+        }
+        val runner = mom.runner { _ -> cancelling }
+        kotlin.test.assertFailsWith<kotlinx.coroutines.CancellationException> { runner.run(CloudTrigger.NOW) }
+        assertEquals(2, packs, "cancelled inside the read")
+        val again = mom.runner(disk)
+        assertEquals(CloudRun.SYNCED, again.run(CloudTrigger.NOW))
+        val live = mom.store().liveEntries()
+        assertTrue(first in live && second in live)
+        val kidHex = kid.keys.deviceId.hex
+        val rows = mom.db.entryDao().all().map { it.author to it.seq }.filter { it.first == kidHex }
+        assertEquals(rows.distinct(), rows)
+        assertEquals(kid.store().versionVector()[kid.keys.deviceId], mom.store().versionVector()[kid.keys.deviceId])
+        val before = disk.downloads.size
+        assertEquals(CloudRunOutcome(CloudRun.SYNCED, 0), again.runCounted(CloudTrigger.NOW))
+        assertEquals(before, disk.downloads.size, "nothing read twice afterwards")
+    }
+
     /** Y4 final review Important 1: the run tells how many entries of others it brought, so alerts follow (spec §9). */
     @Test
     fun aRunTellsWhetherItBroughtEntriesOfOthers() = runBlocking<Unit> {
