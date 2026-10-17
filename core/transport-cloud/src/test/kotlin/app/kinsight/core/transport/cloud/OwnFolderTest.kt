@@ -339,4 +339,25 @@ class OwnFolderTest {
         repeat(3) { again.sync(wrapped).run() }
         assertEquals(1, fetched, "rejected once, not fetched on every run")
     }
+
+    /** Sweep review Minor 1: a kept pack pins its generation only while its file is on the Disk. */
+    @Test
+    fun aKeptPackDeletedFromTheDiskNoLongerKeepsItsKey() = runTest {
+        val (_, kid) = family(DeviceRole.CHILD)
+        val g = kid.store.groupId
+        kid.publish(kid.author.summary("2026-10-01", 60_000L))
+        val dir = CloudPaths.deviceDir(g, kid.id)
+        for (d in listOf(CloudPaths.APP_ROOT, CloudPaths.root(g), dir)) disk.mkdir(d)
+        val path = "$dir/${CloudPaths.packName(1, 1)}"
+        disk.upload(path, PackCodec.seal(kid.keys, g, kid.store.entriesAfter(kid.id, 0, 10), 1, 1, 7, Primitives.randomBytes(32), 1_000L))
+        val ring = InMemoryKeyRing(mapOf(0 to GEN0, 7 to Primitives.randomBytes(32))) // another key of 7: KeyMismatch
+        val fresh = InMemoryEntryStore(g).also { it.storeMembership(kid.store.membershipEntries()) }
+        val again = Phone("kid", kid.keys, EntryAuthor(g, kid.keys, lastSeq = 0), fresh, isChild = true, ring = ring)
+        again.sync(disk).run()
+        assertTrue(again.cursor.cursor.ownPacks.getValue(CloudPaths.packName(1, 1)).kept)
+        assertTrue(7 in ring.keys(), "pinned while the kept file remains")
+        disk.delete(path) // deleted in the Disk UI
+        again.sync(disk).run()
+        assertEquals(setOf(0), ring.keys().keys)
+    }
 }

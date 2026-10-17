@@ -642,8 +642,11 @@ class CloudSync(
         // skipped unread has an unknown generation: it blocks dropping while the ring holds a key nothing pins.
         val members = membership.active.keys + membership.departed.keys
         val memberKeys = listed.filter { it.first in members }.map { it.second }.toSet()
-        // Our own kept packs (A-4) are files sealed with their generation too: a key of it that arrives is kept to read them.
-        val keep = setOfNotNull(writeEpoch(membership), accessEpoch(membership)) + keptPacks(cursor).values.map { it.epoch }
+        // Our own kept packs (A-4) are files sealed with their generation too: a key of it that arrives is kept to read them,
+        // only while the file is still on the Disk (spec §5: while files sealed with it remain).
+        val ownListed = listing[self].orEmpty().map { it.name }.toSet()
+        val keptEpochs = keptPacks(cursor).filterKeys { it in ownListed }.values.map { it.epoch }
+        val keep = setOfNotNull(writeEpoch(membership), accessEpoch(membership)) + keptEpochs
         val unread = (ring.keys().keys - keep).isNotEmpty() && keptSeen.filterKeys { it in memberKeys }.values.any { it == COVERED_UNREAD }
         if (!unread && memberKeys.all { it in keptSeen || it in keptDeferred }) {
             val inUse = (keptSeen.filterKeys { it in memberKeys }.values + keptDeferred.filterKeys { it in memberKeys }.values.map { it.epoch })
