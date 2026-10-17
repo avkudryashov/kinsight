@@ -8,6 +8,8 @@ import java.io.IOException
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.zip.GZIPOutputStream
 import kotlin.math.roundToInt
 
@@ -50,11 +52,18 @@ object PmTiles {
 
     fun gzip(bytes: ByteArray): ByteArray = ByteArrayOutputStream().also { o -> GZIPOutputStream(o).use { it.write(bytes) } }.toByteArray()
 
-    /** The deepest zoom of a PMTiles v3 [file]; null for anything else (debug installs check it, spec §3). */
+    /** A gzip member's magic, 1f 8b. */
+    fun isGzip(bytes: ByteArray): Boolean = bytes.size >= 2 && bytes[0] == 0x1f.toByte() && bytes[1] == 0x8b.toByte()
+
+    /** The deepest zoom of a PMTiles v3 [file]; null for anything else, a truncated or unreadable file too (spec §3). */
     fun maxZoomOf(file: File): Int? {
         if (!file.isFile || file.length() < HEADER_BYTES) return null
         val head = ByteArray(HEADER_BYTES)
-        RandomAccessFile(file, "r").use { it.readFully(head) }
+        try {
+            RandomAccessFile(file, "r").use { it.readFully(head) }
+        } catch (e: IOException) {
+            return null // shorter than it said, or not ours to read
+        }
         if (!head.copyOfRange(0, MAGIC.size).contentEquals(MAGIC) || head[7].toInt() != 3) return null
         return head[101].toInt() and 0xff
     }
@@ -75,7 +84,7 @@ class PmTilesWriter(private val scratch: File) : Closeable {
     private var maxZoom = -1
 
     fun add(z: Int, x: Int, y: Int, gzipped: ByteArray) {
-        require(gzipped.size >= 2 && gzipped[0] == 0x1f.toByte() && gzipped[1] == 0x8b.toByte()) { "a tile must be gzip" }
+        require(PmTiles.isGzip(gzipped)) { "a tile must be gzip" }
         val id = PmTiles.tileId(z, x, y)
         require(ids.add(id)) { "a tile came twice" }
         val offset = data.length()
@@ -86,6 +95,7 @@ class PmTilesWriter(private val scratch: File) : Closeable {
         maxZoom = maxOf(maxZoom, z)
     }
 
+    /** Written to `<target>.part` and renamed over [target] when complete; on any failure the partial is deleted. */
     fun finish(target: File, bounds: Bounds, metadata: String) {
         check(entries.isNotEmpty()) { "no tiles" }
         val sorted = entries.sortedBy { it.id }
@@ -109,8 +119,18 @@ class PmTilesWriter(private val scratch: File) : Closeable {
         h.put(minZoom.toByte()).put(maxZoom.toByte())
         h.putInt(e7(bounds.west)).putInt(e7(bounds.south)).putInt(e7(bounds.east)).putInt(e7(bounds.north))
         h.put(minZoom.toByte()).putInt(e7((bounds.west + bounds.east) / 2)).putInt(e7((bounds.south + bounds.north) / 2))
-        FileOutputStream(target).use { out ->
-            out.write(h.array())
+        val part = File(target.path + PART)
+        try {
+            write(part, h.array(), directory, meta, sorted)
+            Files.move(part.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE)
+        } finally {
+            part.delete()
+        }
+    }
+
+    private fun write(part: File, header: ByteArray, directory: ByteArray, meta: ByteArray, sorted: List<Entry>) {
+        FileOutputStream(part).use { out ->
+            out.write(header)
             out.write(directory)
             out.write(meta)
             val buf = ByteArray(64 * 1024)
@@ -159,4 +179,8 @@ class PmTilesWriter(private val scratch: File) : Closeable {
     }
 
     private fun e7(deg: Double) = (deg * 1e7).roundToInt()
+
+    private companion object {
+        const val PART = ".part"
+    }
 }

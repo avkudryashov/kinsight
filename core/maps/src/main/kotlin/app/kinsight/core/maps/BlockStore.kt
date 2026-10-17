@@ -10,26 +10,27 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import java.io.File
 import java.io.FileOutputStream
-import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
 
 /**
- * What the store keeps next to the files (offline map spec §3): [usage] the newest point time per cell, [installed]
- * the sha256 each block file was verified against, [catalogFetchedMs] when the catalog was last asked for.
+ * What the store keeps next to the files (offline map spec §3, §7): [usage] the newest point time per cell of a
+ * point's neighbourhood, [centres] the newest point time per point's own cell (those come to z14), [installed]
+ * [BlockVersion.encode] of each file, [capped] the cells whose download passed the size cap and when, [source] the
+ * cached TileJSON's tile address ([TileSource.template]) and [sourceFetchedMs] when it was asked for.
  */
 data class BlockLedger(
     val usage: Map<Cell, Long> = emptyMap(),
     val installed: Map<Cell, String> = emptyMap(),
-    val catalogFetchedMs: Long? = null,
+    val centres: Map<Cell, Long> = emptyMap(),
+    val capped: Map<Cell, Long> = emptyMap(),
+    val source: String? = null,
+    val sourceFetchedMs: Long? = null,
 )
 
-enum class Install { OK, MISMATCH }
-
 /**
- * The block files under [dir] (`filesDir/maps`): `z10-<x>-<y>.pmtiles`, the cached `catalog.json` and `ledger.json`.
- * Only a verified file ever carries the `.pmtiles` name (spec §3), so the preview never opens half a block.
+ * The block files under [dir] (`filesDir/maps`): `z10-<x>-<y>.pmtiles` and `ledger.json`. Only a finished file ever
+ * carries the `.pmtiles` name (spec §3), so the preview never opens half a block.
  */
 class BlockStore(val dir: File, private val free: (File) -> Long = { it.usableSpace }) {
     fun file(cell: Cell): File = File(dir, cell.name + EXT)
@@ -50,38 +51,21 @@ class BlockStore(val dir: File, private val free: (File) -> Long = { it.usableSp
     @Synchronized
     fun updateLedger(change: (BlockLedger) -> BlockLedger): BlockLedger = change(ledger()).also { writeAtomically(LEDGER, encode(it)) }
 
-    fun catalog(): Catalog? = File(dir, CATALOG).takeIf { it.isFile }?.readText()?.let(CatalogParser::parse)
-
-    fun saveCatalog(text: String) = writeAtomically(CATALOG, text)
-
     /**
-     * Writes [input] to a partial file, counting and hashing; renames it over the block only when the size and the
-     * sha256 match the catalog. The partial is deleted in every other case, an exception from [input] included.
+     * Spec §7: [write] fills the partial file `part` (and may keep tiles in `scratch` next to it); only when it returns
+     * is `part` renamed over the block. Both are deleted in every case; an exception from [write] is rethrown.
      */
-    fun install(block: CatalogBlock, input: InputStream): Install {
+    fun install(cell: Cell, write: (part: File, scratch: File) -> Unit) {
         dir.mkdirs()
-        val part = File(dir, block.cell.name + EXT + PART)
+        val part = File(dir, cell.name + EXT + PART)
+        val scratch = File(dir, cell.name + SCRATCH + PART)
         try {
-            val digest = MessageDigest.getInstance("SHA-256")
-            var total = 0L
-            FileOutputStream(part).use { out ->
-                val buf = ByteArray(64 * 1024)
-                while (true) {
-                    val n = input.read(buf)
-                    if (n < 0) break
-                    total += n
-                    if (total > block.bytes) return Install.MISMATCH
-                    digest.update(buf, 0, n)
-                    out.write(buf, 0, n)
-                }
-                out.fd.sync()
-            }
-            if (total != block.bytes || hex(digest.digest()) != block.sha256) return Install.MISMATCH
+            write(part, scratch)
             // A rename over the old block: a preview that has the old file open keeps reading it until it lets go.
-            Files.move(part.toPath(), file(block.cell).toPath(), StandardCopyOption.ATOMIC_MOVE)
-            return Install.OK
+            Files.move(part.toPath(), file(cell).toPath(), StandardCopyOption.ATOMIC_MOVE)
         } finally {
             part.delete()
+            scratch.delete()
         }
     }
 
@@ -89,8 +73,9 @@ class BlockStore(val dir: File, private val free: (File) -> Long = { it.usableSp
         file(cell).delete()
     }
 
+    /** Partial files, temporary ledgers and the catalog of the GitHub days. */
     fun sweepPartials() {
-        dir.listFiles().orEmpty().filter { it.name.endsWith(PART) || it.name.endsWith(TMP) }.forEach { it.delete() }
+        dir.listFiles().orEmpty().filter { it.name.endsWith(PART) || it.name.endsWith(TMP) || it.name == LEGACY_CATALOG }.forEach { it.delete() }
     }
 
     fun forget() {
@@ -110,7 +95,10 @@ class BlockStore(val dir: File, private val free: (File) -> Long = { it.usableSp
     private fun encode(l: BlockLedger): String = buildJsonObject {
         putJsonObject("usage") { l.usage.forEach { (c, t) -> put(key(c), t) } }
         putJsonObject("installed") { l.installed.forEach { (c, s) -> put(key(c), s) } }
-        l.catalogFetchedMs?.let { put("catalogFetchedMs", it) }
+        putJsonObject("centres") { l.centres.forEach { (c, t) -> put(key(c), t) } }
+        putJsonObject("capped") { l.capped.forEach { (c, t) -> put(key(c), t) } }
+        l.source?.let { put("source", it) }
+        l.sourceFetchedMs?.let { put("sourceFetchedMs", it) }
     }.toString()
 
     private fun decode(text: String): BlockLedger {
@@ -119,10 +107,14 @@ class BlockStore(val dir: File, private val free: (File) -> Long = { it.usableSp
         } catch (e: IllegalArgumentException) {
             null
         } ?: return BlockLedger()
+        val long = { e: JsonElement -> (e as? JsonPrimitive)?.longOrNull }
         return BlockLedger(
-            usage = cells(o["usage"]) { (it as? JsonPrimitive)?.longOrNull },
+            usage = cells(o["usage"], long),
             installed = cells(o["installed"]) { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content },
-            catalogFetchedMs = (o["catalogFetchedMs"] as? JsonPrimitive)?.longOrNull,
+            centres = cells(o["centres"], long),
+            capped = cells(o["capped"], long),
+            source = (o["source"] as? JsonPrimitive)?.takeIf { it.isString }?.content,
+            sourceFetchedMs = (o["sourceFetchedMs"] as? JsonPrimitive)?.longOrNull,
         )
     }
 
@@ -145,10 +137,9 @@ class BlockStore(val dir: File, private val free: (File) -> Long = { it.usableSp
         const val EXT = ".pmtiles"
         const val PART = ".part"
         const val LEDGER = "ledger.json"
-        const val CATALOG = "catalog.json"
+        private const val SCRATCH = ".tiles"
         private const val TMP = ".tmp"
+        private const val LEGACY_CATALOG = "catalog.json"
         private val BLOCK = Regex("""z10-(\d{1,4})-(\d{1,4})\.pmtiles""")
-
-        private fun hex(b: ByteArray) = b.joinToString("") { "%02x".format(it) }
     }
 }

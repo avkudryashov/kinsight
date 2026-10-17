@@ -10,7 +10,7 @@ import kotlin.math.tan
 
 /** One z10 Web Mercator tile; a map block covers it (offline map spec §2: about 30 × 30 km at Valencia's latitude). */
 data class Cell(val x: Int, val y: Int) {
-    /** The block's file and catalog name. */
+    /** The block's file name. */
     val name: String get() = "z${TileGrid.ZOOM}-$x-$y"
 
     override fun toString() = "Cell" // a cell narrows where a child has been: never logged
@@ -30,7 +30,7 @@ data class TileKey(val z: Int, val x: Int, val y: Int) {
     override fun toString() = "TileKey"
 }
 
-/** The z10 grid the blocks are cut by (spec §2), with the same formula as `scripts/maps/build-blocks.sh`. */
+/** The z10 grid the blocks are cut by (spec §2, §7): one PMTiles file per cell. */
 object TileGrid {
     const val ZOOM = 10
     const val SIZE = 1 shl ZOOM

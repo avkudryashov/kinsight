@@ -1,6 +1,7 @@
 package app.kinsight.core.maps
 
 import java.io.File
+import java.io.IOException
 import kotlin.io.path.createTempDirectory
 import kotlin.math.roundToInt
 import kotlin.random.Random
@@ -107,6 +108,38 @@ class PmTilesTest {
         assertEquals(13, PmTiles.maxZoomOf(write(13)))
         assertNull(PmTiles.maxZoomOf(File(dir, "junk").apply { writeText("not a block at all, but long enough to hold a header ".repeat(4)) }))
         assertNull(PmTiles.maxZoomOf(File(dir, "missing")))
+    }
+
+    /** A truncated or unreadable file is no block: null, never an exception. */
+    @Test
+    fun aBrokenFileHasNoMaxZoom() {
+        val cut = write(13).let { f -> File(dir, "cut").apply { writeBytes(f.readBytes().copyOf(100)) } }
+        assertNull(PmTiles.maxZoomOf(cut))
+        val locked = File(dir, "locked").apply { writeText("not a block at all, but long enough to hold a header ".repeat(4)) }
+        locked.setReadable(false)
+        try {
+            assertNull(PmTiles.maxZoomOf(locked))
+        } finally {
+            locked.setReadable(true)
+        }
+    }
+
+    /** The output goes to a partial file renamed at the end: a failure leaves the old target and no partial. */
+    @Test
+    fun aFailedFinishLeavesTheTargetAsItWas() {
+        val target = File(dir, "out.pmtiles").apply { writeText("old") }
+        val w = PmTilesWriter(File(dir, "s"))
+        w.add(10, 510, 389, tile(TileKey(10, 510, 389)))
+        w.close() // the scratch is gone: finish fails after it has started writing
+        assertFailsWith<IOException> { w.finish(target, TileGrid.bounds(cell), "{}") }
+        assertEquals("old", target.readText())
+        assertTrue(dir.listFiles().orEmpty().none { it.name.endsWith(".part") })
+    }
+
+    @Test
+    fun aFinishedFileLeavesNoPartial() {
+        write(13, File(dir, "done.pmtiles"))
+        assertTrue(dir.listFiles().orEmpty().none { it.name.endsWith(".part") })
     }
 
     /** Left in build/ for the go-pmtiles check of Step 5. */
