@@ -85,11 +85,14 @@ class LocationEngine(
      */
     suspend fun refresh(rearm: Boolean = false): Unit = lock.withLock {
         val zones = active() ?: return@withLock
-        lineUp(zones, rearm)
+        lineUp(zones, rearm, armTick = true)
     }
 
-    /** True when it took a fix (the first decision). */
-    private suspend fun lineUp(zones: List<Zone>, rearm: Boolean): Boolean {
+    /**
+     * True when it took a fix (the first decision). Without [armTick] the outside tick is left alone: the caller's own
+     * fix re-arms it (a zero-delay tick armed here would bring a second fix seconds later).
+     */
+    private suspend fun lineUp(zones: List<Zone>, rearm: Boolean, armTick: Boolean): Boolean {
         val s = store.load()
         val wanted = zones.associateBy { it.signature }
         // Saved before the platform hears of them (Y4 parked minor): a process killed in between leaves every alert it
@@ -104,7 +107,7 @@ class LocationEngine(
             apply(ZoneTracker.fix(registered, zones, fix(), clock()))
             return true
         }
-        if (registered.mode == Mode.OUTSIDE && (rearm || overdue(registered))) {
+        if (armTick && registered.mode == Mode.OUTSIDE && (rearm || overdue(registered))) {
             // Emulator finding: a process start used to push the tick 5 minutes on each time. The saved time stays when it
             // is still ahead (capped at TICK_MS should the clock have gone back); a time already past fires at once.
             val now = clock()
@@ -140,7 +143,7 @@ class LocationEngine(
      */
     suspend fun onTick(tick: Tick): Unit = lock.withLock {
         val zones = active() ?: return@withLock
-        if (tick == Tick.PERIODIC && lineUp(zones, rearm = false)) return@withLock
+        if (tick == Tick.PERIODIC && lineUp(zones, rearm = false, armTick = false)) return@withLock
         val s = store.load()
         if (tick == Tick.OUTSIDE && s.mode == Mode.IN_ZONE) return@withLock follow(s, tickInMs = null)
         apply(ZoneTracker.fix(s, zones, fix(), clock()))

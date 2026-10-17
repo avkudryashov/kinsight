@@ -58,6 +58,7 @@ private class FakeCadence : Cadence {
     var service = false
     var refused = false
     var tickInMs: Long? = null
+    val arms = mutableListOf<Long>()
     var periodic = false
 
     override fun startService(): Boolean {
@@ -71,6 +72,7 @@ private class FakeCadence : Cadence {
     }
 
     override fun armTick(delayMs: Long) {
+        arms += delayMs
         tickInMs = delayMs
     }
 
@@ -211,6 +213,18 @@ class LocationEngineTest {
         assertEquals(0L, cadence.tickInMs)
         assertEquals(now, store.state.nextTickMs)
         assertEquals(0, fixes.asked)
+    }
+
+    /** Review Important 1: the 30-minute check over an overdue outside tick takes one fix and arms the tick once. */
+    @Test
+    fun theCheckOverAnOverdueTickTakesOneFix() = runTest {
+        store.state = TrackerState(Mode.OUTSIDE, registered = setOf(home.signature, school.signature), nextTickMs = now - 2 * LocationEngine.TICK_MS)
+        fixes.next = away
+        engine.onTick(Tick.PERIODIC)
+        assertEquals(1, fixes.asked)
+        assertEquals<List<Recorded>>(listOf(emptyList<ZoneEvent>() to Report.Point(away)), host.recorded)
+        assertEquals(listOf(LocationEngine.TICK_MS), cadence.arms, "no zero-delay tick next to the check's own fix")
+        assertEquals(now + LocationEngine.TICK_MS, store.state.nextTickMs)
     }
 
     /** Emulator finding: a process start (rearm) keeps the saved tick time instead of pushing it 5 minutes on. */
