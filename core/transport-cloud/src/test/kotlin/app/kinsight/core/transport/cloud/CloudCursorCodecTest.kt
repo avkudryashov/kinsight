@@ -1,5 +1,7 @@
 package app.kinsight.core.transport.cloud
 
+import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
 import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -30,6 +32,32 @@ class CloudCursorCodecTest {
         assertFailsWith<IOException> { CloudCursorCodec.decode(byteArrayOf(9, 0, 0, 0)) }
         val good = CloudCursorCodec.encode(CloudCursor(uploadedUpTo = 3, seen = mapOf("x" to 1)))
         assertFailsWith<IOException> { CloudCursorCodec.decode(good.copyOf(good.size - 1)) }
+    }
+
+    /** Bytes [CloudCursorCodec.encode] never writes: a repeated map key, an optional flag other than 0 or 1. */
+    @Test
+    fun aRepeatedKeyOrANonCanonicalFlagIsAnIOException() {
+        fun cursor(seenKeys: List<String>, flag: Int): ByteArray {
+            val bytes = ByteArrayOutputStream()
+            DataOutputStream(bytes).use { o ->
+                o.writeByte(2)
+                o.writeLong(0)
+                o.writeLong(0)
+                o.writeInt(seenKeys.size)
+                seenKeys.forEach { o.writeUTF(it); o.writeInt(1) }
+                o.writeInt(0) // own packs
+                o.writeInt(1) // one deferred pack
+                o.writeUTF("d")
+                o.writeInt(1)
+                o.writeByte(flag) // failedKey absent
+                o.writeByte(0) // membershipHash absent
+                o.writeInt(0) // location due
+            }
+            return bytes.toByteArray()
+        }
+        assertEquals(mapOf("x" to 1, "y" to 1), CloudCursorCodec.decode(cursor(listOf("x", "y"), 0)).seen)
+        assertFailsWith<IOException> { CloudCursorCodec.decode(cursor(listOf("x", "x"), 0)) }
+        assertFailsWith<IOException> { CloudCursorCodec.decode(cursor(listOf("x"), 2)) }
     }
 
     /** A cursor written before Y4 (version 1) reads with no location-bearing own pack. */

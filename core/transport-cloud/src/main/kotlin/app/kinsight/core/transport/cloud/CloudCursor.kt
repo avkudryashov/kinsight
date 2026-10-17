@@ -117,12 +117,23 @@ object CloudCursorCodec {
         if (version != VERSION && version != VERSION_1) throw IOException("unknown cloud cursor version")
         val uploaded = i.readLong()
         val compaction = i.readLong()
-        val seen = (0 until i.count()).associate { i.readUTF() to i.readInt() }
-        val own = (0 until i.count()).associate { i.readUTF() to KeyId(i.readInt(), i.readUTF()) }
-        val deferred = (0 until i.count()).associate { i.readUTF() to DeferredPack(i.readInt(), i.readOptional(), i.readOptional()) }
-        val due = if (version == VERSION_1) emptyMap() else (0 until i.count()).associate { i.readUTF() to i.readLong() }
+        val seen = i.readMap { readInt() }
+        val own = i.readMap { KeyId(readInt(), readUTF()) }
+        val deferred = i.readMap { DeferredPack(readInt(), readOptional(), readOptional()) }
+        val due = if (version == VERSION_1) emptyMap() else i.readMap { readLong() }
         if (input.available() != 0) throw IOException("trailing bytes in cloud cursor")
         return CloudCursor(uploaded, seen, compaction, own, deferred, due)
+    }
+
+    /** A key written twice never comes from [encode] (it writes a map): refused rather than collapsed. */
+    private fun <V> DataInputStream.readMap(value: DataInputStream.() -> V): Map<String, V> {
+        val n = count()
+        val out = LinkedHashMap<String, V>()
+        repeat(n) {
+            val k = readUTF()
+            if (out.put(k, value()) != null) throw IOException("repeated key in cloud cursor")
+        }
+        return out
     }
 
     private fun DataInputStream.count(): Int = readInt().also { if (it !in 0..MAX_ITEMS) throw IOException("bad count $it") }
@@ -132,5 +143,10 @@ object CloudCursorCodec {
         if (s != null) writeUTF(s)
     }
 
-    private fun DataInputStream.readOptional(): String? = if (readBoolean()) readUTF() else null
+    /** Only the 0 and 1 [writeOptional] writes: `readBoolean` would take any non-zero byte as true. */
+    private fun DataInputStream.readOptional(): String? = when (readUnsignedByte()) {
+        0 -> null
+        1 -> readUTF()
+        else -> throw IOException("bad optional flag in cloud cursor")
+    }
 }
