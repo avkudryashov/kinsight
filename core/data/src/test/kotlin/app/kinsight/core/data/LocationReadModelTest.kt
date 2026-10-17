@@ -97,4 +97,18 @@ class LocationReadModelTest {
         val d = SnapshotViews.dashboard(ready(listOf(kid.inZoneEntry(homeId, noon - min))), today, noon)
         assertEquals(PlaceStatus.InZone(homeHex, "Home", noon - min), d.children.single().place)
     }
+
+    /** Y4 parked minor: what could reach a log line never carries a zone's name or a coordinate. */
+    @Test
+    fun eventsAndCardsNeverPrintPlaces() {
+        val id = DeviceId("cd".repeat(16))
+        val event = EventView(id, 7, StateEvent.Kind.ZONE_EXIT, 1, 2, 3, 0, zoneId = "ef".repeat(16), zoneName = "Secret School")
+        assertFalse("Secret School" in event.toString(), event.toString())
+        val member = MemberView(id, "Kid", Role.CHILD, isAdmin = false, isSelf = false, lastSeenMs = null)
+        val day = DayTotal(java.time.LocalDate.of(2026, 10, 13), 0, 0)
+        for (place in listOf(PlaceStatus.InZone("ef".repeat(16), "Secret School", 5), PlaceStatus.Outside(GeoPoint(404_168_123, -37_038_456, 12, 5), 5))) {
+            val card = DeviceUsage(member, day, listOf(day), null, Sharing.On, null, place = place).toString()
+            assertFalse("Secret School" in card || "404168123" in card || "37038456" in card, card)
+        }
+    }
 }

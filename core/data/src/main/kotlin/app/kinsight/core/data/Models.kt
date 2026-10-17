@@ -146,6 +146,9 @@ data class EventView(
 ) {
     /** When it happened, the same for the event list and the alert: an interval's start, else the signing time. */
     val atMs: Long get() = if (fromMs > 0) fromMs else createdMs
+
+    /** A zone's name is the family's word for a place: shown, never logged (Y4 parked minor). */
+    override fun toString(): String = "EventView(${author.hex.take(8)}#$seq, $kind, $fromMs..$toMs, zone=${zoneId?.take(8)})"
 }
 
 /** A dashboard card: today, the last 7 days (oldest first), the mean of the 7 days before today. */
