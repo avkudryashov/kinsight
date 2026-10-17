@@ -23,12 +23,15 @@ object AlertText {
         fun at(ms: Long) = DateUtils.formatDateTime(context, ms, DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH)
         val channel = AlertChannels.of(AlertPlanner.level(alert))
         return when (alert) {
-            // «When: …», then one line of what to do (U4).
-            is Alert.Integrity -> Content(
-                channel,
-                title(context, alert),
-                context.getString(R.string.alert_at, at(alert.atMs)) + "\n" + context.getString(adviceOf(alert.kind)),
-            )
+            // «When: …», then one line of what to do (U4). An interval already over says its length instead of the
+            // state, and a location problem that ended asks for no fix.
+            is Alert.Integrity -> {
+                val ended = closedTitleOf(alert.kind)?.let { res -> alert.durationMs?.let { res to it } }
+                val title = ended?.let { (res, ms) -> context.getString(res, alert.device, formatDuration(context.resources, ms)) }
+                    ?: title(context, alert)
+                val advice = if (ended != null && alert.kind in AlertPlanner.SELF_CLOSING) null else context.getString(adviceOf(alert.kind))
+                Content(channel, title, listOfNotNull(context.getString(R.string.alert_at, at(alert.atMs)), advice).joinToString("\n"))
+            }
             is Alert.NoContact -> Content(
                 channel,
                 // Spec §10 «Нет связи N часов».
@@ -69,6 +72,14 @@ object AlertText {
         StateEvent.Kind.LOCATION_PERMISSION_OFF -> R.string.alert_location_off
         StateEvent.Kind.LOCATION_DISABLED -> R.string.alert_location_disabled
         else -> R.string.alert_event
+    }
+
+    /** The title of an interval kind that ended, with its length (Alert.Integrity.durationMs); null for other kinds. */
+    private fun closedTitleOf(kind: StateEvent.Kind): Int? = when (kind) {
+        StateEvent.Kind.BLUETOOTH_OFF -> R.string.alert_bluetooth_off_for
+        StateEvent.Kind.LOCATION_PERMISSION_OFF -> R.string.alert_location_off_for
+        StateEvent.Kind.LOCATION_DISABLED -> R.string.alert_location_disabled_for
+        else -> null
     }
 
     /** One line of what to do; every kind in AlertPlanner.INTEGRITY_KINDS has its own (tested). */

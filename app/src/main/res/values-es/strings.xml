@@ -16,6 +16,9 @@
     <string name="alert_clock_changed">%1$s: se ha cambiado la hora del teléfono</string>
     <string name="alert_location_off">%1$s: acceso a la ubicación desactivado</string>
     <string name="alert_location_disabled">%1$s: ubicación desactivada en el teléfono</string>
+    <string name="alert_bluetooth_off_for">%1$s: Bluetooth desactivado durante %2$s</string>
+    <string name="alert_location_off_for">%1$s: acceso a la ubicación desactivado durante %2$s</string>
+    <string name="alert_location_disabled_for">%1$s: ubicación desactivada en el teléfono durante %2$s</string>
     <string name="alert_event">%1$s: algo ha cambiado</string>
     <string name="alert_at">Cuándo: %1$s</string>
     <string name="alert_no_contact">%1$s: sin contacto desde hace %2$s</string>

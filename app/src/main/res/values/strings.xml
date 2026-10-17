@@ -21,6 +21,9 @@
     <string name="alert_clock_changed">%1$s: the phone clock was changed</string>
     <string name="alert_location_off">%1$s: location access turned off</string>
     <string name="alert_location_disabled">%1$s: location turned off on the phone</string>
+    <string name="alert_bluetooth_off_for">%1$s: Bluetooth was off for %2$s</string>
+    <string name="alert_location_off_for">%1$s: location access was off for %2$s</string>
+    <string name="alert_location_disabled_for">%1$s: location was off on the phone for %2$s</string>
     <string name="alert_event">%1$s: something changed</string>
     <string name="alert_at">When: %1$s</string>
     <string name="alert_no_contact">%1$s: no contact for %2$s</string>
