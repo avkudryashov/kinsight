@@ -85,7 +85,8 @@ object OwnerLifecycle {
      * force, or for the same non-empty token_id the first op that carried it) lists the departures its signer knew of;
      * any other departed member counts as exposed, whatever its replay position, so an unseen or concurrent departure
      * errs on the safe side. The owner then gets a new token. Not exposing (§7.3, 0 taps): the previous owner of the same
-     * token and storage leaving with LEFT_GROUP after a transfer it signed (it added the new owner or signed its op).
+     * token and storage leaving with LEFT_GROUP after a transfer it signed (it signed the new owner's op, or added it or
+     * made it admin after its own StorageOwner op).
      */
     fun tokenExposed(m: MembershipState): Boolean {
         val owner = m.storageOwner ?: return false
@@ -104,13 +105,25 @@ object OwnerLifecycle {
         if (gone.none { it.author == d && it.body.state_event?.kind == StateEvent.Kind.LEFT_GROUP }) return false
         if (gone.any { it.body.membership_op?.remove != null }) return false
         return (issuer + 1..current).any { j ->
-            val (prev, next) = ops[j - 1].second to ops[j]
-            prev.deviceId == d && prev.storageId == next.second.storageId && (next.first.author == d || added(m, next.second.deviceId, by = d))
+            val (prev, next) = ops[j - 1] to ops[j]
+            prev.second.deviceId == d && prev.second.storageId == next.second.storageId &&
+                (next.first.author == d || vouched(m, next.second.deviceId, by = d, after = prev.first))
         }
     }
 
-    private fun added(m: MembershipState, id: DeviceId, by: DeviceId): Boolean = m.effectiveEntries.any { e ->
-        e.author == by && e.body.membership_op?.add?.sign_public_key?.let { pk -> pk.size == 32 && DeviceId.fromSignPublicKey(pk.toByteArray()) == id } == true
+    /**
+     * [by] signed the transfer to [id] (Y3 parked minor): an AddMember or a GrantAdmin of [id] signed by [by] after
+     * [after], [by]'s own StorageOwner op (its seq, so causally after). An admin added long before is no transfer.
+     */
+    private fun vouched(m: MembershipState, id: DeviceId, by: DeviceId, after: DecodedEntry): Boolean {
+        if (after.author != by) return false
+        return m.effectiveEntries.any { e ->
+            val op = e.body.membership_op
+            e.author == by && e.seq > after.seq && (
+                op?.add?.sign_public_key?.let { pk -> pk.size == 32 && DeviceId.fromSignPublicKey(pk.toByteArray()) == id } == true ||
+                    op?.set_admin?.let { g -> g.admin && g.device_id.size == 16 && DeviceId.fromBytes(g.device_id.toByteArray()) == id } == true
+                )
+        }
     }
 
     /**

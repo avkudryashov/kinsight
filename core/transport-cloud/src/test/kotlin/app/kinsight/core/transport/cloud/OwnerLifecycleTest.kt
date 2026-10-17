@@ -96,13 +96,29 @@ class OwnerLifecycleTest {
     fun aPhoneThatHandedItsRoleByQrAndLeftExposesNothing() {
         val dadTakesSameToken = at(dadKeys, 30).storageOwnerEntry(dadKeys.deviceId, s1, 2, t1)
         val momLeaves = at(momKeys, 40, seq = 50).leaveGroupEntry()
-        assertFalse(OwnerLifecycle.tokenExposed(state(dadTakesSameToken, momLeaves)), "spec §7.3: 0 taps")
-        val dadRemovesMom = at(dadKeys, 40).removeMemberEntry(momKeys.deviceId, mom1.seq)
-        assertTrue(OwnerLifecycle.tokenExposed(state(dadTakesSameToken, dadRemovesMom)), "Q6: a removal renews (spec §7.4)")
+        // The transfer invite: Mom makes Dad admin again after her StorageOwner op (as Pairing does for the new phone).
+        val momHandsOver = at(momKeys, 25, seq = 6).grantAdminEntry(dadKeys.deviceId)
+        assertFalse(OwnerLifecycle.tokenExposed(state(momHandsOver, dadTakesSameToken, momLeaves)), "spec §7.3: 0 taps")
+        val dadRemovesMom = at(dadKeys, 40).removeMemberEntry(momKeys.deviceId, momHandsOver.seq)
+        assertTrue(OwnerLifecycle.tokenExposed(state(momHandsOver, dadTakesSameToken, dadRemovesMom)), "Q6: a removal renews (spec §7.4)")
         val dadSignsInOnTheSameDisk = at(dadKeys, 30).storageOwnerEntry(dadKeys.deviceId, s1, 2, t2)
-        assertTrue(OwnerLifecycle.tokenExposed(state(dadSignsInOnTheSameDisk, momLeaves)), "Mom could read Dad's new token")
+        assertTrue(OwnerLifecycle.tokenExposed(state(momHandsOver, dadSignsInOnTheSameDisk, momLeaves)), "Mom could read Dad's new token")
         val dadMovesToHisDisk = at(dadKeys, 30).storageOwnerEntry(dadKeys.deviceId, s2, 2, t2)
-        assertTrue(OwnerLifecycle.tokenExposed(state(dadMovesToHisDisk, momLeaves)), "spec §7.1 then §7.4: Mom knew Dad's token")
+        assertTrue(OwnerLifecycle.tokenExposed(state(momHandsOver, dadMovesToHisDisk, momLeaves)), "spec §7.1 then §7.4: Mom knew Dad's token")
+    }
+
+    /** Y3 parked minor: an AddMember or GrantAdmin by the leaver from before its own StorageOwner op is no transfer. */
+    @Test
+    fun theQrExceptionNeedsTheHandOverAfterTheLeaversOwnerRecord() {
+        val dadTakesSameToken = at(dadKeys, 30).storageOwnerEntry(dadKeys.deviceId, s1, 2, t1)
+        val momLeaves = at(momKeys, 40, seq = 50).leaveGroupEntry()
+        // Mom added Dad and made him admin in the base, before mom1: nothing says she handed him the storage.
+        assertTrue(OwnerLifecycle.tokenExposed(state(dadTakesSameToken, momLeaves)))
+        val phoneKeys = DeviceKeys.generate()
+        val momAddsPhone = at(momKeys, 25, seq = 6).addMember(phoneKeys.sign.publicKey, phoneKeys.dh.publicKey, "Phone", DeviceRole.PARENT)
+        val momGrantsPhone = at(momKeys, 26, seq = 7).grantAdminEntry(phoneKeys.deviceId)
+        val phoneTakes = at(phoneKeys, 30, seq = 1).storageOwnerEntry(phoneKeys.deviceId, s1, 2, t1)
+        assertFalse(OwnerLifecycle.tokenExposed(state(momAddsPhone, momGrantsPhone, phoneTakes, momLeaves)), "the QR transfer invite")
     }
 
     @Test
