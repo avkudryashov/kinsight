@@ -355,4 +355,14 @@ class CloudRunnerTest {
         assertEquals(CloudRun.SYNCED, kid.runner(disk).run(CloudTrigger.NOW))
         assertTrue(disk.files("app:").keys.any { it.contains(kid.keys.deviceId.hex) }, "after consent the child's folder appears")
     }
+
+    /** Y5 Task 4 review Minor 2: the consent gate is a child's; a parent with an old (or any) consent record still syncs. */
+    @Test
+    fun aParentWithAnOldConsentStillSyncs() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        mom.ownStorage()
+        mom.settings.recordConsent(mom.now, version = UsageSettings.LEGACY_CONSENT_VERSION)
+        assertTrue(mom.settings.current().consentOutdated)
+        assertEquals(CloudRun.SYNCED, mom.runner(disk).run(CloudTrigger.NOW))
+    }
 }
