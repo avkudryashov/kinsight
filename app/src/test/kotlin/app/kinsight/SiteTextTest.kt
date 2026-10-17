@@ -25,5 +25,13 @@ class SiteTextTest {
         assertTrue("desconectar el teléfono de la familia en Kinsight" in page("es"))
         // The refresh token is on the phone of whoever holds the storage now, which a take-over can change.
         assertTrue("parent who holds the storage" in page("en"))
+        // Offline map spec §6: the street map blocks from GitHub, in each language, and what GitHub sees.
+        assertTrue("Карту улиц приложение само докачивает блоками около 30 × 30 км с GitHub" in page("ru"))
+        assertTrue("GitHub видит только, какой блок скачан." in page("ru"))
+        assertTrue("GitHub sees only which block is downloaded." in page("en"))
+        assertTrue("GitHub solo ve qué bloque se ha descargado." in page("es"))
+        assertTrue("IP-адрес телефона родителя" in page("ru"))
+        assertTrue("IP address of the parent's phone" in page("en"))
+        assertTrue("dirección IP del teléfono del adulto" in page("es"))
     }
 }
