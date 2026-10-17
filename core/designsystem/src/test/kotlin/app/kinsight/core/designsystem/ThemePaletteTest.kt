@@ -85,7 +85,7 @@ class ThemePaletteTest {
     fun snackbarsUseThePaletteAndKeepContrast() {
         assertEquals(Color(0xFF2F3256), LightColors.inverseSurface)
         assertEquals(Color(0xFFF3F0F9), LightColors.inverseOnSurface)
-        assertEquals(DarkColors.primary, LightColors.inversePrimary)
+        assertEquals(Color(0xFFA992F6), LightColors.inversePrimary, "#A28BF5 was 4.41:1 on the snackbar")
         assertEquals(Color(0xFFE9E6F5), DarkColors.inverseSurface)
         assertEquals(Color(0xFF17151F), DarkColors.inverseOnSurface)
         assertEquals(LightColors.primary, DarkColors.inversePrimary)
@@ -94,6 +94,8 @@ class ThemePaletteTest {
         for ((theme, scheme) in listOf("light" to LightColors, "dark" to DarkColors)) {
             val ratio = contrastRatio(scheme.inverseOnSurface, scheme.inverseSurface)
             assertTrue(ratio >= 4.5, "$theme inverseOnSurface/inverseSurface: $ratio")
+            val action = contrastRatio(scheme.inversePrimary, scheme.inverseSurface)
+            assertTrue(action >= 4.5, "$theme inversePrimary/inverseSurface (the snackbar action): $action")
         }
     }
 }
