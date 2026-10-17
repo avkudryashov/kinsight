@@ -6,6 +6,8 @@ import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.addMember
+import app.kinsight.core.model.safeZoneEntry
+import app.kinsight.core.model.zoneEventEntry
 import app.kinsight.core.model.proto.AppCatalog
 import app.kinsight.core.model.proto.AppTotal
 import app.kinsight.core.model.proto.DeviceRole
@@ -134,5 +136,29 @@ class AlertPlannerInputTest {
         ).alerts.filterIsInstance<Alert.NoContact>()
         assertEquals(listOf(Alert.NoContact("Kid", now - 7 * h, kidKeys.deviceId)), noContact(beatAt(now - 7 * h)))
         assertEquals(emptyList(), noContact(beatAt(now - h)))
+    }
+
+    /** Y4 parked minor: input() names a zone event from the SAFE_ZONE entries, a deleted zone's name included. */
+    @Test
+    fun aZoneEventIsNamedFromTheZonesEvenAfterTheZoneWasDeleted() {
+        val now = at(utc, 10, 12)
+        val zone = ByteArray(16) { 0x2a }
+        val home = mom.safeZoneEntry(zone, "Home", 404_168_000, -37_038_000, 150, rank = 1)
+        val gone = mom.safeZoneEntry(zone, "Home", 404_168_000, -37_038_000, 150, rank = 2, deleted = true)
+        val kid = EntryAuthor(genesis.groupId, kidKeys, lastSeq = 0, clock = { now - min })
+        val exit = kid.zoneEventEntry(zone, entered = false, atMs = now - min)
+        for (zones in listOf(listOf(home), listOf(home, gone))) {
+            val snapshot = GroupSnapshot.Ready(
+                genesis.groupId, momKeys.deviceId, Membership.compute(genesis.groupId, ops)!!,
+                summaries = emptyList(), catalog = emptyList(), events = listOf(exit), heartbeats = emptyList(), peerSeen = emptyMap(),
+                safeZones = zones,
+            )
+            val plan = AlertPlanner.plan(AlertPlanner.input(snapshot, Prefs(), AlertMarkers(initialized = true), now, utc))
+            assertEquals(
+                listOf(Alert.Integrity("Kid", app.kinsight.core.model.proto.StateEvent.Kind.ZONE_EXIT, now - min, kidKeys.deviceId, null, "Home")),
+                plan.alerts.filterIsInstance<Alert.Integrity>(),
+                "${zones.size} zone entries",
+            )
+        }
     }
 }
