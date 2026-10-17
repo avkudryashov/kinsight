@@ -14,6 +14,17 @@ android {
         versionCode = 18
         versionName = "0.8.3"
     }
+
+    // Offline map spec «Размер приложения»: MapLibre brings about 13 MB of native code per ABI, so a release APK (GitHub,
+    // RuStore) is cut per ABI. Debug builds stay one universal APK; the Play bundle is split by Play itself.
+    splits {
+        abi {
+            isEnable = gradle.startParameter.taskNames.any { it.contains("assemble", ignoreCase = true) && it.contains("Release", ignoreCase = true) }
+            reset()
+            include("arm64-v8a", "armeabi-v7a")
+            isUniversalApk = false
+        }
+    }
 }
 
 dependencies {
