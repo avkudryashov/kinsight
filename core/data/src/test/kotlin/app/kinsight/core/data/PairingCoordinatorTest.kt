@@ -36,6 +36,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -925,6 +929,27 @@ class PairingCoordinatorTest {
      * Final review, Important 2: Mom removed a phone and signed in again (its old token waits for the revoke), then moves to
      * her new phone by QR before the other kid switched. The new phone takes over the pending revoke; the old one leaves.
      */
+    /**
+     * Y3 final review Minor 3: a refresh in flight while the transfer invite is confirmed. The welcome waits for it and
+     * hands the tokens the old phone ends up with, never the ones the refresh is replacing.
+     */
+    @Test
+    fun aTransferDuringARefreshHandsTheRefreshedTokens() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        mom.ownStorage(token = "AT", expiresAtMs = mom.now + 20L * 86_400_000L, tokenId = ByteArray(16) { 9 })
+        val http = FakeOAuthHttp(accessToken = "AT2")
+        val gate = CompletableDeferred<Unit>().also { http.gate = it }
+        val disk = InMemoryDisk()
+        val run = scope.async { mom.runner({ _ -> disk }, http).run(CloudTrigger.NOW) }
+        withTimeout(20_000) { http.entered.await() } // the refresh is out
+        val outcome = transferByQr(beforeConfirm = { scope.launch { delay(300); gate.complete(Unit) } })
+        assertEquals(InviteState.Added("Pixel", ownerTransferred = true) to JoinState.Joined, outcome)
+        withTimeout(20_000) { run.await() }
+        assertEquals("AT2", mom.cloudSecrets.tokens()!!.accessToken)
+        assertEquals("AT2", kid.cloudSecrets.tokens()!!.accessToken, "the token the old phone holds now")
+        assertEquals("RT", kid.cloudSecrets.tokens()!!.refreshToken)
+    }
+
     @Test
     fun aTransferHandsThePendingRevokeToTheNewPhone() = runBlocking<Unit> {
         mom.group.createGroup("Mom")

@@ -302,9 +302,12 @@ class CloudRunner(
      * it was last refreshed (or first checked here) [REFRESH_AGE_MS] ago or fewer than [REFRESH_BEFORE_MS] are left. A new
      * access token goes out as a CloudAccess («новый доступ»), sealed under [m], the membership after this run's rotation
      * (rulings Q8). A refused refresh is logged: the Disk's 401 asks the owner to sign in (spec §11). No answer: tried
-     * again at the next run.
+     * again at the next run. Under [CloudSecrets.refreshLock]: a transfer welcome waits for it, or it sees the transfer.
      */
-    private suspend fun refreshIfDue(groupId: GroupId, m: MembershipState, k: DeviceKeys, ring: GroupKeyRing, now: Long) {
+    private suspend fun refreshIfDue(groupId: GroupId, m: MembershipState, k: DeviceKeys, ring: GroupKeyRing, now: Long) =
+        secrets.refreshLock.withLock { refreshLocked(groupId, m, k, ring, now) }
+
+    private suspend fun refreshLocked(groupId: GroupId, m: MembershipState, k: DeviceKeys, ring: GroupKeyRing, now: Long) {
         val s = state.current()
         // Spec §7.3: while this phone's transfer invite may still hand its refresh token, a refresh could kill the handed one.
         if (OwnerTransfers.phase(s.transfer, groupId, m, now) != null) return

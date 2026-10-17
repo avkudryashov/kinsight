@@ -44,6 +44,14 @@ class CloudSecrets(
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val vaultLock = Mutex()
+
+    /**
+     * Y3 final review Minor 3: the owner's refresh (from its transfer check through the network call to the saved tokens)
+     * and the §7.3 transfer welcome (reading the tokens it hands and recording the transfer) take it, so a welcome never
+     * hands tokens a refresh in flight is replacing. Held for one token request at most, never a whole cloud run. Lock
+     * order: the cloud [runLock], then this, then the pipeline lock.
+     */
+    val refreshLock = Mutex()
     private val ringLock = Mutex()
     private val retiredLock = Mutex()
 

@@ -387,12 +387,15 @@ class PairingCoordinator(
             // older generation than the group's newest rotation is one the next admin cloud run rotates again for).
             // Spec §7.3: a transfer only to a joiner that can take the role (Y3 or later) and only with a refresh token in hand;
             // otherwise this is a plain parent add.
-            var handed = cloudWelcome(before, group, withRefresh = transferOwner && joiner.protocolVersion >= CLOUD_PROTOCOL_VERSION)
+            // Read and recorded under the refresh lock (Y3 final review Minor 3): a refresh in flight ends first and its
+            // tokens are the ones handed; one that starts after sees the transfer record and waits.
+            val withRefresh = transferOwner && joiner.protocolVersion >= CLOUD_PROTOCOL_VERSION
             val inForce = before.storageOwner
-            var transfer = handed?.refreshToken != null && inForce != null
-            if (transfer && !recordTransfer(group, joiner.id, inForce!!)) {
-                transfer = false
-                handed = handed?.let { WelcomeCloud(it.keyEpoch, it.groupKey, it.access) }
+            val (handed, transfer) = refreshLocked(withRefresh) {
+                val offer = cloudWelcome(before, group, withRefresh)
+                val recorded = offer?.refreshToken != null && inForce != null && recordTransfer(group, joiner.id, inForce)
+                // Not recorded: no refresh token goes out (the old phone could not leave).
+                (if (recorded || offer?.refreshToken == null) offer else WelcomeCloud(offer.keyEpoch, offer.groupKey, offer.access)) to recorded
             }
             val keyEpoch = handed?.keyEpoch?.takeIf { it == GroupKey.currentEpoch(before) } ?: 0
             pipeline.appendOwn { author ->
@@ -414,6 +417,12 @@ class PairingCoordinator(
                 state.effectiveEntries.map { it.bytes },
                 handed ?: cloudWelcome(state, group, withRefresh),
             )
+
+        /** [block] under CloudSecrets.refreshLock when [on] (a welcome that may hand the refresh token), else as it is. */
+        private suspend fun <T> refreshLocked(on: Boolean, block: suspend () -> T): T {
+            val l = cloud?.refreshLock
+            return if (on && l != null) l.withLock { block() } else block()
+        }
 
         /** The storage owner holding the refresh token of the access it hands, inviting a parent (spec §7.3). */
         private suspend fun canTransfer(k: DeviceKeys, group: GroupConfig, membership: MembershipState?): Boolean {
