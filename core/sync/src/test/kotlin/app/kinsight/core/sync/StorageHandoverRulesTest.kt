@@ -58,4 +58,14 @@ class StorageHandoverRulesTest {
         assertTrue(StorageHandoverRules.violation(big, state)!!.contains("over ${StorageHandoverRules.MAX_BODY_BYTES} bytes"))
         assertIs<Verdict.Skipped>(verdict(big))
     }
+
+    /** A device outside the group (never added, or a stranger holding the discovery key) has no say over the storage. */
+    @Test
+    fun aHandoverFromOutsideTheGroupIsNotTaken() {
+        val strangerKeys = DeviceKeys.generate()
+        val stranger = EntryAuthor(genesis.groupId, strangerKeys, lastSeq = 0)
+        val e = stranger.storageHandoverEntry(dadKeys.deviceId, 1)
+        assertEquals("unknown author", StorageHandoverRules.violation(e, state))
+        assertEquals(Verdict.Invalid("unknown author"), verdict(e), "refused before the rules, like any entry of a stranger")
+    }
 }
