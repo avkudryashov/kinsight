@@ -145,6 +145,12 @@
     <string name="set_cloud_transfer_done">El teléfono nuevo ya es el propietario. Este teléfono sale del grupo por sí solo.</string>
     <string name="set_reset_switching">El almacenamiento se está mudando a otro Disk. Podrás desconectar este teléfono cuando todos los teléfonos se hayan cambiado a él. Si un teléfono ya no se sincroniza, elimínalo del grupo.</string>
     <string name="set_cloud_new_phone_restore">Para pasar a un teléfono nuevo, primero restablece el acceso al Disco: inicia sesión en Yandex en este teléfono.</string>
+    <string name="set_cloud_turn_off">Desactivar la sincronización con Yandex Disk</string>
+    <string name="set_cloud_turn_off_title">¿Desactivar la sincronización para toda la familia?</string>
+    <string name="set_cloud_turn_off_body">Ningún teléfono de la familia sincronizará ya con tu Yandex Disk, y Kinsight renuncia a su acceso a tu Disco. La ubicación de los menores deja de compartirse. Los datos se quedan en los teléfonos y Bluetooth sigue funcionando. La carpeta de la familia se queda en tu Disco: puedes borrarla allí cuando quieras. Cualquier adulto administrador puede volver a activar la sincronización iniciando sesión en Yandex.</string>
+    <string name="set_cloud_turn_off_confirm">Desactivar</string>
+    <string name="set_cloud_turned_off">La sincronización se ha desactivado. La carpeta de la familia sigue en el Yandex Disk del propietario hasta que se borre allí.</string>
+    <string name="set_error_cloud_off">No se ha desactivado la sincronización. Inténtalo de nuevo.</string>
     <string name="set_location">Ubicación para tu familia</string>
     <string name="set_location_none">Tus padres verán dónde está este teléfono y sabrán cuándo sale de una zona segura. Hace falta acceso a la ubicación.</string>
     <string name="set_location_coarse">Activa «Usar ubicación exacta» para Kinsight: las zonas seguras necesitan la ubicación exacta, la aproximada no basta.</string>

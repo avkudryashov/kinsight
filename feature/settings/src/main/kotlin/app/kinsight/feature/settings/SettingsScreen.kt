@@ -163,6 +163,7 @@ fun SettingsRoute(
         onCloudRefused = vm::refuseCloudSignIn,
         onCloudExternal = { context.open(Intent(Intent.ACTION_VIEW, it.toUri())) },
         onCloudHandover = vm::requestHandover,
+        onCloudTurnOff = vm::turnOffCloud,
         onNewPhone = onNewPhone,
         location = locationRow(ui.cloud.on, ui.cloud.isChild, locationState),
         locationBlocked = locationBlocked,
@@ -182,7 +183,7 @@ fun SettingsRoute(
     )
 }
 
-private enum class Ask { PAUSE, STOP, RESET, SHRINK }
+private enum class Ask { PAUSE, STOP, RESET, SHRINK, CLOUD_OFF }
 
 /** Spec §8, §12: the location row shows on a child's phone while the cloud is on, never on a parent's. */
 internal fun locationRow(cloudOn: Boolean, isChild: Boolean, state: LocationPermissions.State): LocationPermissions.State? =
@@ -230,6 +231,8 @@ fun SettingsScreen(
     onCloudDismiss: () -> Unit = {},
     onCloudTakeOver: () -> Unit = {},
     onCloudHandover: (DeviceId) -> Unit = {},
+    /** The owner confirmed «Выключить синхронизацию через Яндекс Диск». */
+    onCloudTurnOff: () -> Unit = {},
     onNewPhone: () -> Unit = {},
     /** The authorize address the in-app sign-in shows (CloudWebSignIn), or null when the browser has it. */
     cloudWeb: String? = null,
@@ -347,6 +350,7 @@ fun SettingsScreen(
                             SettingsError.NOTIFICATIONS -> R.string.set_error_notifications
                             SettingsError.RESET -> R.string.set_error_reset
                             SettingsError.HANDOVER -> R.string.set_error_handover
+                            SettingsError.CLOUD_OFF -> R.string.set_error_cloud_off
                         },
                     ),
                 ) { TextButton(onDismissError) { Text(stringResource(R.string.set_ok)) } }
@@ -382,7 +386,7 @@ fun SettingsScreen(
                 if (role == Role.PARENT) Text(stringResource(R.string.set_not_shared), style = MaterialTheme.typography.bodyMedium)
             }
         }
-        cloudSection(ui.cloud, nowMs, onCloudSignIn, onCloudTakeOver, { handover = true }, onNewPhone)
+        cloudSection(ui.cloud, nowMs, onCloudSignIn, onCloudTakeOver, { handover = true }, onNewPhone, onTurnOff = { ask = Ask.CLOUD_OFF })
         ready?.let { r ->
             item {
                 ListItem(
@@ -567,6 +571,14 @@ fun SettingsScreen(
             stringResource(R.string.set_stop), "set_stop_confirm",
             onConfirm = onStopSync, onDismiss = { ask = null },
         )
+        // Only while this phone still owns the storage: the dialog goes when another phone took it meanwhile.
+        Ask.CLOUD_OFF -> if (ui.cloud.selfIsOwner) {
+            Confirm(
+                stringResource(R.string.set_cloud_turn_off_title), stringResource(R.string.set_cloud_turn_off_body),
+                stringResource(R.string.set_cloud_turn_off_confirm), "set_cloud_turn_off_confirm",
+                onConfirm = onCloudTurnOff, onDismiss = { ask = null },
+            )
+        }
         Ask.RESET -> ResetIdentityDialog(onConfirm = onResetIdentity, onDismiss = { ask = null }, cloudOff = ui.cloud.selfIsOwner)
         Ask.SHRINK -> if (pending.size == 2) {
             val (d, s) = pending

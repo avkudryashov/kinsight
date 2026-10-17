@@ -37,7 +37,9 @@ import app.kinsight.core.model.DeviceId
  * nothing for others. On: the storage owner, the last cloud sync and what the user can act on: restoring or renewing
  * access (spec §11, §7.4), handing the storage over or moving it to a new phone (§7.1, §7.3), taking it when asked or
  * when the owner is gone (§7.1, §7.2). The switch shows the state and cannot turn the cloud off; a child's phone has no
- * switch at all (spec §10).
+ * switch at all (spec §10). The owner alone has «Выключить синхронизацию через Яндекс Диск» ([onTurnOff] opens its
+ * confirm dialog): off for the whole family, on again by the normal sign-in. Off after that, an admin parent reads that
+ * the family folder stays on the owner's Disk.
  */
 internal fun LazyListScope.cloudSection(
     s: CloudStatus,
@@ -46,6 +48,7 @@ internal fun LazyListScope.cloudSection(
     onTakeOver: () -> Unit = {},
     onHandover: () -> Unit = {},
     onNewPhone: () -> Unit = {},
+    onTurnOff: () -> Unit = {},
 ) {
     if (!s.available || !(s.on || s.canEnable)) return
     item {
@@ -67,6 +70,7 @@ internal fun LazyListScope.cloudSection(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (!s.on) {
                         Text(stringResource(R.string.set_cloud_off_body))
+                        if (s.turnedOff) Text(stringResource(R.string.set_cloud_turned_off), modifier = Modifier.testTag("set_cloud_turned_off"))
                     } else {
                         Text(if (s.selfIsOwner) stringResource(R.string.set_cloud_owner_self) else stringResource(R.string.set_cloud_owner, s.ownerName.orEmpty()))
                         Text(cloudLastSync(s.lastSyncMs, nowMs))
@@ -111,6 +115,10 @@ internal fun LazyListScope.cloudSection(
                                         OutlinedButton(onSignIn, Modifier.testTag("set_cloud_restore")) { Text(stringResource(R.string.set_cloud_sign_in)) }
                                     }
                                 }
+                            }
+                            // Not while the role moves to the new phone: that phone takes the storage as it is.
+                            if (s.ownerTransfer == null) {
+                                OutlinedButton(onTurnOff, Modifier.testTag("set_cloud_turn_off")) { Text(stringResource(R.string.set_cloud_turn_off)) }
                             }
                         }
                     }

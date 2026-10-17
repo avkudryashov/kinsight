@@ -89,6 +89,7 @@ class SettingsScreenTest {
         onCloudTakeOver: () -> Unit = {},
         onCloudHandover: (DeviceId) -> Unit = {},
         onNewPhone: () -> Unit = {},
+        onCloudTurnOff: () -> Unit = {},
         onUnlock: (String) -> Unit = {},
         onLock: () -> Unit = {},
         onSetPin: (String) -> Unit = {},
@@ -101,7 +102,7 @@ class SettingsScreenTest {
                 onResetIdentity = onReset, onSyncNow = { calls += "syncNow" }, onPrivacyPolicy = onPrivacyPolicy, nowMs = nowMs,
                 onCloudSignIn = onCloudSignIn, onCloudCode = onCloudCode, onCloudDismiss = onCloudDismiss,
                 onCloudTakeOver = onCloudTakeOver, onCloudHandover = onCloudHandover, onNewPhone = onNewPhone,
-                onUnlock = onUnlock, onLock = onLock, onSetPin = onSetPin,
+                onCloudTurnOff = onCloudTurnOff, onUnlock = onUnlock, onLock = onLock, onSetPin = onSetPin,
             )
         }
     }
@@ -799,6 +800,57 @@ class SettingsScreenTest {
         rule.onNodeWithTag("set_list").performScrollToNode(hasTestTag("set_reset"))
         rule.onNodeWithTag("set_reset").performClick()
         rule.onNodeWithText("Sync through Yandex Disk turns off", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun theOwnerTurnsTheCloudOffAfterConfirming() {
+        var offs = 0
+        show(ownerUi(), onCloudTurnOff = { offs++ })
+        scrollToCloud()
+        rule.onNodeWithText("Turn off sync through Yandex Disk", useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag("set_cloud_turn_off", useUnmergedTree = true).performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Turn off sync for the whole family?").assertExists()
+        rule.onNodeWithText("The family folder stays on your Disk", substring = true).assertExists()
+        // Cancel first: nothing happens.
+        rule.onNodeWithTag("set_cloud_turn_off_confirm_cancel").performClick()
+        rule.waitForIdle()
+        assertEquals(0, offs)
+        rule.onNodeWithTag("set_cloud_turn_off_confirm").assertDoesNotExist()
+        rule.onNodeWithTag("set_cloud_turn_off", useUnmergedTree = true).performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("set_cloud_turn_off_confirm").performClick()
+        rule.waitForIdle()
+        assertEquals(1, offs)
+        rule.onNodeWithTag("set_cloud_turn_off_confirm").assertDoesNotExist()
+    }
+
+    @Test
+    fun onlyTheOwnerHasTheTurnOff() {
+        val dadCloud = CloudStatus(available = true, on = true, ownerName = "Mom", selfIsOwner = false)
+        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running, cloud = dadCloud))
+        scrollToCloud()
+        rule.onNodeWithTag("set_cloud_turn_off", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun anAdminSeesTheCloudTurnedOffAndTheFolderLeftOnTheDisk() {
+        var signIns = 0
+        val off = CloudStatus(available = true, canEnable = true, turnedOff = true)
+        show(SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running, cloud = off), onCloudSignIn = { signIns++ })
+        scrollToCloud()
+        rule.onNodeWithTag("set_cloud_turned_off", useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag("set_cloud_turn_off", useUnmergedTree = true).assertDoesNotExist()
+        rule.onNodeWithTag("set_cloud_switch").performClick()
+        assertEquals(1, signIns) // the normal sign-in turns it on again
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun theTurnOffInRussian() {
+        show(ownerUi())
+        scrollToCloud()
+        rule.onNodeWithText("Выключить синхронизацию через Яндекс Диск", useUnmergedTree = true).assertExists()
     }
 
     @Test

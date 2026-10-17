@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.kinsight.core.data.ChildLock
 import app.kinsight.core.data.ChildLockStatus
+import app.kinsight.core.data.CloudOffResult
 import app.kinsight.core.data.CloudRepository
 import app.kinsight.core.data.CloudStatus
 import app.kinsight.core.data.GroupRepository
@@ -43,7 +44,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /** Something the settings screen tried and could not do; shown until dismissed or the next attempt. */
-enum class SettingsError { SHARING, RETENTION, NOTIFICATIONS, RESET, HANDOVER }
+enum class SettingsError { SHARING, RETENTION, NOTIFICATIONS, RESET, HANDOVER, CLOUD_OFF }
 
 data class SettingsUi(
     val group: GroupState = GroupState.Loading,
@@ -128,6 +129,9 @@ internal interface SettingsActions {
     /** Finishes on the app scope (CloudRepository.finishSignIn): leaving the screen does not cancel it. */
     fun finishCloudSignIn(input: String) = Unit
 
+    /** The owner turns the cloud off for the family; true when it is off (CloudRepository.turnOff). */
+    suspend fun turnOffCloud(): Boolean = false
+
     fun dismissCloudSignIn() = Unit
 
     /** The sign-in page answered with an error (CloudRepository.refuseSignIn). */
@@ -193,6 +197,8 @@ private class RepositoryActions(
     override fun finishCloudSignIn(input: String) {
         cloudRepo.finishSignIn(input)
     }
+
+    override suspend fun turnOffCloud(): Boolean = cloudRepo.turnOff() == CloudOffResult.OFF
 
     /** Closes the dialog only: a pending sign-in stays, so an app link arriving later still completes it. */
     override fun dismissCloudSignIn() = cloudRepo.dismissSignIn()
@@ -315,6 +321,14 @@ class SettingsViewModel internal constructor(
      */
     fun requestHandover(to: DeviceId) = attempt(SettingsError.HANDOVER, "requestHandover") {
         check(actions.requestHandover(to)) { "handover refused" }
+    }
+
+    /**
+     * «Выключить синхронизацию через Яндекс Диск», after the confirm dialog: the owner turns the cloud off for the family.
+     * Not done (no longer the owner, the record not written) shows as a failure.
+     */
+    fun turnOffCloud() = attempt(SettingsError.CLOUD_OFF, "turnOffCloud") {
+        check(actions.turnOffCloud()) { "turning the cloud off refused" }
     }
 
     /**

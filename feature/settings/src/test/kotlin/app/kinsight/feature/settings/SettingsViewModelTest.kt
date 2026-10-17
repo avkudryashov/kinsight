@@ -113,6 +113,13 @@ class SettingsViewModelTest {
 
         var handoverAccepted = true
 
+        var turnOffAccepted = true
+
+        override suspend fun turnOffCloud(): Boolean {
+            call("turnOffCloud")
+            return turnOffAccepted
+        }
+
         override suspend fun requestHandover(to: DeviceId): Boolean {
             call("handover:${to.hex}")
             return handoverAccepted
@@ -242,6 +249,19 @@ class SettingsViewModelTest {
         advanceUntilIdle()
         assertEquals(listOf("startCloudSignIn:takeOver", "handover:${"bb".repeat(16)}"), actions.calls)
         assertEquals("https://oauth.yandex.ru/authorize?t=1", opened)
+    }
+
+    @Test
+    fun turningTheCloudOffReachesTheRepositoryAndARefusalIsShown() = runTest {
+        val vm = SettingsViewModel(actions)
+        vm.turnOffCloud()
+        advanceUntilIdle()
+        assertEquals(listOf("turnOffCloud"), actions.calls)
+        assertNull(vm.error.value)
+        actions.turnOffAccepted = false
+        vm.turnOffCloud()
+        advanceUntilIdle()
+        assertEquals(SettingsError.CLOUD_OFF, vm.error.value)
     }
 
     @Test
