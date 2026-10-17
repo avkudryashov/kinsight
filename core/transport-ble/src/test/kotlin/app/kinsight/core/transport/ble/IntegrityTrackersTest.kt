@@ -350,6 +350,19 @@ class IntegrityTrackersTest {
         )
     }
 
+    /** Parked Task 9 item: without a LocationManager the system state is unknown, which signs nothing either way. */
+    @Test
+    fun anUnknownSystemLocationStateSignsNothing() = runBlocking<Unit> {
+        assertFalse(location.onCheck(openGate, access = true, enabled = null))
+        assertEquals(emptyList(), recorded)
+        assertTrue(location.onCheck(openGate, access = true, enabled = false))
+        recorded.clear()
+        now += 1_000
+        assertFalse(location.onCheck(openGate, access = true, enabled = null), "an open problem is not closed by an unknown")
+        assertEquals(emptyList(), recorded)
+        assertEquals(1_000_000L, state.locationDisabledSinceMs())
+    }
+
     @Test
     fun aClosingGateClosesAnOpenLocationProblemAndForgetsTheBaseline() = runBlocking<Unit> {
         location.onCheck(openGate, access = true, enabled = false)

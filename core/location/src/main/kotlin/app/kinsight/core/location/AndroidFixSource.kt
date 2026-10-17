@@ -28,8 +28,11 @@ object LocationPermissions {
         else -> State.WHILE_IN_USE
     }
 
-    /** Spec §10 «LocationManager.isLocationEnabled»: location is on in the system settings. */
-    fun systemEnabled(context: Context): Boolean = context.getSystemService(LocationManager::class.java)?.isLocationEnabled ?: false
+    /**
+     * Spec §10 «LocationManager.isLocationEnabled»: location is on in the system settings; null without a LocationManager
+     * (unknown, so no LOCATION_DISABLED is signed on a guess).
+     */
+    fun systemEnabled(context: Context): Boolean? = context.getSystemService(LocationManager::class.java)?.isLocationEnabled
 }
 
 object Providers {

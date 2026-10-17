@@ -144,14 +144,15 @@ class NearbyWatch(
  * was once complete (the child granted it); the system switch counts at any time. [gate] is open while this phone should
  * share its location (core/data FamilyLocation.watchGate). A closed gate closes an open problem (the cloud went off, say)
  * and forgets the baseline; an unknown one changes nothing. A refused event keeps no «since», so the next check tries
- * again. Returns true when an event was recorded (the caller signs and uploads it at once).
+ * again. [enabled] null: the system state is unknown (no LocationManager), which opens and closes nothing. Returns true
+ * when an event was recorded (the caller signs and uploads it at once).
  */
 class LocationWatch(
     private val state: TransportStateStore,
     private val record: EventRecorder,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    suspend fun onCheck(gate: GateState, access: Boolean, enabled: Boolean): Boolean {
+    suspend fun onCheck(gate: GateState, access: Boolean, enabled: Boolean?): Boolean {
         val now = clock()
         val accessSince = state.locationAccessOffSinceMs()
         val offSince = state.locationDisabledSinceMs()
@@ -179,12 +180,12 @@ class LocationWatch(
                 any = true
             }
         }
-        if (enabled) {
+        if (enabled == true) {
             if (offSince != null && close(StateEvent.Kind.LOCATION_DISABLED, offSince, now)) {
                 state.setLocationDisabledSinceMs(null)
                 any = true
             }
-        } else if (offSince == null) {
+        } else if (enabled == false && offSince == null) {
             if (record(StateEvent.Kind.LOCATION_DISABLED, now, now)) {
                 state.setLocationDisabledSinceMs(now)
                 any = true
