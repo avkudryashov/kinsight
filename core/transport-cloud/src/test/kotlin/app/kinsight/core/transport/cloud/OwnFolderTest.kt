@@ -271,4 +271,72 @@ class OwnFolderTest {
         assertTrue(disk.files(CloudPaths.storageIdFile(mom.store.groupId)).isEmpty())
         assertEquals(1, lines.count { "storage id" in it })
     }
+
+    /** Review Critical: a cursor change in the lift (a stray file, a far name) never marks unuploaded entries uploaded. */
+    @Test
+    fun aStrayOwnFileDoesNotSkipEntriesWaitingToUpload() = runTest {
+        val (mom, kid) = family(DeviceRole.CHILD)
+        val first = kid.author.summary("2026-10-01", 60_000L)
+        kid.publish(first)
+        kid.sync(disk).run()
+        val waiting = listOf(kid.author.summary("2026-10-02", 1), kid.author.summary("2026-10-03", 2))
+        kid.publish(*waiting.toTypedArray())
+        val dir = CloudPaths.deviceDir(kid.store.groupId, kid.id)
+        disk.upload("$dir/${CloudPaths.packName(10, 12)}", byteArrayOf(1, 2, 3)) // rejected: a new REJECTED marker
+        disk.upload("$dir/${CloudPaths.packName(1, 20_000_000)}", byteArrayOf(4)) // far: a new FAR marker
+        kid.sync(disk).run()
+        assertEquals(3L, kid.cursor.cursor.uploadedUpTo)
+        mom.sync(disk).run()
+        assertTrue(mom.store.liveEntries().containsAll(waiting + first), "the waiting entries reached the Disk")
+    }
+
+    /** Review Critical: a kept pack read late does not mark entries signed since then as uploaded. */
+    @Test
+    fun aKeptPackReadLateDoesNotSkipNewerEntries() = runTest {
+        val (mom, kid) = family(DeviceRole.CHILD)
+        val g = kid.store.groupId
+        val days = (1..3).map { kid.author.summary("2026-10-0$it", it * 60_000L) }
+        kid.publish(*days.toTypedArray())
+        val k7 = Primitives.randomBytes(32)
+        val dir = CloudPaths.deviceDir(g, kid.id)
+        for (d in listOf(CloudPaths.APP_ROOT, CloudPaths.root(g), dir)) disk.mkdir(d)
+        disk.upload("$dir/${CloudPaths.packName(1, 3)}", PackCodec.seal(kid.keys, g, kid.store.entriesAfter(kid.id, 0, 10), 1, 3, 7, k7, 1_000L))
+        val ring = InMemoryKeyRing(mapOf(0 to GEN0))
+        val fresh = InMemoryEntryStore(g).also { it.storeMembership(kid.store.membershipEntries()) }
+        val again = Phone("kid", kid.keys, EntryAuthor(g, kid.keys, lastSeq = 0), fresh, isChild = true, ring = ring)
+        again.sync(disk).run()
+        val later = EntryAuthor(g, kid.keys, lastSeq = 3).summary("2026-10-04", 4)
+        again.publish(later)
+        ring.put(7, k7) // the retry and the upload happen in one run
+        again.sync(disk).run()
+        mom.sync(disk).run()
+        assertTrue(later in mom.store.liveEntries(), "seq 4 reached the Disk")
+    }
+
+    /** Review Important: a kept pack retried that turns out not to be ours is not downloaded on every run. */
+    @Test
+    fun aRetriedKeptPackThatIsRejectedIsNotFetchedAgain() = runTest {
+        val (_, kid) = family(DeviceRole.CHILD)
+        val g = kid.store.groupId
+        kid.publish(kid.author.summary("2026-10-01", 60_000L))
+        val k7 = Primitives.randomBytes(32)
+        val dir = CloudPaths.deviceDir(g, kid.id)
+        for (d in listOf(CloudPaths.APP_ROOT, CloudPaths.root(g), dir)) disk.mkdir(d)
+        val path = "$dir/${CloudPaths.packName(1, 1)}"
+        disk.upload(path, PackCodec.seal(kid.keys, g, kid.store.entriesAfter(kid.id, 0, 10), 1, 1, 7, k7, 1_000L))
+        val ring = InMemoryKeyRing(mapOf(0 to GEN0))
+        val fresh = InMemoryEntryStore(g).also { it.storeMembership(kid.store.membershipEntries()) }
+        val again = Phone("kid", kid.keys, EntryAuthor(g, kid.keys, lastSeq = 0), fresh, isChild = true, ring = ring)
+        again.sync(disk).run()
+        assertTrue(again.cursor.cursor.ownPacks.getValue(CloudPaths.packName(1, 1)).kept)
+        // The retry meets a file that is not ours (planted under the same listed version).
+        var fetched = 0
+        val wrapped = object : DiskApi by disk {
+            override suspend fun download(path: String): ByteArray =
+                if (path.endsWith(CloudPaths.packName(1, 1))) byteArrayOf(9).also { fetched++ } else disk.download(path)
+        }
+        ring.put(7, k7)
+        repeat(3) { again.sync(wrapped).run() }
+        assertEquals(1, fetched, "rejected once, not fetched on every run")
+    }
 }

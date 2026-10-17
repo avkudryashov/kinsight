@@ -344,7 +344,7 @@ class CloudSync(
         val ring0 = ring.keys()
         val retry = own.filter { p ->
             val k = cursor.ownPacks[p.name]?.takeIf { it.kept } ?: return@filter false
-            p.range.last <= held && mayOpen(DeferredPack(k.epoch, k.failedKey), ring0)
+            p.range.last <= held && seen[key(self, p)] != REJECTED && mayOpen(DeferredPack(k.epoch, k.failedKey), ring0)
         }
         val sorted = (above.filter { seen[key(self, it)] != REJECTED } + retry).sortedBy { it.range.first }
         var membership = start
@@ -389,7 +389,10 @@ class CloudSync(
             log("own log found on the Disk up to $lifted, held $held: those seqs are not reused (A-4)")
         }
         if (next == cursor) return cursor
-        return next.copy(uploadedUpTo = maxOf(cursor.uploadedUpTo, lifted)).also { cursors.save(it) }
+        // Only own packs found above what we hold count as uploaded (review Critical): a marker, a retried kept pack or a
+        // due change leaves the upload cursor alone, or entries signed here and not uploaded yet would be skipped.
+        val uploaded = if (lifted > held) maxOf(cursor.uploadedUpTo, lifted) else cursor.uploadedUpTo
+        return next.copy(uploadedUpTo = uploaded).also { cursors.save(it) }
     }
 
     /** The ranges of [cursor]'s kept own packs (A-4): never sealed by us. */
