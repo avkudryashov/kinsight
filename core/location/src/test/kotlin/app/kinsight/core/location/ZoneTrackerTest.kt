@@ -104,4 +104,62 @@ class ZoneTrackerTest {
         assertFalse("404" in home.toString())
         assertEquals(home.id, ZoneTracker.idOf(home.signature))
     }
+
+    /** Y4 parked minor: a stale alert of a deleted zone recomputes the mode; it may have been the only zone inside. */
+    @Test
+    fun aStaleAlertOfADeletedZoneRecomputesTheMode() {
+        val s = ZoneTracker.proximity(TrackerState(Mode.IN_ZONE, setOf(home.id)), listOf(district), home.id, entering = false, nowMs = now, fix = farAway)
+        assertEquals(TrackerState(Mode.OUTSIDE), s.state)
+        assertTrue(s.events.isEmpty())
+        assertNull(s.report, "no point for a zone nobody defines any more")
+        val unknown = ZoneTracker.proximity(TrackerState(inside = setOf(home.id)), listOf(district), home.id, entering = true, nowMs = now, fix = null)
+        assertEquals(TrackerState(), unknown.state, "no baseline from a stale alert")
+    }
+
+    /** Y4 parked minors: the tracker test gaps. */
+    @Test
+    fun aVagueFixFarAwayWhileInAZoneLeavesNothing() {
+        val vague = fixAt(404_168_000 - 500_000, accuracy = ZoneTracker.MAX_DECISIVE_ACCURACY_M + 1)
+        val s = ZoneTracker.fix(TrackerState(Mode.IN_ZONE, setOf(home.id)), listOf(home), vague, now)
+        assertTrue(s.events.isEmpty())
+        assertEquals(Mode.IN_ZONE, s.state.mode)
+        assertEquals(Report.InZone(home.id, now), s.report, "no coordinates leave the phone while inside")
+    }
+
+    @Test
+    fun aFixExactlyOnTheRadiusEnters() {
+        val edge = fixAt(404_168_000 + 15_000) // about 167 m north
+        val d = Geo.distanceM(edge.latE7, edge.lonE7, home.latE7, home.lonE7)
+        val onIt = Zone(home.id, home.latE7, home.lonE7, kotlin.math.ceil(d).toInt())
+        val atCentre = Zone(home.id, edge.latE7, edge.lonE7, 0) // d == r == 0
+        for (z in listOf(onIt, atCentre)) {
+            val s = ZoneTracker.fix(TrackerState(Mode.OUTSIDE), listOf(z), edge, now)
+            assertEquals(listOf(ZoneEvent(z.id, entered = true, atMs = now)), s.events, "$z")
+        }
+    }
+
+    @Test
+    fun aFixBeyondTheRadiusPlusItsAccuracyExits() {
+        val edge = fixAt(404_168_000 + 15_000, accuracy = 15) // about 167 m north: beyond 150 + 15
+        val s = ZoneTracker.fix(TrackerState(Mode.IN_ZONE, setOf(home.id)), listOf(home), edge, now)
+        assertEquals(listOf(ZoneEvent(home.id, entered = false, atMs = now)), s.events)
+        assertEquals(Report.Point(edge), s.report)
+        val within = fixAt(404_168_000 + 15_000, accuracy = 20) // 150 + 20 covers it: kept
+        assertTrue(ZoneTracker.fix(TrackerState(Mode.IN_ZONE, setOf(home.id)), listOf(home), within, now).events.isEmpty())
+    }
+
+    @Test
+    fun distancesNearThePoleCrossMeridiansShort() {
+        val d = Geo.distanceM(899_995_000, 0, 899_995_000, 1_799_999_999)
+        assertTrue(d in 100.0..123.0, "through the pole: $d")
+        assertEquals(0.0, Geo.distanceM(900_000_000, 0, 900_000_000, 1_000_000_000), 1e-6)
+    }
+
+    @Test
+    fun aProximityExitWhileUnknownIsABaselineWithoutAPoint() {
+        val s = ZoneTracker.proximity(TrackerState(), listOf(home), home.id, entering = false, nowMs = now, fix = farAway)
+        assertEquals(Mode.OUTSIDE, s.state.mode)
+        assertTrue(s.events.isEmpty())
+        assertNull(s.report, "nothing to report: the next fix of the cadence sends the first point")
+    }
 }

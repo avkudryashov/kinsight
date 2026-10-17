@@ -41,7 +41,12 @@ object ZoneTracker {
     /** A proximity alert of [zoneId]; [fix] is the point to send when this exit leaves every zone. */
     fun proximity(state: TrackerState, zones: List<Zone>, zoneId: String, entering: Boolean, nowMs: Long, fix: Fix?): Step {
         val inside = known(state, zones)
-        if (zones.none { it.id == zoneId }) return Step(state.copy(inside = inside), emptyList(), null)
+        if (zones.none { it.id == zoneId }) {
+            // A stale alert of a deleted zone (the engine unregisters it): nothing to sign, but the deletion may have
+            // emptied the zones this phone was in, so the mode follows what is left (Y4 parked minor).
+            if (state.mode == Mode.UNKNOWN) return Step(state.copy(inside = inside), emptyList(), null)
+            return Step(state.copy(mode = if (inside.isEmpty()) Mode.OUTSIDE else Mode.IN_ZONE, inside = inside), emptyList(), null)
+        }
         val events = mutableListOf<ZoneEvent>()
         if (entering && inside.add(zoneId)) events += ZoneEvent(zoneId, entered = true, atMs = nowMs)
         if (!entering && inside.remove(zoneId)) events += ZoneEvent(zoneId, entered = false, atMs = nowMs)
