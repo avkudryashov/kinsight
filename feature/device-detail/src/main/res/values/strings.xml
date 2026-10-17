@@ -150,6 +150,8 @@
     <string name="loc_zones">Safe zones: %1$d</string>
     <string name="loc_map_description">Map of the safe zones and today\'s route</string>
     <string name="loc_open_map">Open in Maps</string>
+    <string name="loc_open_yandex">Yandex Maps</string>
+    <string name="loc_open_google">Google Maps</string>
     <string name="det_map_scale_m">%1$d m</string>
     <string name="det_map_scale_km">%1$d km</string>
     <string name="det_ev_zone_enter">Entered the zone “%1$s”</string>

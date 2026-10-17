@@ -270,4 +270,54 @@ class MapScreenTest {
         rule.onNodeWithTag("loc_last").assertTextContains(date, substring = true)
         assertEquals(DateUtils.FORMAT_SHOW_TIME, timeFlags(now - 5 * min, now, zone))
     }
+
+    private fun install(intent: Intent, pkg: String) {
+        val info = ResolveInfo().apply { activityInfo = ActivityInfo().apply { packageName = pkg; name = "Main" } }
+        shadowOf(app.packageManager).addResolveInfoForIntent(intent, info)
+    }
+
+    private val outside get() = ChildLocation(kid, PlaceStatus.Outside(p2, p2.timeMs), p2, listOf(p1, p2), listOf(home), emptyList(), Sharing.On)
+
+    /** Offline map spec §5: one button per installed maps app; the point leaves only on the tap. */
+    @Test
+    fun yandexAndGoogleButtonsShowWhenInstalled() {
+        install(ExternalMaps.yandex(p2.latE7, p2.lonE7), ExternalMaps.YANDEX)
+        install(ExternalMaps.google(p2.latE7, p2.lonE7), ExternalMaps.GOOGLE)
+        installMapApp()
+        show(outside)
+        rule.onNodeWithTag("loc_list").performScrollToNode(hasTestTag("loc_open_yandex"))
+        rule.onNodeWithTag("loc_open_map").assertDoesNotExist()
+        rule.onNodeWithTag("loc_open_google").assertTextEquals("Google Maps")
+        rule.onNodeWithTag("loc_open_yandex").assertTextEquals("Yandex Maps").performClick()
+        val sent = shadowOf(app).nextStartedActivity
+        assertEquals(ExternalMaps.YANDEX, sent.`package`)
+        assertEquals("yandexmaps://maps.yandex.ru/?pt=-3.7080000,40.4120000&z=17&l=map", sent.dataString)
+    }
+
+    @Test
+    fun onlyGoogleShowsOnlyGoogle() {
+        install(ExternalMaps.google(p2.latE7, p2.lonE7), ExternalMaps.GOOGLE)
+        show(outside)
+        rule.onNodeWithTag("loc_list").performScrollToNode(hasTestTag("loc_open_google"))
+        rule.onNodeWithTag("loc_open_yandex").assertDoesNotExist()
+        rule.onNodeWithTag("loc_open_google").performClick()
+        val sent = shadowOf(app).nextStartedActivity
+        assertEquals(ExternalMaps.GOOGLE, sent.`package`)
+        assertEquals(geo, sent.dataString)
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun russianButtonNames() {
+        install(ExternalMaps.yandex(p2.latE7, p2.lonE7), ExternalMaps.YANDEX)
+        install(ExternalMaps.google(p2.latE7, p2.lonE7), ExternalMaps.GOOGLE)
+        show(outside)
+        rule.onNodeWithTag("loc_list").performScrollToNode(hasTestTag("loc_open_yandex"))
+        rule.onNodeWithTag("loc_open_yandex").assertTextEquals("Яндекс Карты")
+        rule.onNodeWithTag("loc_open_google").assertTextEquals("Google Карты")
+    }
+
+    @Test
+    fun theYandexLinkPutsLongitudeFirst() =
+        assertEquals("yandexmaps://maps.yandex.ru/?pt=-3.7038001,40.4168123&z=17&l=map", ExternalMaps.yandexUri(404_168_123, -37_038_001))
 }

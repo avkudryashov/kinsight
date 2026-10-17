@@ -154,6 +154,8 @@
     <string name="loc_zones">Безопасные зоны: %1$d</string>
     <string name="loc_map_description">Карта безопасных зон и маршрута за сегодня</string>
     <string name="loc_open_map">Открыть в Картах</string>
+    <string name="loc_open_yandex">Яндекс Карты</string>
+    <string name="loc_open_google">Google Карты</string>
     <string name="det_map_scale_m">%1$d м</string>
     <string name="det_map_scale_km">%1$d км</string>
     <string name="det_ev_zone_enter">Вход в зону «%1$s»</string>

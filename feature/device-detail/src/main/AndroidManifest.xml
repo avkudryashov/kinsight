@@ -7,5 +7,8 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="geo" />
         </intent>
+        <!-- «Яндекс Карты» and «Google Карты» (offline map spec §5): each button only when its app is installed. -->
+        <package android:name="ru.yandex.yandexmaps" />
+        <package android:name="com.google.android.apps.maps" />
     </queries>
 </manifest>

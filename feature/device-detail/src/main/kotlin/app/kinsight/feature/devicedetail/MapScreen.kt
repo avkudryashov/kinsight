@@ -1,7 +1,5 @@
 package app.kinsight.feature.devicedetail
 
-import android.content.ActivityNotFoundException
-import android.content.Intent
 import android.text.format.DateUtils
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -51,7 +49,6 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -108,12 +105,9 @@ fun MapScreen(state: MapState, nowMs: Long, selectedId: String? = null, onSelect
     val context = LocalContext.current
     val child = state.children.firstOrNull { it.member.id.hex == selectedId } ?: state.children.firstOrNull()
     fun time(ms: Long) = DateUtils.formatDateTime(context, ms, timeFlags(ms, nowMs))
-    // Rulings L1: the last point in whatever maps app the parent has; Kinsight itself fetches no tiles. Hidden when
-    // nothing on the phone opens a geo: link.
-    val mapIntent = remember(child?.last, context) {
-        child?.last?.let { Intent(Intent.ACTION_VIEW, geoUri(it.latE7, it.lonE7).toUri()) }
-            ?.takeIf { it.resolveActivity(context.packageManager) != null }
-    }
+    // Offline map spec §5: Yandex Maps and Google Maps when installed, else whatever opens a geo: link; the point
+    // leaves the phone only on the parent's tap.
+    val apps = remember(child?.last, context) { child?.last?.let { MapApps.of(it, context.packageManager) } }
     LazyColumn(
         Modifier.fillMaxSize().testTag("loc_list"),
         contentPadding = PaddingValues(16.dp),
@@ -145,20 +139,7 @@ fun MapScreen(state: MapState, nowMs: Long, selectedId: String? = null, onSelect
                 )
             }
         }
-        if (mapIntent != null) {
-            item(key = "open_map") {
-                Button(
-                    onClick = {
-                        try {
-                            context.startActivity(mapIntent)
-                        } catch (_: ActivityNotFoundException) {
-                            // The maps app went away since the check: nothing to open.
-                        }
-                    },
-                    modifier = Modifier.testTag("loc_open_map"),
-                ) { Text(stringResource(R.string.loc_open_map)) }
-            }
-        }
+        if (apps != null && apps.any) item(key = "open_map") { MapAppButtons(apps) }
         item(key = "route") { Text(pluralStringResource(R.plurals.loc_route_points, child.route.size, child.route.size)) }
         item(key = "events_title") { SectionTitle(stringResource(R.string.loc_events)) }
         if (child.zoneEvents.isEmpty()) item(key = "no_events") { Text(stringResource(R.string.loc_no_events)) }
@@ -184,6 +165,19 @@ private fun Searching() = Row(
 ) {
     CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
     Text(stringResource(R.string.map_searching), style = MaterialTheme.typography.bodyMedium)
+}
+
+/** Spec §5: «Яндекс Карты» and «Google Карты» when installed; neither, the old «Открыть в Картах» through geo:. */
+@Composable
+private fun MapAppButtons(apps: MapApps) {
+    val context = LocalContext.current
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        apps.yandex?.let { Button({ openMaps(context, it) }, Modifier.testTag("loc_open_yandex")) { Text(stringResource(R.string.loc_open_yandex)) } }
+        apps.google?.let { Button({ openMaps(context, it) }, Modifier.testTag("loc_open_google")) { Text(stringResource(R.string.loc_open_google)) } }
+        if (apps.yandex == null && apps.google == null) {
+            apps.geo?.let { Button({ openMaps(context, it) }, Modifier.testTag("loc_open_map")) { Text(stringResource(R.string.loc_open_map)) } }
+        }
+    }
 }
 
 /** The child's own colour (Task 12), the same as its Overview card; a lighter tone of it on the dark theme's map. */
