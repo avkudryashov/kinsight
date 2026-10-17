@@ -25,8 +25,8 @@ enum class ZoneSave { SAVED, UNCHANGED, INVALID, NOT_ALLOWED }
 
 /**
  * The location screens' reads and the zone writes (spec §8, §8.1, §12). Reads derive from the shared snapshot; a write
- * reads a fresh snapshot, then appends one SafeZone entry under [zoneLock] (lock order: this, then the pipeline lock
- * inside [appendOwn]). Only an active admin parent writes (spec §8.1), and only what the receivers' SafeZoneRules accept.
+ * appends one SafeZone entry under [zoneLock] (lock order: this, then the pipeline lock inside [appendOwn]), reading
+ * the fresh snapshot and the rank inside the append. Only an active admin parent writes (spec §8.1), and only what the receivers' SafeZoneRules accept.
  */
 class LocationRepository(
     private val snapshots: Snapshots,
@@ -68,28 +68,46 @@ class LocationRepository(
         ) {
             return@withLock ZoneSave.INVALID
         }
-        val ready = parentSnapshot() ?: return@withLock ZoneSave.NOT_ALLOWED
         val id = d.id ?: ByteArray(16).also(random::nextBytes).toHex()
-        val winner = SafeZones.winners(ready.safeZones, ready.membership)[id]
-        winner?.body?.safe_zone?.let { w ->
-            if (!w.deleted && w.name == name && w.lat_e7 == d.latE7 && w.lon_e7 == d.lonE7 && w.radius_m == d.radiusM) return@withLock ZoneSave.UNCHANGED
+        // The winner and its rank are read inside the append (Y4 parked minor): a version that arrived since the screen
+        // last read is outranked, never tied.
+        var result = ZoneSave.NOT_ALLOWED
+        val ok = appendOwn { a ->
+            val ready = parentSnapshot() ?: return@appendOwn emptyList()
+            val winner = SafeZones.winners(ready.safeZones, ready.membership)[id]
+            val w = winner?.body?.safe_zone
+            if (w != null && !w.deleted && w.name == name && w.lat_e7 == d.latE7 && w.lon_e7 == d.lonE7 && w.radius_m == d.radiusM) {
+                result = ZoneSave.UNCHANGED
+                return@appendOwn emptyList()
+            }
+            result = ZoneSave.SAVED
+            listOf(a.safeZoneEntry(id.hexToBytes(), name, d.latE7, d.lonE7, d.radiusM, SafeZones.nextRank(winner)))
         }
-        val ok = appendOwn { a -> listOf(a.safeZoneEntry(id.hexToBytes(), name, d.latE7, d.lonE7, d.radiusM, SafeZones.nextRank(winner))) }
         if (!ok) Log.w(TAG, "zone: no group to sign in")
-        if (ok) ZoneSave.SAVED else ZoneSave.NOT_ALLOWED
+        if (ok) result else ZoneSave.NOT_ALLOWED
     }
 
     /** A tombstone over the winner (spec §8.1 `deleted`): the zone goes for every phone, its name stays for old events. */
     suspend fun delete(id: String): ZoneSave = zoneLock.withLock {
-        val ready = parentSnapshot() ?: return@withLock ZoneSave.NOT_ALLOWED
-        val winner = SafeZones.winners(ready.safeZones, ready.membership)[id] ?: return@withLock ZoneSave.UNCHANGED
-        val w = winner.body.safe_zone!!
-        if (w.deleted) return@withLock ZoneSave.UNCHANGED
-        val ok = appendOwn { a -> listOf(a.safeZoneEntry(id.hexToBytes(), w.name, w.lat_e7, w.lon_e7, w.radius_m, SafeZones.nextRank(winner), deleted = true)) }
-        if (ok) ZoneSave.SAVED else ZoneSave.NOT_ALLOWED
+        var result = ZoneSave.NOT_ALLOWED
+        val ok = appendOwn { a ->
+            val ready = parentSnapshot() ?: return@appendOwn emptyList()
+            val winner = SafeZones.winners(ready.safeZones, ready.membership)[id]
+            val w = winner?.body?.safe_zone
+            if (w == null || w.deleted) {
+                result = ZoneSave.UNCHANGED
+                return@appendOwn emptyList()
+            }
+            result = ZoneSave.SAVED
+            listOf(a.safeZoneEntry(id.hexToBytes(), w.name, w.lat_e7, w.lon_e7, w.radius_m, SafeZones.nextRank(winner), deleted = true))
+        }
+        if (ok) result else ZoneSave.NOT_ALLOWED
     }
 
-    /** A fresh read (the shared flow may lag a just-committed append) when this phone is an active admin parent. */
+    /**
+     * A fresh read (the shared flow may lag a just-committed append) when this phone is an active admin parent. Called
+     * inside the append (under the pipeline lock): it reads the database only, never the pipeline.
+     */
     private suspend fun parentSnapshot(): GroupSnapshot.Ready? {
         val ready = snapshots.load(emptyMap()) as? GroupSnapshot.Ready ?: return null
         val me = ready.membership.active[ready.self] ?: return null

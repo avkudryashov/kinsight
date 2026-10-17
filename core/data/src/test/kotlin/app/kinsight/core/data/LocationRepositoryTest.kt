@@ -2,6 +2,7 @@ package app.kinsight.core.data
 
 import app.kinsight.core.model.locationEntry
 import app.kinsight.core.model.proto.Location
+import app.kinsight.core.sync.SafeZoneRules
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -93,5 +94,63 @@ class LocationRepositoryTest {
         kid.store().applyBatch(listOf(entry))
         assertEquals(null, repo(kid).child(kid.keys.deviceId).firstWithin { true })
         assertEquals(emptyList(), repo(kid).lastPoints.firstWithin { true })
+    }
+
+    /** Y4 parked minors: the repository's own gates and bounds. */
+    @Test
+    fun onlyAnAdminParentSignsAndTheBoundsHold() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        dad.joinGroupOf(mom, app.kinsight.core.model.proto.DeviceRole.PARENT, "Dad") // a parent, not an admin
+        assertEquals(ZoneSave.NOT_ALLOWED, repo(dad).save(ZoneDraft(null, "Home", 1, 2, 150)))
+        assertEquals(false, repo(dad).canEdit.firstWithin { true })
+        assertTrue(dad.store().safeZones().isEmpty())
+        val r = repo(mom)
+        assertEquals(ZoneSave.INVALID, r.save(ZoneDraft(null, "A", 1, 2, SafeZoneRules.MIN_RADIUS_M - 1)))
+        assertEquals(ZoneSave.SAVED, r.save(ZoneDraft(null, "B", 1, 2, SafeZoneRules.MIN_RADIUS_M)))
+        assertEquals(ZoneSave.SAVED, r.save(ZoneDraft(null, "C", 1, 2, SafeZoneRules.MAX_RADIUS_M)))
+        assertEquals(ZoneSave.INVALID, r.save(ZoneDraft(null, "D", 1, 2, SafeZoneRules.MAX_RADIUS_M + 1)))
+        assertEquals(ZoneSave.SAVED, r.save(ZoneDraft(null, "я".repeat(64), 1, 2, 150)))
+        assertEquals(ZoneSave.INVALID, r.save(ZoneDraft(null, "я".repeat(65), 1, 2, 150)))
+        assertEquals(ZoneSave.INVALID, r.save(ZoneDraft("not-hex", "E", 1, 2, 150)))
+        assertEquals(3, mom.store().safeZones().size)
+    }
+
+    /** L3: a child's phone never shows a sibling's route or place, even when it holds the sibling's points. */
+    @Test
+    fun aChildPhoneReadsNoSiblingRoute() = runBlocking<Unit> {
+        val sister = TestDevice()
+        try {
+            mom.group.createGroup("Mom")
+            kid.joinGroupOf(mom)
+            sister.joinGroupOf(mom, name = "Sister")
+            val gid = mom.groups.read()!!.groupId
+            val author = app.kinsight.core.model.EntryAuthor(gid, kid.keys, lastSeq = 0)
+            sister.store().applyBatch(listOf(author.locationEntry(404_000_000, -37_000_000, 20, noon - 600_000, Location.Provider.GPS)))
+            assertEquals(null, repo(sister).child(kid.keys.deviceId).firstWithin { true })
+            assertEquals(emptyList(), repo(sister).lastPoints.firstWithin { true })
+        } finally {
+            sister.close()
+        }
+    }
+
+    /** Y4 parked minor: the rank is read inside the append, so a version that arrived meanwhile is outranked. */
+    @Test
+    fun theRankIsReadInsideTheAppend() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        dad.joinAsAdminOf(mom)
+        assertEquals(ZoneSave.SAVED, repo(mom).save(ZoneDraft(null, "School", 404_268_000, -37_038_000, 200)))
+        dad.store().applyBatch(mom.store().safeZones())
+        val school = repo(dad).zones.firstWithin { it.isNotEmpty() }.single()
+        assertEquals(ZoneSave.SAVED, repo(dad).save(ZoneDraft(school.id, "School", 404_268_000, -37_038_000, 500))) // rank 2
+        // Dad's edit reaches Mom between her screen's read and her append: it must not tie with hers.
+        val late: OwnAppend = { build ->
+            mom.store().applyBatch(dad.store().safeZones())
+            mom.appendOwn(build)
+        }
+        val r = LocationRepository(mom.snapshots, late, date = { today }, clock = { noon }, zone = { ZoneId.of("UTC") })
+        assertEquals(ZoneSave.SAVED, r.save(ZoneDraft(school.id, "School", 404_268_000, -37_038_000, 300)))
+        val ranks = mom.store().safeZones().filter { it.author == mom.keys.deviceId }.map { it.body.safe_zone!!.rank }
+        assertEquals(3L, ranks.max(), "above Dad's rank 2")
+        assertEquals(300, repo(mom).zones.firstWithin { it.singleOrNull()?.radiusM == 300 }.single().radiusM)
     }
 }
