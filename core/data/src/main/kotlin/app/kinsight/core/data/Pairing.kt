@@ -324,8 +324,9 @@ class PairingCoordinator(
                                 Log.w(TAG, "after adding ${outcome.joiner.id}: $e") // the AddMember is stored: still Added
                             }
                             val transferred = outcome.ownerRoleTaken && transferTo == outcome.joiner.id
-                            // The new phone said it did not take the role: no StorageOwner of its own will come.
-                            if (outcome.ownerRoleRefused) dropTransfer(group, outcome.joiner.id)
+                            // The new phone said it did not take the role. It holds the tokens: the record stays until it
+                            // expires, so the old phone still leaves if the role arrives after all (OwnerTransfer.refused).
+                            if (outcome.ownerRoleRefused) markRefused(group, outcome.joiner.id)
                             synchronized(lock) { move(InviteState.Added(outcome.joiner.displayName, ownerTransferred = transferred)) }
                             sessionJob.cancel() // ends open()'s timer; this coroutine is the last one
                         }
@@ -428,6 +429,18 @@ class PairingCoordinator(
         private suspend fun canTransfer(k: DeviceKeys, group: GroupConfig, membership: MembershipState?): Boolean {
             if (membership == null || role != Role.PARENT || membership.storageOwner?.deviceId != k.deviceId) return false
             return cloud?.welcome(group, RoomEntryStore(db, group.groupId), membership, k.deviceId, withRefresh = true)?.refreshToken != null
+        }
+
+        /** The guest's PairAck(false) for [target]: its record is marked, not dropped. */
+        private suspend fun markRefused(group: GroupConfig, target: DeviceId) {
+            if (transferTo != target) return
+            try {
+                ownerTransfer?.refused(group.groupId, target)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "owner transfer refusal not noted: ${e.javaClass.simpleName}") // the record stays as it is
+            }
         }
 
         /** The transfer to [target] did not happen after all: its record goes (only a record for [target]). */

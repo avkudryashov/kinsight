@@ -21,18 +21,38 @@ import java.util.concurrent.atomic.AtomicBoolean
  * [generation] with token id [tokenIdHex] was in force. [untilMs]: [OwnerTransfer.RECORD_MS] after the welcome; the record
  * lives until the target's StorageOwner is seen or that time passes without it (a lost PairAck does not end it).
  */
-data class OwnerTransferRecord(val groupHex: String, val target: DeviceId, val tokenIdHex: String, val generation: Long, val untilMs: Long)
+/**
+ * [refused]: the new phone answered PairAck(false). Its word alone does not end the record (Y3 parked: the host does not
+ * trust it): the screens no longer say the role is moving, but until [untilMs] the owner still does not refresh and still
+ * leaves if the target's StorageOwner arrives after all (spec §7.3).
+ */
+data class OwnerTransferRecord(
+    val groupHex: String,
+    val target: DeviceId,
+    val tokenIdHex: String,
+    val generation: Long,
+    val untilMs: Long,
+    val refused: Boolean = false,
+)
 
 /** For the screens (CloudStatus.ownerTransfer): [PENDING] «Перенос роли…»; [DONE] the new phone holds the role, this one leaves. */
 enum class OwnerTransferPhase { PENDING, DONE }
 
 object OwnerTransfers {
-    /** The phase of [r] for the group [groupId] with membership [m], or null when there is none (or it expired). */
+    /**
+     * The phase of [r] for the group [groupId] with membership [m], or null when there is none, it expired or the new
+     * phone refused the role ([OwnerTransferRecord.refused]; DONE still wins).
+     */
     fun phase(r: OwnerTransferRecord?, groupId: GroupId, m: MembershipState?, nowMs: Long): OwnerTransferPhase? {
-        if (r == null || r.groupHex != groupId.hex) return null
-        if (m != null && completed(r, m)) return OwnerTransferPhase.DONE
-        if (nowMs > r.untilMs) return null
-        return OwnerTransferPhase.PENDING
+        if (!live(r, groupId, m, nowMs)) return null
+        if (m != null && completed(r!!, m)) return OwnerTransferPhase.DONE
+        return OwnerTransferPhase.PENDING.takeIf { !r!!.refused }
+    }
+
+    /** [r] still counts for [groupId]: completed, or not expired (refused or not). The owner does not refresh meanwhile. */
+    fun live(r: OwnerTransferRecord?, groupId: GroupId, m: MembershipState?, nowMs: Long): Boolean {
+        if (r == null || r.groupHex != groupId.hex) return false
+        return (m != null && completed(r, m)) || nowMs <= r.untilMs
     }
 
     /** The StorageOwner in force names the target, is newer, keeps the same token id (rulings Q3) and the target signed it. */
@@ -71,10 +91,19 @@ class OwnerTransfer(
     suspend fun record(groupId: GroupId, target: DeviceId, inForce: StorageOwnerState) =
         state.recordTransfer(OwnerTransfers.record(groupId, target, inForce, clock() + RECORD_MS))
 
-    /** The transfer to [target] did not happen (the new phone refused the role, or the welcome never went out). */
+    /** The welcome to [target] never went out (the host refused it): nothing to wait for. */
     suspend fun cancel(groupId: GroupId, target: DeviceId) {
         val r = state.current().transfer ?: return
         if (r.groupHex == groupId.hex && r.target == target) state.clearTransfer(r)
+    }
+
+    /**
+     * The new phone answered that it did not take the role. It holds the tokens, so its word is not taken as final: the
+     * record stays until it expires ([OwnerTransferRecord.refused]).
+     */
+    suspend fun refused(groupId: GroupId, target: DeviceId) {
+        val r = state.current().transfer ?: return
+        if (r.groupHex == groupId.hex && r.target == target) state.markTransferRefused(r)
     }
 
     /** Null without a live record; [OwnerTransferPhase.DONE] once the transfer completed (the leave has been run). */
@@ -87,7 +116,7 @@ class OwnerTransfer(
         }
         val m = Membership.compute(group.groupId, RoomEntryStore(db, group.groupId).membershipEntries())
         val phase = OwnerTransfers.phase(r, group.groupId, m, clock())
-        if (phase == null) state.clearTransfer(r)
+        if (!OwnerTransfers.live(r, group.groupId, m, clock())) state.clearTransfer(r)
         if (phase != OwnerTransferPhase.DONE || m?.active?.containsKey(keys().deviceId) != true) return phase
         if (!leaving.compareAndSet(false, true)) return phase
         try {

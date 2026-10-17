@@ -145,6 +145,16 @@ class CloudStateStore(private val store: DataStore<Preferences>) {
             p[TRANSFER_TOKEN_ID] = r.tokenIdHex
             p[TRANSFER_GENERATION] = r.generation
             p[TRANSFER_UNTIL] = r.untilMs
+            p[TRANSFER_REFUSED] = r.refused
+        }
+    }
+
+    /** The new phone said it did not take the role: [r] stays for its safety (it expires by itself), marked refused. */
+    suspend fun markTransferRefused(r: OwnerTransferRecord) {
+        store.edit { p ->
+            if (transfer(p)?.let { it.groupHex == r.groupHex && it.target == r.target && it.generation == r.generation } == true) {
+                p[TRANSFER_REFUSED] = true
+            }
         }
     }
 
@@ -155,13 +165,17 @@ class CloudStateStore(private val store: DataStore<Preferences>) {
                 listOf(TRANSFER_GROUP, TRANSFER_TO, TRANSFER_TOKEN_ID).forEach { p.remove(it) }
                 p.remove(TRANSFER_GENERATION)
                 p.remove(TRANSFER_UNTIL)
+                p.remove(TRANSFER_REFUSED)
             }
         }
     }
 
     private fun transfer(p: Preferences): OwnerTransferRecord? {
         val to = p[TRANSFER_TO]?.let { runCatching { DeviceId(it) }.getOrNull() } ?: return null
-        return OwnerTransferRecord(p[TRANSFER_GROUP] ?: return null, to, p[TRANSFER_TOKEN_ID] ?: return null, p[TRANSFER_GENERATION] ?: return null, p[TRANSFER_UNTIL] ?: return null)
+        return OwnerTransferRecord(
+            p[TRANSFER_GROUP] ?: return null, to, p[TRANSFER_TOKEN_ID] ?: return null, p[TRANSFER_GENERATION] ?: return null,
+            p[TRANSFER_UNTIL] ?: return null, refused = p[TRANSFER_REFUSED] == true,
+        )
     }
 
     suspend fun clear() {
@@ -184,6 +198,7 @@ class CloudStateStore(private val store: DataStore<Preferences>) {
         private val TRANSFER_TOKEN_ID = stringPreferencesKey("transfer_token_id")
         private val TRANSFER_GENERATION = longPreferencesKey("transfer_generation")
         private val TRANSFER_UNTIL = longPreferencesKey("transfer_until_ms")
+        private val TRANSFER_REFUSED = booleanPreferencesKey("transfer_refused")
         private val OLDER_ACCESS = longPreferencesKey("older_access_generation")
         private val HEARTBEAT_PENDING = booleanPreferencesKey("heartbeat_pending")
         private val DEAD_OLD_TOKEN = stringPreferencesKey("dead_old_token")

@@ -7,11 +7,13 @@ import app.kinsight.core.transport.cloud.TokenSet
 import app.kinsight.core.sync.pairing.PairingProtocol
 import app.kinsight.core.sync.SecureChannel
 import app.kinsight.core.model.proto.PairRequest
+import app.kinsight.core.model.proto.PairAck
 import app.kinsight.core.model.proto.PairMessage
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.database.RoomEntryStore
 import app.kinsight.core.keystore.KeyStorageException
 import app.kinsight.core.model.DeviceKeys
+import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.addMember
@@ -20,6 +22,7 @@ import app.kinsight.core.model.proto.PackFile
 import app.kinsight.core.model.proto.PackHeader
 import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.model.removeMemberEntry
+import app.kinsight.core.model.storageOwnerEntry
 import app.kinsight.core.sync.pairing.Invite
 import app.kinsight.core.transport.ble.PairingRadioException
 import app.kinsight.core.transport.ble.RadioProblem
@@ -782,9 +785,12 @@ class PairingCoordinatorTest {
         val (added, joined) = transferByQr(beforeConfirm = { kid.resetMarker.set() })
         assertEquals(JoinState.Failed(PairFailure.IDENTITY), joined)
         assertEquals(InviteState.Added("Pixel", ownerTransferred = false), added)
-        assertNull(momTransfer.check(), "PairAck(false): no StorageOwner of the new phone will come, the record goes")
-        assertNull(mom.cloudState.current().transfer)
+        assertNull(momTransfer.check(), "PairAck(false): the screens no longer say the role is moving")
         assertNull(momStatus().ownerTransfer)
+        assertTrue(mom.cloudState.current().transfer!!.refused, "kept on the guest's word until it expires")
+        momClock += OwnerTransfer.RECORD_MS + 1
+        assertNull(momTransfer.check())
+        assertNull(mom.cloudState.current().transfer, "expired: the record goes")
         val g = mom.groups.read()!!
         assertEquals(mom.keys.deviceId, Membership.compute(g.groupId, mom.store().membershipEntries())!!.storageOwner!!.deviceId)
         assertTrue(mom.cloudSecrets.tokens()!!.owner)
@@ -816,6 +822,40 @@ class PairingCoordinatorTest {
         assertNull(mom.cloudState.current().transfer)
         assertEquals(mom.groups.read()!!.groupId, qr.groupId, "nothing else happens: the old phone stays in the group")
         assertTrue(mom.cloudSecrets.tokens()!!.owner)
+    }
+
+    /**
+     * Y3 parked: the host does not take PairAck(false) as final. A guest that says it refused the role but signs it anyway
+     * still makes the old phone leave (spec §7.3), and the owner holds its refresh back meanwhile.
+     */
+    @Test
+    fun aGuestThatSaysItRefusedButTakesTheRoleStillMakesTheOldPhoneLeave() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        mom.ownStorage(token = "AT", tokenId = ByteArray(16) { 9 })
+        val session = momPairing.invite(scope, Role.PARENT, "Mom", transferOwner = true)
+        val qr = Invite.parse(assertIs<InviteState.Showing>(session.state.awaitFirst { it is InviteState.Showing || it is InviteState.Failed }).uri)
+        val stream = air.dial(qr.advertTag, 5.seconds)
+        val ch = SecureChannel.initiate(stream, kid.keys.dh, PairingProtocol.prologue(qr.groupId, qr.token))
+        val proof = kid.keys.sign.sign(PairingProtocol.proofMessage(qr.token, kid.keys.dh.publicKey))
+        val request = PairRequest(qr.token.toByteString(), kid.keys.sign.publicKey.toByteString(), "Pixel", proof.toByteString(), protocol_version = 3)
+        ch.send(PairMessage.ADAPTER.encode(PairMessage(request = request)))
+        assertNotNull(PairMessage.ADAPTER.decode(ch.receive()).pending)
+        session.state.awaitFirst { it is InviteState.Confirm }
+        session.confirm()
+        assertEquals("RT", assertNotNull(PairMessage.ADAPTER.decode(ch.receive()).welcome).refresh_token)
+        ch.send(PairMessage.ADAPTER.encode(PairMessage(ack = PairAck(owner_role_taken = false))))
+        assertEquals(InviteState.Added("Pixel", ownerTransferred = false), session.state.awaitFirst { it is InviteState.Added })
+        ch.close()
+        assertNull(momStatus().ownerTransfer)
+        val g = mom.groups.read()!!
+        val inForce = Membership.compute(g.groupId, mom.store().membershipEntries())!!.storageOwner!!
+        assertTrue(OwnerTransfers.live(mom.cloudState.current().transfer, g.groupId, null, momClock), "the refresh waits")
+        // The guest signs the role with the handed token after all.
+        val author = EntryAuthor(g.groupId, kid.keys, lastSeq = 0, lastLamport = mom.store().membershipEntries().maxOf { it.lamport })
+        val claim = author.storageOwnerEntry(kid.keys.deviceId, inForce.storageId.toByteArray(), inForce.generation + 1, inForce.tokenId.toByteArray())
+        mom.store().applyBatch(listOf(claim))
+        assertEquals(OwnerTransferPhase.DONE, momTransfer.check())
+        assertNull(mom.groups.read(), "the old phone left by itself (spec §7.3)")
     }
 
     @Test
