@@ -139,9 +139,16 @@ class SyncService : Service() {
                     if (snapshot.state != ServiceState.STARTING) publish()
                 }
         }
-        getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, getString(R.string.kinsight_channel_service), NotificationManager.IMPORTANCE_LOW),
-        )
+        // One sync status for both paths: a cloud run that finished (or the cloud turned on or off) updates the line.
+        scope.launch {
+            SyncGraph.cloudSync(applicationContext)
+                .distinctUntilChanged()
+                .catch { e -> log("cloud state unavailable: $e") }
+                .collect { c ->
+                    snapshot = snapshot.copy(cloudOn = c.on, cloudLastSyncMs = c.lastSyncMs)
+                    if (snapshot.state != ServiceState.STARTING) publish()
+                }
+        }
         val filter = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
         // A system broadcast still reaches a NOT_EXPORTED runtime receiver; nobody else can fake it.
         if (Build.VERSION.SDK_INT >= 33) {
@@ -660,7 +667,7 @@ class SyncService : Service() {
         val nm = getSystemService(NotificationManager::class.java)
         snapshot = snapshot.copy(
             notificationsEnabled = nm.areNotificationsEnabled(),
-            channelImportance = nm.getNotificationChannel(CHANNEL_ID)?.importance,
+            channelImportance = nm.getNotificationChannel(SyncGraph.channelFor(nm, snapshot))?.importance,
         )
         SyncGraph.publish(snapshot)
         val visible = StatusText.notificationVisible(snapshot)
@@ -669,35 +676,65 @@ class SyncService : Service() {
             lastVisible = visible
             scope.launch { quietly("notification visibility") { SyncGraph.onNotificationVisibility(applicationContext, visible) } }
         }
-        if (!stopping) nm.notify(NOTIFICATION_ID, notification(snapshot))
+        if (!stopping) {
+            nm.notify(NOTIFICATION_ID, notification(snapshot))
+            // Once the role is known and the notification sits on its channel, the other one goes (never the one in use).
+            ServiceChannels.retired(snapshot.peersAreParents)?.let { old ->
+                if (nm.getNotificationChannel(old) != null) {
+                    try {
+                        nm.deleteNotificationChannel(old)
+                    } catch (e: Exception) {
+                        log("channel $old not deleted: $e")
+                    }
+                }
+            }
+        }
+    }
+
+    /** The channel [s] posts on, created when missing: the child's one as before, a parent's at the lowest importance. */
+    private fun channel(s: ServiceSnapshot): String {
+        val nm = getSystemService(NotificationManager::class.java)
+        val id = SyncGraph.channelFor(nm, s)
+        if (nm.getNotificationChannel(id) == null) {
+            val importance = if (id == ServiceChannels.PARENT) NotificationManager.IMPORTANCE_MIN else NotificationManager.IMPORTANCE_LOW
+            nm.createNotificationChannel(
+                NotificationChannel(id, getString(R.string.kinsight_channel_service), importance).apply { setShowBadge(false) },
+            )
+        }
+        return id
+    }
+
+    private fun statusText(line: StatusLine): String = when (line.kind) {
+        StatusLine.Kind.STARTING -> getString(R.string.kinsight_status_starting)
+        StatusLine.Kind.STORAGE_ERROR -> getString(R.string.kinsight_status_storage_error)
+        StatusLine.Kind.NO_PERMISSION -> getString(R.string.kinsight_status_no_permission)
+        StatusLine.Kind.BLUETOOTH_OFF -> getString(R.string.kinsight_status_bluetooth_off)
+        StatusLine.Kind.RADIO_ERROR -> getString(R.string.kinsight_status_radio_error)
+        StatusLine.Kind.PEER_NEEDS_UPDATE -> getString(R.string.kinsight_status_peer_needs_update)
+        StatusLine.Kind.NEVER_SYNCED -> getString(R.string.kinsight_never_synced)
+        StatusLine.Kind.SYNCED -> {
+            val at = line.lastSyncWallMs ?: 0L
+            if (StatusText.sameDay(at, System.currentTimeMillis(), java.time.ZoneId.systemDefault())) {
+                getString(R.string.kinsight_synced_at, DateUtils.formatDateTime(this, at, DateUtils.FORMAT_SHOW_TIME))
+            } else {
+                getString(R.string.kinsight_synced_on, DateUtils.formatDateTime(this, at, DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_SHOW_DATE))
+            }
+        }
+    }
+
+    private fun partText(part: NotificationPart): String = when (part) {
+        is NotificationPart.Status -> statusText(part.line)
+        NotificationPart.ChildTitle -> getString(R.string.kinsight_child_title)
+        NotificationPart.Paused -> getString(R.string.kinsight_sharing_paused)
+        is NotificationPart.Peers -> getString(
+            if (part.line == StatusText.PeerLine.VISIBLE_TO) R.string.kinsight_shared_with else R.string.kinsight_peers,
+            part.names.joinToString(", "),
+        )
     }
 
     private fun notification(s: ServiceSnapshot): Notification {
-        val line = StatusText.line(s)
-        val status = getString(
-            when (line.kind) {
-                StatusLine.Kind.STARTING -> R.string.kinsight_status_starting
-                StatusLine.Kind.STORAGE_ERROR -> R.string.kinsight_status_storage_error
-                StatusLine.Kind.NO_PERMISSION -> R.string.kinsight_status_no_permission
-                StatusLine.Kind.BLUETOOTH_OFF -> R.string.kinsight_status_bluetooth_off
-                StatusLine.Kind.RADIO_ERROR -> R.string.kinsight_status_radio_error
-                StatusLine.Kind.SYNCING -> R.string.kinsight_status_syncing
-                StatusLine.Kind.PEER_NEEDS_UPDATE -> R.string.kinsight_status_peer_needs_update
-                StatusLine.Kind.WAITING -> R.string.kinsight_status_waiting
-            },
-        )
-        val lastSync = line.lastSyncWallMs?.let {
-            getString(R.string.kinsight_last_sync, DateUtils.formatDateTime(this, it, DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_SHOW_DATE))
-        } ?: getString(R.string.kinsight_never_synced)
-        val peers = StatusText.peerLine(s)?.let {
-            val res = if (it == StatusText.PeerLine.VISIBLE_TO) R.string.kinsight_shared_with else R.string.kinsight_peers
-            getString(res, s.peers.joinToString(", "))
-        }
-        val paused = if (StatusText.showsPause(s)) getString(R.string.kinsight_sharing_paused) else null
-        val child = StatusText.childPhone(s)
-        // A child's title is the spec's sentence; its sync line moves into the text (spec §10).
-        val title = if (child) getString(R.string.kinsight_child_title) else status
-        val lines = listOfNotNull(status.takeIf { child }, paused, lastSync, peers)
+        val content = StatusText.content(s)
+        val lines = content.lines.map(::partText)
         val open = packageManager.getLaunchIntentForPackage(packageName)
             ?.let { PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE) }
         val stop = Notification.Action.Builder(
@@ -705,16 +742,18 @@ class SyncService : Service() {
             getString(R.string.kinsight_action_stop),
             selfIntent(ACTION_STOP, REQUEST_STOP),
         ).build()
-        val builder = Notification.Builder(this, CHANNEL_ID)
+        val builder = Notification.Builder(this, channel(s))
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
-            .setContentTitle(title)
-            .setContentText(lines.joinToString(" · "))
-            .setStyle(Notification.BigTextStyle().bigText(lines.joinToString("\n")))
+            .setContentTitle(partText(content.title))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(open)
             .setDeleteIntent(selfIntent(ACTION_REPOST, REQUEST_REPOST)) // swiped away (API 34+): it comes back
-        if (StatusText.offersStop(s)) builder.addAction(stop)
+        // A parent's notification is the title alone; a child's lists its lines under the title.
+        if (lines.isNotEmpty()) {
+            builder.setContentText(lines.joinToString(" · ")).setStyle(Notification.BigTextStyle().bigText(lines.joinToString("\n")))
+        }
+        if (content.stop) builder.addAction(stop)
         return builder.build()
     }
 
@@ -743,7 +782,6 @@ class SyncService : Service() {
         const val ACTION_SYNC_NOW = "app.kinsight.SYNC_NOW"
         const val ACTION_STOP = "app.kinsight.STOP_SYNC"
         internal const val ACTION_REPOST = "app.kinsight.REPOST_NOTIFICATION"
-        internal const val CHANNEL_ID = "kinsight-service"
 
         /** The reason a start from the app's own screen passes: only it clears the user's Stop. */
         const val REASON_UI = "ui"

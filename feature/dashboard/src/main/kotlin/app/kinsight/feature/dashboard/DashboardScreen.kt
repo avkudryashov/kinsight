@@ -197,7 +197,7 @@ fun DashboardScreen(
     // While the user's Stop holds, «Sync now» does nothing (the start honours the Stop): no pull, no action; the banner's
     // Start is the way back.
     val canSync = attention != SyncAttention.STOPPED
-    val searching = canSync && stillSearching(searchSince, ui.service?.lastSyncMs)
+    val searching = if (canSync) searchLine(searchSince, ui.service?.lastSyncMs, ui.service?.cloudOn == true) else null
     // The group's children fix each one's colour (same on every phone); a child's own phone knows no siblings.
     val childHexes = if (child) emptyList() else d.children.map { it.member.id.hex }
     val listState = rememberLazyListState() // kept when the pull comes and goes with the Stop
@@ -220,7 +220,7 @@ fun DashboardScreen(
         ) {
             item { Text(stringResource(R.string.dash_title), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() }) }
             attention?.let { a -> item { AttentionBanner(a, onStart, onOpenSettings) } }
-            if (searching) item { Searching() }
+            searching?.let { line -> item { Searching(line) } }
             // Not the user's fault nor fixable here: a neutral note, never the error banner.
             updateText?.let { text -> item { UpdateNotice(text) } }
             if (child && ui.newParents.isNotEmpty()) item { NewParentBanner(ui.newParents, onAcknowledgeParents) }
@@ -267,17 +267,29 @@ fun DashboardScreen(
     }
 }
 
-/** U6: a sync was asked for and no newer one has finished yet. */
-internal fun stillSearching(sinceMs: Long?, lastSyncMs: Long?): Boolean = sinceMs != null && (lastSyncMs == null || lastSyncMs <= sinceMs)
+/** What Overview says after a pull (U6, Task 13): looking for phones nearby (Bluetooth only), or updating (the cloud too). */
+internal enum class SearchLine { NEARBY, UPDATING }
+
+/**
+ * U6: a sync was asked for at [sinceMs] and none has finished after it. [lastSyncMs] is the newest sync by either path
+ * (ServiceStatus.lastSyncMs, LastSync), so a Bluetooth session or a Disk run ends it alike. «Looking for phones nearby»
+ * only while the cloud is off for this phone; with it on, «Updating».
+ */
+internal fun searchLine(sinceMs: Long?, lastSyncMs: Long?, cloudOn: Boolean): SearchLine? = when {
+    sinceMs == null -> null
+    lastSyncMs != null && lastSyncMs > sinceMs -> null
+    cloudOn -> SearchLine.UPDATING
+    else -> SearchLine.NEARBY
+}
 
 @Composable
-private fun Searching() = Row(
+private fun Searching(line: SearchLine) = Row(
     Modifier.fillMaxWidth().testTag("dash_searching").semantics { liveRegion = LiveRegionMode.Polite },
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(12.dp),
 ) {
     CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-    Text(stringResource(R.string.dash_searching), style = MaterialTheme.typography.bodyMedium)
+    Text(stringResource(if (line == SearchLine.UPDATING) R.string.dash_updating else R.string.dash_searching), style = MaterialTheme.typography.bodyMedium)
 }
 
 /** A sync problem the user has to act on. Running, waiting, syncing and starting are normal and show nothing. */

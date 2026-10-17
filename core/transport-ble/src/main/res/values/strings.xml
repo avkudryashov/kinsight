@@ -6,10 +6,9 @@
     <string name="kinsight_status_no_permission">Allow Nearby devices to sync</string>
     <string name="kinsight_status_bluetooth_off">Bluetooth is off: turn it on to sync</string>
     <string name="kinsight_status_radio_error">Bluetooth radio error: sync paused</string>
-    <string name="kinsight_status_syncing">Syncing</string>
     <string name="kinsight_status_peer_needs_update">A family phone needs an app update</string>
-    <string name="kinsight_status_waiting">Waiting for family phones</string>
-    <string name="kinsight_last_sync">Last sync %1$s</string>
+    <string name="kinsight_synced_at">Synced at %1$s</string>
+    <string name="kinsight_synced_on">Synced on %1$s</string>
     <string name="kinsight_never_synced">No sync yet</string>
     <string name="kinsight_peers">Syncs with: %1$s</string>
     <string name="kinsight_sharing_paused">Sharing is paused: new screen time is not sent</string>

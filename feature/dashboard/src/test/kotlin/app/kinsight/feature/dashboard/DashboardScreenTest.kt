@@ -536,8 +536,23 @@ class DashboardScreenTest {
         rule.onNodeWithTag("dash_list").performTouchInput { swipeDown(startY = top + 10f, endY = bottom, durationMillis = 600) }
         rule.waitForIdle()
         rule.onNodeWithTag("dash_searching").assertExists()
-        rule.onNodeWithText("Looking for your family's phones", substring = true).assertExists()
+        rule.onNodeWithText("Looking for phones nearby", substring = true).assertExists()
         service = running.copy(lastSyncMs = now + 1_000)
+        rule.waitForIdle()
+        rule.onNodeWithTag("dash_searching").assertDoesNotExist()
+    }
+
+    @Test
+    fun withTheCloudOnAPullSaysUpdatingUntilADiskSyncArrives() {
+        var service by mutableStateOf(running.copy(lastSyncMs = now - hour, cloudOn = true))
+        showLive { service }
+        rule.onNodeWithTag("dash_list").performTouchInput { swipeDown(startY = top + 10f, endY = bottom, durationMillis = 600) }
+        rule.waitForIdle()
+        rule.onNodeWithTag("dash_searching").assertExists()
+        rule.onNodeWithText("Updating", substring = true).assertExists()
+        rule.onNodeWithText("Looking for phones nearby", substring = true).assertDoesNotExist()
+        // ServiceStatus.lastSyncMs is the newer of both paths: a Disk run after the pull ends it.
+        service = service.copy(lastSyncMs = now + 1_000)
         rule.waitForIdle()
         rule.onNodeWithTag("dash_searching").assertDoesNotExist()
     }

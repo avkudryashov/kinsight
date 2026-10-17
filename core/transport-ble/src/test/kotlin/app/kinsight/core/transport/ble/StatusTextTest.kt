@@ -14,15 +14,24 @@ class StatusTextTest {
 
     @Test
     fun storageErrorWinsOverEverything() {
-        val line = StatusText.line(ServiceSnapshot(ServiceState.STORAGE_ERROR, "lost choice", syncing))
-        assertEquals(StatusLine(StatusLine.Kind.STORAGE_ERROR, 7), line)
+        val line = StatusText.line(ServiceSnapshot(ServiceState.STORAGE_ERROR, "lost choice", syncing, cloudOn = true, cloudLastSyncMs = 9))
+        assertEquals(StatusLine(StatusLine.Kind.STORAGE_ERROR, 9), line)
     }
 
     @Test
-    fun environmentProblemsComeBeforeSyncState() {
+    fun withoutTheCloudABrokenBluetoothIsTheProblem() {
         assertEquals(StatusLine.Kind.NO_PERMISSION, StatusText.line(ServiceSnapshot(ServiceState.NO_PERMISSION, sync = syncing)).kind)
         assertEquals(StatusLine.Kind.BLUETOOTH_OFF, StatusText.line(ServiceSnapshot(ServiceState.BLUETOOTH_OFF, sync = syncing)).kind)
         assertEquals(StatusLine.Kind.STARTING, StatusText.line(ServiceSnapshot(ServiceState.STARTING)).kind)
+    }
+
+    @Test
+    fun withTheCloudOnABrokenBluetoothIsNoProblem() {
+        for (state in listOf(ServiceState.NO_PERMISSION, ServiceState.BLUETOOTH_OFF, ServiceState.RADIO_ERROR)) {
+            val s = ServiceSnapshot(state, lastSyncWallMs = 5, cloudOn = true, cloudLastSyncMs = 9)
+            assertEquals(StatusLine(StatusLine.Kind.SYNCED, 9), StatusText.line(s), "$state")
+            assertEquals(StatusLine.Kind.NEVER_SYNCED, StatusText.line(ServiceSnapshot(state, cloudOn = true)).kind, "$state")
+        }
     }
 
     @Test
@@ -32,12 +41,73 @@ class StatusTextTest {
     }
 
     @Test
-    fun runningShowsSyncingThenUpdateHintThenWaiting() {
-        assertEquals(StatusLine.Kind.SYNCING, StatusText.line(ServiceSnapshot(ServiceState.RUNNING, sync = syncing)).kind)
+    fun runningSaysWhenItLastSyncedOrThatAPhoneNeedsAnUpdate() {
+        assertEquals(StatusLine(StatusLine.Kind.SYNCED, 7), StatusText.line(ServiceSnapshot(ServiceState.RUNNING, sync = syncing)))
         val outdated = SyncStatus(lastProblem = SyncProblem.PEER_NEEDS_UPDATE)
         assertEquals(StatusLine.Kind.PEER_NEEDS_UPDATE, StatusText.line(ServiceSnapshot(ServiceState.RUNNING, sync = outdated)).kind)
         val failed = SyncStatus(lastProblem = SyncProblem.LINK_FAILED)
-        assertEquals(StatusLine.Kind.WAITING, StatusText.line(ServiceSnapshot(ServiceState.RUNNING, sync = failed)).kind)
+        assertEquals(StatusLine.Kind.NEVER_SYNCED, StatusText.line(ServiceSnapshot(ServiceState.RUNNING, sync = failed)).kind)
+        val cloudOnly = ServiceSnapshot(ServiceState.RUNNING, sync = failed, cloudOn = true, cloudLastSyncMs = 3)
+        assertEquals(StatusLine(StatusLine.Kind.SYNCED, 3), StatusText.line(cloudOnly), "a Disk sync counts as a sync")
+    }
+
+    @Test
+    fun theLastSyncIsTheNewerOfBothPaths() {
+        assertEquals(null, LastSync.of(bluetoothMs = null, cloudMs = null))
+        assertEquals(5L, LastSync.of(bluetoothMs = 5, cloudMs = null))
+        assertEquals(9L, LastSync.of(bluetoothMs = null, cloudMs = 9))
+        assertEquals(9L, LastSync.of(bluetoothMs = 5, cloudMs = 9))
+        assertEquals(12L, LastSync.of(bluetoothMs = 12, cloudMs = 9))
+    }
+
+    @Test
+    fun aParentsNotificationIsOneLine() {
+        val parent = ServiceSnapshot(ServiceState.RUNNING, lastSyncWallMs = 5, peers = listOf("Kid"), peersAreParents = false, cloudOn = true, cloudLastSyncMs = 9)
+        assertEquals(NotificationContent(NotificationPart.Status(StatusLine(StatusLine.Kind.SYNCED, 9)), emptyList(), stop = true), StatusText.content(parent))
+        // Bluetooth off and no cloud: the problem is the one line.
+        val off = parent.copy(state = ServiceState.BLUETOOTH_OFF, cloudOn = false, cloudLastSyncMs = null)
+        assertEquals(NotificationPart.Status(StatusLine(StatusLine.Kind.BLUETOOTH_OFF, 5)), StatusText.content(off).title)
+        assertEquals(emptyList(), StatusText.content(off).lines)
+        val broken = parent.copy(state = ServiceState.STORAGE_ERROR)
+        assertEquals(StatusLine.Kind.STORAGE_ERROR, (StatusText.content(broken).title as NotificationPart.Status).line.kind)
+    }
+
+    @Test
+    fun aChildsNotificationKeepsItsTitleAndSaysWhenItSynced() {
+        val child = ServiceSnapshot(ServiceState.RUNNING, lastSyncWallMs = 5, peers = listOf("Dad", "Mom"), peersAreParents = true, cloudOn = true, cloudLastSyncMs = 9)
+        val content = StatusText.content(child)
+        assertEquals(NotificationPart.ChildTitle, content.title)
+        assertEquals(
+            listOf(NotificationPart.Status(StatusLine(StatusLine.Kind.SYNCED, 9)), NotificationPart.Peers(StatusText.PeerLine.VISIBLE_TO, listOf("Dad", "Mom"))),
+            content.lines,
+        )
+        assertFalse(content.stop)
+        val paused = StatusText.content(child.copy(sharingPaused = true)).lines
+        assertEquals(NotificationPart.Paused, paused[1])
+    }
+
+    @Test
+    fun aSyncTodayShowsTheTimeOnlyAndAnOlderOneTheDateToo() {
+        val zone = java.time.ZoneId.of("Europe/Madrid")
+        val now = java.time.ZonedDateTime.of(2026, 10, 17, 15, 45, 0, 0, zone).toInstant().toEpochMilli()
+        val earlier = java.time.ZonedDateTime.of(2026, 10, 17, 0, 1, 0, 0, zone).toInstant().toEpochMilli()
+        val yesterday = java.time.ZonedDateTime.of(2026, 10, 16, 23, 59, 0, 0, zone).toInstant().toEpochMilli()
+        assertTrue(StatusText.sameDay(earlier, now, zone))
+        assertFalse(StatusText.sameDay(yesterday, now, zone))
+    }
+
+    @Test
+    fun aParentGetsTheQuietChannelAndAChildKeepsTheServiceOne() {
+        assertEquals(ServiceChannels.PARENT, ServiceChannels.forRole(peersAreParents = false, parentChannelExists = false))
+        assertEquals(ServiceChannels.CHILD, ServiceChannels.forRole(peersAreParents = true, parentChannelExists = true))
+        // Unknown role (first post): the channel this phone already uses, the service one on a fresh install.
+        assertEquals(ServiceChannels.PARENT, ServiceChannels.forRole(peersAreParents = null, parentChannelExists = true))
+        assertEquals(ServiceChannels.CHILD, ServiceChannels.forRole(peersAreParents = null, parentChannelExists = false))
+        assertEquals(ServiceChannels.CHILD, ServiceChannels.retired(peersAreParents = false))
+        assertEquals(ServiceChannels.PARENT, ServiceChannels.retired(peersAreParents = true))
+        assertEquals(null, ServiceChannels.retired(peersAreParents = null))
+        assertEquals("kinsight-service", ServiceChannels.CHILD, "the child's channel keeps its id, so its settings stay")
+        assertTrue(ServiceChannels.PARENT != ServiceChannels.CHILD)
     }
 
     @Test

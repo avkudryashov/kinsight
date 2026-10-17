@@ -1,6 +1,7 @@
 package app.kinsight.core.data
 
 import app.kinsight.core.model.proto.DeviceRole
+import app.kinsight.core.transport.ble.CloudSync
 import app.kinsight.core.transport.cloud.InMemoryDisk
 import app.kinsight.core.transport.cloud.TokenSet
 import kotlinx.coroutines.CoroutineScope
@@ -62,6 +63,18 @@ class CloudViewsTest {
         assertEquals(CloudProblem.NO_ACCESS, at(kid, CloudState(problem = CloudProblem.UNAUTHORIZED)).problem)
         assertEquals(CloudProblem.UNAUTHORIZED, at(mom, CloudState(problem = CloudProblem.NO_ACCESS)).problem)
         assertNull(at(kid, CloudState(problem = CloudProblem.NETWORK)).problem, "network trouble is retried quietly")
+    }
+
+    @Test
+    fun theServiceSeesTheCloudOnWithItsLastSyncOnlyWhileTheGroupHasAStorage() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        kid.joinGroupOf(mom)
+        val synced = CloudState(lastRunMs = 6, lastSyncMs = 5)
+        assertEquals(CloudSync(on = false, lastSyncMs = null), CloudViews.sync(kid.snapshots.snapshots.first(), synced), "no storage: no cloud")
+        mom.ownStorage()
+        kid.learnsStorageFrom(mom)
+        assertEquals(CloudSync(on = true, lastSyncMs = 5), CloudViews.sync(kid.snapshots.snapshots.first(), synced))
+        assertEquals(CloudSync(on = true, lastSyncMs = null), CloudViews.sync(mom.snapshots.snapshots.first(), CloudState()))
     }
 
     @Test

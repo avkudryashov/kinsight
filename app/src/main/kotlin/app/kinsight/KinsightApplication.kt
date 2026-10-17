@@ -41,6 +41,8 @@ open class KinsightApplication : Application() {
         SyncGraph.install(this)
         SyncGraph.cloudHandoff = { ctx, group, store, keys -> CloudSessionHandoff(AppGraph.get(ctx).cloudSecrets, group, store, keys.deviceId) }
         SyncGraph.cloudGeneration = { AppGraph.get(it).cloudState.current().syncedGeneration ?: 0L }
+        // One sync status for both paths (Task 13): the service's notification counts a Disk sync too.
+        SyncGraph.cloudSync = { AppGraph.get(it).cloudSync }
         // Spec §8: the child's tracking reads and signs through the family (core/data FamilyLocation).
         LocationGraph.host = { AppGraph.get(it).familyLocation }
         // Emulator finding: access given back in the system settings is found by the 30-minute check (app closed) and

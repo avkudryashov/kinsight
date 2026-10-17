@@ -30,6 +30,7 @@ class SyncServiceNotificationTest {
             val posted = assertNotNull(shadowOf(service).lastForegroundNotification)
             assertEquals("no Stop action", 0, posted.actions?.size ?: 0)
             assertEquals(app.getString(R.string.kinsight_child_title), posted.extras.getString("android.title"))
+            assertEquals("a fresh install posts on the service channel until the role is known", ServiceChannels.CHILD, posted.channelId)
         } finally {
             controller.destroy()
         }

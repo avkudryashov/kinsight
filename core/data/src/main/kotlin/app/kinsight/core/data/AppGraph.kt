@@ -13,6 +13,7 @@ import app.kinsight.core.location.LocationPermissions
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.transport.ble.AndroidPairingLink
 import app.kinsight.core.transport.ble.BlePermissions
+import app.kinsight.core.transport.ble.CloudSync
 import app.kinsight.core.transport.ble.SyncGraph
 import app.kinsight.core.usage.AppOpsUsageAccess
 import app.kinsight.core.usage.UsageGraph
@@ -22,7 +23,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -143,7 +146,12 @@ class Graph internal constructor(app: Context) {
         snapshots, ownAppend, prefs, onPinSaved = { CloudWork.uploadSoon(app) },
         elapsed = { ElapsedSample(SystemClock.elapsedRealtime(), Settings.Global.getInt(app.contentResolver, Settings.Global.BOOT_COUNT, 0)) },
     )
-    val service = ServiceRepository(SyncGraph.snapshot, transport, { BlePermissions.missing(app) }, sync, usageAccess = { AppOpsUsageAccess(app).granted() })
+    /** One sync status for both paths (Task 13): this phone's cloud, for the sync service's notification and the screens. */
+    val cloudSync: Flow<CloudSync> = combine(snapshots.snapshots, cloudState.state) { s, st -> CloudViews.sync(s, st) }.distinctUntilChanged()
+    val service = ServiceRepository(
+        SyncGraph.snapshot, transport, { BlePermissions.missing(app) }, sync, usageAccess = { AppOpsUsageAccess(app).granted() },
+        cloud = cloudSync, cloudNow = { CloudWork.opened(app) },
+    )
     val pruner = Pruner(db, groups, settings, keys)
     val settingsRepository = SettingsRepository(
         settings, prefs, pipeline, pruner::prune,

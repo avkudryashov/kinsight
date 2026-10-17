@@ -24,32 +24,103 @@ data class ServiceSnapshot(
     val channelImportance: Int? = null,
     /** This device consented and its sharing switch is off (only a child's notification tells it). */
     val sharingPaused: Boolean = false,
+    /** The family's Disk carries this phone's data too (SyncGraph.cloudSync): a Bluetooth problem alone is no problem then. */
+    val cloudOn: Boolean = false,
+    /** When this phone's last successful cloud run finished (wall clock), or null. */
+    val cloudLastSyncMs: Long? = null,
 )
+
+/** The cloud as the service sees it, from SyncGraph.cloudSync (set by the app: core/data sits above this module). */
+data class CloudSync(val on: Boolean = false, val lastSyncMs: Long? = null)
+
+/** One sync status for both paths: the newest successful sync, by Bluetooth or through the Disk. */
+object LastSync {
+    fun of(bluetoothMs: Long?, cloudMs: Long?): Long? = listOfNotNull(bluetoothMs, cloudMs).maxOrNull()
+}
+
+/**
+ * The two notification channels of the service. A child's keeps the old id, so the user's settings of it stay (spec §10:
+ * permanent). A parent's is new and of the lowest importance (Android keeps an existing channel's importance, so a quiet
+ * one needs a new id); the other one is deleted once the role is known.
+ */
+object ServiceChannels {
+    const val CHILD = "kinsight-service"
+    const val PARENT = "kinsight-sync-quiet"
+
+    /** Unknown role (first post): the channel this phone already uses, the child's one on a fresh install. */
+    fun forRole(peersAreParents: Boolean?, parentChannelExists: Boolean): String = when (peersAreParents) {
+        false -> PARENT
+        true -> CHILD
+        null -> if (parentChannelExists) PARENT else CHILD
+    }
+
+    /** The channel this role no longer uses, to delete; null while the role is unknown. */
+    fun retired(peersAreParents: Boolean?): String? = when (peersAreParents) {
+        false -> CHILD
+        true -> PARENT
+        null -> null
+    }
+}
+
+/** What the notification says, before it becomes text: a title and the lines under it. */
+data class NotificationContent(val title: NotificationPart, val lines: List<NotificationPart>, val stop: Boolean)
+
+sealed interface NotificationPart {
+    data class Status(val line: StatusLine) : NotificationPart
+
+    data object ChildTitle : NotificationPart
+
+    data object Paused : NotificationPart
+
+    data class Peers(val line: StatusText.PeerLine, val names: List<String>) : NotificationPart
+}
 
 /** The notification's peer line: names, and whether they are the parents who see this child's data (null: role unknown). */
 data class NotificationPeers(val names: List<String>, val parentsOnly: Boolean?)
 
+/** [lastSyncWallMs]: the newest sync by either path ([LastSync]). */
 data class StatusLine(val kind: Kind, val lastSyncWallMs: Long?) {
-    enum class Kind { STARTING, STORAGE_ERROR, NO_PERMISSION, BLUETOOTH_OFF, RADIO_ERROR, SYNCING, PEER_NEEDS_UPDATE, WAITING }
+    enum class Kind { STARTING, STORAGE_ERROR, NO_PERMISSION, BLUETOOTH_OFF, RADIO_ERROR, PEER_NEEDS_UPDATE, SYNCED, NEVER_SYNCED }
 }
 
-/** The notification line (spec §8, §10): an environment problem first, then what sync is doing. */
+/**
+ * The notification line (spec §8, §10): a real problem first, otherwise when this phone last synced, by Bluetooth or
+ * through the Disk. With the cloud on, Bluetooth off (or its permission missing, or its radio failing) stops nothing.
+ */
 object StatusText {
     fun line(s: ServiceSnapshot): StatusLine {
+        val last = lastSync(s)
+        val synced = if (last != null) StatusLine.Kind.SYNCED else StatusLine.Kind.NEVER_SYNCED
+        fun bluetooth(problem: StatusLine.Kind) = if (s.cloudOn) synced else problem
         val kind = when (s.state) {
             ServiceState.STORAGE_ERROR -> StatusLine.Kind.STORAGE_ERROR
-            ServiceState.NO_PERMISSION -> StatusLine.Kind.NO_PERMISSION
-            ServiceState.BLUETOOTH_OFF -> StatusLine.Kind.BLUETOOTH_OFF
-            ServiceState.RADIO_ERROR -> StatusLine.Kind.RADIO_ERROR
+            ServiceState.NO_PERMISSION -> bluetooth(StatusLine.Kind.NO_PERMISSION)
+            ServiceState.BLUETOOTH_OFF -> bluetooth(StatusLine.Kind.BLUETOOTH_OFF)
+            ServiceState.RADIO_ERROR -> bluetooth(StatusLine.Kind.RADIO_ERROR)
             ServiceState.STOPPED, ServiceState.STARTING, ServiceState.NO_GROUP -> StatusLine.Kind.STARTING
-            ServiceState.RUNNING -> when {
-                s.sync.syncing -> StatusLine.Kind.SYNCING
-                s.sync.lastProblem == SyncProblem.PEER_NEEDS_UPDATE -> StatusLine.Kind.PEER_NEEDS_UPDATE
-                else -> StatusLine.Kind.WAITING
-            }
+            ServiceState.RUNNING -> if (s.sync.lastProblem == SyncProblem.PEER_NEEDS_UPDATE) StatusLine.Kind.PEER_NEEDS_UPDATE else synced
         }
-        return StatusLine(kind, s.sync.lastSyncWallMs ?: s.lastSyncWallMs)
+        return StatusLine(kind, last)
     }
+
+    /** The newest sync by either path: the engine's (or the persisted) Bluetooth time and the last cloud run. */
+    fun lastSync(s: ServiceSnapshot): Long? = LastSync.of(s.sync.lastSyncWallMs ?: s.lastSyncWallMs, s.cloudLastSyncMs)
+
+    /**
+     * A parent's notification is one quiet line: the status. A child's keeps the spec §10 title and lists the status,
+     * the pause and who sees its data.
+     */
+    fun content(s: ServiceSnapshot): NotificationContent {
+        val status = NotificationPart.Status(line(s))
+        if (!childPhone(s)) return NotificationContent(status, emptyList(), stop = offersStop(s))
+        val peers = peerLine(s)?.let { NotificationPart.Peers(it, s.peers) }
+        val paused = NotificationPart.Paused.takeIf { showsPause(s) }
+        return NotificationContent(NotificationPart.ChildTitle, listOfNotNull(status, paused, peers), stop = offersStop(s))
+    }
+
+    /** A sync of today shows its time only; an older one its date too. */
+    fun sameDay(atMs: Long, nowMs: Long, zone: java.time.ZoneId): Boolean =
+        java.time.Instant.ofEpochMilli(atMs).atZone(zone).toLocalDate() == java.time.Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
 
     /**
      * Names for the notification (spec §9.6): a CHILD lists who sees its data, the parents; everyone else lists the

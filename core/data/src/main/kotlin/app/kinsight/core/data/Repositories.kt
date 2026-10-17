@@ -17,8 +17,10 @@ import app.kinsight.core.model.removeMemberEntry
 import app.kinsight.core.sync.CategoryOverrideRules
 import app.kinsight.core.sync.SyncPolicy
 import app.kinsight.core.model.proto.CategoryOverride
+import app.kinsight.core.transport.ble.CloudSync
 import app.kinsight.core.transport.ble.GroupConfig
 import app.kinsight.core.transport.ble.GroupStore
+import app.kinsight.core.transport.ble.LastSync
 import app.kinsight.core.transport.ble.ServiceSnapshot
 import app.kinsight.core.transport.ble.ServiceState
 import app.kinsight.core.transport.ble.SyncProblem
@@ -48,6 +50,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.merge
@@ -532,6 +535,8 @@ data class ServiceStatus(
     val notificationHidden: Boolean = false,
     /** Usage access (AppOpsManager GET_USAGE_STATS) is granted to this app; re-read with the permissions (U1). */
     val usageAccessGranted: Boolean = true,
+    /** The family's Disk carries this phone's data too (CloudViews.sync). */
+    val cloudOn: Boolean = false,
 )
 
 class ServiceRepository(
@@ -541,6 +546,10 @@ class ServiceRepository(
     private val control: SyncControl,
     /** Whether usage access is granted (AppOpsUsageAccess.granted); read on every tick like [missingPermissions]. */
     private val usageAccess: () -> Boolean = { true },
+    /** The cloud of this phone (CloudViews.sync): [ServiceStatus.lastSyncMs] is the newer of both paths. */
+    private val cloud: Flow<CloudSync> = flowOf(CloudSync()),
+    /** «Sync now» asks the Disk too while the cloud is on (CloudWork.opened, the app-open read). */
+    private val cloudNow: () -> Unit = {},
 ) {
     /** [refresh]: a screen came back to the foreground, maybe from Android's settings (U1). */
     private val refreshes = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
@@ -557,11 +566,12 @@ class ServiceRepository(
     )
 
     val status: Flow<ServiceStatus> =
-        combine(snapshot, transport.stoppedByUserFlow, transport.notificationHiddenFlow, ticks) { s, stopped, hidden, _ ->
+        combine(snapshot, transport.stoppedByUserFlow, transport.notificationHiddenFlow, cloud, ticks) { s, stopped, hidden, c, _ ->
             ServiceStatus(
                 state = s.state,
                 stoppedByUser = stopped,
-                lastSyncMs = s.sync.lastSyncWallMs ?: s.lastSyncWallMs,
+                // One sync status for both paths: the newest sync by Bluetooth or through the Disk.
+                lastSyncMs = LastSync.of(s.sync.lastSyncWallMs ?: s.lastSyncWallMs, c.lastSyncMs),
                 missingPermissions = missingPermissions(),
                 syncing = s.sync.syncing,
                 problem = s.sync.lastProblem,
@@ -569,6 +579,7 @@ class ServiceRepository(
                 outdated = s.sync.outdated,
                 notificationHidden = hidden,
                 usageAccessGranted = usageAccess(),
+                cloudOn = c.on,
             )
         }
 
@@ -576,7 +587,10 @@ class ServiceRepository(
 
     fun stop() = control.requestStop()
 
-    fun syncNow() = control.start(fast = true)
+    fun syncNow() {
+        control.start(fast = true)
+        cloudNow()
+    }
 
     /** Re-reads the permissions and usage access now, e.g. on ON_RESUME after the user granted one in Settings. */
     fun refresh() {

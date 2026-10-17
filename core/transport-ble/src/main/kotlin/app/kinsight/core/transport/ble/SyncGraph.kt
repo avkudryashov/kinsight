@@ -23,9 +23,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -79,6 +81,17 @@ object SyncGraph {
     @Volatile
     var cloudGeneration: suspend (Context) -> Long = { 0L }
 
+    /**
+     * The cloud as the notification needs it (on for this phone, its last successful run), set by the app: core/data sits
+     * above this module. Without it the service knows only Bluetooth.
+     */
+    @Volatile
+    var cloudSync: (Context) -> Flow<CloudSync> = { flowOf(CloudSync()) }
+
+    /** The channel the service's notification of [s] is on ([ServiceChannels]): the parent's once it exists, until the role is read. */
+    fun channelFor(nm: NotificationManager, s: ServiceSnapshot): String =
+        ServiceChannels.forRole(s.peersAreParents, parentChannelExists = nm.getNotificationChannel(ServiceChannels.PARENT) != null)
+
     internal fun publish(s: ServiceSnapshot) {
         _snapshot.value = s
     }
@@ -89,9 +102,10 @@ object SyncGraph {
      */
     fun snapshotNow(context: Context): ServiceSnapshot {
         val nm = context.applicationContext.getSystemService(NotificationManager::class.java)
-        return _snapshot.value.copy(
+        val s = _snapshot.value
+        return s.copy(
             notificationsEnabled = nm.areNotificationsEnabled(),
-            channelImportance = nm.getNotificationChannel(SyncService.CHANNEL_ID)?.importance,
+            channelImportance = nm.getNotificationChannel(channelFor(nm, s))?.importance,
         )
     }
 

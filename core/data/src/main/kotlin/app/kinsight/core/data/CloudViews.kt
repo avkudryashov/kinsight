@@ -2,6 +2,7 @@ package app.kinsight.core.data
 
 import android.util.Log
 import app.kinsight.core.model.DeviceId
+import app.kinsight.core.transport.ble.CloudSync
 import app.kinsight.core.transport.cloud.OwnerLeaveBlock
 import app.kinsight.core.transport.cloud.OwnerLifecycle
 import kotlinx.coroutines.CancellationException
@@ -115,6 +116,16 @@ object CloudViews {
             cloudSwitching = OwnerLifecycle.leaveBlock(m, r.self, r.heartbeats) == OwnerLeaveBlock.SWITCHING,
             canTransfer = selfIsOwner && holdsTransferToken,
         )
+    }
+
+    /**
+     * The cloud for the sync service and the one sync status (Task 13): on while this phone is an active member of a
+     * group with a storage owner (the conditions of CloudRunner.isOn), with the last successful run of [state].
+     */
+    fun sync(s: GroupSnapshot, state: CloudState): CloudSync {
+        val r = s as? GroupSnapshot.Ready ?: return CloudSync()
+        if (r.membership.storageOwner == null || r.self !in r.membership.active) return CloudSync()
+        return CloudSync(on = true, lastSyncMs = state.lastSyncMs)
     }
 
     /** Spec §7.3: this phone owns the storage of [s] and holds the refresh token a transfer invite hands. */
