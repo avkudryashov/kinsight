@@ -341,6 +341,22 @@ class CloudLifecycleTest {
         assertEquals(2, calls)
     }
 
+    /** Parked Y3 minor: the Heartbeat still owed survives the process (a new runner reads it from the cloud state). */
+    @Test
+    fun aHeartbeatStillOwedSurvivesProcessDeath() = runBlocking<Unit> {
+        family()
+        mom.ownStorage(token = "AT")
+        var calls = 0
+        assertEquals(CloudRun.SYNCED, mom.runner(disks::disk, http, afterSync = { calls++; error("no Heartbeat") }).run(CloudTrigger.NOW))
+        assertTrue(mom.cloudState.current().heartbeatPending)
+        val restarted = mom.runner(disks::disk, http, afterSync = { calls++ })
+        assertEquals(CloudRun.SYNCED, restarted.run(CloudTrigger.NOW))
+        assertEquals(2, calls, "tried again after the restart")
+        assertFalse(mom.cloudState.current().heartbeatPending)
+        restarted.run(CloudTrigger.NOW)
+        assertEquals(2, calls, "and only once")
+    }
+
     /** Fix round 1, Minor 2: a refreshed token whose CloudAccess is missing goes out at the next synced run. */
     @Test
     fun aMissingAccessForTheVaultTokenIsIssuedAgain() = runBlocking<Unit> {

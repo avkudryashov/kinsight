@@ -58,7 +58,7 @@ class CloudRunner(
     private val state: CloudStateStore,
     private val appendOwn: OwnAppend,
     private val disk: (accessToken: suspend () -> String) -> DiskApi,
-    /** The process-wide run lock (CloudSecrets.runLock), shared with the local wipe (R14, R15). */
+    /** The process-wide run lock (CloudSecrets.runLock), shared with the local wipe and the sign-in (R14, R15). */
     val runLock: Mutex,
     private val clock: () -> Long = System::currentTimeMillis,
     private val io: CoroutineDispatcher = Dispatchers.IO,
@@ -79,10 +79,6 @@ class CloudRunner(
 
     @Volatile
     private var cached: Pair<Key, CloudSync>? = null
-
-    /** A new storage generation was synced and its Heartbeat is not signed yet (rulings Q18, review Minor 3). */
-    @Volatile
-    private var heartbeatPending = false
 
     /** The token of the current run; the Disk client asks for it on every request. */
     @Volatile
@@ -223,10 +219,10 @@ class CloudRunner(
             is CloudResult.Synced -> {
                 // Rulings Q18: the generation is recorded before the Heartbeat reads it, so a phone that only meets the
                 // cloud confirms the switch too.
-                // A Heartbeat that failed is tried again at the next synced run (it is idempotent by its mark).
-                if (state.current().syncedGeneration != syncedGeneration) heartbeatPending = true
+                // A new generation owes a Heartbeat, kept in the state (parked Y3 minor: across a process death too); one
+                // that failed is tried again at the next synced run (it is idempotent by its mark).
                 record(now, CloudRun.SYNCED, null, synced = true, generation = syncedGeneration).also {
-                    if (heartbeatPending) heartbeatPending = !signHeartbeat()
+                    if (state.current().heartbeatPending && signHeartbeat()) state.heartbeatSigned()
                 }
             }
             CloudResult.Unauthorized -> record(now, CloudRun.UNAUTHORIZED, if (isOwner) CloudProblem.UNAUTHORIZED else CloudProblem.NO_ACCESS)

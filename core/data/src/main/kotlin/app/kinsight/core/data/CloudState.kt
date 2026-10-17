@@ -3,6 +3,7 @@ package app.kinsight.core.data
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
@@ -44,6 +45,7 @@ data class CloudState(
     val tokenSinceMs: Long? = null,
     val transfer: OwnerTransferRecord? = null,
     val olderAccessGeneration: Long? = null,
+    val heartbeatPending: Boolean = false,
 ) {
     /** This device's time of the last sighting of the tracked owner (rulings Q14), or null when none is tracked. */
     val ownerHeardAtMs: Long? get() = ownerHeard?.heardAtMs
@@ -65,17 +67,22 @@ class CloudStateStore(private val store: DataStore<Preferences>) {
             p[TOKEN_SINCE],
             transfer(p),
             p[OLDER_ACCESS],
+            p[HEARTBEAT_PENDING] == true,
         )
     }
 
     suspend fun current(): CloudState = state.first()
 
+    /** A sync of a [generation] other than the recorded one also owes a Heartbeat ([CloudState.heartbeatPending]), in the same write. */
     suspend fun record(nowMs: Long, synced: Boolean, problem: CloudProblem?, generation: Long? = null) {
         store.edit { p ->
             p[LAST_RUN] = nowMs
             if (synced) {
                 p[LAST_SYNC] = nowMs
-                generation?.let { p[SYNCED_GENERATION] = it }
+                generation?.let {
+                    if (p[SYNCED_GENERATION] != it) p[HEARTBEAT_PENDING] = true
+                    p[SYNCED_GENERATION] = it
+                }
             }
             if (problem == null) p.remove(PROBLEM) else p[PROBLEM] = problem.name
         }
@@ -108,6 +115,11 @@ class CloudStateStore(private val store: DataStore<Preferences>) {
     private fun ownerHeard(p: Preferences): OwnerHeard? {
         val id = p[OWNER_ID]?.let { runCatching { DeviceId(it) }.getOrNull() } ?: return null
         return OwnerHeard(id, p[OWNER_SEQ] ?: return null, p[OWNER_HEARD] ?: return null)
+    }
+
+    /** The Heartbeat owed after a new storage generation was signed. */
+    suspend fun heartbeatSigned() {
+        store.edit { p -> p.remove(HEARTBEAT_PENDING) }
     }
 
     /** Final review, Important 3: the CloudAccess token of storage [generation] was dealt with (CloudRunner). */
@@ -163,6 +175,7 @@ class CloudStateStore(private val store: DataStore<Preferences>) {
         private val TRANSFER_GENERATION = longPreferencesKey("transfer_generation")
         private val TRANSFER_UNTIL = longPreferencesKey("transfer_until_ms")
         private val OLDER_ACCESS = longPreferencesKey("older_access_generation")
+        private val HEARTBEAT_PENDING = booleanPreferencesKey("heartbeat_pending")
 
         /** [file] must end with ".preferences_pb". */
         fun create(file: File, scope: CoroutineScope): CloudStateStore = CloudStateStore(
