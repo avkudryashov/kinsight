@@ -9,3 +9,9 @@ android {
         unitTests.isReturnDefaultValues = true
     }
 }
+
+dependencies {
+    implementation(project(":core:maps"))
+    // StyleAssetsTest reads the bundled style JSON.
+    testImplementation(libs.serialization.json)
+}
