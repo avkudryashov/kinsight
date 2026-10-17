@@ -168,12 +168,14 @@ class CloudSignIn(
      * sign-in returns [CloudEnableResult.SIGN_IN_FAILED] but keeps [state] at [SignInState.Waiting] (rejected), so the
      * user can paste again; a token endpoint out of reach returns [CloudEnableResult.NETWORK] and keeps it too. Only the
      * exchange's answer (or an expired sign-in) ends it. A finish arriving while another runs (the app link and a paste)
-     * changes nothing: it waits for that one and returns its outcome.
+     * waits for that one: when it ended the sign-in, the waiter returns its outcome; when it left it open (a rejected paste,
+     * no answer from the endpoint), the waiter tries its own input.
      */
     suspend fun finish(input: String): CloudEnableResult {
         if (!finishing.tryLock()) {
-            finishing.withLock { }
-            return outcome()
+            return finishing.withLock {
+                if (pending.get() != null) finishLocked(input) else outcome()
+            }
         }
         try {
             return finishLocked(input)

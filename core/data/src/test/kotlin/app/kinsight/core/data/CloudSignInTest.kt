@@ -186,6 +186,40 @@ class CloudSignInTest {
     }
 
     @Test
+    fun aWaitingFinishTriesItsOwnCodeWhenTheFirstOneLeftTheSignInOpen() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val s = mom.signIn(http, { disk })
+        s.start("Pixel")
+        val gate = CompletableDeferred<Unit>().also { http.gate = it }
+        // The first one meets a busy endpoint (the sign-in stays open); the paste waiting behind it is a good code.
+        val first = async { s.finish("busy1234") }
+        http.entered.await()
+        val second = async { s.finish("1234567") }
+        yield()
+        gate.complete(Unit)
+        assertEquals(CloudEnableResult.NETWORK, first.await())
+        assertEquals(CloudEnableResult.ENABLED, second.await(), "the waiting input gets its own try")
+        assertEquals(listOf("busy1234", "1234567"), http.forms.map { it["code"] })
+        assertEquals(SignInState.Done(CloudEnableResult.ENABLED), s.state.value)
+    }
+
+    @Test
+    fun aWaitingFinishAfterARefusedCodeReportsTheRefusal() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val s = mom.signIn(http, { disk })
+        s.start("Pixel")
+        val gate = CompletableDeferred<Unit>().also { http.gate = it }
+        val first = async { s.finish("badcode1") }
+        http.entered.await()
+        val second = async { s.finish("1234567") }
+        yield()
+        gate.complete(Unit)
+        assertEquals(CloudEnableResult.SIGN_IN_FAILED, first.await())
+        assertEquals(CloudEnableResult.SIGN_IN_FAILED, second.await(), "a refused code ended the sign-in")
+        assertEquals(1, http.forms.size)
+    }
+
+    @Test
     fun aSignInStartedDuringAFinishIsKept() = runBlocking<Unit> {
         mom.group.createGroup("Mom")
         val s = mom.signIn(http, { disk })
