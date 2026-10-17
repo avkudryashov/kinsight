@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="det_back">Назад</string>
-    <string name="det_day">День</string>
+    <string name="det_day">Сегодня</string>
     <string name="det_week">Неделя</string>
     <string name="det_month">Месяц</string>
     <plurals name="det_unlocks">
@@ -68,30 +68,16 @@
     <string name="det_cat_maps">Карты и навигация</string>
     <string name="det_cat_productivity">Работа и учёба</string>
     <string name="det_cat_other">Другое</string>
-    <string name="det_categories_summary">Время по категориям за каждый день. %1$s</string>
-    <string name="det_time_of_day">Время суток</string>
     <plurals name="det_hours_unavailable">
         <item quantity="one">Почасовые данные за этот период недоступны (хранится %d день)</item>
         <item quantity="few">Почасовые данные за этот период недоступны (хранятся %d дня)</item>
         <item quantity="many">Почасовые данные за этот период недоступны (хранятся %d дней)</item>
         <item quantity="other">Почасовые данные за этот период недоступны (хранятся %d дня)</item>
     </plurals>
-    <plurals name="det_heatmap_coverage">
-        <item quantity="one">В среднем по %1$d из %2$d дня</item>
-        <item quantity="few">В среднем по %1$d из %2$d дней</item>
-        <item quantity="many">В среднем по %1$d из %2$d дней</item>
-        <item quantity="other">В среднем по %1$d из %2$d дня</item>
-    </plurals>
-    <string name="det_heatmap_summary">Больше всего: %1$s, около %2$s</string>
     <string name="det_hours_summary">Больше всего: в %1$s (%2$s)</string>
     <string name="det_hours_none">По часам времени нет</string>
-    <string name="det_unlocks_by_hour">Разблокировки по часам</string>
-    <string name="det_unlocks_by_hour_average">Разблокировки по часам, в среднем</string>
-    <string name="det_unlocks_summary">Больше всего разблокировок: в %1$s (%2$d)</string>
-    <string name="det_unlocks_none">По часам разблокировок нет</string>
     <string name="det_open_app">Открыть сведения о приложении</string>
     <string name="det_hours_not_arrived">Почасовые данные за этот период ещё не пришли</string>
-    <string name="det_category_item">%1$s %2$s</string>
     <string name="app_rank">Место в топе приложений: %1$d</string>
     <string name="app_not_used">За этот период не использовалось</string>
     <string name="app_category_label">Категория: %1$s</string>
@@ -108,14 +94,6 @@
     <string name="app_category_cancel">Отмена</string>
     <string name="app_hours_title">По часам</string>
     <string name="app_days_title">По дням</string>
-    <string name="det_thresholds">Лимиты (только уведомление)</string>
-    <plurals name="det_thresholds_count">
-        <item quantity="one">%d лимит</item>
-        <item quantity="few">%d лимита</item>
-        <item quantity="many">%d лимитов</item>
-        <item quantity="other">%d лимита</item>
-    </plurals>
-    <string name="det_thresholds_none">Не заданы</string>
     <string name="det_limit_line">Лимит %1$s</string>
     <string name="thr_title">Лимиты: %1$s</string>
     <string name="thr_intro">Вы получите уведомление раз в день, когда %1$s превысит лимит. Ничего не блокируется.</string>
@@ -171,8 +149,6 @@
     <string name="zone_cancel">Отмена</string>
     <string name="zone_failed">Не удалось сохранить зону. Попробуйте ещё раз.</string>
     <string name="zone_delete_failed">Не удалось удалить зону. Попробуйте ещё раз.</string>
-    <string name="loc_entry">Местоположение и безопасные зоны</string>
-    <string name="loc_entry_body">Где телефон сейчас и маршрут за сегодня</string>
     <string name="loc_title">%1$s: местоположение</string>
     <string name="loc_in_zone">В зоне «%1$s» (%2$s)</string>
     <string name="loc_in_unknown_zone">В безопасной зоне (%1$s)</string>
@@ -196,4 +172,12 @@
         <item quantity="many">Маршрут за сегодня: %d точек</item>
         <item quantity="other">Маршрут за сегодня: %d точки</item>
     </plurals>
+    <string name="det_avg_per_day">В среднем %1$s в день</string>
+    <string name="det_vs_same">Примерно как в среднем за 7 дней</string>
+    <string name="det_vs_more">На %1$s больше среднего за 7 дней</string>
+    <string name="det_vs_less">На %1$s меньше среднего за 7 дней</string>
+    <string name="det_vs_hour_same">Примерно как обычно к этому часу</string>
+    <string name="det_vs_hour_more">На %1$s больше, чем обычно к этому часу</string>
+    <string name="det_vs_hour_less">На %1$s меньше, чем обычно к этому часу</string>
+    <string name="det_limit_pill">лимит</string>
 </resources>

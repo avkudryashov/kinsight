@@ -273,8 +273,6 @@ private fun MainScaffold(appVersion: String, openDevice: StateFlow<String?>, onD
                         onAllApps = { range -> nav.navigate(AllAppsDest(r.id, range.period.name, range.start.toString(), range.end.toString())) },
                         onBack = { nav.popBackStack() },
                         onOpenApp = { pkg, range -> nav.navigate(appDest(r.id, pkg, range)) }, // the app opens on the same period
-                        onThresholds = { nav.navigate(ThresholdsDest(r.id)) },
-                        onLocation = { nav.navigate(LocationDest(r.id)) },
                     )
                 }
                 composable<ThresholdsDest> { e -> ThresholdsRoute(DeviceId(e.toRoute<ThresholdsDest>().id), onBack = { nav.popBackStack() }) }

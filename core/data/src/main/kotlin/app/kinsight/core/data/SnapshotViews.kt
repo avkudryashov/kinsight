@@ -144,6 +144,7 @@ object SnapshotViews {
             range = range,
             today = today,
             nowMs = nowMs,
+            overrides = CategoryOverrides.effective(s),
         )
     }
 

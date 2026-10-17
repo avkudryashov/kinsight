@@ -534,4 +534,29 @@ class UsageReadModelTest {
         val adult = member.copy(role = Role.PARENT)
         assertEquals(emptySet(), UsageReadModel.usage(adult, null, UsageReadModel.events(listOf(off)), today, nowMs = noonToday).setupWarnings)
     }
+
+    @Test
+    fun aPastDayIsComparedWithTheSevenDaysBeforeItAndAWeekIsNot() {
+        val by = byDate(summary(today.minusDays(3), 90), summary(today.minusDays(4), 60), summary(today.minusDays(5), 30))
+        val day = UsageReadModel.detail(member, by, emptyMap(), emptyList(), range(Period.DAY, today.minusDays(3)), today)
+        assertEquals(TodayComparison.FullDay(45 * min), day.dayComparison)
+        assertNull(UsageReadModel.detail(member, by, emptyMap(), emptyList(), range(Period.WEEK), today).dayComparison)
+        assertNull(UsageReadModel.detail(member, by, emptyMap(), emptyList(), range(Period.DAY, today.minusDays(6)), today).dayComparison, "no summary that day")
+    }
+
+    @Test
+    fun theDetailKnowsEachAppsCategoryAndAllAppsSumsTheCategories() {
+        val entries = listOf(
+            summary(today, 50, 0, "com.example.game" to 30L, "com.example.tube" to 20L),
+            kid.create { it.copy(app_catalog = AppCatalog(package_name = "com.example.tube", label = "Tube")) },
+        )
+        val by = UsageReadModel.summaries(entries)[kidKeys.deviceId]
+        val catalog = UsageReadModel.catalogOf(entries, kidKeys.deviceId)
+        val overrides = mapOf("com.example.game" to AppCategory.GAMES, "com.example.tube" to AppCategory.VIDEO)
+        val d = UsageReadModel.detail(member, by, catalog, emptyList(), range(Period.DAY), today, overrides = overrides)
+        assertEquals(AppCategory.GAMES, d.appCategories["com.example.game"])
+        assertEquals(AppCategory.VIDEO, d.appCategories["com.example.tube"])
+        val list = UsageReadModel.appList(member, by, catalog, range(Period.DAY), today, overrides = overrides)
+        assertEquals(listOf(CategoryTotal(AppCategory.GAMES, 30 * min), CategoryTotal(AppCategory.VIDEO, 20 * min)), list.categories)
+    }
 }

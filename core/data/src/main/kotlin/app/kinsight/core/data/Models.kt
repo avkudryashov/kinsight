@@ -220,6 +220,10 @@ data class DeviceDetail(
     val updatedMs: Long? = null,
     /** The zone_id of the child's latest summary (untrusted, may not parse): its own clock next to «Данные на …» (U3). */
     val childZoneId: String? = null,
+    /** Block 1 of a DAY (UI refresh §4): what the day is compared with; null for a WEEK, a MONTH or a day without data. */
+    val dayComparison: TodayComparison? = null,
+    /** The category each app of [apps] counts in for a limit (Categories.of with the family overrides): the «лимит» mark. */
+    val appCategories: Map<String, AppCategory> = emptyMap(),
 ) : RangedView {
     val period: Period get() = range.period
 }
@@ -228,7 +232,14 @@ data class DeviceDetail(
  * Every app of a child over [range], largest first (the «All apps» screen): what [DeviceDetail.apps] holds for the same
  * range, without the detail's UsageDetail query, categories or heatmap. [today]: the child's today, as in the detail.
  */
-data class AppList(val member: MemberView, val range: DetailRange, val apps: List<AppUsage>, val today: LocalDate?)
+data class AppList(
+    val member: MemberView,
+    val range: DetailRange,
+    val apps: List<AppUsage>,
+    val today: LocalDate?,
+    /** The range's time per category, largest first (the list the report gave up for its strip, UI refresh §4). */
+    val categories: List<CategoryTotal> = emptyList(),
+)
 
 /**
  * What a screen with period navigation reads to move its range: [days] of [range] (a day is known when it has a

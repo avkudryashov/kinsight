@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="det_back">Atrás</string>
-    <string name="det_day">Día</string>
+    <string name="det_day">Hoy</string>
     <string name="det_week">Semana</string>
     <string name="det_month">Mes</string>
     <plurals name="det_unlocks">
@@ -67,28 +67,15 @@
     <string name="det_cat_maps">Mapas y navegación</string>
     <string name="det_cat_productivity">Trabajo y estudios</string>
     <string name="det_cat_other">Otras</string>
-    <string name="det_categories_summary">Tiempo por categoría al día. %1$s</string>
-    <string name="det_time_of_day">Hora del día</string>
     <plurals name="det_hours_unavailable">
         <item quantity="one">Los datos por hora de este periodo no están disponibles (se conservan %d día)</item>
         <item quantity="many">Los datos por hora de este periodo no están disponibles (se conservan %d días)</item>
         <item quantity="other">Los datos por hora de este periodo no están disponibles (se conservan %d días)</item>
     </plurals>
-    <plurals name="det_heatmap_coverage">
-        <item quantity="one">Media de %1$d de %2$d día</item>
-        <item quantity="many">Media de %1$d de %2$d días</item>
-        <item quantity="other">Media de %1$d de %2$d días</item>
-    </plurals>
-    <string name="det_heatmap_summary">Más tiempo el %1$s hacia las %2$s</string>
     <string name="det_hours_summary">Más tiempo a las %1$s (%2$s)</string>
     <string name="det_hours_none">No hay tiempo de pantalla por hora</string>
-    <string name="det_unlocks_by_hour">Desbloqueos por hora</string>
-    <string name="det_unlocks_by_hour_average">Desbloqueos por hora, media</string>
-    <string name="det_unlocks_summary">Más desbloqueos a las %1$s (%2$d)</string>
-    <string name="det_unlocks_none">No hay desbloqueos por hora</string>
     <string name="det_open_app">Abrir los detalles de la aplicación</string>
     <string name="det_hours_not_arrived">Los datos por hora de este periodo todavía no han llegado</string>
-    <string name="det_category_item">%1$s %2$s</string>
     <string name="app_rank">N.º %1$d entre las más usadas</string>
     <string name="app_not_used">No se ha usado en este periodo</string>
     <string name="app_category_label">Categoría: %1$s</string>
@@ -105,13 +92,6 @@
     <string name="app_category_cancel">Cancelar</string>
     <string name="app_hours_title">Por hora</string>
     <string name="app_days_title">Por día</string>
-    <string name="det_thresholds">Límites</string>
-    <plurals name="det_thresholds_count">
-        <item quantity="one">%d límite</item>
-        <item quantity="many">%d límites</item>
-        <item quantity="other">%d límites</item>
-    </plurals>
-    <string name="det_thresholds_none">Ninguno fijado</string>
     <string name="det_limit_line">Límite %1$s</string>
     <string name="thr_title">Límites: %1$s</string>
     <string name="thr_intro">Recibes una notificación una vez al día cuando %1$s supera un límite. No se bloquea nada.</string>
@@ -167,8 +147,6 @@
     <string name="zone_cancel">Cancelar</string>
     <string name="zone_failed">No se pudo guardar la zona. Inténtalo de nuevo.</string>
     <string name="zone_delete_failed">No se pudo eliminar la zona. Inténtalo de nuevo.</string>
-    <string name="loc_entry">Ubicación y zonas seguras</string>
-    <string name="loc_entry_body">Dónde está el teléfono ahora y la ruta de hoy</string>
     <string name="loc_title">%1$s: ubicación</string>
     <string name="loc_in_zone">En la zona «%1$s» (%2$s)</string>
     <string name="loc_in_unknown_zone">En una zona segura (%1$s)</string>
@@ -191,4 +169,12 @@
         <item quantity="many">Ruta de hoy: %d puntos</item>
         <item quantity="other">Ruta de hoy: %d puntos</item>
     </plurals>
+    <string name="det_avg_per_day">De media, %1$s al día</string>
+    <string name="det_vs_same">Más o menos igual que la media de 7 días</string>
+    <string name="det_vs_more">%1$s más que la media de 7 días</string>
+    <string name="det_vs_less">%1$s menos que la media de 7 días</string>
+    <string name="det_vs_hour_same">Más o menos lo habitual a estas horas</string>
+    <string name="det_vs_hour_more">%1$s más de lo habitual a estas horas</string>
+    <string name="det_vs_hour_less">%1$s menos de lo habitual a estas horas</string>
+    <string name="det_limit_pill">límite</string>
 </resources>

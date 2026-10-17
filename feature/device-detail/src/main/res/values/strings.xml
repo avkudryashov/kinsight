@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="det_back">Back</string>
-    <string name="det_day">Day</string>
+    <string name="det_day">Today</string>
     <string name="det_week">Week</string>
     <string name="det_month">Month</string>
     <plurals name="det_unlocks">
@@ -66,26 +66,14 @@
     <string name="det_cat_maps">Maps and navigation</string>
     <string name="det_cat_productivity">Work and study</string>
     <string name="det_cat_other">Other</string>
-    <string name="det_categories_summary">Time by category per day. %1$s</string>
-    <string name="det_time_of_day">Time of day</string>
     <plurals name="det_hours_unavailable">
         <item quantity="one">Hourly data for this period is not available (it is kept for %d day)</item>
         <item quantity="other">Hourly data for this period is not available (it is kept for %d days)</item>
     </plurals>
-    <plurals name="det_heatmap_coverage">
-        <item quantity="one">Average of %1$d of %2$d day</item>
-        <item quantity="other">Average of %1$d of %2$d days</item>
-    </plurals>
-    <string name="det_heatmap_summary">Most time on %1$s around %2$s</string>
     <string name="det_hours_summary">Most time at %1$s (%2$s)</string>
     <string name="det_hours_none">No screen time by hour</string>
-    <string name="det_unlocks_by_hour">Unlocks by hour</string>
-    <string name="det_unlocks_by_hour_average">Unlocks by hour, average</string>
-    <string name="det_unlocks_summary">Most unlocks at %1$s (%2$d)</string>
-    <string name="det_unlocks_none">No unlocks by hour</string>
     <string name="det_open_app">Open app details</string>
     <string name="det_hours_not_arrived">Hourly data for this period has not arrived yet</string>
-    <string name="det_category_item">%1$s %2$s</string>
     <string name="app_rank">#%1$d in top apps</string>
     <string name="app_not_used">Not used in this period</string>
     <string name="app_category_label">Category: %1$s</string>
@@ -102,12 +90,6 @@
     <string name="app_category_cancel">Cancel</string>
     <string name="app_hours_title">By hour</string>
     <string name="app_days_title">By day</string>
-    <string name="det_thresholds">Limits</string>
-    <plurals name="det_thresholds_count">
-        <item quantity="one">%d limit</item>
-        <item quantity="other">%d limits</item>
-    </plurals>
-    <string name="det_thresholds_none">None set</string>
     <string name="det_limit_line">Limit %1$s</string>
     <string name="thr_title">Limits: %1$s</string>
     <string name="thr_intro">You get a notification once a day when %1$s goes over a limit. Nothing is blocked.</string>
@@ -163,8 +145,6 @@
     <string name="zone_cancel">Cancel</string>
     <string name="zone_failed">Could not save the zone. Try again.</string>
     <string name="zone_delete_failed">Could not delete the zone. Try again.</string>
-    <string name="loc_entry">Location and safe zones</string>
-    <string name="loc_entry_body">Where the phone is now and today\'s route</string>
     <string name="loc_title">%1$s: location</string>
     <string name="loc_in_zone">In the zone “%1$s” (%2$s)</string>
     <string name="loc_in_unknown_zone">In a safe zone (%1$s)</string>
@@ -186,4 +166,12 @@
         <item quantity="one">Today\'s route: %d point</item>
         <item quantity="other">Today\'s route: %d points</item>
     </plurals>
+    <string name="det_avg_per_day">%1$s a day on average</string>
+    <string name="det_vs_same">About the same as the 7-day average</string>
+    <string name="det_vs_more">%1$s more than the 7-day average</string>
+    <string name="det_vs_less">%1$s less than the 7-day average</string>
+    <string name="det_vs_hour_same">About as usual by this time</string>
+    <string name="det_vs_hour_more">%1$s more than usual by this time</string>
+    <string name="det_vs_hour_less">%1$s less than usual by this time</string>
+    <string name="det_limit_pill">limit</string>
 </resources>

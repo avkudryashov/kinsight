@@ -3,11 +3,13 @@ package app.kinsight.feature.devicedetail
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Text
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.performTouchInput
@@ -25,7 +27,6 @@ import app.kinsight.core.data.AppCategory
 import app.kinsight.core.data.AppList
 import app.kinsight.core.data.AppUsage
 import app.kinsight.core.data.CategoryTotal
-import app.kinsight.core.data.Heatmap
 import app.kinsight.core.data.HourTotal
 import app.kinsight.core.data.DayTotal
 import app.kinsight.core.data.DetailRange
@@ -37,6 +38,7 @@ import app.kinsight.core.data.Role
 import app.kinsight.core.data.Sharing
 import app.kinsight.core.data.ThresholdRule
 import app.kinsight.core.data.ThresholdTarget
+import app.kinsight.core.data.TodayComparison
 import app.kinsight.core.designsystem.theme.KinsightTheme
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.proto.StateEvent
@@ -46,7 +48,6 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
-import java.time.DayOfWeek
 import java.time.LocalDate
 import java.util.Locale
 import android.content.Context
@@ -119,9 +120,9 @@ class DeviceDetailScreenTest {
         rule.onNodeWithText("1 h 30 min").assertExists()
         rule.onNodeWithText("7 unlocks").assertExists()
         val list = rule.onNodeWithTag("det_list")
-        list.performScrollToNode(hasText("App 5"))
+        list.performScrollToNode(hasText("App 3"))
         list.performScrollToNode(hasTestTag("det_all_apps"))
-        rule.onNodeWithText("App 6").assertDoesNotExist()
+        rule.onNodeWithText("App 4").assertDoesNotExist()
         rule.onNodeWithTag("det_all_apps").performClick()
         rule.waitForIdle()
         assertEquals(detail.range, opened)
@@ -316,17 +317,8 @@ class DeviceDetailScreenTest {
     }
 
     @Test
-    fun levelFourSaysWhenHourlyDataIsUnavailable() {
-        // Known days from 4 Oct; with 3 days of detail kept, the oldest ones are past retention.
-        show(detail.copy(today = today), detailRetentionDays = 3)
-        list.performScrollToNode(hasText("Time of day"))
-        list.performScrollToNode(hasText("Hourly data for this period is not available (it is kept for 3 days)"))
-    }
-
-    @Test
     fun recentDaysWithoutDetailSayItHasNotArrivedYet() {
         show(day(today), detailRetentionDays = 30)
-        list.performScrollToNode(hasText("Time of day"))
         list.performScrollToNode(hasText("Hourly data for this period has not arrived yet"))
         rule.onNode(hasText("is not available", substring = true)).assertDoesNotExist()
     }
@@ -348,26 +340,6 @@ class DeviceDetailScreenTest {
     }
 
     @Test
-    fun heatmapRowsFollowTheDataFirstDayOfWeek() {
-        // Row 0 is the busiest; the data says rows start on Wednesday whatever the UI locale says.
-        val cells = Array(7) { d -> LongArray(24) { h -> if (d == 0 && h == 15) 30 * 60_000L else 0 } }
-        show(detail.copy(heatmap = Heatmap(cells, IntArray(24), 3, 7, firstDayOfWeek = DayOfWeek.WEDNESDAY), today = today))
-        list.performScrollToNode(hasTestTag("det_heatmap"))
-        rule.onNode(hasContentDescription("Most time on Wednesday", substring = true)).assertExists()
-    }
-
-    @Test
-    fun categoryChartSummaryNamesTheTopCategories() {
-        val cats = listOf(
-            CategoryTotal(AppCategory.GAMES, 60 * 60_000L), CategoryTotal(AppCategory.VIDEO, 30 * 60_000L),
-            CategoryTotal(AppCategory.NEWS, 1 * 60_000L),
-        )
-        show(detail.copy(categories = cats, today = today))
-        rule.onNode(hasContentDescription("Time by category per day. Games 1 h, Video 30 min", substring = true)).assertExists()
-        rule.onNode(hasContentDescription("News", substring = true)).assertDoesNotExist()
-    }
-
-    @Test
     @Config(qualifiers = "ru")
     fun levelFourUnavailableInRussian() {
         show(day(today.minusDays(40)), detailRetentionDays = 30)
@@ -375,50 +347,81 @@ class DeviceDetailScreenTest {
     }
 
     @Test
-    fun weekHeatmapSaysHowManyDaysItAverages() {
-        val cells = Array(7) { LongArray(24) { h -> if (h == 15) 30 * 60_000L else 0 } }
-        show(detail.copy(heatmap = Heatmap(cells, IntArray(24), coveredDays = 3, rangeDays = 7), today = today))
-        list.performScrollToNode(hasText("Average of 3 of 7 days"))
-        rule.onNode(hasContentDescription("Most time on", substring = true)).assertExists()
-    }
-
-    @Test
-    fun weekHeatmapShowsAverageUnlocksByHour() {
-        val cells = Array(7) { LongArray(24) { h -> if (h == 15) 30 * 60_000L else 0 } }
-        val unlocks = IntArray(24) { h -> if (h == 8) 3 else 0 }
-        show(detail.copy(heatmap = Heatmap(cells, unlocks, coveredDays = 3, rangeDays = 7), today = today))
-        list.performScrollToNode(hasTestTag("det_heatmap_unlocks"))
-        rule.onNodeWithText("Unlocks by hour, average").assertExists()
-        rule.onNode(hasContentDescription("Most unlocks at", substring = true)).assertExists()
-    }
-
-    @Test
-    @Config(qualifiers = "ru")
-    fun heatmapCoverageInRussian() {
-        val cells = Array(7) { LongArray(24) }
-        show(detail.copy(heatmap = Heatmap(cells, IntArray(24), coveredDays = 3, rangeDays = 7), today = today))
-        list.performScrollToNode(hasText("В среднем по 3 из 7 дней"))
-    }
-
-    @Test
-    fun dayShowsHourlyBarsAndUnlocks() {
+    fun dayShowsHourlyBars() {
         val hours = (0..23).map { h ->
             val ms = if (h == 20) 40 * 60_000L else 0L
             HourTotal(h, ms, if (h == 8) 4 else 0, if (ms > 0) mapOf(AppCategory.VIDEO to ms) else emptyMap())
         }
         show(day(today).copy(hours = hours))
         list.performScrollToNode(hasContentDescription("Most time at", substring = true))
-        list.performScrollToNode(hasContentDescription("Most unlocks at", substring = true))
         rule.onNode(hasText("Hourly data", substring = true)).assertDoesNotExist()
     }
 
     @Test
-    fun categoriesAreListedWithTotalsAndShares() {
+    @Config(qualifiers = "w400dp-h3000dp") // tall enough that every item is composed
+    fun everyTabStacksFigureChartCategoriesThenApps() {
         val cats = listOf(CategoryTotal(AppCategory.GAMES, 60 * 60_000L), CategoryTotal(AppCategory.VIDEO, 30 * 60_000L))
         show(detail.copy(categories = cats, today = today))
-        list.performScrollToNode(hasTestTag("det_category_GAMES"))
+        fun y(tag: String) = rule.onNodeWithTag(tag).fetchSemanticsNode().positionInRoot.y
+        assertTrue(y("det_total") < y("det_chart"))
+        assertTrue(y("det_chart") < y("det_strip"))
+        assertTrue(y("det_strip") < y("det_app_pkg.1"))
+        assertTrue(y("det_app_pkg.3") < y("det_all_apps"))
+        rule.onNodeWithTag("det_app_pkg.4").assertDoesNotExist()
+    }
+
+    @Test
+    fun theCategoriesAreOneStripWithUpToFourNamesAndOther() {
+        val m = 60_000L
+        val cats = listOf(
+            CategoryTotal(AppCategory.GAMES, 50 * m), CategoryTotal(AppCategory.VIDEO, 40 * m), CategoryTotal(AppCategory.NEWS, 30 * m),
+            CategoryTotal(AppCategory.PHOTOS, 20 * m), CategoryTotal(AppCategory.MAPS, 10 * m), CategoryTotal(AppCategory.OTHER, 5 * m),
+        )
+        show(detail.copy(categories = cats, today = today))
+        list.performScrollToNode(hasTestTag("det_strip"))
+        rule.onNodeWithText("Games 50 min").assertExists()
+        rule.onNodeWithText("Photos 20 min").assertExists()
+        rule.onNodeWithText("Other 15 min").assertExists()
+        rule.onNodeWithText("Maps and navigation 10 min").assertDoesNotExist()
+        rule.onNodeWithTag("det_category_GAMES").assertDoesNotExist()
+    }
+
+    @Test
+    fun aTopAppWithALimitOnItOrItsCategoryCarriesThePill() {
+        val rules = listOf(ThresholdRule.of(kid.id, ThresholdTarget.App("pkg.1"), 3_600_000L)!!, gamesLimit)
+        showWithLimits(detail.copy(appCategories = mapOf("pkg.2" to AppCategory.GAMES)), rules)
+        list.performScrollToNode(hasTestTag("det_app_pkg.3"))
+        fun pillIn(pkg: String) = rule.onNode(hasTestTag("det_limit_pill") and hasAnyAncestor(hasTestTag("det_app_$pkg")), useUnmergedTree = true)
+        pillIn("pkg.1").assertExists()
+        pillIn("pkg.2").assertExists()
+        pillIn("pkg.3").assertDoesNotExist()
+    }
+
+    @Test
+    fun aPastDaySaysHowItComparesWithTheWeekBeforeIt() {
+        show(day(today.minusDays(2)).copy(dayComparison = TodayComparison.FullDay(20 * 60_000L)))
+        rule.onNodeWithTag("det_versus").assertTextEquals("10 min more than the 7-day average")
+    }
+
+    @Test
+    fun aWeekSaysItsAveragePerDay() {
+        show(detail)
+        rule.onNodeWithTag("det_versus").assertTextContains("a day on average", substring = true)
+    }
+
+    @Test
+    fun theReportHasNoLimitsOrLocationRows() {
+        showWithLimits(detail, listOf(totalLimit))
+        list.performScrollToNode(hasText("Events"))
+        rule.onNodeWithTag("det_thresholds").assertDoesNotExist()
+        rule.onNodeWithTag("det_location").assertDoesNotExist()
+    }
+
+    @Test
+    fun allAppsListsTheCategoriesWithTheirShares() {
+        val cats = listOf(CategoryTotal(AppCategory.GAMES, 60 * 60_000L), CategoryTotal(AppCategory.VIDEO, 30 * 60_000L))
+        rule.setContent { KinsightTheme { AllAppsScreen(AppList(detail.member, detail.range, detail.apps, today, categories = cats), onBack = {}) } }
         rule.onNodeWithText("1 h · 67%").assertExists()
-        list.performScrollToNode(hasTestTag("det_category_VIDEO"))
         rule.onNodeWithText("30 min · 33%").assertExists()
     }
 
@@ -457,39 +460,14 @@ class DeviceDetailScreenTest {
         assertEquals(listOf("0", "6", "12", "18"), hourLabels(Locale.forLanguageTag("ru"), is24Hour = true))
     }
 
-    private fun showWithLimits(d: DeviceDetail, thresholds: List<ThresholdRule>?, onThresholds: () -> Unit = {}) = rule.setContent {
+    private fun showWithLimits(d: DeviceDetail, thresholds: List<ThresholdRule>?) = rule.setContent {
         KinsightTheme() {
-            DeviceDetailScreen(d, onPeriod = {}, onAllApps = {}, onBack = {}, thresholds = thresholds, onThresholds = onThresholds)
+            DeviceDetailScreen(d, onPeriod = {}, onAllApps = {}, onBack = {}, thresholds = thresholds)
         }
     }
 
     private val totalLimit = ThresholdRule.of(kid.id, ThresholdTarget.Total, 3 * 3_600_000L)!!
     private val gamesLimit = ThresholdRule.of(kid.id, ThresholdTarget.Category(AppCategory.GAMES), 3_600_000L)!!
-
-    @Test
-    fun aParentOpensTheLimitsFromTheDetailWithTheirCount() {
-        var opened = 0
-        showWithLimits(detail, listOf(totalLimit, gamesLimit)) { opened++ }
-        list.performScrollToNode(hasTestTag("det_thresholds"))
-        rule.onNodeWithTag("det_thresholds").assert(hasClickAction())
-        rule.onNodeWithText("Limits").assertExists()
-        rule.onNodeWithText("2 limits").assertExists()
-        rule.onNodeWithTag("det_thresholds").performClick()
-        assertEquals(1, opened)
-    }
-
-    @Test
-    fun noLimitsSaysSo() {
-        showWithLimits(detail, emptyList())
-        list.performScrollToNode(hasTestTag("det_thresholds"))
-        rule.onNodeWithText("None set").assertExists()
-    }
-
-    @Test
-    fun noLimitsEntryOnAChildsOwnPhone() {
-        showWithLimits(detail, null)
-        rule.onNodeWithTag("det_thresholds").assertDoesNotExist()
-    }
 
     @Test
     fun onlyTheTotalLimitIsDrawnOnTheChart() {
@@ -590,52 +568,6 @@ class DeviceDetailScreenTest {
         }
         rule.onNodeWithText("Left the zone “Home”").assertExists()
         rule.onNodeWithText("Entered a safe zone").assertExists()
-    }
-
-    @Test
-    fun aParentOpensTheChildsLocation() {
-        var opened = 0
-        rule.setContent {
-            KinsightTheme() {
-                DeviceDetailScreen(detail, onPeriod = {}, onAllApps = {}, onBack = {}, thresholds = emptyList(), onLocation = { opened++ })
-            }
-        }
-        rule.onNodeWithTag("det_list").performScrollToNode(hasTestTag("det_location"))
-        rule.onNodeWithTag("det_location").performClick()
-        assertEquals(1, opened)
-    }
-
-    private fun showWithLocation(d: DeviceDetail, onLocation: (() -> Unit)?) = rule.setContent {
-        KinsightTheme() {
-            DeviceDetailScreen(d, onPeriod = {}, onAllApps = {}, onBack = {}, thresholds = emptyList(), onLocation = onLocation)
-        }
-    }
-
-    @Test
-    fun withoutOnLocationThereIsNoLocationEntry() {
-        // A child's phone gets no entry: the route passes null there. The entry would follow the limits row.
-        showWithLocation(detail, onLocation = null)
-        list.performScrollToNode(hasTestTag("det_thresholds"))
-        rule.onNodeWithTag("det_thresholds").assertExists()
-        rule.onNodeWithTag("det_location").assertDoesNotExist()
-    }
-
-    @Test
-    fun aParentShownOrAChildWhoLeftHasNoLocationEntry() {
-        val shown = mutableStateOf(detail.copy(member = kid.copy(role = Role.PARENT)))
-        rule.setContent {
-            KinsightTheme() {
-                DeviceDetailScreen(shown.value, onPeriod = {}, onAllApps = {}, onBack = {}, thresholds = emptyList(), onLocation = {})
-            }
-        }
-        rule.onNodeWithTag("det_location").assertDoesNotExist()
-        shown.value = detail.copy(sharing = Sharing.Left)
-        rule.waitForIdle()
-        list.performScrollToNode(hasTestTag("det_app_pkg.1"))
-        rule.onNodeWithTag("det_location").assertDoesNotExist()
-        shown.value = detail // the control: the same list does show it for a sharing child
-        rule.waitForIdle()
-        list.performScrollToNode(hasTestTag("det_location"))
     }
 
     @Test

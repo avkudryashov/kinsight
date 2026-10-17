@@ -413,26 +413,23 @@ object UsageReadModel {
         val mine = events.filter { it.author == member.id }
         val days = days(own, range.dates(), today)
         val dayCategories = days.map { dayCategories(own, it, catalog, overrides) }
-        val categoryTotals = java.util.EnumMap<AppCategory, Long>(AppCategory::class.java)
-        dayCategories.forEach { d -> d.forEach { (c, ms) -> categoryTotals.merge(c, ms, Long::plus) } }
         val start = range.start.atStartOfDay(zone).toInstant().toEpochMilli()
         val end = range.end.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
         val cap = nowMs?.plus(MAX_CLOCK_SKEW_MS) ?: Long.MAX_VALUE
         val updated = own?.values?.maxOfOrNull { it.body.created_at_ms.coerceAtMost(cap) }
+        val apps = apps(own, days.filter { it.known }.map { it.date }, catalog)
         return DeviceDetail(
             member = member,
             range = range,
             days = days,
             totalMs = days.sumOf { it.totalMs },
             unlocks = days.sumOf { it.unlocks },
-            apps = apps(own, days.filter { it.known }.map { it.date }, catalog),
+            apps = apps,
             events = mine.filter { inWindow(it, start, end) }.sortedByDescending { it.seq },
             sharing = sharing(mine, departed),
             canGoBack = own?.keys?.any { it.isBefore(range.start) } == true,
             canGoForward = range.end.isBefore(today),
-            categories = categoryTotals.entries.filter { it.value > 0 }
-                .sortedWith(compareByDescending<Map.Entry<AppCategory, Long>> { it.value }.thenBy { it.key.ordinal })
-                .map { CategoryTotal(it.key, it.value) },
+            categories = categoryTotals(dayCategories),
             dayCategories = dayCategories,
             hours = if (range.period == Period.DAY) {
                 detailOf(own, ownDetails, range.start)?.takeUnless { range.start.isAfter(today) }?.let { hours(it, catalog, overrides) }
@@ -443,10 +440,12 @@ object UsageReadModel {
             today = today,
             updatedMs = updated,
             childZoneId = latestZoneId(own),
+            dayComparison = dayComparison(own, ownDetails, range, today),
+            appCategories = apps.associate { it.packageName to Categories.of(it.packageName, catalog[it.packageName]?.category, overrides) },
         )
     }
 
-    /** [detail]'s app list alone (the «All apps» screen): the same days, bounds and apps, nothing else computed. */
+    /** [detail]'s app list alone (the «All apps» screen): the same days, bounds and apps, and the range's categories. */
     fun appList(
         member: MemberView,
         byDate: Map<LocalDate, DecodedEntry>?,
@@ -454,12 +453,41 @@ object UsageReadModel {
         range: DetailRange,
         today: LocalDate,
         nowMs: Long? = null,
+        overrides: Map<String, AppCategory> = emptyMap(),
     ): AppList {
         val own = surfaced(member, byDate)
         @Suppress("NAME_SHADOWING")
         val today = childToday(own, today, nowMs)
-        val known = days(own, range.dates(), today).filter { it.known }.map { it.date }
-        return AppList(member, range, apps(own, known, catalog), today)
+        val known = days(own, range.dates(), today).filter { it.known }
+        return AppList(
+            member, range, apps(own, known.map { it.date }, catalog), today,
+            categories = categoryTotals(known.map { dayCategories(own, it, catalog, overrides) }),
+        )
+    }
+
+    /** The totals of some days' category stacks, largest first (ties in AppCategory order), zero omitted. */
+    private fun categoryTotals(stacks: List<Map<AppCategory, Long>>): List<CategoryTotal> {
+        val totals = java.util.EnumMap<AppCategory, Long>(AppCategory::class.java)
+        stacks.forEach { d -> d.forEach { (c, ms) -> totals.merge(c, ms, Long::plus) } }
+        return totals.entries.filter { it.value > 0 }
+            .sortedWith(compareByDescending<Map.Entry<AppCategory, Long>> { it.value }.thenBy { it.key.ordinal })
+            .map { CategoryTotal(it.key, it.value) }
+    }
+
+    /**
+     * Block 1 of a DAY (UI refresh §4): the child's today against «usual by this time» ([comparison], never a part day
+     * against whole days), an earlier day with a summary against the mean of the 7 days before it; otherwise none.
+     */
+    private fun dayComparison(
+        own: Map<LocalDate, DecodedEntry>?,
+        ownDetails: Map<LocalDate, DecodedEntry>?,
+        range: DetailRange,
+        today: LocalDate,
+    ): TodayComparison? = when {
+        range.period != Period.DAY || range.start.isAfter(today) -> null
+        range.start == today -> comparison(own, ownDetails, today)
+        own?.containsKey(range.start) != true -> null
+        else -> average(own, range.start)?.let(TodayComparison::FullDay)
     }
 
     /**

@@ -58,6 +58,7 @@ class DeviceDetailViewModel internal constructor(
     weekFields: WeekFields,
     initial: DetailRange? = null,
     ticks: Flow<Unit> = minuteTicks(),
+    defaultPeriod: Period = Period.WEEK,
 ) : ViewModel() {
     constructor(
         usage: UsageRepository,
@@ -65,9 +66,9 @@ class DeviceDetailViewModel internal constructor(
         saved: SavedStateHandle,
         weekFields: WeekFields = WeekFields.of(Locale.getDefault()),
         initial: DetailRange? = null,
-    ) : this(RepositorySource(usage, id, weekFields), saved, weekFields, initial)
+    ) : this(RepositorySource(usage, id, weekFields), saved, weekFields, initial, defaultPeriod = Period.DAY)
 
-    private val nav = RangeNavigator(viewModelScope, source::today, source::detail, saved, weekFields, initial, ticks)
+    private val nav = RangeNavigator(viewModelScope, source::today, source::detail, saved, weekFields, initial, ticks, defaultPeriod = defaultPeriod)
 
     val range: StateFlow<DetailRange> = nav.range
 

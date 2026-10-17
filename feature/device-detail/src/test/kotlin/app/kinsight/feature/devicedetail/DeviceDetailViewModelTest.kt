@@ -219,4 +219,11 @@ class DeviceDetailViewModelTest {
         backgroundScope.launch { vm.detail.collect {} }
         assertEquals(false, vm.loaded.value, "a storage or key error never reads as «no longer in the group»")
     }
+
+    @Test
+    fun theReportOpensOnTodayByDefault() = runTest(dispatcher) {
+        val vm = DeviceDetailViewModel(FakeSource(lastTwoWeeks), SavedStateHandle(), sunFirst, ticks = ticks, defaultPeriod = Period.DAY)
+        backgroundScope.launch { vm.detail.collect {} }
+        assertEquals(DetailRange(Period.DAY, sat, sat), vm.range.value)
+    }
 }
