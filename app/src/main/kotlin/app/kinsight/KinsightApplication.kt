@@ -1,6 +1,8 @@
 package app.kinsight
 
 import android.app.Application
+import android.os.Process
+import android.os.SystemClock
 import android.util.Log
 import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.CloudConfig
@@ -44,9 +46,13 @@ open class KinsightApplication : Application() {
         // Emulator finding: access given back in the system settings is found by the 30-minute check (app closed) and
         // whenever the app comes to the foreground; a check that sees the change refreshes the tracking (AppGraph).
         LocationGraph.stateCheck = { AppGraph.get(it).launchLocationCheck() }
-        ForegroundCheck.register(this) {
-            AppGraph.get(it).launchLocationCheck()
-            LocationGraph.refresh(it)
+        // Off the main thread (the graph may be built here); skipped right after a launcher cold start, whose start-up
+        // below runs the same refresh and check.
+        ForegroundCheck.register(this, CoroutineScope(SupervisorJob() + Dispatchers.Default), coldStart = ::justStarted) {
+            attempt("foreground location check") {
+                AppGraph.get(it).launchLocationCheck()
+                LocationGraph.refresh(it)
+            }
         }
         IntegrityFastSync.install(this)
         UsageWork.schedule(this)
@@ -92,6 +98,9 @@ open class KinsightApplication : Application() {
         }
     }
 
+    /** The process started under [COLD_START_MS] ago (a launcher start), on the elapsed clock. */
+    private fun justStarted(): Boolean = SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime() < COLD_START_MS
+
     private suspend fun attempt(what: String, block: suspend () -> Unit) {
         try {
             block()
@@ -104,5 +113,6 @@ open class KinsightApplication : Application() {
 
     private companion object {
         const val TAG = "Kinsight"
+        const val COLD_START_MS = 10_000L
     }
 }
