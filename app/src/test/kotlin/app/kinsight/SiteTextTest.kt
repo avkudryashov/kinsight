@@ -2,6 +2,7 @@ package app.kinsight
 
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -15,7 +16,8 @@ class SiteTextTest {
         assertTrue("около 48 часов" in page("ru"), "ruling P2")
         assertTrue("unas 48 horas" in page("es"), "ruling P2")
         assertTrue("about 48 hours" in page("en"), "ruling P2")
-        assertFalse("del Disk," in page("es") || "del Disk." in page("es"), "es says «Disco»")
+        // Spanish names the brand «Yandex Disk» and says «Disco» on its own (Y5 Task 12 review).
+        assertEquals(emptyList(), Regex("""(?<!Yandex )\bDisk\b""").findAll(page("es")).map { it.range.first }.toList(), "es says «Disco»")
         assertTrue("no envía ningún dato a las tiendas" in page("es"), "the same claim as en/ru: nothing to the stores")
         // A PIN only guards what is done in Kinsight; clearing storage in Android settings is another way out.
         assertTrue("disconnected from the family in Kinsight" in page("en"))
