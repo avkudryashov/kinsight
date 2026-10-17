@@ -236,6 +236,36 @@ class CloudSignInTest {
         assertEquals("AT2", mom.cloudSecrets.tokens()!!.accessToken)
     }
 
+    /** Cancel on the dialog ends the sign-in: an app link arriving afterwards turns nothing on. */
+    @Test
+    fun aDismissedSignInIsOver() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val s = mom.signIn(http, { disk })
+        s.start("Pixel")
+        s.dismiss()
+        assertEquals(SignInState.Idle, s.state.value)
+        assertEquals(CloudEnableResult.SIGN_IN_EXPIRED, s.finish("1234567"))
+        assertTrue(http.forms.isEmpty(), "no code exchanged")
+        assertNull(mom.cloudSecrets.tokens())
+    }
+
+    /** Dismissed while the code is out: the endpoint not answering does not bring the paste field back. */
+    @Test
+    fun aSignInDismissedDuringTheExchangeDoesNotReopen() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        val s = mom.signIn(http, { disk })
+        s.start("Pixel")
+        val gate = CompletableDeferred<Unit>().also { http.gate = it }
+        val first = async { s.finish("busy1234") }
+        http.entered.await()
+        s.dismiss()
+        gate.complete(Unit)
+        assertEquals(CloudEnableResult.NETWORK, first.await())
+        assertEquals(SignInState.Idle, s.state.value)
+        assertEquals(CloudEnableResult.SIGN_IN_EXPIRED, s.finish("1234567"), "the sign-in is over")
+        assertEquals(1, http.forms.size)
+    }
+
     @Test
     fun noAnswerFromTheTokenEndpointKeepsThePasteField() = runBlocking<Unit> {
         mom.group.createGroup("Mom")

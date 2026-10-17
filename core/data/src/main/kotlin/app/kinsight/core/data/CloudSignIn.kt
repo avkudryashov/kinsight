@@ -117,6 +117,9 @@ class CloudSignIn(
     /** [pending] and [state] change together under it, so a terminal outcome never hides a sign-in started meanwhile. */
     private val stateLock = Any()
 
+    /** Counts [dismiss] calls (under [stateLock]): a claimed sign-in dismissed during its exchange is not put back. */
+    private var dismissals = 0
+
     private val _state = MutableStateFlow<SignInState>(SignInState.Idle)
     val state: StateFlow<SignInState> = _state.asStateFlow()
 
@@ -196,22 +199,24 @@ class CloudSignIn(
             return CloudEnableResult.SIGN_IN_FAILED
         }
         // A start() since we read it installed a newer sign-in: this input answered the old one.
+        var round = 0
         val claimed = synchronized(stateLock) {
+            round = dismissals
             pending.compareAndSet(p, null).also { if (it) _state.value = SignInState.Working }
         }
         if (!claimed) return CloudEnableResult.SIGN_IN_EXPIRED
         val tokens = try {
             oauth(config()).exchange(code, p.verifier)
         } catch (e: CancellationException) {
-            reopen(p, networkError = false)
+            reopen(p, round, networkError = false)
             throw e
         } catch (e: OAuthException) {
             // Spec §11: 5xx, 429 and the endpoint's own trouble codes are retried, like no answer at all.
-            if (e.retryable) return reopen(p, networkError = true)
+            if (e.retryable) return reopen(p, round, networkError = true)
             Log.w(TAG, "sign-in refused: ${e.error}")
             return settle(CloudEnableResult.SIGN_IN_FAILED)
         } catch (e: IOException) {
-            return reopen(p, networkError = true)
+            return reopen(p, round, networkError = true)
         }
         val result = try {
             signedIn(tokens, p.mode)
@@ -241,8 +246,16 @@ class CloudSignIn(
         return result
     }
 
+    /**
+     * The dialog was closed: the sign-in is over. An app link or paste arriving later is SIGN_IN_EXPIRED; an exchange
+     * already under way still reports its outcome, but a retryable failure does not bring the paste field back.
+     */
     fun dismiss() {
-        _state.value = SignInState.Idle
+        synchronized(stateLock) {
+            pending.set(null)
+            dismissals++
+            _state.value = SignInState.Idle
+        }
     }
 
     /** What a finish that waited for another reports: that one's outcome. */
@@ -252,10 +265,10 @@ class CloudSignIn(
         SignInState.Idle, SignInState.Working -> CloudEnableResult.SIGN_IN_FAILED
     }
 
-    /** Puts the claimed sign-in back for another try, unless a newer one was started meanwhile. */
-    private fun reopen(p: Pending, networkError: Boolean): CloudEnableResult {
+    /** Puts the claimed sign-in back for another try, unless a newer one was started or it was dismissed meanwhile. */
+    private fun reopen(p: Pending, round: Int, networkError: Boolean): CloudEnableResult {
         synchronized(stateLock) {
-            if (pending.compareAndSet(null, p)) _state.value = SignInState.Waiting(p.url, networkError = networkError)
+            if (dismissals == round && pending.compareAndSet(null, p)) _state.value = SignInState.Waiting(p.url, networkError = networkError)
         }
         return CloudEnableResult.NETWORK
     }
