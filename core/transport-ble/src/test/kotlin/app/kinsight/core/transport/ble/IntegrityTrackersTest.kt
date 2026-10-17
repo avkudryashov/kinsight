@@ -8,6 +8,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.async
 import java.io.File
 import java.nio.file.Files
 import kotlin.test.AfterTest
@@ -321,6 +323,25 @@ class IntegrityTrackersTest {
 
     private val location = LocationWatch(state, record, clock = { now })
     private val openGate = GateState.Open(0L)
+
+    /**
+     * Y5 parked minor: one toggle sends several checks at once. A check that waited for the lock reads the switch then,
+     * so it never opens LOCATION_DISABLED from a value read before the other check turned it back.
+     */
+    @Test
+    fun aCheckThatWaitedReadsTheSwitchInItsTurn() = runBlocking<Unit> {
+        val lock = kotlinx.coroutines.sync.Mutex()
+        var systemOn = false
+        lock.lock() // an earlier check holds it
+        val late = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            lock.withLock { location.onCheck(openGate, access = { true }, enabled = { systemOn }) }
+        }
+        systemOn = true // switched back on before the late check got its turn
+        lock.unlock()
+        assertFalse(late.await())
+        assertTrue(recorded.isEmpty())
+        assertNull(state.locationDisabledSinceMs())
+    }
 
     @Test
     fun locationRevokedIsReportedAtOnceAndClosedWhenBack() = runBlocking<Unit> {

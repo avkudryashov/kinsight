@@ -152,7 +152,13 @@ class LocationWatch(
     private val record: EventRecorder,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    suspend fun onCheck(gate: GateState, access: Boolean, enabled: Boolean?): Boolean {
+    suspend fun onCheck(gate: GateState, access: Boolean, enabled: Boolean?): Boolean = onCheck(gate, { access }, { enabled })
+
+    /**
+     * [access] and [enabled] are read here, after the caller's lock was taken (Y5 parked minor): a check that waited for
+     * another acts on the state as it is now, never on one read before the other check finished.
+     */
+    suspend fun onCheck(gate: GateState, access: () -> Boolean, enabled: () -> Boolean?): Boolean {
         val now = clock()
         val accessSince = state.locationAccessOffSinceMs()
         val offSince = state.locationDisabledSinceMs()
@@ -167,8 +173,10 @@ class LocationWatch(
             }
             is GateState.Open -> Unit
         }
+        val granted = access()
+        val on = enabled()
         var any = false
-        if (access) {
+        if (granted) {
             if (!state.locationAccessSeen()) state.setLocationAccessSeen(true)
             if (accessSince != null && close(StateEvent.Kind.LOCATION_PERMISSION_OFF, accessSince, now)) {
                 state.setLocationAccessOffSinceMs(null)
@@ -180,12 +188,12 @@ class LocationWatch(
                 any = true
             }
         }
-        if (enabled == true) {
+        if (on == true) {
             if (offSince != null && close(StateEvent.Kind.LOCATION_DISABLED, offSince, now)) {
                 state.setLocationDisabledSinceMs(null)
                 any = true
             }
-        } else if (enabled == false && offSince == null) {
+        } else if (on == false && offSince == null) {
             if (record(StateEvent.Kind.LOCATION_DISABLED, now, now)) {
                 state.setLocationDisabledSinceMs(now)
                 any = true

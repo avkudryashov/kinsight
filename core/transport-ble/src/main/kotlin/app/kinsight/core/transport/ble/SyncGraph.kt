@@ -294,10 +294,11 @@ object SyncGraph {
 
     /**
      * Spec §10: the child's location access and the system switch (LocationWatch). [gate] is core/data's
-     * (FamilyLocation.watchGate), computed by the caller before this lock. [enabled] null: the system state is unknown.
-     * True when an event was queued. Only while a group exists.
+     * (FamilyLocation.watchGate), computed by the caller before this lock. [access] and [enabled] are read inside it (Y5
+     * parked minor), so checks racing on one toggle each act on the state of their turn. [enabled] null: the system state
+     * is unknown. True when an event was queued. Only while a group exists.
      */
-    suspend fun onLocationState(context: Context, gate: GateState, access: Boolean, enabled: Boolean?): Boolean = stateLock.withLock {
+    suspend fun onLocationState(context: Context, gate: GateState, access: () -> Boolean, enabled: () -> Boolean?): Boolean = stateLock.withLock {
         if (groups(context).exists()) LocationWatch(state(context), recorder(context)).onCheck(gate, access, enabled) else false
     }
 

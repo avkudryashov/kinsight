@@ -172,8 +172,8 @@ class Graph internal constructor(app: Context) {
         val recorded = SyncGraph.onLocationState(
             appContext,
             familyLocation.watchGate(),
-            access = LocationPermissions.state(appContext) == LocationPermissions.State.ALWAYS,
-            enabled = LocationPermissions.systemEnabled(appContext),
+            access = { LocationPermissions.state(appContext) == LocationPermissions.State.ALWAYS },
+            enabled = { LocationPermissions.systemEnabled(appContext) },
         )
         if (recorded) {
             pipeline.collectAndPublish()
