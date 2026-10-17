@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -117,13 +118,19 @@ fun SettingsRoute(
         LocationGraph.refresh(context, rearm = true)
         AppGraph.get(context).launchLocationCheck()
     }
-    val afterRequest: () -> Unit = {
+    val activity = LocalActivity.current
+    // Sweep review Minor 5: blocked only when Android will not ask again (no rationale after a refusal); a first «Deny»
+    // keeps the Allow button, Android still shows its dialog once more.
+    val afterRequest: (String) -> Unit = { permission ->
         val before = locationState
         locationChanged()
-        locationBlocked = locationRequestRefused(before, locationState)
+        val rationale = activity?.shouldShowRequestPermissionRationale(permission) ?: true
+        locationBlocked = locationBlockedAfter(before, locationState, rationale)
     }
-    val foreground = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { afterRequest() }
-    val background = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { afterRequest() }
+    val foreground = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        afterRequest(LocationPermissions.FOREGROUND.first())
+    }
+    val background = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { afterRequest(LocationPermissions.BACKGROUND) }
     // Back from Android's usage access screen: the row goes away at once, not on the next 30 s tick (U1).
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         vm.refreshStatus()
@@ -170,9 +177,12 @@ private enum class Ask { PAUSE, STOP, RESET, SHRINK }
 internal fun locationRow(cloudOn: Boolean, isChild: Boolean, state: LocationPermissions.State): LocationPermissions.State? =
     state.takeIf { cloudOn && isChild }
 
-/** A permission request that left the state as it was: Android refused without asking (refused for good) or the user said no. */
-internal fun locationRequestRefused(before: LocationPermissions.State, after: LocationPermissions.State): Boolean =
-    after == before && after != LocationPermissions.State.ALWAYS
+/**
+ * A permission request that left the state as it was while Android no longer explains it ([rationale] false after a
+ * refusal): refused for good, so only the app's settings page can grant it. A first «Deny» leaves a rationale: ask again.
+ */
+internal fun locationBlockedAfter(before: LocationPermissions.State, after: LocationPermissions.State, rationale: Boolean): Boolean =
+    after == before && after != LocationPermissions.State.ALWAYS && !rationale
 
 /** Android's page of this app, where a permission refused for good is granted. */
 internal fun appSettings(packageName: String): Intent =

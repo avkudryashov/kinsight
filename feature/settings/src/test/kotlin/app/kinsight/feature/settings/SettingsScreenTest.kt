@@ -927,10 +927,13 @@ class SettingsScreenTest {
         assertEquals(s, locationRow(cloudOn = true, isChild = true, state = s))
         assertEquals(null, locationRow(cloudOn = false, isChild = true, state = s))
         assertEquals("never on a parent's phone", null, locationRow(cloudOn = true, isChild = false, state = s))
-        assertEquals(true, locationRequestRefused(LocationPermissions.State.NONE, LocationPermissions.State.NONE))
-        assertEquals(true, locationRequestRefused(LocationPermissions.State.WHILE_IN_USE, LocationPermissions.State.WHILE_IN_USE))
-        assertEquals(false, locationRequestRefused(LocationPermissions.State.NONE, LocationPermissions.State.WHILE_IN_USE))
-        assertEquals(false, locationRequestRefused(LocationPermissions.State.ALWAYS, LocationPermissions.State.ALWAYS))
+        val none = LocationPermissions.State.NONE
+        val inUse = LocationPermissions.State.WHILE_IN_USE
+        assertEquals("a first Deny: Android asks again", false, locationBlockedAfter(none, none, rationale = true))
+        assertEquals("refused for good", true, locationBlockedAfter(none, none, rationale = false))
+        assertEquals(true, locationBlockedAfter(inUse, inUse, rationale = false))
+        assertEquals(false, locationBlockedAfter(none, inUse, rationale = false))
+        assertEquals(false, locationBlockedAfter(LocationPermissions.State.ALWAYS, LocationPermissions.State.ALWAYS, rationale = false))
         val i = appSettings("app.kinsight")
         assertEquals(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, i.action)
         assertEquals("package:app.kinsight", i.dataString)
