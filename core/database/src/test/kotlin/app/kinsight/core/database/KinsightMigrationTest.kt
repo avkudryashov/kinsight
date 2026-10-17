@@ -302,6 +302,26 @@ class KinsightMigrationTest {
         db.close()
     }
 
+    /** Y5 T2 parked minor: the PIN supersede key is per author, so two parents' PINs both survive the migration. */
+    @Test
+    fun migratesV3KeepingOneParentPinPerAuthor() = runTest {
+        val momKeys = DeviceKeys.generate()
+        val dadKeys = DeviceKeys.generate()
+        val genesis = GroupGenesis.create(momKeys, "Mom")
+        val mom = EntryAuthor(genesis.groupId, momKeys, lastSeq = 1)
+        val dad = EntryAuthor(genesis.groupId, dadKeys, lastSeq = 0)
+        val momOld = mom.parentPinEntry(ByteArray(16) { 1 }, ByteArray(32) { 2 }, 19_456, 2, rank = 1)
+        val momNew = mom.parentPinEntry(ByteArray(16) { 3 }, ByteArray(32) { 4 }, 19_456, 2, rank = 2)
+        val dadPin = dad.parentPinEntry(ByteArray(16) { 5 }, ByteArray(32) { 6 }, 19_456, 2, rank = 1)
+        val v3 = File(dir, "v3pp.db").absolutePath
+        ExportedSchema.create(v3, 3) { c -> for (e in listOf(momOld, dadPin, momNew)) insertV3(c, e, kind = EntryKinds.UNKNOWN, key = null) }
+        val db = KinsightDatabaseFactory.open(HostContext(), v3)
+        assertNull(db.entryDao().get(momKeys.deviceId.hex, momOld.seq), "Mom's older PIN is superseded")
+        assertEquals("${dadKeys.deviceId.hex}/pin", db.entryDao().get(dadKeys.deviceId.hex, dadPin.seq)!!.supersedeKey)
+        assertEquals(setOf(momNew, dadPin), RoomEntryStore(db, genesis.groupId).parentPins().toSet())
+        db.close()
+    }
+
     private fun insertV3(
         c: SQLiteConnection, e: DecodedEntry, kind: Int, key: String? = e.supersedeKey, eventKind: Int? = null, eventToMs: Long? = null,
     ) {
