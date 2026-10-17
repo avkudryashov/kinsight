@@ -25,7 +25,7 @@ class StatesTest {
 
     @Test
     fun emptyStateTitleIsAHeadingAndNotLive() {
-        rule.setContent { KinsightTheme(dynamicColor = false) { EmptyState("Nothing yet", "Pair a phone first") } }
+        rule.setContent { KinsightTheme() { EmptyState("Nothing yet", "Pair a phone first") } }
         rule.onNode(isHeading()).assertExists()
         rule.onNodeWithText("Nothing yet").assertExists()
         rule.onNode(politeLiveRegion).assertDoesNotExist()
@@ -33,7 +33,7 @@ class StatesTest {
 
     @Test
     fun errorStateIsAnnouncedPolitely() {
-        rule.setContent { KinsightTheme(dynamicColor = false) { ErrorState("Failed", "Try again") } }
+        rule.setContent { KinsightTheme() { ErrorState("Failed", "Try again") } }
         rule.onNode(isHeading()).assertExists()
         rule.onNode(politeLiveRegion).assertExists()
     }

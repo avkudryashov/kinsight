@@ -71,7 +71,7 @@ class DashboardScreenTest {
         onOpenSettings: () -> Unit = {},
         onAcknowledgeParents: (Set<DeviceId>) -> Unit = {},
     ) = rule.setContent {
-        KinsightTheme(dynamicColor = false) {
+        KinsightTheme() {
             DashboardScreen(
                 ui, now, onOpenDevice, onResume = onResume, onConsent = onConsent, onStart = onStart,
                 onSyncNow = onSyncNow, onInviteChild = onInviteChild, onOpenSettings = onOpenSettings,
@@ -230,7 +230,7 @@ class DashboardScreenTest {
         )
         var current by mutableStateOf<ServiceStatus?>(states.first())
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 DashboardScreen(
                     DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), emptyList()), current, true), now, {},
                     onResume = {}, onConsent = {}, onStart = {}, onSyncNow = {}, onInviteChild = {}, onOpenSettings = {},
@@ -508,7 +508,7 @@ class DashboardScreenTest {
     }
 
     private fun showLive(service: () -> ServiceStatus) = rule.setContent {
-        KinsightTheme(dynamicColor = false) {
+        KinsightTheme() {
             DashboardScreen(
                 DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), emptyList()), service(), true), now, {},
                 onResume = {}, onConsent = {}, onStart = {}, onSyncNow = {}, onInviteChild = {}, onOpenSettings = {},

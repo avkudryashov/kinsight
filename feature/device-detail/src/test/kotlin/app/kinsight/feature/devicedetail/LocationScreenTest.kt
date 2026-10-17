@@ -49,7 +49,7 @@ class LocationScreenTest {
     private var zonesOpened = 0
 
     private fun show(c: ChildLocation) = rule.setContent {
-        KinsightTheme(dynamicColor = false) { LocationScreen(c, now, onZones = { zonesOpened++ }, onBack = {}) }
+        KinsightTheme() { LocationScreen(c, now, onZones = { zonesOpened++ }, onBack = {}) }
     }
 
     @Test

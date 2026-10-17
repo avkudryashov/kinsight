@@ -5,3 +5,9 @@ This product is licensed under the Apache License, Version 2.0.
 
 The name "Kinsight" and the Kinsight icon are not covered by this license
 and may not be used to identify forks or derived products without permission.
+
+Nunito font (core/designsystem/src/main/res/font/nunito_*.ttf)
+Copyright 2014 The Nunito Project Authors (https://github.com/googlefonts/nunito)
+Licensed under the SIL Open Font License, Version 1.1: core/designsystem/fonts/OFL.txt
+The three files are static instances (weights 400, 700, 800) of Nunito[wght].ttf from
+github.com/google/fonts, cut with fontTools varLib.instancer.

@@ -37,8 +37,8 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class ChartMathTest {
-    private val lightSurface = Color(0xFFF4FBF8)
-    private val darkSurface = Color(0xFF0E1513)
+    private val lightSurface = Color(0xFFF3F0F9)
+    private val darkSurface = Color(0xFF221F2E)
 
     @Test
     fun categoryPaletteIsStableAndDistinct() {
@@ -48,8 +48,8 @@ class ChartMathTest {
             assertEquals(p.size, p.toSet().size, "distinct, dark=$dark")
             assertEquals(p, categoryPalette(dark), "same list on every call")
         }
-        assertEquals(Color(0xFF6750A4), categoryPalette(dark = false).first())
-        assertEquals(Color(0xFFD0BCFF), categoryPalette(dark = true).first())
+        assertEquals(Color(0xFF6A4FD8), categoryPalette(dark = false).first())
+        assertEquals(Color(0xFFA28BF5), categoryPalette(dark = true).first())
         assertNotEquals(categoryPalette(false), categoryPalette(true))
     }
 
@@ -57,6 +57,7 @@ class ChartMathTest {
     fun categoryColoursKeepNonTextContrastOnTheSurface() {
         // WCAG 2.2 SC 1.4.11: graphical objects need 3:1 against adjacent colours.
         categoryPalette(dark = false).forEach { assertTrue(contrastRatio(it, lightSurface) >= 3.0, "light $it") }
+        categoryPalette(dark = false).forEach { assertTrue(contrastRatio(it, Color.White) >= 3.0, "light on a card $it") }
         categoryPalette(dark = true).forEach { assertTrue(contrastRatio(it, darkSurface) >= 3.0, "dark $it") }
     }
 

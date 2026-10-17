@@ -57,7 +57,7 @@ class ThresholdsScreenTest {
     /** Like the view model: a delete is pending until «Undo» or the end of its window. */
     private fun show(rules: List<ThresholdRule>, canEdit: Boolean = true, pendingAtStart: Set<String> = emptySet()) = rule.setContent {
         var pending by remember { mutableStateOf(pendingAtStart) }
-        KinsightTheme(dynamicColor = false) {
+        KinsightTheme() {
             ThresholdsScreen(
                 ThresholdsState("Kid", canEdit, rules, apps),
                 pending = pending,

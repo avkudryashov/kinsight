@@ -80,7 +80,7 @@ class DeviceDetailScreenTest {
         onOpenApp: ((String) -> Unit)? = null,
         detailRetentionDays: Int = 90,
     ) = rule.setContent {
-        KinsightTheme(dynamicColor = false) {
+        KinsightTheme() {
             DeviceDetailScreen(
                 d, onPeriod = {}, onAllApps = onAllApps, onBack = {}, onPrevious = onPrevious, onNext = onNext,
                 onOpenDay = onOpenDay, onOpenApp = onOpenApp, detailRetentionDays = detailRetentionDays,
@@ -102,7 +102,7 @@ class DeviceDetailScreenTest {
     private fun allEventTexts(): List<String> {
         val texts = mutableListOf<String>()
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 Column {
                     shownKinds.forEach { k -> Text(eventText(event.copy(kind = k, shiftMs = -300_000)).also { texts += it }) }
                 }
@@ -130,7 +130,7 @@ class DeviceDetailScreenTest {
 
     @Test
     fun allAppsListsEveryApp() {
-        rule.setContent { KinsightTheme(dynamicColor = false) { AllAppsScreen(AppList(detail.member, detail.range, detail.apps, today), onBack = {}) } }
+        rule.setContent { KinsightTheme() { AllAppsScreen(AppList(detail.member, detail.range, detail.apps, today), onBack = {}) } }
         rule.onNodeWithTag("det_apps").performScrollToNode(hasText("App 7"))
         rule.onNodeWithText("Kid: all apps, Oct 4", substring = true).assertExists()
     }
@@ -214,7 +214,7 @@ class DeviceDetailScreenTest {
     @Test
     fun theFirstResumeReadsAsSharingStarted() {
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 Column {
                     Text(eventText(event.copy(kind = StateEvent.Kind.SHARING_RESUMED, firstSharing = true)))
                     Text(eventText(event.copy(kind = StateEvent.Kind.SHARING_RESUMED)))
@@ -229,7 +229,7 @@ class DeviceDetailScreenTest {
     @Config(qualifiers = "ru")
     fun theFirstResumeInRussian() {
         rule.setContent {
-            KinsightTheme(dynamicColor = false) { Text(eventText(event.copy(kind = StateEvent.Kind.SHARING_RESUMED, firstSharing = true))) }
+            KinsightTheme() { Text(eventText(event.copy(kind = StateEvent.Kind.SHARING_RESUMED, firstSharing = true))) }
         }
         rule.onNodeWithText("Обмен включён").assertExists()
     }
@@ -237,7 +237,7 @@ class DeviceDetailScreenTest {
     @Test
     fun missingOrReversedSpanHasNoDuration() {
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 Column {
                     Text(eventText(event.copy(kind = StateEvent.Kind.BLUETOOTH_OFF, fromMs = 5_000, toMs = 0)))
                     Text(eventText(event.copy(kind = StateEvent.Kind.SYNC_STOPPED, fromMs = 5_000, toMs = 1_000)))
@@ -252,7 +252,7 @@ class DeviceDetailScreenTest {
     @Config(qualifiers = "ru")
     fun russianSpansTakeNa() {
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 Column {
                     Text(eventText(event.copy(kind = StateEvent.Kind.BLUETOOTH_OFF)))
                     Text(eventText(event.copy(kind = StateEvent.Kind.NEARBY_PERMISSION_OFF)))
@@ -279,7 +279,7 @@ class DeviceDetailScreenTest {
     @Test
     fun yesterdayAndOlderDaysAndWeeksHaveTitles() {
         val shown = mutableStateOf(day(today.minusDays(1)))
-        rule.setContent { KinsightTheme(dynamicColor = false) { DeviceDetailScreen(shown.value, onPeriod = {}, onAllApps = {}, onBack = {}) } }
+        rule.setContent { KinsightTheme() { DeviceDetailScreen(shown.value, onPeriod = {}, onAllApps = {}, onBack = {}) } }
         rule.onNodeWithTag("det_period_title").assertTextEquals("Yesterday")
         shown.value = day(LocalDate.of(2026, 10, 6))
         rule.onNodeWithTag("det_period_title").assertTextContains("Oct", substring = true)
@@ -458,7 +458,7 @@ class DeviceDetailScreenTest {
     }
 
     private fun showWithLimits(d: DeviceDetail, thresholds: List<ThresholdRule>?, onThresholds: () -> Unit = {}) = rule.setContent {
-        KinsightTheme(dynamicColor = false) {
+        KinsightTheme() {
             DeviceDetailScreen(d, onPeriod = {}, onAllApps = {}, onBack = {}, thresholds = thresholds, onThresholds = onThresholds)
         }
     }
@@ -513,7 +513,7 @@ class DeviceDetailScreenTest {
     fun todaysRangeSaysWhenItsDataIsFromAndWhenItIsOld() {
         val nowMs = 1_760_000_000_000L
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 DeviceDetailScreen(detail.copy(today = today, updatedMs = nowMs - 3 * 3_600_000L), onPeriod = {}, onAllApps = {}, onBack = {}, nowMs = nowMs)
             }
         }
@@ -571,7 +571,7 @@ class DeviceDetailScreenTest {
     @Test
     fun aMissingDeviceSaysSoAndOffersBack() {
         var back = 0
-        rule.setContent { KinsightTheme(dynamicColor = false) { MissingDevice(onBack = { back++ }) } }
+        rule.setContent { KinsightTheme() { MissingDevice(onBack = { back++ }) } }
         rule.onNodeWithTag("det_missing").assertExists()
         rule.onNodeWithText("Its data is not on this phone", substring = true).assertExists()
         rule.onNodeWithTag("det_missing_back").performClick()
@@ -581,7 +581,7 @@ class DeviceDetailScreenTest {
     @Test
     fun zoneEventsNameTheirZone() {
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 Column {
                     Text(eventText(event.copy(kind = StateEvent.Kind.ZONE_EXIT, zoneName = "Home")))
                     Text(eventText(event.copy(kind = StateEvent.Kind.ZONE_ENTER)))
@@ -596,7 +596,7 @@ class DeviceDetailScreenTest {
     fun aParentOpensTheChildsLocation() {
         var opened = 0
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 DeviceDetailScreen(detail, onPeriod = {}, onAllApps = {}, onBack = {}, thresholds = emptyList(), onLocation = { opened++ })
             }
         }
@@ -606,7 +606,7 @@ class DeviceDetailScreenTest {
     }
 
     private fun showWithLocation(d: DeviceDetail, onLocation: (() -> Unit)?) = rule.setContent {
-        KinsightTheme(dynamicColor = false) {
+        KinsightTheme() {
             DeviceDetailScreen(d, onPeriod = {}, onAllApps = {}, onBack = {}, thresholds = emptyList(), onLocation = onLocation)
         }
     }
@@ -624,7 +624,7 @@ class DeviceDetailScreenTest {
     fun aParentShownOrAChildWhoLeftHasNoLocationEntry() {
         val shown = mutableStateOf(detail.copy(member = kid.copy(role = Role.PARENT)))
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 DeviceDetailScreen(shown.value, onPeriod = {}, onAllApps = {}, onBack = {}, thresholds = emptyList(), onLocation = {})
             }
         }
@@ -641,7 +641,7 @@ class DeviceDetailScreenTest {
     @Test
     fun aLocationProblemReadsOpenUntilItIsClosed() {
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 Column {
                     Text(eventText(event.copy(kind = StateEvent.Kind.LOCATION_PERMISSION_OFF, fromMs = 5_000, toMs = 5_000)))
                     Text(eventText(event.copy(kind = StateEvent.Kind.LOCATION_DISABLED, fromMs = 5_000, toMs = 5_000 + 3_600_000)))

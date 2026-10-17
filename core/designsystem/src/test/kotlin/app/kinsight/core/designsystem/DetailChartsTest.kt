@@ -69,7 +69,7 @@ class DetailChartsTest {
     fun weekBarsAreNodesWithTheirValueAndOneActionLabel() {
         var clicked = -1
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 StackedBarChart(
                     stacks = listOf(listOf(1L, 2L), listOf(0L, 0L), listOf(3L)),
                     colors = colors,
@@ -91,7 +91,7 @@ class DetailChartsTest {
     @Test
     fun barsThatCannotOpenHaveNoClickAction() {
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 StackedBarChart(
                     stacks = listOf(listOf(1L), listOf(2L), listOf(0L)),
                     colors = colors,
@@ -111,7 +111,7 @@ class DetailChartsTest {
     @Test
     fun stackedBarsWithoutAClickHandlerAreOnlyTheSummary() {
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 StackedBarChart(listOf(listOf(1L)), colors, listOf("M"), summary = "One bar", barDescription = { "Bar $it" })
             }
         }
@@ -120,7 +120,7 @@ class DetailChartsTest {
     }
 
     private fun showMonth(onBar: (Int) -> Unit) = rule.setContent {
-        KinsightTheme(dynamicColor = false) {
+        KinsightTheme() {
             StackedBarChart(
                 stacks = List(31) { listOf(60_000L) },
                 colors = colors,
@@ -168,7 +168,7 @@ class DetailChartsTest {
     fun aNewSelectionKeyClearsTheSelection() {
         val key = mutableStateOf(1)
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 StackedBarChart(
                     stacks = List(31) { listOf(60_000L) },
                     colors = colors,
@@ -199,7 +199,7 @@ class DetailChartsTest {
     @Test
     fun stackedBarsSurviveEmptyNegativeAndMismatchedData() {
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 StackedBarChart(emptyList(), emptyList(), emptyList(), summary = "Empty")
                 StackedBarChart(listOf(emptyList(), listOf(0L)), colors, listOf("M"), summary = "Zeros")
                 StackedBarChart(listOf(listOf(-4L, 2L, 5L)), emptyList(), listOf("M", "T"), summary = "Odd", highlight = 9)
@@ -213,7 +213,7 @@ class DetailChartsTest {
     @Test
     fun heatmapIsReadAsItsSummary() {
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 Heatmap(
                     cells = Array(7) { d -> LongArray(24) { h -> (d * h).toLong() } },
                     rowLabels = listOf("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"),
@@ -232,7 +232,7 @@ class DetailChartsTest {
         var back = 0
         var forward = 0
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 PeriodHeader("12 – 18 Oct", canBack = true, canForward = false, onBack = { back++ }, onForward = { forward++ })
             }
         }
@@ -251,7 +251,7 @@ class DetailChartsTest {
     @Test
     fun legendNamesEveryCategoryInText() {
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 CategoryLegend(listOf("Games" to Color.Red, "Video" to Color.Blue))
             }
         }
@@ -262,7 +262,7 @@ class DetailChartsTest {
     @Test
     fun aLimitLineIsReadWithTheSummary() {
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 Column {
                     StackedBarChart(
                         stacks = listOf(listOf(1L), listOf(2L)),
@@ -294,7 +294,7 @@ class DetailChartsTest {
     private fun widestGutterDp(): Float {
         var gutter = 0f
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 val resources = LocalResources.current
                 val density = LocalDensity.current
                 val measurer = rememberTextMeasurer()
@@ -327,7 +327,7 @@ class DetailChartsTest {
     @Test
     fun theDrawnLinesAreExposedForTests() {
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 Column {
                     StackedBarChart(listOf(listOf(1L), listOf(4L)), colors, listOf("M", "T"), "Stacked", Modifier.testTag("s"), onBarClick = {}, limit = 3L, average = 2L, averageLabel = "Avg")
                     BarChart(listOf(1L, 2L), listOf("M", "T"), "Bars", Modifier.testTag("b"), average = 0L, averageLabel = "Avg")

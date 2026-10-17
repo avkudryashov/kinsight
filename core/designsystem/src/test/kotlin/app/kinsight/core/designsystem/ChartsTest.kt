@@ -25,7 +25,7 @@ class ChartsTest {
     @Test
     fun barChartIsReadAsItsSummary() {
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 BarChart(listOf(1L, 5L, 3L), listOf("M", "T", "W"), summary = "Average 3 min, most on Tuesday")
             }
         }
@@ -35,7 +35,7 @@ class ChartsTest {
     @Test
     fun barChartSurvivesEmptyZeroNegativeAndMismatchedData() {
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 BarChart(emptyList(), emptyList(), summary = "Empty")
                 BarChart(listOf(0L, 0L), listOf("M", "T"), summary = "Zeros")
                 BarChart(listOf(-5L, 3L, 0L), listOf("M"), summary = "Odd")
@@ -48,7 +48,7 @@ class ChartsTest {
 
     @Test
     fun qrCodeIsAnImageWithItsDescription() {
-        rule.setContent { KinsightTheme(dynamicColor = false) { QrCode("kinsight://pair/1/AAAA", "Invitation QR code") } }
+        rule.setContent { KinsightTheme() { QrCode("kinsight://pair/1/AAAA", "Invitation QR code") } }
         rule.onNode(
             hasContentDescription("Invitation QR code") and SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Image),
         ).assertExists()
@@ -56,13 +56,13 @@ class ChartsTest {
 
     @Test
     fun qrCodeWithEmptyTextShowsTheErrorState() {
-        rule.setContent { KinsightTheme(dynamicColor = false) { QrCode("", "Invitation QR code") } }
+        rule.setContent { KinsightTheme() { QrCode("", "Invitation QR code") } }
         rule.onNodeWithText("Can't show the QR code").assertExists()
     }
 
     @Test
     fun qrCodeWithTooLongTextShowsTheErrorState() {
-        rule.setContent { KinsightTheme(dynamicColor = false) { QrCode("A".repeat(5000), "Invitation QR code") } }
+        rule.setContent { KinsightTheme() { QrCode("A".repeat(5000), "Invitation QR code") } }
         rule.onNodeWithText("Can't show the QR code").assertExists()
     }
 }

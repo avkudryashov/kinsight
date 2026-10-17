@@ -48,7 +48,7 @@ class ZonesScreenTest {
     private val deleted = mutableListOf<String>()
 
     private fun show(state: ZonesState, failed: ZoneFailure? = null, here: Pair<Int, Int>? = 404_100_000 to -37_100_000) = rule.setContent {
-        KinsightTheme(dynamicColor = false) {
+        KinsightTheme() {
             ZonesScreen(
                 state, failed,
                 onSave = { d, done -> saved += d; done() },
@@ -147,7 +147,7 @@ class ZonesScreenTest {
     fun losingTheRightToEditClosesTheEditor() {
         var state by mutableStateOf(ZonesState(listOf(home), canEdit = true, children = emptyList()))
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 ZonesScreen(state, null, onSave = { d, done -> saved += d; done() }, onDelete = {}, onHere = {}, onDismissError = {}, onBack = {})
             }
         }
@@ -178,7 +178,7 @@ class ZonesScreenTest {
     fun theDraftSurvivesARecreation() {
         val restore = StateRestorationTester(rule)
         restore.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 ZonesScreen(
                     ZonesState(emptyList(), canEdit = true, children = emptyList()), null,
                     onSave = { d, done -> saved += d; done() },
@@ -200,7 +200,7 @@ class ZonesScreenTest {
         val restore = StateRestorationTester(rule)
         val asks = mutableListOf<(Pair<Int, Int>?) -> Unit>()
         restore.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 ZonesScreen(
                     ZonesState(emptyList(), canEdit = true, children = emptyList()), null,
                     onSave = { d, done -> saved += d; done() },

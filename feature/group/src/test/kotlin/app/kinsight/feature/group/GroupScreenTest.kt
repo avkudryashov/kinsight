@@ -53,7 +53,7 @@ class GroupScreenTest {
         onRemove: (DeviceId) -> Unit = {},
         onLeave: () -> Unit = {},
     ) = rule.setContent {
-        KinsightTheme(dynamicColor = false) {
+        KinsightTheme() {
             GroupScreen(
                 GroupState.Ready(group, self, members, selfOwnsStorage = ownsStorage),
                 nowMs = nowMs,
@@ -226,7 +226,7 @@ class GroupScreenTest {
 
     @Test
     fun leavingShowsProgress() {
-        rule.setContent { KinsightTheme(dynamicColor = false) { LeavingContent() } }
+        rule.setContent { KinsightTheme() { LeavingContent() } }
         rule.onNodeWithTag("grp_leaving").assertExists()
         rule.onNodeWithText("telling your family", substring = true).assertExists()
     }
@@ -235,7 +235,7 @@ class GroupScreenTest {
     fun leaveErrorIsExplainedAndDismissed() {
         var dismissed = false
         rule.setContent {
-            KinsightTheme(dynamicColor = false) { GroupErrorDialog(GroupError.Leave(LeaveError.WIPE_FAILED), onDismiss = { dismissed = true }) }
+            KinsightTheme() { GroupErrorDialog(GroupError.Leave(LeaveError.WIPE_FAILED), onDismiss = { dismissed = true }) }
         }
         rule.onNodeWithText("clearing this phone failed", substring = true).assertExists()
         rule.onNodeWithTag("grp_error_ok").performClick()

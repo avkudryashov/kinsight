@@ -35,7 +35,7 @@ class DialogTestTagsTest {
         generateSequence(this) { it.parent }.any { it.config.getOrElse(SemanticsPropertiesAndroid.TestTagsAsResourceId) { false } }
 
     private fun show(modifier: Modifier) = rule.setContent {
-        KinsightTheme(dynamicColor = false) {
+        KinsightTheme() {
             AlertDialog(
                 onDismissRequest = {},
                 confirmButton = { TextButton({}, Modifier.testTag("x_confirm")) { Text("Add") } },

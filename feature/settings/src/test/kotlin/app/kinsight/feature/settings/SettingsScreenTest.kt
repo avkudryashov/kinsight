@@ -94,7 +94,7 @@ class SettingsScreenTest {
         onLock: () -> Unit = {},
         onSetPin: (String) -> Unit = {},
     ) = rule.setContent {
-        KinsightTheme(dynamicColor = false) {
+        KinsightTheme() {
             SettingsScreen(
                 ui, "0.4.0", onSharing = onSharing, onConsent = onConsent, onTransparency = onTransparency,
                 onStopSync = { calls += "stop" }, onStartSync = { calls += "start" },
@@ -270,7 +270,7 @@ class SettingsScreenTest {
     @Test
     fun transparencyListsTheParentsForAChild() {
         rule.setContent {
-            KinsightTheme(dynamicColor = false) { TransparencyScreen(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), 2L, onBack = {}) }
+            KinsightTheme() { TransparencyScreen(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), 2L, onBack = {}) }
         }
         rule.onNodeWithText("all parents in your family group", substring = true).assertExists()
         rule.onNodeWithText("Mom", substring = true).assertExists()
@@ -280,7 +280,7 @@ class SettingsScreenTest {
     @Test
     fun transparencyForAParentSaysNothingOfItsOwnIsShared() {
         rule.setContent {
-            KinsightTheme(dynamicColor = false) { TransparencyScreen(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), 2L, onBack = {}) }
+            KinsightTheme() { TransparencyScreen(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), 2L, onBack = {}) }
         }
         rule.onNodeWithText("does not share its own screen time", substring = true).assertExists()
         rule.onNodeWithText("detailed history 90 d, daily totals 365 d", substring = true).assertExists()
@@ -289,7 +289,7 @@ class SettingsScreenTest {
     @Test
     fun keyErrorResetAsksFirst() {
         var reset = false
-        rule.setContent { KinsightTheme(dynamicColor = false) { KeyErrorScreen("keys missing", onReset = { reset = true }) } }
+        rule.setContent { KinsightTheme() { KeyErrorScreen("keys missing", onReset = { reset = true }) } }
         rule.onNodeWithText("keys missing", substring = true).assertExists()
         rule.onNodeWithTag("rec_reset").performClick()
         assertFalse(reset)
@@ -300,14 +300,14 @@ class SettingsScreenTest {
 
     @Test
     fun startOverIsDisabledWhileTheWipeRuns() {
-        rule.setContent { KinsightTheme(dynamicColor = false) { RemovedScreen(onStartOver = {}, busy = true) } }
+        rule.setContent { KinsightTheme() { RemovedScreen(onStartOver = {}, busy = true) } }
         rule.onNodeWithTag("rec_start_over").assertIsNotEnabled()
     }
 
     @Test
     fun aFailedStartOverIsShown() {
         var again = false
-        rule.setContent { KinsightTheme(dynamicColor = false) { RemovedScreen(onStartOver = { again = true }, failed = true) } }
+        rule.setContent { KinsightTheme() { RemovedScreen(onStartOver = { again = true }, failed = true) } }
         rule.onNodeWithText("did not finish", substring = true).assertExists()
         rule.onNodeWithTag("rec_start_over").performClick()
         assertTrue(again)
@@ -350,7 +350,7 @@ class SettingsScreenTest {
     private fun showScaled(fontScale: Float, onSummaryMode: (SummaryMode) -> Unit) = rule.setContent {
         val d = LocalDensity.current
         CompositionLocalProvider(LocalDensity provides Density(d.density, fontScale)) {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 SettingsScreen(
                     SettingsUi(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), Prefs(), running), "0.4.0",
                     onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
@@ -579,7 +579,7 @@ class SettingsScreenTest {
         val codes = mutableListOf<String>()
         var ui by mutableStateOf(ownerUi().copy(signIn = SignInState.Waiting("https://oauth.yandex.ru/authorize?x=1")))
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 SettingsScreen(
                     ui, "0.4.0", onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {},
                     onRetention = { _, _ -> }, onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {},
@@ -676,7 +676,7 @@ class SettingsScreenTest {
     fun theTransparencyScreenHasATopBarWithBack() {
         var back = 0
         rule.setContent {
-            KinsightTheme(dynamicColor = false) { TransparencyScreen(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), 2L, onBack = { back++ }) }
+            KinsightTheme() { TransparencyScreen(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), 2L, onBack = { back++ }) }
         }
         rule.onNodeWithText("Who sees my data").assertExists()
         rule.onNodeWithTag("tr_back").performClick()
@@ -873,7 +873,7 @@ class SettingsScreenTest {
     fun theOldPhoneSeesTheRoleMoveAndThenLeavesByItself() {
         var transfer by mutableStateOf(OwnerTransferPhase.PENDING)
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 val ui = ownerUi().let { it.copy(cloud = it.cloud.copy(ownerTransfer = transfer)) }
                 SettingsScreen(
                     ui, "0.4.0", onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {},
@@ -914,7 +914,7 @@ class SettingsScreenTest {
     }
 
     private fun showChildLocation(state: LocationPermissions.State?, asked: MutableList<LocationPermissions.State>) = rule.setContent {
-        KinsightTheme(dynamicColor = false) {
+        KinsightTheme() {
             SettingsScreen(
                 SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1L), Prefs(), running),
                 "0.4.0", onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
@@ -929,7 +929,7 @@ class SettingsScreenTest {
     fun anApproximateOnlyChildIsToldToTurnOnPreciseLocation() {
         val asked = mutableListOf<LocationPermissions.State>()
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 SettingsScreen(
                     SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1L), Prefs(), running),
                     "0.4.0", onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
@@ -950,7 +950,7 @@ class SettingsScreenTest {
         val asked = mutableListOf<LocationPermissions.State>()
         var state by mutableStateOf<LocationPermissions.State?>(LocationPermissions.State.NONE)
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 SettingsScreen(
                     SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1L), Prefs(), running),
                     "0.4.0", onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
@@ -976,7 +976,7 @@ class SettingsScreenTest {
     fun aLocationRefusedForGoodOpensTheAppSettings() {
         var opened = 0
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 SettingsScreen(
                     SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1L), Prefs(), running),
                     "0.4.0", onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
@@ -1023,7 +1023,7 @@ class SettingsScreenTest {
     fun aChildOpensTheSafeZonesFromTheLocationRow() {
         var opened = 0
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 SettingsScreen(
                     SettingsUi(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1L), Prefs(), running),
                     "0.4.0", onSharing = {}, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {}, onRetention = { _, _ -> },
@@ -1151,7 +1151,7 @@ class SettingsScreenTest {
         var ui by mutableStateOf(childUi.copy(lock = unlocked))
         var shared: Boolean? = null
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 SettingsScreen(
                     ui, "0.4.0", onSharing = { shared = it }, onConsent = {}, onTransparency = {}, onStopSync = {}, onStartSync = {},
                     onRetention = { _, _ -> }, onSummaryMode = {}, onNoContactHours = {}, onBattery = {}, onDiagnostics = {},
