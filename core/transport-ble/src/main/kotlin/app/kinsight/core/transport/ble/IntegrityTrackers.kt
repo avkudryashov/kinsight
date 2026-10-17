@@ -143,7 +143,8 @@ class NearbyWatch(
  * when it is back the closing one (from = noticed, to = back, always after from). A revoke counts only after the access
  * was once complete (the child granted it); the system switch counts at any time. [gate] is open while this phone should
  * share its location (core/data FamilyLocation.watchGate). A closed gate closes an open problem (the cloud went off, say)
- * and forgets the baseline; an unknown one changes nothing. A refused event keeps no «since», so the next check tries
+ * and forgets the baseline even when the closing event is refused (unlike an open gate: a refusal there happens only once
+ * this phone is no longer a consenting child, whom nobody watches any more); an unknown one changes nothing. A refused event keeps no «since», so the next check tries
  * again. [enabled] null: the system state is unknown (no LocationManager), which opens and closes nothing. Returns true
  * when an event was recorded (the caller signs and uploads it at once).
  */

@@ -50,4 +50,14 @@ class ParentPinRulesTest {
         assertIs<Verdict.Skipped>(verdict(mom.pin(rank = ParentPinRules.MAX_RANK + 1)))
         assertIs<Verdict.Skipped>(verdict(mom.pin(rank = -1)))
     }
+
+    /** Y5 parked minor: the accepted edges and the body cap, so an accidental exclusive range fails here. */
+    @Test
+    fun theEdgesAreAcceptedAndTheBodyCapHolds() {
+        for (memory in listOf(ParentPinRules.MEMORY_KIB.first, ParentPinRules.MEMORY_KIB.last)) assertEquals(Verdict.Accept, verdict(mom.pin(memory = memory)), "$memory KiB")
+        for (passes in listOf(ParentPinRules.ITERATIONS.first, ParentPinRules.ITERATIONS.last)) assertEquals(Verdict.Accept, verdict(mom.pin(iterations = passes)), "$passes passes")
+        for (rank in listOf(0L, ParentPinRules.MAX_RANK)) assertEquals(Verdict.Accept, verdict(mom.pin(rank = rank)), "rank $rank")
+        val big = mom.pin(salt = ParentPinRules.MAX_BODY_BYTES)
+        assertEquals(Verdict.Skipped("parent pin over ${ParentPinRules.MAX_BODY_BYTES} bytes"), verdict(big))
+    }
 }

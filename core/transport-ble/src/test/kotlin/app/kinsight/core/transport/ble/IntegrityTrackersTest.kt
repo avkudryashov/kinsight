@@ -396,6 +396,24 @@ class IntegrityTrackersTest {
         assertEquals(emptyList(), recorded)
     }
 
+    /** Y5 parked minor: a closing gate closes a revoked access too, and both problems at once. */
+    @Test
+    fun aClosingGateClosesBothLocationProblems() = runBlocking<Unit> {
+        location.onCheck(openGate, access = true, enabled = true)
+        assertTrue(location.onCheck(openGate, access = false, enabled = false))
+        now += 2_000
+        assertTrue(location.onCheck(GateState.Closed, access = false, enabled = false))
+        assertEquals(
+            setOf(
+                Triple(StateEvent.Kind.LOCATION_PERMISSION_OFF, 1_000_000L, 1_002_000L),
+                Triple(StateEvent.Kind.LOCATION_DISABLED, 1_000_000L, 1_002_000L),
+            ),
+            recorded.drop(2).toSet(),
+        )
+        assertNull(state.locationAccessOffSinceMs())
+        assertNull(state.locationDisabledSinceMs())
+    }
+
     @Test
     fun anUnknownGateOrARefusalKeepsTheLocationStateForTheNextCheck() = runBlocking<Unit> {
         location.onCheck(openGate, access = true, enabled = true)
