@@ -7,9 +7,7 @@ import app.kinsight.core.model.DeviceId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -20,11 +18,10 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class LocationViewModelTest {
+class MapViewModelTest {
     private val dispatcher = UnconfinedTestDispatcher()
 
     @BeforeTest
@@ -35,38 +32,27 @@ class LocationViewModelTest {
 
     private val kid = MemberView(DeviceId("cc".repeat(16)), "Kid", Role.CHILD, isAdmin = false, isSelf = false, lastSeenMs = null)
 
-    private class FakeSource(val ready: MutableStateFlow<Boolean>) : LocationSource {
-        val views = MutableSharedFlow<ChildLocation?>()
-        var collections = 0
-        override fun child(): Flow<ChildLocation?> = views.onStart { collections++ }
+    private class FakeSource : MapSource {
+        val kids = MutableStateFlow<List<ChildLocation>>(emptyList())
+        val cloud = MutableStateFlow(false)
+        val ready = MutableStateFlow(false)
+        override fun children(): Flow<List<ChildLocation>> = kids
+        override fun cloudOn(): Flow<Boolean> = cloud
         override fun groupReady(): Flow<Boolean> = ready
     }
 
     @Test
-    fun oneCollectionGivesTheChildAndLoadedTogether() = runTest(dispatcher) {
-        val source = FakeSource(MutableStateFlow(true))
-        val vm = LocationViewModel(source)
+    fun theStateFollowsTheChildrenTheCloudAndTheGroup() = runTest(dispatcher) {
+        val source = FakeSource()
+        val vm = MapViewModel(source)
         val job = launch { vm.state.collect {} }
-        assertNull(vm.state.value.child)
-        assertFalse(vm.state.value.loaded, "nothing arrived yet")
-        val view = ChildLocation(kid, null, null, emptyList(), emptyList(), emptyList())
-        source.views.emit(view)
-        assertEquals(LocationState(view, loaded = true), vm.state.value)
-        assertEquals(1, source.collections)
-        job.cancel()
-    }
-
-    @Test
-    fun aNullViewIsMissingOnlyOnceTheGroupIsReadable() = runTest(dispatcher) {
-        val ready = MutableStateFlow(false)
-        val source = FakeSource(ready)
-        val vm = LocationViewModel(source)
-        val job = launch { vm.state.collect {} }
-        source.views.emit(null)
         assertFalse(vm.state.value.loaded, "a locked group is still loading")
-        ready.value = true
+        source.ready.value = true
         assertTrue(vm.state.value.loaded)
-        assertNull(vm.state.value.child)
+        val c = ChildLocation(kid, null, null, emptyList(), emptyList(), emptyList())
+        source.kids.value = listOf(c)
+        source.cloud.value = true
+        assertEquals(MapState(listOf(c), cloudOn = true, loaded = true), vm.state.value)
         job.cancel()
     }
 }

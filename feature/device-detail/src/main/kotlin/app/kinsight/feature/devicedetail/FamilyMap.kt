@@ -43,18 +43,30 @@ internal fun FamilyMap(zones: List<ZoneView>, route: List<GeoPoint>, last: GeoPo
         val scale = projection?.scaleBarMeters(w)
         val scaleLabel = scale?.let { if (it >= 1_000) stringResource(R.string.det_map_scale_km, it / 1_000) else stringResource(R.string.det_map_scale_m, it) }
         val colors = MaterialTheme.colorScheme
-        val label = MaterialTheme.typography.labelSmall.copy(color = colors.onSurface)
+        val label = MaterialTheme.typography.labelMedium.copy(color = colors.onSurface)
         val measurer = rememberTextMeasurer()
-        // A halo or a zone larger than the fit (a capped accuracy) must not paint over the list around the map.
+        // UI refresh §5: a light card with a faint grid, translucent zones, the route in the accent colour. A halo or a
+        // zone larger than the fit (a capped accuracy) must not paint over the list around the map.
         Canvas(Modifier.fillMaxSize().clipToBounds()) {
-            drawRect(colors.surfaceVariant)
+            drawRect(colors.surfaceContainerHighest)
+            val step = 24.dp.toPx()
+            var gx = step
+            while (gx < size.width) {
+                drawLine(colors.outlineVariant, Offset(gx, 0f), Offset(gx, size.height), strokeWidth = 1f)
+                gx += step
+            }
+            var gy = step
+            while (gy < size.height) {
+                drawLine(colors.outlineVariant, Offset(0f, gy), Offset(size.width, gy), strokeWidth = 1f)
+                gy += step
+            }
             val p = projection ?: return@Canvas
             fun at(latE7: Int, lonE7: Int) = Offset(p.x(lonE7), p.y(latE7))
             for (z in zones) {
                 val c = at(z.latE7, z.lonE7)
                 val r = p.px(z.radiusM.toDouble())
-                drawCircle(colors.primary.copy(alpha = 0.18f), r, c)
-                drawCircle(colors.primary, r, c, style = Stroke(2.dp.toPx()))
+                drawCircle(colors.primary.copy(alpha = 0.14f), r, c)
+                drawCircle(colors.primary.copy(alpha = 0.55f), r, c, style = Stroke(1.5.dp.toPx()))
                 drawText(measurer, z.name, c + Offset(4.dp.toPx(), 4.dp.toPx()), label, overflow = TextOverflow.Clip, softWrap = false, maxLines = 1)
             }
             if (route.size > 1) {
@@ -63,19 +75,18 @@ internal fun FamilyMap(zones: List<ZoneView>, route: List<GeoPoint>, last: GeoPo
                     val o = at(pt.latE7, pt.lonE7)
                     if (i == 0) path.moveTo(o.x, o.y) else path.lineTo(o.x, o.y)
                 }
-                drawPath(path, colors.tertiary, style = Stroke(3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+                drawPath(path, colors.primary, style = Stroke(4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
             }
-            route.forEach { pt -> drawCircle(colors.tertiary, 3.dp.toPx(), at(pt.latE7, pt.lonE7)) }
             last?.let { pt ->
                 val o = at(pt.latE7, pt.lonE7)
                 drawCircle(colors.primary.copy(alpha = 0.15f), p.px(pt.accuracyM.toDouble()), o)
-                drawCircle(colors.primary, 7.dp.toPx(), o)
-                drawCircle(colors.onPrimary, 7.dp.toPx(), o, style = Stroke(2.dp.toPx()))
+                drawCircle(colors.surfaceContainerHighest, 9.dp.toPx(), o)
+                drawCircle(colors.primary, 6.dp.toPx(), o)
             }
             if (scale != null && scaleLabel != null) {
                 val x0 = 12.dp.toPx()
                 val y = size.height - 12.dp.toPx()
-                drawLine(colors.onSurface, Offset(x0, y), Offset(x0 + p.px(scale.toDouble()), y), strokeWidth = 2.dp.toPx())
+                drawLine(colors.onSurfaceVariant, Offset(x0, y), Offset(x0 + p.px(scale.toDouble()), y), strokeWidth = 2.dp.toPx())
                 drawText(measurer, scaleLabel, Offset(x0, y - 18.dp.toPx()), label)
             }
         }
