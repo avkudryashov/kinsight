@@ -166,7 +166,7 @@
     <string name="set_zones_body">Места, которые задали родители</string>
     <string name="set_parent_unlock">Изменить настройки</string>
     <string name="set_parent_unlock_body">Только родитель, по PIN родителя</string>
-    <string name="set_parent_unlock_no_pin">Родитель ещё не задал PIN. Его задают в настройках Kinsight на телефоне родителя.</string>
+    <string name="set_parent_unlock_no_pin">Родитель ещё не задал PIN. Его задают в разделе Ещё → PIN родителей на телефоне родителя.</string>
     <string name="set_pin_title">PIN родителя</string>
     <string name="set_pin_ok">Открыть</string>
     <string name="set_pin_wrong">Неверный PIN</string>
@@ -174,8 +174,8 @@
     <string name="set_unlocked">Настройки открыты для родителя на 5 минут.</string>
     <string name="set_lock">Закрыть настройки</string>
     <string name="set_pin_section">PIN для телефонов детей</string>
-    <string name="set_pin_none">PIN не задан: на телефоне ребёнка его настройки изменить нельзя.</string>
-    <string name="set_pin_set_body">Телефон ребёнка спрашивает этот PIN, прежде чем дать изменить свои настройки. Новый PIN дойдёт до телефонов детей при следующей синхронизации.</string>
+    <string name="more_pin_set">Задан</string>
+    <string name="more_pin_none">Не задан</string>
     <string name="set_pin_new">Новый PIN, от 4 до 8 цифр</string>
     <string name="set_pin_repeat">Повторите PIN</string>
     <string name="set_pin_save">Сохранить</string>

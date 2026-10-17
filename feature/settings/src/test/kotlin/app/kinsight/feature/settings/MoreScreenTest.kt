@@ -125,7 +125,7 @@ class MoreScreenTest {
         val set = mutableListOf<String>()
         show(parentUi(), onSetPin = { set += it })
         rule.onNodeWithTag("more_list").performScrollToNode(hasTestTag("more_pin"))
-        rule.onNodeWithText("No PIN yet", substring = true, useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("Not set", useUnmergedTree = true).assertExists()
         rule.onNodeWithTag("more_pin").performClick()
         rule.onNodeWithTag("set_pin_new").performTextInput("2468")
         rule.onNodeWithTag("set_pin_repeat").performTextInput("2469")
@@ -134,6 +134,13 @@ class MoreScreenTest {
         rule.onNodeWithTag("set_pin_repeat").performTextInput("2468")
         rule.onNodeWithTag("set_pin_save").assertIsEnabled().performClick()
         assertEquals(listOf("2468"), set)
+    }
+
+    @Test
+    fun thePinRowCaptionIsAShortStatus() {
+        show(parentUi(lock = LockUi(ChildLockStatus(canSetPin = true, pinSet = true))))
+        rule.onNodeWithTag("more_list").performScrollToNode(hasTestTag("more_pin"))
+        rule.onNodeWithText("Set", useUnmergedTree = true).assertExists()
     }
 
     @Test

@@ -124,7 +124,7 @@ fun MoreScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     MoreRow(
                         stringResource(R.string.more_pin),
-                        stringResource(if (ui.lock.status.pinSet) R.string.set_pin_set_body else R.string.set_pin_none),
+                        stringResource(if (ui.lock.status.pinSet) R.string.more_pin_set else R.string.more_pin_none),
                         "more_pin",
                         { setPin = true },
                     )

@@ -164,7 +164,7 @@
     <string name="set_zones_body">Los lugares que marcaron tus padres</string>
     <string name="set_parent_unlock">Cambiar ajustes</string>
     <string name="set_parent_unlock_body">Solo un adulto de la familia, con el PIN de los adultos</string>
-    <string name="set_parent_unlock_no_pin">Los adultos aún no han puesto un PIN. Se pone en los ajustes de Kinsight en el teléfono de un adulto de la familia.</string>
+    <string name="set_parent_unlock_no_pin">Los adultos aún no han puesto un PIN. Se pone en Más → PIN de los adultos en el teléfono de un adulto.</string>
     <string name="set_pin_title">PIN de los adultos</string>
     <string name="set_pin_ok">Abrir</string>
     <string name="set_pin_wrong">PIN incorrecto</string>
@@ -172,8 +172,8 @@
     <string name="set_unlocked">Los ajustes están abiertos para un adulto durante 5 minutos.</string>
     <string name="set_lock">Bloquear ajustes</string>
     <string name="set_pin_section">PIN para los teléfonos de los menores</string>
-    <string name="set_pin_none">Aún no hay PIN: los ajustes del teléfono de un menor no se pueden cambiar en ese teléfono.</string>
-    <string name="set_pin_set_body">El teléfono de un menor pide este PIN antes de dejar cambiar sus ajustes. Un PIN nuevo llega a los teléfonos de los menores en su siguiente sincronización.</string>
+    <string name="more_pin_set">Configurado</string>
+    <string name="more_pin_none">Sin configurar</string>
     <string name="set_pin_new">PIN nuevo, de 4 a 8 cifras</string>
     <string name="set_pin_repeat">Repite el PIN</string>
     <string name="set_pin_save">Guardar</string>
