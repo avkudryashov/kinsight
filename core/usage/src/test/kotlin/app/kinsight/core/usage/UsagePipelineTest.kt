@@ -412,10 +412,10 @@ class UsagePipelineTest {
         assertEquals("Maps", own().single { it.kind == EntryKind.APP_CATALOG }.body.app_catalog!!.label)
     }
 
+    /** Since cloud Y5 (spec §10) a hidden notification is a signal the parents see, never a pause: usage goes on. */
     @Test
-    fun aHiddenNotificationPausesUsageButNotEventsAndBackfillsWhenShown() = runTest {
+    fun aHiddenNotificationIsASignalNotAPause() = runTest {
         store.applyBatch(listOf(genesis.entry))
-        var hidden = false
         val apps = FakeApps().also { it.known[MAPS] = AppInfo("Maps", byteArrayOf(1, 2), 6) }
         val p = UsagePipeline(
             db = db,
@@ -425,73 +425,14 @@ class UsagePipelineTest {
             target = { PublishTarget(genesis.groupId, keys) },
             clock = { clock.wallMs },
             today = { LocalDate.ofInstant(Instant.ofEpochMilli(clock.wallMs), zone) },
-            usagePaused = { hidden },
         )
-        p.setSharing(true) // seq 2: SHARING_RESUMED; nothing collected yet, so no usage and no publish mark
-        hidden = true
-        assertTrue(p.queueEvent(StateEvent.Kind.NOTIFICATION_HIDDEN, clock.wallMs, clock.wallMs))
-        source.events += listOf(s.resumed("09:00", MAPS), s.paused("09:30", MAPS))
-
-        val paused = p.collectAndPublish(force = true).publish!!
-        assertTrue(paused.paused)
-        assertEquals(1, paused.events) // the parents still hear NOTIFICATION_HIDDEN
-        assertEquals(listOf(StateEvent.Kind.SHARING_RESUMED, StateEvent.Kind.NOTIFICATION_HIDDEN), own().map { it.stateKind() })
-        assertTrue(own().none { it.kind == EntryKind.USAGE_SUMMARY || it.kind == EntryKind.USAGE_DETAIL || it.kind == EntryKind.APP_CATALOG })
-        assertEquals(listOf("2026-10-09"), RoomUsageQueue(db).changedDays().map { it.date }) // counted, kept for later
-
-        hidden = false
-        val shown = p.collectAndPublish().publish!! // not forced: the hourly limit must not hold the backlog back
-        assertFalse(shown.paused)
-        assertEquals(listOf("2026-10-09"), shown.days)
-        assertEquals(listOf(MAPS), shown.catalog)
-        assertEquals(30 * MIN, own().single { it.kind == EntryKind.USAGE_SUMMARY }.body.usage_summary!!.total_ms)
-    }
-
-    @Test
-    fun aHiddenNotificationAfterAPublishHoldsTheTimeUntilShownThenTheHourlyLimitApplies() = runTest {
-        store.applyBatch(listOf(genesis.entry))
-        var hidden = false
-        val apps = FakeApps().also { it.known[MAPS] = AppInfo("Maps", byteArrayOf(1, 2), 6) }
-        val p = UsagePipeline(
-            db = db,
-            collector = Collector(RoomUsageQueue(db), source, FakeAccess(), clock, FakeLaunchers()),
-            settings = settings,
-            apps = apps,
-            target = { PublishTarget(genesis.groupId, keys) },
-            clock = { clock.wallMs },
-            today = { LocalDate.ofInstant(Instant.ofEpochMilli(clock.wallMs), zone) },
-            usagePaused = { hidden },
-        )
-        fun summaryMs() = runBlocking { own().filter { it.kind == EntryKind.USAGE_SUMMARY }.maxBy { it.seq }.body.usage_summary!!.total_ms }
-
-        // Unpaused first: a summary goes out and sets the hourly publish mark.
-        source.events += listOf(s.resumed("09:00", MAPS), s.paused("09:30", MAPS))
-        p.collectAndPublish() // sharing is off: collect only
         p.setSharing(true)
-        assertEquals(30 * MIN, summaryMs())
-        val published = store.authorState(keys.deviceId).lastSeq
-
-        // Hidden: new time is counted, neither a normal nor a forced run signs it.
-        hidden = true
         assertTrue(p.queueEvent(StateEvent.Kind.NOTIFICATION_HIDDEN, clock.wallMs, clock.wallMs))
-        clock.advance(20 * MIN) // 10:20
-        source.events += listOf(s.resumed("10:00", MAPS), s.paused("10:10", MAPS))
-        assertTrue(p.collectAndPublish().publish!!.paused)
-        assertTrue(p.collectAndPublish(force = true).publish!!.paused)
-        assertEquals(published + 1, store.authorState(keys.deviceId).lastSeq) // only NOTIFICATION_HIDDEN
-        assertEquals(30 * MIN, summaryMs())
-
-        // Shown again within the hour of the last publish: the hourly limit still holds the summary back.
-        hidden = false
-        val early = p.collectAndPublish().publish!!
-        assertFalse(early.paused)
-        assertTrue(early.days.isEmpty())
-        assertEquals(30 * MIN, summaryMs())
-
-        // Once the hour has passed, the paused time goes out in full.
-        clock.advance(60 * MIN) // 11:20
-        val late = p.collectAndPublish().publish!!
-        assertEquals(listOf("2026-10-09"), late.days)
-        assertEquals(40 * MIN, summaryMs())
+        source.events += listOf(s.resumed("09:00", MAPS), s.paused("09:30", MAPS))
+        val report = p.collectAndPublish(force = true).publish!!
+        assertEquals(1, report.events)
+        assertEquals(listOf("2026-10-09"), report.days)
+        assertTrue(StateEvent.Kind.NOTIFICATION_HIDDEN in own().map { it.stateKind() })
+        assertEquals(30 * MIN, own().single { it.kind == EntryKind.USAGE_SUMMARY }.body.usage_summary!!.total_ms)
     }
 }

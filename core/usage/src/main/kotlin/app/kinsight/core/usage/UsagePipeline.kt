@@ -25,10 +25,7 @@ data class RunReport(val collect: CollectResult, val publish: PublishReport?)
  * [onOwnStateEvent] hears every own StateEvent this pipeline signs, and every event [queueEvent] accepts while
  * sharing is on (the next session signs it first: SyncGraph.prepare), so the app can bring a parent in range the
  * news at once (IntegrityFastSync, core/data). It runs inside the pipeline lock: it must not block or call back.
- *
- * [usagePaused] is a pause of usage only (integrity events still go); the app installs none since cloud Y5, where a
- * hidden notification is a signal, not a pause. While it holds, publishing signs the queued integrity events but no
- * usage (Publisher). Inside the pipeline lock: DataStore or Room reads only.
+ * Since cloud Y5 nothing pauses usage on its own: a hidden notification is a signal (NOTIFICATION_HIDDEN), not a pause.
  */
 class UsagePipeline(
     private val db: KinsightDatabase,
@@ -40,7 +37,6 @@ class UsagePipeline(
     private val today: () -> LocalDate = LocalDate::now,
     private val ownUsage: suspend (PublishTarget?) -> Boolean = { true },
     private val onOwnStateEvent: (StateEvent.Kind) -> Unit = {},
-    private val usagePaused: suspend () -> Boolean = { false },
 ) {
     private val mutex = Mutex()
     private val queue = RoomUsageQueue(db)
@@ -146,7 +142,7 @@ class UsagePipeline(
     }
 
     private fun publisher(t: PublishTarget?): Publisher? =
-        t?.let { Publisher(queue, RoomEntryStore(db, it.groupId), it.keys, apps, clock, today, onStateEvent = onOwnStateEvent, usagePaused = usagePaused) }
+        t?.let { Publisher(queue, RoomEntryStore(db, it.groupId), it.keys, apps, clock, today, onStateEvent = onOwnStateEvent) }
 
     private companion object {
         const val DAY_MS = 86_400_000L
