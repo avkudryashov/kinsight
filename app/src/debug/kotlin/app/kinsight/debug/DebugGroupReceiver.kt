@@ -13,6 +13,8 @@ import app.kinsight.core.data.CloudTrigger
 import app.kinsight.core.database.KinsightDatabaseFactory
 import app.kinsight.core.database.RoomEntryStore
 import app.kinsight.core.keystore.DeviceIdentity
+import app.kinsight.core.location.LocationDebug
+import app.kinsight.core.location.LocationPermissions
 import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.proto.AppCatalog
@@ -39,7 +41,28 @@ import kotlin.time.Duration.Companion.seconds
  * No intent filter: adb addresses it explicitly, e.g.
  * `am broadcast -n app.kinsight/.debug.DebugGroupReceiver -a app.kinsight.debug.STATUS`.
  * Cloud hooks: CLOUD_SYNC_NOW (one run of the process-wide runner), CLOUD_STATUS (never a token), CLOUD_FAKE_DISK
- * (`--ez on true|false`, the in-memory Disk instead of Yandex).
+ * (`--ez on true|false`, the in-memory Disk instead of Yandex), CLOUD_FAKE_ENABLE (an admin parent with the fake Disk
+ * on turns the cloud on through the real path with a fake token, CloudDebugEnable). Location hooks: ZONE_ADD (an admin
+ * parent adds a safe zone through LocationRepository; the answer is the save result only), LOCATION_STATUS (the child's
+ * gate, tracker mode, outside service, next tick, zone counts, permission and open tamper problems; never a coordinate).
+ *
+ * Emulator check of the child's location (the in-memory Disk is per process: the two emulators never share a storage,
+ * no pack travels between them, and cross-emulator cloud sync is out of scope; the child gets the access over Bluetooth):
+ * ```
+ * R=app.kinsight/.debug.DebugGroupReceiver; A=app.kinsight.debug
+ * # both phones, after pairing over Bluetooth:
+ * adb -s <phone> shell am broadcast -n $R -a $A.CLOUD_FAKE_DISK --ez on true
+ * # the parent (an admin):
+ * adb -s <parent> shell am broadcast -n $R -a $A.CLOUD_FAKE_ENABLE
+ * adb -s <parent> shell am broadcast -n $R -a $A.ZONE_ADD --es lat 40.4168 --es lon -3.7038 --ei radius 150 --es name Home
+ * adb -s <parent> shell am broadcast -n $R -a $A.SYNC_NOW   # the StorageOwner, CloudAccess and zone reach the child
+ * # the child (consented, sharing):
+ * adb -s <child> shell am broadcast -n $R -a $A.SYNC_NOW
+ * adb -s <child> shell am broadcast -n $R -a $A.CLOUD_STATUS      # cloud=on self=member access=yes
+ * adb -s <child> shell am broadcast -n $R -a $A.LOCATION_STATUS
+ * ```
+ * The fake Disk lives as long as the process: after a restart switch it on again before any cloud run, or the fake token
+ * goes to Yandex and the run ends in a 401.
  */
 class DebugGroupReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -89,6 +112,12 @@ class DebugGroupReceiver : BroadcastReceiver() {
         "$PREFIX.CLOUD_SYNC_NOW" -> "cloud=" + AppGraph.get(c).cloud.run(CloudTrigger.NOW)
         "$PREFIX.CLOUD_STATUS" -> AppGraph.get(c).cloud.describe()
         "$PREFIX.CLOUD_FAKE_DISK" -> DebugCloud.fakeDisk(intent.getBooleanExtra("on", true))
+        "$PREFIX.CLOUD_FAKE_ENABLE" -> DebugCloud.fakeEnable(AppGraph.get(c).cloudSignIn)
+        "$PREFIX.ZONE_ADD" -> {
+            val d = DebugLocation.draft(intent.getStringExtra("lat"), intent.getStringExtra("lon"), intent.getIntExtra("radius", 0), intent.getStringExtra("name"))
+            "zone=" + AppGraph.get(c).location.save(d)
+        }
+        "$PREFIX.LOCATION_STATUS" -> locationStatus(c)
         else -> error("unknown action ${intent.action}")
     }
 
@@ -135,6 +164,24 @@ class DebugGroupReceiver : BroadcastReceiver() {
         } finally {
             bitmap.recycle()
         }
+    }
+
+    /** LOCATION_STATUS: counts, modes and times only (DebugLocation.statusLine); the result never holds a coordinate. */
+    private suspend fun locationStatus(c: Context): String {
+        val graph = AppGraph.get(c)
+        val t = SyncGraph.state(c)
+        val problems = DebugLocation.problems(
+            t.bluetoothOffSinceMs(), t.notificationHiddenSinceMs(), t.nearbyOffSinceMs(), t.locationAccessOffSinceMs(), t.locationDisabledSinceMs(),
+        )
+        return DebugLocation.statusLine(
+            LocationDebug.status(c),
+            graph.familyLocation.watchGate(),
+            graph.familyLocation.zones()?.size,
+            LocationPermissions.state(c),
+            LocationPermissions.systemEnabled(c),
+            problems,
+            System.currentTimeMillis(),
+        )
     }
 
     private suspend fun status(c: Context): String {
