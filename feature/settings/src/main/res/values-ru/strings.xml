@@ -130,7 +130,7 @@
     <string name="set_cloud_err_other">Не удалось включить облако.</string>
     <string name="set_cloud_handover">Передать хранилище другому родителю</string>
     <string name="set_cloud_handover_title">Кому передать хранилище?</string>
-    <string name="set_cloud_handover_body">Этот родитель войдёт в свой Яндекс на своём телефоне, и данные семьи переедут на его Диск.</string>
+    <string name="set_cloud_handover_body">Этот родитель войдёт в свой Яндекс на своём телефоне, и данные семьи переедут на его Диск. Родитель, который ещё не администратор, станет им.</string>
     <string name="set_cloud_handover_pending">Ждём, пока %1$s примет хранилище</string>
     <string name="set_cloud_handover_from">%1$s передаёт вам семейное хранилище</string>
     <string name="set_cloud_take_over">Принять хранилище</string>

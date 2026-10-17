@@ -1,5 +1,6 @@
 package app.kinsight.core.data
 
+import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.Membership
@@ -395,6 +396,25 @@ class CloudOwnerMoveTest {
         assertEquals("Dad", atMom.handoverPendingTo)
         assertEquals(listOf("Dad"), atMom.handoverTargets.map { it.name })
         assertTrue(atMom.handoverNeeded)
+    }
+
+    /** Spec §7.1 «Владелец выбирает родителя», §3 «родитель-администратор»: the request makes a plain parent an admin. */
+    @Test
+    fun aParentWhoIsNotAnAdminIsMadeOneByTheHandover() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        dad.joinGroupOf(mom, DeviceRole.PARENT, "Dad")
+        kid.joinGroupOf(mom)
+        mom.ownStorage(token = "AT")
+        val before = CloudViews.status(mom.snapshots.load(emptyMap()), CloudState(), available = true)
+        assertEquals(listOf("Dad"), before.handoverTargets.map { it.name }, "a parent, admin or not; never the child")
+        assertTrue(before.handoverNeeded)
+        assertFalse(mom.signIn(http, disks::disk).requestHandover(kid.keys.deviceId))
+        assertTrue(mom.signIn(http, disks::disk).requestHandover(dad.keys.deviceId))
+        dadHearsFromMom()
+        assertTrue(membershipOf(dad).active.getValue(dad.keys.deviceId).isAdmin)
+        val atDad = CloudViews.status(dad.snapshots.load(emptyMap()), CloudState(), available = true)
+        assertEquals("Mom", atDad.handoverFrom)
+        assertTrue(atDad.canTakeOver)
     }
 
     @Test

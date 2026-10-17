@@ -79,7 +79,8 @@ object CloudViews {
         val unavailable = !selfIsOwner && adminParent && OwnerLifecycle.ownerUnavailable(m, state.ownerHeardFrom(owner.deviceId), nowMs)
         val handoverTo = OwnerLifecycle.handoverTo(m, r.handovers)
         val ownerName = m.active[owner.deviceId]?.displayName ?: m.departed[owner.deviceId]?.member?.displayName
-        val targets = if (selfIsOwner) SnapshotViews.members(r, nowMs).filter { !it.isSelf && it.isAdmin && it.role == Role.PARENT } else emptyList()
+        // Spec §7.1 «Владелец выбирает родителя»: any other parent; one not yet an admin is made one by the request.
+        val targets = if (selfIsOwner) SnapshotViews.members(r, nowMs).filter { !it.isSelf && it.role == Role.PARENT } else emptyList()
         // Spec §11: 401 asks the owner to restore and the others to wait; 507 warns the owner only; network trouble is quiet.
         // Spec §7.4: an exposed token asks the owner for a new one (the same sign-in renews it).
         val problem = when (state.problem) {

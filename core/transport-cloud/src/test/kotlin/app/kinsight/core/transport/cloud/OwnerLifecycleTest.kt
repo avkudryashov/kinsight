@@ -202,6 +202,16 @@ class OwnerLifecycleTest {
         assertFalse(OwnerLifecycle.canTakeOver(m, momKeys.deviceId, asked, null, 0))
     }
 
+    /** Spec §7.1 «есть другой родитель»: a parent who is not an admin yet blocks the leave too (the handover makes one). */
+    @Test
+    fun aParentWhoIsNotAnAdminAlsoWaitsForTheStorage() {
+        val m = Membership.compute(gid, base.filter { it.body.membership_op?.set_admin == null } + mom1)!!
+        assertFalse(m.active.getValue(dadKeys.deviceId).isAdmin)
+        assertEquals(OwnerLeaveBlock.HANDOVER_NEEDED, OwnerLifecycle.leaveBlock(m, momKeys.deviceId, emptyList()))
+        val kidOnly = Membership.compute(gid, listOf(base[0], base[2]) + mom1)!!
+        assertNull(OwnerLifecycle.leaveBlock(kidOnly, momKeys.deviceId, emptyList()), "a child never takes the storage")
+    }
+
     @Test
     fun theOwnerMayNotLeaveAnotherParentWithoutTheStorage() {
         assertEquals(OwnerLeaveBlock.HANDOVER_NEEDED, OwnerLifecycle.leaveBlock(state(), momKeys.deviceId, emptyList()))

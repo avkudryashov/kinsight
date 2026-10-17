@@ -10,6 +10,7 @@ import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.StorageOwnerState
+import app.kinsight.core.model.grantAdminEntry
 import app.kinsight.core.model.storageHandoverEntry
 import app.kinsight.core.sync.CLOUD_PROTOCOL_VERSION
 import app.kinsight.core.transport.ble.GroupConfig
@@ -484,15 +485,19 @@ class CloudSignIn(
         }
     }
 
-    /** Spec §7.1 «Владелец выбирает родителя»: the owner asks [to], an active admin parent, to take the storage. */
+    /**
+     * Spec §7.1 «Владелец выбирает родителя»: the owner asks [to], another active parent, to take the storage. Only an
+     * admin parent may own it (spec §3), so a parent who is not one yet is made an admin in the same signed batch.
+     */
     suspend fun requestHandover(to: DeviceId): Boolean {
         val group = withContext(io) { groups.read() } ?: return false
         val self = keys().deviceId
         val m = Membership.compute(group.groupId, RoomEntryStore(db, group.groupId).membershipEntries()) ?: return false
         val owner = m.storageOwner ?: return false
         val target = m.active[to] ?: return false
-        if (owner.deviceId != self || self !in m.active || to == self || !target.isAdmin || target.isChild) return false
-        return appendOwn { a -> listOf(a.storageHandoverEntry(to, owner.generation)) }
+        if (owner.deviceId != self || self !in m.active || to == self || target.isChild) return false
+        // Each create takes the next seq: the grant is created only when it is signed.
+        return appendOwn { a -> listOfNotNull(if (target.isAdmin) null else a.grantAdminEntry(to), a.storageHandoverEntry(to, owner.generation)) }
     }
 
     /** A member whose newest Heartbeat says protocol below 3 could not take the cloud entries. No Heartbeat: no refusal. */

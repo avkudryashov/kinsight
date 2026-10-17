@@ -18,11 +18,11 @@ object GroupRules {
     fun canLeave(state: GroupState.Ready) = SnapshotViews.canLeave(state)
 
     /**
-     * Spec §7.1: leaving turns the cloud off only for the storage owner with no other admin parent to take it; with one,
-     * the leave is refused (LeaveError.OWNER_HANDOVER), so no warning. Same predicate as OwnerLifecycle.leaveBlock.
+     * Spec §7.1: leaving turns the cloud off only for the storage owner with no other parent to take it; with one, the
+     * leave is refused (LeaveError.OWNER_HANDOVER), so no warning. Same predicate as OwnerLifecycle.leaveBlock.
      */
     fun leaveTurnsCloudOff(state: GroupState.Ready) =
-        state.selfOwnsStorage && state.members.none { !it.isSelf && it.isAdmin && it.role == Role.PARENT }
+        state.selfOwnsStorage && state.members.none { !it.isSelf && it.role == Role.PARENT }
 
     fun needsSecondAdmin(self: MemberView, members: List<MemberView>) =
         self.isAdmin && members.count { it.isAdmin } == 1 && members.any { !it.isSelf && it.role == Role.PARENT }

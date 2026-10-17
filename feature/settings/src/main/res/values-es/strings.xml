@@ -126,7 +126,7 @@
     <string name="set_cloud_err_other">No se pudo activar la nube.</string>
     <string name="set_cloud_handover">Pasar el almacenamiento a otro adulto</string>
     <string name="set_cloud_handover_title">¿Quién se queda con el almacenamiento?</string>
-    <string name="set_cloud_handover_body">Ese adulto inicia sesión en su cuenta de Yandex en su teléfono y los datos de la familia se mudan a su Disco.</string>
+    <string name="set_cloud_handover_body">Ese adulto inicia sesión en su cuenta de Yandex en su teléfono y los datos de la familia se mudan a su Disco. Si ese adulto aún no es administrador, pasará a serlo.</string>
     <string name="set_cloud_handover_pending">Esperando a que %1$s acepte el almacenamiento</string>
     <string name="set_cloud_handover_from">%1$s te pasa el almacenamiento de la familia</string>
     <string name="set_cloud_take_over">Aceptar el almacenamiento</string>

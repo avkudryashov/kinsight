@@ -140,13 +140,14 @@ object OwnerLifecycle {
     }
 
     /**
-     * Spec §7.1: the owner does not leave while another admin parent could take the storage; a former owner whose storage
-     * moved to another Disk leaves once every phone switched (its old token is revoked then).
+     * Spec §7.1 «есть другой родитель»: the owner does not leave while any other parent could take the storage (one not
+     * yet an admin is made one by the handover request, spec §3: the owner is an admin parent); a former owner whose
+     * storage moved to another Disk leaves once every phone switched (its old token is revoked then).
      */
     fun leaveBlock(m: MembershipState, self: DeviceId, heartbeats: List<DecodedEntry>): OwnerLeaveBlock? {
         val owner = m.storageOwner ?: return null
         if (self !in m.active) return null
-        if (owner.deviceId == self && m.active.values.any { it.id != self && it.isAdmin && !it.isChild }) return OwnerLeaveBlock.HANDOVER_NEEDED
+        if (owner.deviceId == self && m.active.values.any { it.id != self && !it.isChild }) return OwnerLeaveBlock.HANDOVER_NEEDED
         val selfBytes = self.bytes().toByteString()
         val mine = ownerOps(m).map { it.body.membership_op!!.storage_owner!! }
             .filter { it.generation < owner.generation && it.device_id == selfBytes && it.storage_id != owner.storageId }
