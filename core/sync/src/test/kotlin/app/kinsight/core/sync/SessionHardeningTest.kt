@@ -4,6 +4,7 @@ import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.addMember
+import app.kinsight.core.model.parentPinEntry
 import app.kinsight.core.model.proto.AppTotal
 import app.kinsight.core.model.proto.BatchAck
 import app.kinsight.core.model.proto.CloudHandoff
@@ -83,16 +84,19 @@ class SessionHardeningTest {
     }
 
     @Test
-    fun aChildAskingForForeignEntriesGetsMembershipButNoBatch() = runBlocking<Unit> {
+    fun aChildAskingForForeignEntriesGetsMembershipAndOnlyTheParentsShare() = runBlocking<Unit> {
         val (parent, other, child) = buildGroup(3, role = { if (it == 2) DeviceRole.CHILD else DeviceRole.PARENT })
         parent.publish(other.author.summary(TODAY.toString(), 1)) // another member's data the parent would relay
         parent.publish(parent.author.categoryOverride("com.example.game", 1))
+        val pin = parent.author.parentPinEntry(ByteArray(16) { 1 }, ByteArray(32) { 2 }, 19_456, 2, rank = 1)
+        parent.publish(pin)
         val late = DeviceKeys.generate()
         val add = parent.author.addMember(late.sign.publicKey, late.dh.publicKey, "late", DeviceRole.CHILD)
         parent.publish(add)
         val (result, got) = withTimeout(30.seconds) { actAs(child, parent, wantsForeign = true) }
-        assertEquals(0, assertIs<SessionResult.Completed>(result).sentBatches)
-        assertTrue(got.none { it.batch != null }, "a child got ${got.count { it.batch != null }} batches")
+        assertEquals(1, assertIs<SessionResult.Completed>(result).sentBatches)
+        val sent = got.mapNotNull { it.batch }.flatMap { it.entries }.map { DecodedEntry.decode(it.toByteArray()) }
+        assertEquals(listOf(pin), sent, "a child takes the parents' PIN and nothing else of theirs")
         val offered = got.mapNotNull { it.membership }.flatMap { it.entries }.map { DecodedEntry.decode(it.toByteArray()) }
         assertTrue(add in offered, "the child must still receive the membership op")
     }

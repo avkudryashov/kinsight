@@ -8,6 +8,7 @@ import app.kinsight.core.model.MembershipLimits
 import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.proto.BatchAck
 import app.kinsight.core.model.proto.CloudHandoff
+import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.Done
 import app.kinsight.core.model.proto.EntryBatch
 import app.kinsight.core.model.proto.Hello
@@ -283,10 +284,17 @@ class SyncSession internal constructor(
         val window = Semaphore(SEND_WINDOW)
         val sender = launch {
             try {
-                // S-H1: the role decides, not the peer's flag. A CHILD takes only membership (spec §4.8), and that already
-                // went both ways in the offer exchange above, so a child gets no batch at all, whatever its Hello says.
+                // S-H1: the role decides, not the peer's flag. A CHILD takes membership (spec §4.8), which already went
+                // both ways in the offer exchange above, and, from protocol 3, the parents' FROM_PARENTS_TO_ALL entries
+                // (its PIN, safe zones and storage access, spec §10, §8.1), whatever its Hello says. A protocol 2 child
+                // gets no batch at all, as before.
                 val peerTakesForeign = hello.wants_foreign_entries && !peer.isChild
-                val n = sendData(ch, membership, peerVector, peerTakesForeign, peer.id, window)
+                val scope = when {
+                    peerTakesForeign -> SendScope.ALL
+                    agreed >= CLOUD_PROTOCOL_VERSION -> SendScope.FROM_PARENTS
+                    else -> SendScope.NONE
+                }
+                val n = sendData(ch, membership, peerVector, scope, peer.id, window)
                 send(ch, SyncMessage(done = Done()))
                 sentTotal.complete(n)
             } catch (e: IOException) {
@@ -384,9 +392,13 @@ class SyncSession internal constructor(
                     msg.done != null -> {
                         peerDone = true
                         // Author completion: the peer has now sent every entry of its own log above our announced
-                        // contig (all its batches precede Done), so its own announced seq closes any gap we have.
-                        // Only when we asked for foreign entries; otherwise it was not obliged to send any.
-                        if (policy.showOthers) store.completeAuthor(peer.id, peerVector[peer.id])
+                        // contig that we take (all its batches precede Done), so its own announced seq closes any gap
+                        // we have. With showOthers on, that is its whole log. With it off (a child), from protocol 3 it
+                        // is every FROM_PARENTS_TO_ALL entry of a parent (SendScope.FROM_PARENTS), the only kinds we
+                        // keep of it, so the rest of its log is accounted for and our position follows its own (no
+                        // resend in the next session). A protocol 2 peer sends a child nothing: no completion then.
+                        // Only the author completes its own log: a relay never makes us skip a seq of another author.
+                        if (policy.showOthers || agreed >= CLOUD_PROTOCOL_VERSION) store.completeAuthor(peer.id, peerVector[peer.id])
                     }
                     msg.reject != null -> {
                         sender.cancel()
@@ -445,11 +457,11 @@ class SyncSession internal constructor(
         ch: SecureChannel,
         membership: MembershipState,
         peerVector: VersionVector,
-        peerWantsForeign: Boolean,
+        scope: SendScope,
         peerId: DeviceId,
         window: Semaphore,
     ): Int {
-        if (!peerWantsForeign) return 0
+        if (scope == SendScope.NONE) return 0
         var batches = 0
         val pending = mutableListOf<ByteString>()
         var size = 0
@@ -465,8 +477,13 @@ class SyncSession internal constructor(
 
         // Everything we hold above the peer's contiguous vector. Relaying above our own contig is safe: the peer
         // accounts for exactly the seqs it receives, so a gap stays a gap until someone (or the author) fills it.
+        // For a child (SendScope.FROM_PARENTS): only parents' entries of the FROM_PARENTS_TO_ALL kinds, the ones its
+        // EntryValidator takes (the admin check is the reader's, as on every phone). Selected per kind, so the child
+        // accounts those seqs only; the parent's own completion (at its Done) then lifts the child's position past the
+        // rest of its log.
         for (author in (membership.active.keys + membership.departed.keys).sorted()) {
             if (author == peerId) continue
+            if (scope == SendScope.FROM_PARENTS && membership.roleOf(author) == DeviceRole.CHILD) continue
             var after = peerVector[author]
             while (true) {
                 val page = store.entriesAfter(author, after, PAGE)
@@ -474,6 +491,7 @@ class SyncSession internal constructor(
                 for (e in page) {
                     after = e.seq
                     if (!membership.acceptsEntryFrom(e.author, e.seq)) continue
+                    if (scope == SendScope.FROM_PARENTS && e.kind !in SyncPolicy.FROM_PARENTS_TO_ALL) continue
                     if (e.bytes.size > BATCH_BYTES) {
                         log("skipping oversized entry ${e.author.hex}#${e.seq}")
                         continue
@@ -511,6 +529,9 @@ class SyncSession internal constructor(
             send(ch, SyncMessage(membership = MembershipOffer(entries = entriesOfPage, more = i < pages.lastIndex)))
         }
     }
+
+    /** What [sendData] sends: everything, a child's share (parents' FROM_PARENTS_TO_ALL entries), or nothing. */
+    private enum class SendScope { ALL, FROM_PARENTS, NONE }
 
     private fun decodeOrNull(raw: ByteString): DecodedEntry? = try {
         DecodedEntry.decode(raw.toByteArray())
