@@ -63,10 +63,6 @@ private object NoEvents : EventSource {
     override fun read(fromMs: Long, untilMs: Long): List<UsageEvent> = emptyList()
 }
 
-private object Granted : UsageAccess {
-    override fun granted() = true
-}
-
 private object NoLaunchers : LauncherSource {
     override fun launchers(): Set<String> = emptySet()
 }
@@ -101,9 +97,14 @@ class TestDevice(
     val sessions = MutableStateFlow(SessionProgress(finished = 0, syncing = false))
     var identityBroken: Exception? = null
     val keyProvider: suspend () -> DeviceKeys = { identityBroken?.let { throw it } ?: keys }
+
+    /** Usage access (AppOpsManager): a new child grants it only after pairing (UI refresh §6). */
+    @Volatile var usageAccessGranted = true
     val pipeline = UsagePipeline(
         db = db,
-        collector = Collector(RoomUsageQueue(db), NoEvents, Granted, FixedClock { now }, NoLaunchers),
+        collector = Collector(RoomUsageQueue(db), NoEvents, object : UsageAccess {
+            override fun granted() = usageAccessGranted
+        }, FixedClock { now }, NoLaunchers),
         settings = settings,
         apps = NoApps,
         target = { groups.read()?.let { PublishTarget(it.groupId, keys) } },

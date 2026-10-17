@@ -134,6 +134,33 @@ class PairingCoordinatorTest {
         assertTrue("start:true" in kid.sync.calls)
     }
 
+    /**
+     * Task 13: the path of the new onboarding. The child agrees on CONSENT before PAIR (the pairing screen passes
+     * consent = true), usage access is not granted yet (the setup steps ask for it after PAIR), and sharing must be on
+     * the moment the join reports Joined, with SHARING_RESUMED signed, without finishInterruptedJoin. The setup steps
+     * after it (usage access given, a collection, a fresh process reconciling) leave it on.
+     */
+    @Test
+    fun aChildWhoConsentedBeforePairSharesRightAfterTheJoin() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        kid.usageAccessGranted = false
+        val (invite, qr) = openInvite()
+        val join = kidPairing.join(scope, qr, "Kid", consent = true)
+        invite.state.awaitFirst { it is InviteState.Confirm }
+        invite.confirm()
+        assertEquals(JoinState.Joined, join.state.awaitFirst { it is JoinState.Joined || it is JoinState.Failed })
+        val settled = kid.settings.current()
+        assertNotNull(settled.consentAtMs)
+        assertTrue(settled.sharing, "sharing is on right after the join, not only after the next app start")
+        assertEquals(1, ownSharingEvents(kid))
+        // The setup steps after PAIR: usage access granted, its watcher collects, then a fresh process reconciles.
+        kid.usageAccessGranted = true
+        kid.pipeline.collectAndPublish(force = true)
+        kid.pipeline.reconcileSharing()
+        assertTrue(kid.settings.current().sharing)
+        assertEquals(1, ownSharingEvents(kid), "nothing paused it and nothing signed it twice")
+    }
+
     @Test
     fun aJoinerGetsTheAccessAndTheKeyInTheWelcome() = runBlocking<Unit> {
         mom.group.createGroup("Mom")

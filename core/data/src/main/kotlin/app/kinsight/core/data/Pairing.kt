@@ -627,11 +627,15 @@ class PairingCoordinator(
             withContext(io) { groups.write(GroupConfig(invite.groupId, r.discoveryKey)) }
             // Spec §7.3: the owner's new phone takes the role with the same tokens (0 taps).
             r.cloud?.let { c -> if (c.refreshToken != null && c.access != null) ownerTaken = claimTransfer(k, r.discoveryKey, c) }
-            try {
+            // Task 13: a device run tells from this line whether the join turned sharing on (no personal data in it).
+            val sharing = try {
                 if (share) pipeline.setSharing(true) else pipeline.reconcileSharing()
+                "sharing=${settings.current().sharing}"
             } catch (e: Exception) {
                 Log.w(TAG, "joined, sharing not settled: $e") // finishInterruptedJoin / reconcileSharing at the next start
+                "sharing not settled: ${e.javaClass.simpleName}"
             }
+            Log.i(TAG, "joined: share=$share $sharing")
             try {
                 snapshots.invalidate()
                 sync.start(fast = true)
