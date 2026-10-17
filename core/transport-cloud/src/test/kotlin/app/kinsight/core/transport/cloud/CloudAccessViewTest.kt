@@ -16,6 +16,7 @@ import app.kinsight.core.sync.summary
 import okio.ByteString.Companion.toByteString
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 
@@ -45,6 +46,17 @@ class CloudAccessViewTest {
         assertEquals(momKeys.deviceId, seen.owner)
         assertEquals(1L, seen.generation)
         assertFalse("AT" in seen.toString())
+    }
+
+    @Test
+    fun anAccessTheRulesWouldRefuseIsNeverSigned() {
+        val before = mom.lastSeq
+        // A token so long the sealed record outgrows CloudAccessRules: a child would hold the owner's log open on it.
+        val huge = "x".repeat(app.kinsight.core.sync.CloudAccessRules.MAX_CIPHERTEXT_BYTES)
+        assertFailsWith<IllegalArgumentException> { CloudAccessView.issue(mom, membership, 0, gen0, huge, expiresAtMs = 99) }
+        assertEquals(before, mom.lastSeq, "no seq spent")
+        val ok = CloudAccessView.issue(mom, membership, 0, gen0, "AT", expiresAtMs = 99)
+        assertNull(app.kinsight.core.sync.CloudAccessRules.violation(ok, membership))
     }
 
     @Test

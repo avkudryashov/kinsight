@@ -11,6 +11,8 @@ import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.StorageOwnerState
 import app.kinsight.core.model.proto.CloudAccess
 import app.kinsight.core.model.proto.CloudGrant
+import app.kinsight.core.model.proto.DeviceRole
+import app.kinsight.core.sync.CloudAccessRules
 import app.kinsight.core.sync.EntryStore
 import okio.ByteString.Companion.toByteString
 import java.io.IOException
@@ -41,17 +43,18 @@ object CloudAccessView {
         val plain = CloudGrant.ADAPTER.encode(CloudGrant(access_token = accessToken, expires_at_ms = expiresAtMs))
         val aad = aad(membership.groupId, owner.generation, owner.storageId.toByteArray(), keyEpoch)
         val ciphertext = Primitives.chachaSeal(GroupKey.accessKey(groupKey), nonce, aad, plain)
-        return author.create {
-            it.copy(
-                cloud_access = CloudAccess(
-                    generation = owner.generation,
-                    storage_id = owner.storageId,
-                    key_epoch = keyEpoch,
-                    nonce = nonce.toByteString(),
-                    ciphertext = ciphertext.toByteString(),
-                ),
-            )
-        }
+        val access = CloudAccess(
+            generation = owner.generation,
+            storage_id = owner.storageId,
+            key_epoch = keyEpoch,
+            nonce = nonce.toByteString(),
+            ciphertext = ciphertext.toByteString(),
+        )
+        // Checked before signing, as every receiver checks it (CloudAccessRules): an entry a child's rules refuse would
+        // keep the owner's log open on that child for good (SyncSession.holdsBack), and a signed seq cannot be taken back.
+        require(membership.roleOf(owner.deviceId) != DeviceRole.CHILD) { "cloud access from a child" }
+        CloudAccessRules.fieldViolation(access)?.let { throw IllegalArgumentException("cloud access refused: $it") }
+        return author.create { it.copy(cloud_access = access) }
     }
 
     /**

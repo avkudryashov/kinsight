@@ -2,6 +2,7 @@ package app.kinsight.core.sync
 
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.MembershipState
+import app.kinsight.core.model.proto.CloudAccess
 import app.kinsight.core.model.proto.DeviceRole
 
 /**
@@ -19,6 +20,14 @@ object CloudAccessRules {
         val role = membership.roleOf(e.author) ?: return "unknown author"
         if (role == DeviceRole.CHILD) return "cloud access from a child"
         if (e.bodySize > MAX_BODY_BYTES) return "cloud access over $MAX_BODY_BYTES bytes"
+        return fieldViolation(a)
+    }
+
+    /**
+     * The checks on the record itself, for a writer to run before it signs (a signed seq cannot be taken back): with a
+     * ciphertext within [MAX_CIPHERTEXT_BYTES] the body stays far below [MAX_BODY_BYTES].
+     */
+    fun fieldViolation(a: CloudAccess): String? {
         if (a.generation < 1) return "generation ${a.generation}"
         if (a.storage_id.size != 16) return "storage id of ${a.storage_id.size} bytes"
         if (a.nonce.size != 12) return "nonce of ${a.nonce.size} bytes"
