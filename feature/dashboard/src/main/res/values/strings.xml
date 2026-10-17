@@ -27,9 +27,6 @@
     <string name="dash_card_collection_off">Screen time collection is off on the child\'s phone</string>
     <string name="dash_card_notification_hidden">The Kinsight notification is hidden on the child\'s phone</string>
     <string name="dash_open_bluetooth">Bluetooth settings</string>
-    <string name="dash_no_data_today">No data today</string>
-    <string name="dash_week_summary">Last 7 days: %1$s in total, most on %2$s</string>
-    <string name="dash_week_no_data">Last 7 days: no data</string>
     <string name="dash_vs_same">About the same as the 7-day average</string>
     <string name="dash_vs_more">%1$s more than the 7-day average</string>
     <string name="dash_vs_less">%1$s less than the 7-day average</string>
@@ -55,10 +52,12 @@
     <string name="dash_new_parent_body">Every parent of your family group sees it. Settings → Who sees my data lists everyone.</string>
     <string name="dash_new_parent_ok">Got it</string>
     <string name="dash_searching">Looking for your family\'s phones…</string>
-    <string name="dash_place_in_zone">In the zone “%1$s”, %2$s</string>
-    <string name="dash_place_in_unknown">In a safe zone, %1$s</string>
-    <string name="dash_place_outside">Outside the safe zones, %1$s</string>
-    <string name="dash_place_stale">%1$s (may be out of date)</string>
     <string name="dash_reconsent_body">Kinsight can now also send your screen time and where this phone is through a parent\'s Yandex Disk. See what changed and decide.</string>
     <string name="dash_reconsent_open">See what changed</string>
+    <string name="dash_top_today">Most used today</string>
+    <string name="dash_limit_pill">limit</string>
+    <string name="dash_warn_location_off">Location access is off</string>
+    <string name="dash_warn_location_disabled">Location is off</string>
+    <string name="dash_last_sync">Last sync %1$s</string>
+    <string name="dash_never_synced">Not synced yet</string>
 </resources>

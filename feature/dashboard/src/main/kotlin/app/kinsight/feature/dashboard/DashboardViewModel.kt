@@ -11,6 +11,7 @@ import app.kinsight.core.data.Role
 import app.kinsight.core.data.ServiceRepository
 import app.kinsight.core.data.ServiceStatus
 import app.kinsight.core.data.SettingsRepository
+import app.kinsight.core.data.ThresholdRule
 import app.kinsight.core.data.UsageRepository
 import app.kinsight.core.model.DeviceId
 import kotlinx.coroutines.CancellationException
@@ -35,6 +36,8 @@ data class DashboardUi(
     val newParents: List<MemberView> = emptyList(),
     /** On a child's phone: it agreed to an older consent text (UsageSettings.consentOutdated); Overview asks it to look. */
     val consentOutdated: Boolean = false,
+    /** The parent's day limits of the group's children: the card's bar and the apps' «лимит» marks (UI refresh §3). */
+    val thresholds: List<ThresholdRule> = emptyList(),
 )
 
 /**
@@ -74,8 +77,13 @@ class DashboardViewModel(
     // A read failure shows no re-consent card.
     private val childFlags = combine(acknowledged, settings.usageSettings.map { it.consentOutdated }.catch { emit(false) }) { ack, old -> ack to old }
 
-    val ui: StateFlow<DashboardUi> = combine(usage.dashboard, service.status, noContactHours, sharingFailed, childFlags) { d, s, h, f, (ack, old) ->
-        dashboardUi(d, s, h, f, ack, old)
+    // A read failure shows no bar and no mark, never an error.
+    private val rules = usage.thresholds.catch { emit(emptyList()) }
+
+    private val prefsAndRules = combine(noContactHours, rules) { h, r -> h to r }
+
+    val ui: StateFlow<DashboardUi> = combine(usage.dashboard, service.status, prefsAndRules, sharingFailed, childFlags) { d, s, (h, r), f, (ack, old) ->
+        dashboardUi(d, s, h, f, ack, old).copy(thresholds = r)
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUi())
 

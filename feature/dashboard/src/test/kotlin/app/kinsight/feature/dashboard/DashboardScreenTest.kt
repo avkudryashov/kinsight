@@ -1,7 +1,5 @@
 package app.kinsight.feature.dashboard
 
-import app.kinsight.core.data.LocationReadModel
-import app.kinsight.core.data.PlaceStatus
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -13,6 +11,14 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasAnyAncestor
+import app.kinsight.core.data.AppCategory
+import app.kinsight.core.data.AppUsage
+import app.kinsight.core.data.SetupWarning
+import app.kinsight.core.data.ThresholdRule
+import app.kinsight.core.data.ThresholdTarget
+import app.kinsight.core.data.TopApp
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -278,7 +284,8 @@ class DashboardScreenTest {
         val empty = DayTotal(today, 0, 0)
         val u = usage(kid, 0, 60).copy(today = empty, week = (6 downTo 0).map { DayTotal(today.minusDays(it.toLong()), 0, 0) }, updatedMs = null)
         show(DashboardUi(DashboardState(mom, null, listOf(u), emptyList()), running, true))
-        rule.onNodeWithText("No data today").assertExists()
+        rule.onNodeWithText("No data yet").assertExists()
+        rule.onNodeWithTag("dash_last_sync", useUnmergedTree = true).assertExists()
         rule.onNodeWithText("<1 min").assertDoesNotExist()
         rule.onNodeWithText("less than", substring = true).assertDoesNotExist()
     }
@@ -289,7 +296,7 @@ class DashboardScreenTest {
         val u = usage(kid, 0, null).copy(today = zero)
         show(DashboardUi(DashboardState(mom, null, listOf(u), emptyList()), running, true))
         rule.onNodeWithText("<1 min").assertExists()
-        rule.onNodeWithText("No data today").assertDoesNotExist()
+        rule.onNodeWithText("No data yet").assertDoesNotExist()
     }
 
     @Test
@@ -542,49 +549,55 @@ class DashboardScreenTest {
         rule.onNodeWithTag("dash_searching").assertDoesNotExist()
     }
 
-    @Test
-    fun aChildCardSaysWhereTheChildIs() {
-        val inZone = usage(kid, 30, 30).copy(place = PlaceStatus.InZone("aa".repeat(16), "Home", now - 5 * 60_000))
-        show(DashboardUi(DashboardState(mom, null, listOf(inZone), listOf(dad)), running, true))
-        rule.onNodeWithTag("dash_place", useUnmergedTree = true).assertTextContains("In the zone “Home”", substring = true)
-    }
-
-    /** Y4 parked minor: an old place says it may be out of date (like old data), a fresh one does not. */
-    @Test
-    fun anOldPlaceIsMarkedAsMaybeOutOfDate() {
-        val old = usage(kid, 30, 30).copy(place = PlaceStatus.InZone("aa".repeat(16), "Home", now - LocationReadModel.PLACE_STALE_MS - 60_000))
-        show(DashboardUi(DashboardState(mom, null, listOf(old), listOf(dad)), running, true))
-        rule.onNodeWithTag("dash_place", useUnmergedTree = true).assertTextContains("may be out of date", substring = true)
-    }
+    private val limit2h get() = ThresholdRule.of(kid.id, ThresholdTarget.Total, 2 * hour)!!
 
     @Test
-    fun aFreshPlaceIsNotMarked() {
-        val fresh = usage(kid, 30, 30).copy(place = PlaceStatus.Outside(null, now - LocationReadModel.PLACE_STALE_MS + 60_000))
-        show(DashboardUi(DashboardState(mom, null, listOf(fresh), listOf(dad)), running, true))
-        rule.onNode(hasTestTag("dash_place") and hasText("may be out of date", substring = true), useUnmergedTree = true).assertDoesNotExist()
-    }
-
-    /** Y4 Task 12 review Minor 3: a zone this phone does not know (any more) is still «in a zone», without a name. */
-    @Test
-    fun aChildInAZoneWithoutANameIsSaidToBeInAZone() {
-        val inUnknown = usage(kid, 30, 30).copy(place = PlaceStatus.InZone("aa".repeat(16), null, now - 60_000))
-        show(DashboardUi(DashboardState(mom, null, listOf(inUnknown), listOf(dad)), running, true))
-        rule.onNodeWithTag("dash_place", useUnmergedTree = true).assertTextContains("In a safe zone", substring = true)
-        rule.onNode(hasTestTag("dash_place") and hasText("“", substring = true), useUnmergedTree = true).assertDoesNotExist()
-    }
-
-    /** Y4 Task 12 review Minor 3: no word of the child's place yet: no place line at all. */
-    @Test
-    fun aChildWithoutAPlaceHasNoPlaceLine() {
-        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30).copy(place = null)), listOf(dad)), running, true))
-        rule.onNodeWithTag("dash_place", useUnmergedTree = true).assertDoesNotExist()
+    fun theDayLimitShowsWhatIsLeftThenByHowMuchItIsPassed() {
+        var used by mutableStateOf(90L)
+        rule.setContent {
+            KinsightTheme {
+                DashboardScreen(
+                    DashboardUi(DashboardState(mom, null, listOf(usage(kid, used, 60)), listOf(dad)), running, true, thresholds = listOf(limit2h)),
+                    now, onOpenDevice = {}, onResume = {}, onConsent = {}, onStart = {}, onSyncNow = {}, onInviteChild = {}, onOpenSettings = {},
+                )
+            }
+        }
+        rule.onNodeWithTag("limit_bar_text", useUnmergedTree = true).assertTextEquals("30 min left of 2 h")
+        used = 150
+        rule.onNodeWithTag("limit_bar_text", useUnmergedTree = true).assertTextEquals("30 min over the limit")
     }
 
     @Test
-    fun aChildOutsideIsSaidSo() {
-        val out = usage(kid, 30, 30).copy(place = PlaceStatus.Outside(null, now - 60_000))
-        show(DashboardUi(DashboardState(mom, null, listOf(out), listOf(dad)), running, true))
-        rule.onNodeWithTag("dash_place", useUnmergedTree = true).assertTextContains("Outside the safe zones", substring = true)
+    fun withoutADayLimitThereIsNoBar() {
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 90, 60)), listOf(dad)), running, true))
+        rule.onNodeWithTag("limit_bar", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun anOpenLocationProblemIsAWarningOnTheCard() {
+        val u = usage(kid, 30, 30).copy(setupWarnings = setOf(SetupWarning.LOCATION_DISABLED))
+        show(DashboardUi(DashboardState(mom, null, listOf(u), listOf(dad)), running, true))
+        rule.onNodeWithTag("dash_warning_LOCATION_DISABLED", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("Location is off", useUnmergedTree = true).assertExists()
+    }
+
+    @Test
+    fun theTopThreeAppsCarryALimitPillWhenTheAppOrItsCategoryHasALimit() {
+        val apps = listOf(
+            TopApp(AppUsage("com.example.game", "Game", null, 40 * 60_000L), AppCategory.GAMES),
+            TopApp(AppUsage("com.example.tube", "Tube", null, 30 * 60_000L), AppCategory.VIDEO),
+            TopApp(AppUsage("com.example.chat", "Chat", null, 10 * 60_000L), AppCategory.SOCIAL),
+        )
+        val rules = listOf(
+            ThresholdRule.of(kid.id, ThresholdTarget.App("com.example.game"), hour)!!,
+            ThresholdRule.of(kid.id, ThresholdTarget.Category(AppCategory.VIDEO), hour)!!,
+        )
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 80, 60).copy(topApps = apps)), listOf(dad)), running, true, thresholds = rules))
+        rule.onNodeWithText("Most used today").assertExists()
+        fun pillIn(pkg: String) = rule.onNode(hasTestTag("dash_limit_pill") and hasAnyAncestor(hasTestTag("dash_app_$pkg")), useUnmergedTree = true)
+        pillIn("com.example.game").assertExists()
+        pillIn("com.example.tube").assertExists()
+        pillIn("com.example.chat").assertDoesNotExist()
     }
 
     @Test

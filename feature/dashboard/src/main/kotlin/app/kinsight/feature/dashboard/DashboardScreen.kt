@@ -6,6 +6,7 @@ import android.content.Intent
 import android.provider.Settings
 import android.text.format.DateUtils
 import android.util.Log
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,18 +14,23 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
@@ -32,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -42,8 +49,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -54,6 +61,7 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
@@ -66,25 +74,31 @@ import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.DashboardState
 import app.kinsight.core.data.DeviceUsage
 import app.kinsight.core.data.MemberView
-import app.kinsight.core.data.LocationReadModel
-import app.kinsight.core.data.PlaceStatus
 import app.kinsight.core.data.Role as MemberRole
 import app.kinsight.core.data.ServiceStatus
+import app.kinsight.core.data.SetupWarning
 import app.kinsight.core.data.Sharing
+import app.kinsight.core.data.ThresholdEval
+import app.kinsight.core.data.ThresholdRule
+import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.data.TodayComparison
 import app.kinsight.core.data.UsageReadModel
-import app.kinsight.core.designsystem.component.BarChart
+import app.kinsight.core.designsystem.component.AppIcon
+import app.kinsight.core.designsystem.component.Avatar
 import app.kinsight.core.designsystem.component.EmptyState
+import app.kinsight.core.designsystem.component.LimitBar
+import app.kinsight.core.designsystem.component.Pill
 import app.kinsight.core.designsystem.component.dataMoment
 import app.kinsight.core.designsystem.component.durationText
 import app.kinsight.core.designsystem.component.relativeTime
+import app.kinsight.core.designsystem.theme.ChildCardGradient
+import app.kinsight.core.designsystem.theme.OnChildCard
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.transport.ble.ServiceState
 import app.kinsight.core.transport.ble.SyncProblem
 import app.kinsight.core.transport.ble.SyncService
 import app.kinsight.core.usage.UsageAccessSettings
 import kotlinx.coroutines.delay
-import java.time.format.TextStyle
 
 private const val HOUR_MS = 3_600_000L
 
@@ -206,7 +220,10 @@ fun DashboardScreen(
             if (child && ui.consentOutdated) item { ReconsentCard(onConsent) }
             if (child) {
                 item { ChildTransparencyRow(d.parents, d.selfUsage?.sharing ?: Sharing.Never, ui.sharingFailed, onResume, onConsent) }
-                d.selfUsage?.let { u -> item { DeviceCard(u, nowMs, noContactMs) { onOpenDevice(u.member.id) } } }
+                d.selfUsage?.let { u ->
+                    item { ChildCard(u, nowMs, noContactMs, totalLimit(ui.thresholds, u)) { onOpenDevice(u.member.id) } }
+                    item { TopApps(u, ui.thresholds) }
+                }
             } else if (d.children.isEmpty()) {
                 item {
                     EmptyState(stringResource(R.string.dash_empty_title), stringResource(R.string.dash_empty_body)) {
@@ -214,7 +231,12 @@ fun DashboardScreen(
                     }
                 }
             } else {
-                items(d.children, key = { it.member.id.hex }) { u -> DeviceCard(u, nowMs, noContactMs) { onOpenDevice(u.member.id) } }
+                items(d.children, key = { it.member.id.hex }) { u ->
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ChildCard(u, nowMs, noContactMs, totalLimit(ui.thresholds, u)) { onOpenDevice(u.member.id) }
+                        TopApps(u, ui.thresholds)
+                    }
+                }
             }
         }
     }
@@ -452,35 +474,41 @@ private fun ChildTransparencyRow(
     }
 }
 
+/** The child's «Всего за день» limit when a parent set one (UsageRepository.thresholds lists the group's children only). */
+internal fun totalLimit(rules: List<ThresholdRule>, u: DeviceUsage): Long? =
+    rules.firstOrNull { it.child == u.member.id && it.target == ThresholdTarget.Total }?.limitMs
+
+/**
+ * UI refresh §3: one bright card per child. Avatar and name, today's time large, the comparison, the day limit's bar
+ * when one is set and the data time; without data today «Данных пока нет» and the last sync. Then what needs a parent:
+ * open location problems, «no contact», a pause. Tapping it opens the report. White on the gradient keeps 4.5:1.
+ */
 @Composable
-private fun DeviceCard(u: DeviceUsage, nowMs: Long, noContactMs: Long, onClick: () -> Unit) {
-    // The same list instance between ticks, so the chart skips recomposition (U16).
-    val bars = remember(u.week) { u.week.map { it.totalMs } }
-    val locale = LocalConfiguration.current.locales[0]
-    val withData = u.week.filter { it.hasData }
-    val busiest = withData.maxByOrNull { it.totalMs }
-    val summary = if (busiest == null) {
-        stringResource(R.string.dash_week_no_data)
-    } else {
-        stringResource(
-            R.string.dash_week_summary,
-            durationText(withData.sumOf { it.totalMs }),
-            busiest.date.dayOfWeek.getDisplayName(TextStyle.FULL, locale),
-        )
-    }
+private fun ChildCard(u: DeviceUsage, nowMs: Long, noContactMs: Long, limitMs: Long?, onClick: () -> Unit) {
     val label = stringResource(R.string.dash_open_details, u.member.name)
-    Card(Modifier.fillMaxWidth().clip(CardDefaults.shape).clickable(onClickLabel = label, role = Role.Button, onClick = onClick)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(u.member.name, style = MaterialTheme.typography.titleMedium)
-            if (u.today.hasData) {
-                Text(durationText(u.today.totalMs), style = MaterialTheme.typography.displaySmall)
-            } else {
-                Text(stringResource(R.string.dash_no_data_today), style = MaterialTheme.typography.titleLarge)
+    Column(
+        Modifier.fillMaxWidth().clip(MaterialTheme.shapes.large)
+            .background(Brush.linearGradient(ChildCardGradient))
+            .clickable(onClickLabel = label, role = Role.Button, onClick = onClick)
+            .padding(20.dp)
+            .testTag("dash_card"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        CompositionLocalProvider(LocalContentColor provides OnChildCard) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Avatar(u.member.name)
+                Text(u.member.name, style = MaterialTheme.typography.titleLarge)
             }
-            u.updatedMs?.let { DataAt(it, nowMs, u.childZoneId) }
-            u.place?.let { Place(it, nowMs) }
-            if (u.today.hasData) comparison(u)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-            BarChart(values = bars, labels = emptyList(), summary = summary, height = 40.dp)
+            if (u.today.hasData) {
+                Text(durationText(u.today.totalMs), style = MaterialTheme.typography.displaySmall, modifier = Modifier.testTag("dash_today"))
+                comparison(u)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                if (limitMs != null) LimitBar(u.today.totalMs, limitMs, onCard = true)
+                u.updatedMs?.let { DataAt(it, nowMs, u.childZoneId) }
+            } else {
+                Text(stringResource(R.string.dash_card_no_data), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.testTag("dash_today"))
+                if (!u.member.isSelf) LastSync(u.member.lastSeenMs, nowMs)
+            }
+            u.setupWarnings.sortedBy { it.ordinal }.forEach { SetupWarningLine(it) }
             status(u, nowMs, noContactMs)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
         }
     }
@@ -488,7 +516,7 @@ private fun DeviceCard(u: DeviceUsage, nowMs: Long, noContactMs: Long, onClick: 
 
 /**
  * «Data as of 14:05» under the figure (U3), on the viewer's clock with the child's own when it differs; older than
- * STALE_AFTER_MS it also says it may be out of date.
+ * STALE_AFTER_MS it says it may be out of date. On the card's gradient: the words carry the staleness, not a colour.
  */
 @Composable
 private fun DataAt(updatedMs: Long, nowMs: Long, childZoneId: String?) {
@@ -496,29 +524,64 @@ private fun DataAt(updatedMs: Long, nowMs: Long, childZoneId: String?) {
     Text(
         stringResource(if (stale) R.string.dash_data_stale else R.string.dash_data_at, dataMoment(LocalContext.current, updatedMs, nowMs, childZoneId)),
         style = MaterialTheme.typography.bodySmall,
-        color = if (stale) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.testTag("dash_data_at"),
     )
 }
 
-/**
- * Spec §8: where a child is, on a parent's card; the time is the child's last word. An old word is marked like old data
- * (LocationReadModel.PLACE_STALE_MS): it may be out of date.
- */
+/** UI refresh «Ошибки»: no data today says when the child's phone was last in touch. */
 @Composable
-private fun Place(p: PlaceStatus, nowMs: Long) {
-    val ago = relativeTime(p.atMs, nowMs)
-    val text = when (p) {
-        is PlaceStatus.InZone -> p.zoneName?.let { stringResource(R.string.dash_place_in_zone, it, ago) } ?: stringResource(R.string.dash_place_in_unknown, ago)
-        is PlaceStatus.Outside -> stringResource(R.string.dash_place_outside, ago)
-    }
-    val stale = LocationReadModel.isStale(p, nowMs)
+private fun LastSync(lastSeenMs: Long?, nowMs: Long) = Text(
+    lastSeenMs?.let { stringResource(R.string.dash_last_sync, relativeTime(it, nowMs)) } ?: stringResource(R.string.dash_never_synced),
+    style = MaterialTheme.typography.bodyMedium,
+    modifier = Modifier.testTag("dash_last_sync"),
+)
+
+/** An unfinished setup on the child's phone (UI refresh §6), on a darker chip so the white text keeps 4.5:1. */
+@Composable
+private fun SetupWarningLine(w: SetupWarning) = Row(
+    Modifier.clip(MaterialTheme.shapes.small).background(Color.Black.copy(alpha = 0.18f))
+        .padding(horizontal = 10.dp, vertical = 6.dp).testTag("dash_warning_${w.name}"),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+) {
+    Icon(Icons.Filled.Warning, contentDescription = null, modifier = Modifier.size(18.dp))
     Text(
-        if (stale) stringResource(R.string.dash_place_stale, text) else text,
-        style = MaterialTheme.typography.bodyMedium,
-        color = if (stale) MaterialTheme.colorScheme.tertiary else Color.Unspecified,
-        modifier = Modifier.testTag("dash_place"),
+        stringResource(
+            when (w) {
+                SetupWarning.LOCATION_PERMISSION_OFF -> R.string.dash_warn_location_off
+                SetupWarning.LOCATION_DISABLED -> R.string.dash_warn_location_disabled
+            },
+        ),
+        style = MaterialTheme.typography.labelLarge,
     )
+}
+
+/** Under the card: today's three largest apps with their time and a «лимит» mark when a limit counts them (§3). */
+@Composable
+private fun TopApps(u: DeviceUsage, rules: List<ThresholdRule>) {
+    if (u.topApps.isEmpty()) return
+    Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp).testTag("dash_top_apps")) {
+        Text(
+            stringResource(R.string.dash_top_today),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.semantics { heading() },
+        )
+        u.topApps.forEach { t ->
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 48.dp).semantics(mergeDescendants = true) {}.testTag("dash_app_${t.app.packageName}"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                AppIcon(t.app.icon)
+                Text(t.app.label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (ThresholdEval.limited(rules, u.member.id, t.app.packageName, t.category)) {
+                    Pill(stringResource(R.string.dash_limit_pill), Modifier.testTag("dash_limit_pill"))
+                }
+                Text(durationText(t.app.totalMs), style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
 }
 
 /** U2: «usual by this time» with hourly detail, whole days only late in the day, else nothing. */
@@ -556,7 +619,6 @@ private fun status(u: DeviceUsage, nowMs: Long, noContactMs: Long): String? = wh
             // The more specific cause first: a hidden notification, then collection off (cloud Y5).
             !u.member.isSelf && u.notificationHidden -> stringResource(R.string.dash_card_notification_hidden)
             !u.member.isSelf && u.collectionOff -> stringResource(R.string.dash_card_collection_off)
-            u.updatedMs == null -> stringResource(R.string.dash_card_no_data)
             else -> null
         }
     }
