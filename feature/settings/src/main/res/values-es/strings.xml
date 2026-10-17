@@ -189,6 +189,8 @@
     <string name="more_sync_ok">Todo bien</string>
     <string name="more_pin">PIN de los adultos</string>
     <string name="more_about">Acerca de la app</string>
+    <string name="about_licenses">Licencias de código abierto</string>
+    <string name="about_licenses_close">Cerrar</string>
     <string name="more_setup">La configuración no está terminada</string>
     <string name="more_setup_usage">acceso al uso</string>
     <string name="more_setup_location">ubicación</string>

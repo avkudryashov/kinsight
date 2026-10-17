@@ -28,3 +28,10 @@ Publishing (the script prints both commands):
 Each block is a derived database of OpenStreetMap (ODbL): keep «© OpenStreetMap contributors» and the planet build date
 in the release notes. Update every few months; phones fetch a changed block (new sha256) on their own, over Wi-Fi.
 Block files never go into git.
+
+## build-licenses.sh
+
+Rebuilds `feature/settings/src/main/res/raw/open_source_licenses.txt`, the text behind «Ещё → О приложении →
+Лицензии открытого ПО»: OSM attribution and data licenses, the Protomaps style, Noto Sans (OFL), the map icons,
+MapLibre Native with its third-party notices, MapLibre gestures and Java, Nunito, Apache 2.0. Run it after a MapLibre
+or style update and commit the result.

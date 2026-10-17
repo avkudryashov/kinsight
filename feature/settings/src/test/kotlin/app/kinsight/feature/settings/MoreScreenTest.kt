@@ -4,6 +4,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -196,5 +197,15 @@ class MoreScreenTest {
         showLimitsScaled(1f) {}
         rule.onNodeWithTag("lim_list").performScrollToNode(hasTestTag("set_mode_weekly"))
         rule.onNodeWithTag("set_mode_list").assertDoesNotExist()
+    }
+
+    /** Offline map spec §4: the full list of licenses in «Ещё → О приложении». */
+    @Test
+    fun aboutShowsTheOpenSourceLicenses() {
+        rule.setContent { KinsightTheme { AboutScreen("0.9.0", onPrivacyPolicy = {}, onLanguage = null, onBack = {}) } }
+        rule.onNodeWithTag("about_licenses").assertTextEquals("Open source licenses").performClick()
+        rule.onNodeWithTag("about_licenses_text").assertTextContains("© OpenStreetMap contributors", substring = true)
+        rule.onNodeWithTag("about_licenses_text").assertTextContains("MapLibre", substring = true)
+        rule.onNodeWithTag("about_licenses_text").assertTextContains("SIL OPEN FONT LICENSE", substring = true)
     }
 }

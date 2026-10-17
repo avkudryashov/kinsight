@@ -191,6 +191,8 @@
     <string name="more_sync_ok">В порядке</string>
     <string name="more_pin">PIN родителей</string>
     <string name="more_about">О приложении</string>
+    <string name="about_licenses">Лицензии открытого ПО</string>
+    <string name="about_licenses_close">Закрыть</string>
     <string name="more_setup">Настройка не завершена</string>
     <string name="more_setup_usage">доступ к статистике</string>
     <string name="more_setup_location">геолокация</string>

@@ -8,8 +8,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -19,6 +22,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -48,22 +56,48 @@ fun AboutRoute(appVersion: String, onBack: () -> Unit) {
     )
 }
 
-/** «Ещё → О приложении» (UI refresh §2): the version, the privacy policy, the app's language (Android 13+). */
+/**
+ * «Ещё → О приложении» (UI refresh §2): the version, the privacy policy, the app's language (Android 13+), and the open
+ * source licenses (offline map spec §4: the map data's ODbL attribution, MapLibre, the style, its fonts and icons).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AboutScreen(appVersion: String, onPrivacyPolicy: () -> Unit, onLanguage: (() -> Unit)?, onBack: () -> Unit) = Scaffold(
-    topBar = {
-        TopAppBar(
-            title = { Text(stringResource(R.string.more_about)) },
-            navigationIcon = {
-                IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.set_back)) }
-            },
-        )
-    },
-) { padding ->
-    Column(Modifier.fillMaxSize().padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(stringResource(R.string.set_version, appVersion), style = MaterialTheme.typography.titleMedium, modifier = Modifier.testTag("about_version"))
-        TextButton(onPrivacyPolicy, Modifier.testTag("set_privacy")) { Text(stringResource(R.string.set_privacy)) }
-        if (onLanguage != null) TextButton(onLanguage, Modifier.testTag("about_language")) { Text(stringResource(R.string.set_language)) }
+fun AboutScreen(appVersion: String, onPrivacyPolicy: () -> Unit, onLanguage: (() -> Unit)?, onBack: () -> Unit) {
+    var licenses by rememberSaveable { mutableStateOf(false) }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.more_about)) },
+                navigationIcon = {
+                    IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.set_back)) }
+                },
+            )
+        },
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.set_version, appVersion), style = MaterialTheme.typography.titleMedium, modifier = Modifier.testTag("about_version"))
+            TextButton(onPrivacyPolicy, Modifier.testTag("set_privacy")) { Text(stringResource(R.string.set_privacy)) }
+            if (onLanguage != null) TextButton(onLanguage, Modifier.testTag("about_language")) { Text(stringResource(R.string.set_language)) }
+            TextButton({ licenses = true }, Modifier.testTag("about_licenses")) { Text(stringResource(R.string.about_licenses)) }
+        }
     }
+    if (licenses) LicensesDialog(onDismiss = { licenses = false })
+}
+
+@Composable
+private fun LicensesDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val text = remember { context.resources.openRawResource(R.raw.open_source_licenses).use { it.readBytes().decodeToString() } }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onDismiss) { Text(stringResource(R.string.about_licenses_close)) } },
+        title = { Text(stringResource(R.string.about_licenses)) },
+        text = {
+            Text(
+                text,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.verticalScroll(rememberScrollState()).testTag("about_licenses_text"),
+            )
+        },
+    )
 }
