@@ -14,7 +14,7 @@ internal sealed interface StreetPreview {
     /** The block downloads now: the plain map with «Карта улиц загружается». */
     data object Loading : StreetPreview
 
-    /** The block is wanted and waits (for Wi-Fi, or for its check): «Карта улиц будет загружена по Wi-Fi». */
+    /** The block is wanted and waits (no network, roaming, or its check): «Карта улиц будет загружена при подключении к сети». */
     data object Waiting : StreetPreview
 
     /** The point's block is on the phone; [blocks] the block files within 3 km of the point. */
