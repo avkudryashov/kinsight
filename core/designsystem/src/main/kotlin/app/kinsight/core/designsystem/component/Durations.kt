@@ -29,10 +29,16 @@ fun durationText(ms: Long): String = formatDuration(LocalResources.current, ms)
  */
 fun isJustNow(ms: Long, nowMs: Long): Boolean = nowMs - ms < 60_000
 
-/** "5 minutes ago", "yesterday" in the system locale (DateUtils). */
+/**
+ * "5 minutes ago", "yesterday" in the system locale (DateUtils), always set inside a phrase («visto hace 2 minutos»),
+ * so lowercased: Spanish DateUtils starts with a capital «Hace».
+ */
 @Composable
 fun relativeTime(ms: Long, nowMs: Long): String =
-    DateUtils.getRelativeTimeSpanString(ms, nowMs, DateUtils.MINUTE_IN_MILLIS).toString()
+    midPhrase(DateUtils.getRelativeTimeSpanString(ms, nowMs, DateUtils.MINUTE_IN_MILLIS).toString())
+
+/** [text] with its first letter lowercased, for a place inside a phrase. */
+fun midPhrase(text: String): String = text.replaceFirstChar { it.lowercaseChar() }
 
 /**
  * An absolute moment on the clock of [zone] (the viewer's by default): «14:05» on [nowMs]'s day there, «10 Oct, 14:05»

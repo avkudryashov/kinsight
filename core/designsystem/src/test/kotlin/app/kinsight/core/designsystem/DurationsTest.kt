@@ -7,6 +7,7 @@ import app.kinsight.core.designsystem.component.absoluteMoment
 import app.kinsight.core.designsystem.component.childClock
 import app.kinsight.core.designsystem.component.dataMoment
 import app.kinsight.core.designsystem.component.formatDuration
+import app.kinsight.core.designsystem.component.midPhrase
 import java.time.LocalDate
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
@@ -20,6 +21,13 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35])
 class DurationsTest {
     private val res get() = ApplicationProvider.getApplicationContext<Context>().resources
+
+    @Test
+    fun relativeTimeGoesInsideAPhrase() {
+        assertEquals("hace 2 minutos", midPhrase("Hace 2 minutos"))
+        assertEquals("5 minutes ago", midPhrase("5 minutes ago"))
+        assertEquals("вчера", midPhrase("Вчера"))
+    }
 
     @Test
     fun englishFormats() {
