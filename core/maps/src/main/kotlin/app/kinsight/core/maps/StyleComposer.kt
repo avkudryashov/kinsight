@@ -2,6 +2,7 @@ package app.kinsight.core.maps
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -23,21 +24,28 @@ data class OverlayZone(val latE7: Int, val lonE7: Int, val radiusM: Int) {
 data class Overlays(val zones: List<OverlayZone>, val route: List<MapPoint>, val last: MapPoint, val accuracyM: Int, val colors: OverlayColors)
 
 /**
- * Offline map spec §1, §4: the bundled Protomaps style has one vector source, [TEMPLATE_SOURCE]; the preview gets one
+ * Offline map spec §1, §4, §7: the bundled OpenFreeMap style (OpenMapTiles schema) has one vector source, [TEMPLATE_SOURCE]; the preview gets one
  * `pmtiles://file://` source per block file, every base layer repeated per source (layer by layer, so the roads of
  * every block lie over the water of every block), and the family's overlays as GeoJSON sources on top.
  */
 object StyleComposer {
-    const val TEMPLATE_SOURCE = "protomaps"
+    const val TEMPLATE_SOURCE = "openmaptiles"
     private const val ZONES = "kin-zones"
     private const val ACCURACY = "kin-accuracy"
     private const val ROUTE = "kin-route"
     private const val POINT = "kin-point"
 
+    /** The label the style script writes; [compose] swaps the language in. */
+    private val RU_LABEL: JsonElement = Json.parseToJsonElement("""["coalesce",["get","name:ru"],["get","name"]]""")
+
     fun sourceId(c: Cell) = "block-${c.x}-${c.y}"
 
-    fun compose(template: String, blocks: Map<Cell, String>, overlays: Overlays): String {
+    /** Spec §7: the app's languages; anything else reads English names. */
+    fun labelLanguage(language: String): String = if (language == "ru" || language == "es") language else "en"
+
+    fun compose(template: String, blocks: Map<Cell, String>, overlays: Overlays, language: String): String {
         val style = Json.parseToJsonElement(template).jsonObject
+        val label = label(labelLanguage(language))
         val cells = blocks.keys.sortedWith(compareBy<Cell>({ it.x }, { it.y }))
         val last = overlays.last
         val sources = buildJsonObject {
@@ -54,7 +62,7 @@ object StyleComposer {
         }
         val layers = buildJsonArray {
             for (element in style.getValue("layers").jsonArray) {
-                val layer = element.jsonObject
+                val layer = withLabel(element.jsonObject, label)
                 if ((layer["source"] as? JsonPrimitive)?.content != TEMPLATE_SOURCE) {
                     add(layer)
                     continue
@@ -65,6 +73,20 @@ object StyleComposer {
             overlayLayers(overlays.colors).forEach { add(it) }
         }
         return JsonObject(style + mapOf("sources" to sources, "layers" to layers)).toString()
+    }
+
+    private fun label(lang: String) = JsonArray(
+        listOf(
+            JsonPrimitive("coalesce"),
+            JsonArray(listOf(JsonPrimitive("get"), JsonPrimitive("name:$lang"))),
+            JsonArray(listOf(JsonPrimitive("get"), JsonPrimitive("name"))),
+        ),
+    )
+
+    private fun withLabel(layer: JsonObject, label: JsonArray): JsonObject {
+        val layout = layer["layout"] as? JsonObject ?: return layer
+        if (layout["text-field"] != RU_LABEL) return layer
+        return JsonObject(layer + ("layout" to JsonObject(layout + ("text-field" to label))))
     }
 
     private fun overlayLayers(c: OverlayColors): List<JsonObject> = listOf(

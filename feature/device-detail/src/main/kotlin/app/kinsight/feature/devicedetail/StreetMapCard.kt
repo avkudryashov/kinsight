@@ -103,11 +103,12 @@ private fun StreetPreviewCard(child: ChildLocation, mark: Color, preview: Street
     val colors = MaterialTheme.colorScheme
     val dark = colors.surface.luminance() < 0.5f
     val overlay = OverlayColors(mark = mark.hex(), zone = colors.primary.hex(), halo = colors.surfaceContainerHighest.hex())
-    // The asset read and the composition (71 layers per block) stay off the main thread; the fallback shows meanwhile.
-    val style by produceState<String?>(null, dark, preview, child, overlay) {
+    val language = locale().language
+    // The asset read and the composition (55 layers per block) stay off the main thread; the fallback shows meanwhile.
+    val style by produceState<String?>(null, dark, preview, child, overlay, language) {
         value = withContext(Dispatchers.Default) {
             val template = context.assets.open(if (dark) STYLE_DARK else STYLE_LIGHT).use { it.readBytes().decodeToString() }
-            previewStyle(template, preview, child, overlay)
+            previewStyle(template, preview, child, overlay, language)
         }
     }
     val frame = remember(child) { previewFrame(child) }
@@ -207,11 +208,11 @@ private fun ChildLocation.overlayZones() = zones.map { OverlayZone(it.latE7, it.
 
 private fun ChildLocation.overlayRoute() = route.map { MapPoint(it.latE7, it.lonE7, it.timeMs) }
 
-/** The bundled style with this child's blocks and overlays; a vague fix's circle is capped like FamilyMap's halo. */
-internal fun previewStyle(template: String, ready: StreetPreview.Ready, c: ChildLocation, colors: OverlayColors): String {
+/** The bundled style with this child's blocks, overlays and labels in [language]; a vague fix's circle is capped like FamilyMap's halo. */
+internal fun previewStyle(template: String, ready: StreetPreview.Ready, c: ChildLocation, colors: OverlayColors, language: String): String {
     val last = requireNotNull(c.last) { "a ready preview has a point" }
     val overlays = Overlays(c.overlayZones(), c.overlayRoute(), MapPoint(last.latE7, last.lonE7, last.timeMs), last.accuracyM.coerceIn(0, MAX_HALO_M), colors)
-    return StyleComposer.compose(template, ready.blocks, overlays)
+    return StyleComposer.compose(template, ready.blocks, overlays, language)
 }
 
 internal fun previewFrame(c: ChildLocation): Bounds {

@@ -11,16 +11,16 @@ import kotlin.test.assertFalse
 /** Offline map spec §1, §4: one source per block file, the base layers repeated per source, the overlays on top. */
 class StyleComposerTest {
     private val template = """{"version":8,"glyphs":"asset://map/glyphs/{fontstack}/{range}.pbf","sprite":"asset://map/sprites/light",""" +
-        """"sources":{"protomaps":{"type":"vector","url":"pmtiles://file://BLOCK"}},"layers":[""" +
+        """"sources":{"openmaptiles":{"type":"vector","url":"pmtiles://file://BLOCK"}},"layers":[""" +
         """{"id":"background","type":"background","paint":{"background-color":"#cccccc"}},""" +
-        """{"id":"earth","type":"fill","source":"protomaps","source-layer":"earth"},""" +
-        """{"id":"roads","type":"line","source":"protomaps","source-layer":"roads"}]}"""
+        """{"id":"earth","type":"fill","source":"openmaptiles","source-layer":"earth"},""" +
+        """{"id":"roads","type":"line","source":"openmaptiles","source-layer":"roads"}]}"""
     private val colors = OverlayColors(mark = "#E8590C", zone = "#2F6FEB", halo = "#FFFFFF")
     private val last = MapPoint(395_000_000, -5_000_000, 0)
     private val overlays = Overlays(listOf(OverlayZone(395_010_000, -5_010_000, 150)), listOf(MapPoint(394_990_000, -4_990_000, 0), last), last, 25, colors)
     private val blocks = mapOf(Cell(511, 389) to "/data/maps/z10-511-389.pmtiles", Cell(510, 389) to "/data/maps/z10-510-389.pmtiles")
 
-    private fun composed(o: Overlays = overlays) = Json.parseToJsonElement(StyleComposer.compose(template, blocks, o)).jsonObject
+    private fun composed(o: Overlays = overlays) = Json.parseToJsonElement(StyleComposer.compose(template, blocks, o, "ru")).jsonObject
 
     private fun layer(id: String) = composed().getValue("layers").jsonArray.map { it.jsonObject }.single { it.getValue("id").jsonPrimitive.content == id }
 
@@ -68,5 +68,25 @@ class StyleComposerTest {
     fun aSinglePointDrawsNoRoute() = assertEquals(0, features("kin-route", overlays.copy(route = listOf(last))).size)
 
     @Test
-    fun nothingPointsAtTheNetwork() = assertFalse("http" in StyleComposer.compose(template, blocks, overlays))
+    fun nothingPointsAtTheNetwork() = assertFalse("http" in StyleComposer.compose(template, blocks, overlays, "ru"))
+
+    private val labelled = """{"version":8,"sources":{"openmaptiles":{"type":"vector","url":"pmtiles://file://BLOCK"}},"layers":[""" +
+        """{"id":"place","type":"symbol","source":"openmaptiles","source-layer":"place",""" +
+        """"layout":{"text-field":["coalesce",["get","name:ru"],["get","name"]]}},""" +
+        """{"id":"shield","type":"symbol","source":"openmaptiles","source-layer":"transportation_name",""" +
+        """"layout":{"text-field":["to-string",["get","ref"]]}}]}"""
+
+    private fun textField(language: String, id: String) =
+        Json.parseToJsonElement(StyleComposer.compose(labelled, blocks, overlays, language)).jsonObject.getValue("layers").jsonArray
+            .map { it.jsonObject }.first { it.getValue("id").jsonPrimitive.content == "$id@z10-510-389" }
+            .getValue("layout").jsonObject.getValue("text-field").toString()
+
+    /** OpenFreeMap spec §7: labels in the app's language where the map has it, else the local name. */
+    @Test
+    fun labelsFollowTheAppLanguage() {
+        assertEquals("""["coalesce",["get","name:es"],["get","name"]]""", textField("es", "place"))
+        assertEquals("""["coalesce",["get","name:ru"],["get","name"]]""", textField("ru", "place"))
+        assertEquals("""["coalesce",["get","name:en"],["get","name"]]""", textField("de", "place"))
+        assertEquals("""["to-string",["get","ref"]]""", textField("es", "shield"))
+    }
 }

@@ -4,12 +4,13 @@ Maintainer tools for the Карта tab's offline street map. Nothing here runs 
 
 ## build-style.sh
 
-Regenerates `feature/device-detail/src/main/assets/map/`: the Protomaps light and dark styles
-(`@protomaps/basemaps` 5.7.2), the Noto Sans glyph ranges (Latin, Cyrillic, punctuation) and the v4 sprites from
-`protomaps/basemaps-assets` at a pinned commit. Font stacks are renamed without spaces (`NotoSans-Regular`), labels
-read `name:ru`, else `name`, and the only source is the `pmtiles://file://BLOCK` placeholder that `StyleComposer`
-replaces with one source per block file. `StyleAssetsTest` checks the result. A glyph range not bundled (for example
-Vietnamese) is simply not drawn.
+Regenerates `feature/device-detail/src/main/assets/map/`: the OpenFreeMap Positron (light) and Dark styles from
+`hyperknot/openfreemap-styles` at a pinned commit, the Noto Sans glyph ranges (Latin, Cyrillic, punctuation) and the
+`ofm_f384` sprites that OpenFreeMap serves for them. Font stacks are renamed without spaces (`NotoSans-Regular`), the
+raster relief source is dropped, labels read `name:ru`, else `name` (`StyleComposer` puts in the app's language), the
+dark style's `circle-11` becomes the sprite's `circle_11`, and the only vector source is the `pmtiles://file://BLOCK`
+placeholder that `StyleComposer` replaces with one source per block file. `StyleAssetsTest` checks the result. A glyph
+range not bundled (for example Vietnamese) is simply not drawn. `MAP_ASSETS_OUT=<dir>` writes somewhere else first.
 
 ## build-licenses.sh
 
