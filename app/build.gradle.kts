@@ -11,8 +11,8 @@ android {
     defaultConfig {
         // Provisional (spec §13): free on Google Play as of 2026-10-09; fixed only before the first release.
         applicationId = "app.kinsight"
-        versionCode = 18
-        versionName = "0.8.3"
+        versionCode = 19
+        versionName = "0.9.0"
     }
 
     // Offline map spec «Размер приложения»: MapLibre brings about 13 MB of native code per ABI, so a release APK (GitHub,
