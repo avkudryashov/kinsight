@@ -28,7 +28,7 @@ class StreetPreviewTest {
     fun aRunningDownloadSaysLoading() = assertEquals(StreetPreview.Loading, StreetPreview.of(p, streets(downloading = true), cloudOn = true))
 
     @Test
-    fun otherwiseItWaitsForWifi() = assertEquals(StreetPreview.WaitingWifi, StreetPreview.of(p, streets(), cloudOn = true))
+    fun otherwiseItWaitsForTheNetwork() = assertEquals(StreetPreview.Waiting, StreetPreview.of(p, streets(), cloudOn = true))
 
     /** No room on the phone, or the cell passed the size cap: nothing will come for now, so no caption. */
     @Test

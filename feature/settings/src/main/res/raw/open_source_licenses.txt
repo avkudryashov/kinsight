@@ -1,128 +1,202 @@
 Kinsight uses the following open source software and data.
 
 == Map data ==
-© OpenStreetMap contributors. Available under the Open Database License (ODbL) 1.0:
-https://www.openstreetmap.org/copyright
-The street map blocks are cut from a Protomaps basemap build (https://maps.protomaps.com/builds).
+© OpenMapTiles © OpenStreetMap contributors.
+OpenStreetMap data is available under the Open Database License (ODbL) 1.0: https://www.openstreetmap.org/copyright
+The street map tiles come from OpenFreeMap (https://openfreemap.org), built with the OpenMapTiles schema.
 
-# Data Licenses & Attribution
+== OpenMapTiles (map schema and design) ==
+Copyright (c) 2024, MapTiler.com & OpenMapTiles contributors.  
+All rights reserved.  
 
-The license and attributions requirements of protomaps/basemaps output depends on the input data.
+The vector tile schema has been developed by Klokan Technologies GmbH and
+was initially modelled after the cartography of the CARTO's Positron basemap
+with permission from CartoDB Inc.
+The vector tile schema has been refined and improved in cooperation with
+the Wikimedia Foundation and is heavily influenced by years of
+Paul Norman's experience of creating maps from OpenStreetMap data.
 
-By default, data sources include:
+# Code license: BSD 3-Clause License
 
-### OpenStreetMap
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
 
-[OpenStreetMap](https://www.openstreetmap.org/) is licensed under the [ODbL](https://opendatacommons.org/licenses/odbl/), a [share-alike](https://en.wikipedia.org/wiki/Share-alike) license which requires attribution. Example:
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
 
-```
-© OpenStreetMap
-```
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
 
-### osmdata.openstreetmap.de
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
 
-OSM-derived water and earth polygons are sourced from [osmdata.openstreetmap.de](https://osmdata.openstreetmap.de), which is also ODbL licensed. This data is produced by the [osmcoastline](https://github.com/osmcode/osmcoastline) program written by [Jochen Topf](https://github.com/joto) and contributors.
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+# Design license: CC-BY 4.0
+
+The cartography and visual design features of the map tile schema (also known as
+the "look and feel" of the map) are licensed under the Creative Commons
+Attribution 4.0 license.
+To view a copy of the license, visit http://creativecommons.org/licenses/by/4.0/.
+
+Products or services using maps derived from OpenMapTiles schema need to visibly
+credit "OpenMapTiles.org" or reference "OpenMapTiles" with a link to
+http://openmaptiles.org/.
+
+For a browsable electronic map based on OpenMapTiles and OpenStreetMap data, the
+credit should appear in the corner of the map. For example:
+
+[© OpenMapTiles](http://openmaptiles.org/) [© OpenStreetMap contributors](http://www.openstreetmap.org/copyright)
+
+For printed and static maps a similar attribution should be made in a textual
+description near the image, in the same fashion as if you cite a photograph.
+
+Exceptions to OpenMapTiles attribution requirement can be in a written form granted
+by MapTiler (info@maptiler.com).  
+The project contributors grant MapTiler AG the license to give such
+exceptions on a commercial basis.
+
+== OpenFreeMap styles (map style) ==
+## Licenses
+
+The license of this project is [MIT](https://www.tldrlegal.com/license/mit-license).
+
+Map data is from [OpenStreetMap](https://www.openstreetmap.org/copyright).
+
+[OpenMapTiles](https://github.com/openmaptiles/openmaptiles) code is released under the [BSD 3-Clause License](<https://tldrlegal.com/license/bsd-3-clause-license-(revised)>), design under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). [LICENSE.md](https://github.com/openmaptiles/openmaptiles/blob/master/LICENSE.md).
+
+### Styles
+
+#### Bright
+
+Fork from [openmaptiles/osm-bright-gl-style](https://github.com/openmaptiles/osm-bright-gl-style). The OSM Bright GL Style is derived from [Mapbox Open Styles](https://github.com/mapbox/mapbox-gl-styles). The OSM Bright GL Style’s code is released under the [BSD 3-Clause License](<https://tldrlegal.com/license/bsd-3-clause-license-(revised)>). The OSM Bright GL Style’s design is released under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). [LICENSE.md](https://github.com/openmaptiles/osm-bright-gl-style/blob/master/LICENSE.md).
+
+#### Liberty
+
+Fork from [maputnik/osm-liberty](https://github.com/maputnik/osm-liberty). OSM Liberty is a fork of OSM Bright. The OSM Bright GL Style is derived from [Mapbox Open Styles](https://github.com/mapbox/mapbox-gl-styles). The OSM Bright GL Style’s code is released under the [BSD 3-Clause License](<https://tldrlegal.com/license/bsd-3-clause-license-(revised)>). The OSM Bright GL Style’s design is released under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). [LICENSE.md](https://github.com/maputnik/osm-liberty/blob/gh-pages/LICENSE.md).
+
+#### Positron
+
+Fork from [openmaptiles/positron-gl-style](https://github.com/openmaptiles/positron-gl-style). The Positron GL Style is derived from [CartoDB Basemaps](https://github.com/CartoDB/CartoDB-basemaps) designed by Stamen and Paul Norman for CartoDB Inc., licensed under [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). The Positron GL style’s code is released under the [BSD 3-Clause License](<https://tldrlegal.com/license/bsd-3-clause-license-(revised)>). The Positron GL Style’s design is released under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). [LICENSE.md](https://github.com/openmaptiles/positron-gl-style/blob/master/LICENSE.md).
+
+### Fonts
+
+[Noto Sans](https://www.google.com/get/noto/) is released under the [SIL Open Font License, Version 1.1](https://openfontlicense.org/)
+
+### **Icons**
+
+The [Maki POI icon set](https://github.com/mapbox/maki/blob/master/LICENSE.txt) is licensed under CC0 1.0 Universal.
+
+The right arrow was derived from [Wikipedia](https://commons.wikimedia.org/wiki/File:Arrowright.svg), it is public domain.
 
 ### Natural Earth
 
-Natural Earth is a vector map dataset released to the public domain. The details of its license:
+[Natural Earth](https://www.naturalearthdata.com/) map data is in the public domain.
 
-```
-All versions of Natural Earth raster + vector map data found on this
-website are in the public domain. You may use the maps in any manner,
-including modifying the content and design, electronic dissemination,
-and offset printing. The primary authors, Tom Patterson and Nathaniel
-Vaughn Kelso, and all other contributors renounce all financial claim
-to the maps and invites you to use them for personal, educational, and
-commercial purposes.
+### Tools
 
-No permission is needed to use Natural Earth. Crediting the authors is
-unnecessary.
-```
+spritezero-cli is from [mapbox/spritezero-cli](https://github.com/mapbox/spritezero-cli), licensed [ISC](https://github.com/mapbox/spritezero-cli/blob/master/LICENSE.md).
 
-More details can be found on the Natural Earth [Terms of Use](http://www.naturalearthdata.com/about/terms-of-use/) page.
+---
 
+## Licence of this repo
 
-### Daylight Landcover
+MIT License
 
-If displaying the `landcover` basemap layer, landcover is derived from the [ESA WorldCover dataset](https://esa-worldcover.org/en/data-access), available under [CC-BY 4.0 DEED](https://creativecommons.org/licenses/by/4.0/).
+Copyright (c) 2023 Zsolt Ero
 
-See the [Overture Maps Attribution Guidelines](https://docs.overturemaps.org/attribution/).
-
-### Mapzen
-
-If displaying the default Light and Dark styles, POI icons are derived from the [tangrams/icons](https://github.com/tangrams/icons) icon set, which is MIT licensed.
-
-```
-The MIT License (MIT)
-
-Copyright (c) 2017 Mapzen, Linux Foundation
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
-### Minzoom Configuration
-The minzoom configuration in `tiles/src/resources/places.csv` is derived from Tilezen for `kind=country` features and from Natural Earth for `kind=region,locality` features.
-
-== Protomaps basemaps (map style) ==
-# Code Licenses and Attribution
-
-# The BSD 3-Clause License (BSD-3-Clause)
-
-Copyright 2019-2023 Protomaps LLC, Kelso Cartography
-
-Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
-
-1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-
-2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
-
-3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-# Visual Design
-
-The visual design of the Protomaps basemap styles was created by Geraldine Sarmiento for Protomaps LLC and released under a Creative Commons 0 (CC0) license.
-
-https://creativecommons.org/publicdomain/zero/1.0/
-
-Certain map styles may also include derivatives of icons designed for Mapzen and released under an MIT license.
-
-https://github.com/tangrams/icons/blob/master/LICENSE.md
-
-# Tile Schema
-
-The organization of layers and tags is adapted from the Tilezen project.
-
-https://github.com/tilezen/vector-datasource
-https://github.com/tilezen/vector-datasource/blob/master/docs/LICENSE-SCHEMA.md
-
-# The MIT License (MIT)
-
-Copyright (c) 2015-2018 Mapzen
-Copyright (c) 2019 Linux Foundation
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
 The above copyright notice and this permission notice shall be included in all
 copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+== Positron GL style (the light style; the dark style derives from it) ==
+Copyright (c) 2016, KlokanTech.com & OpenMapTiles contributors.  
+Copyright (c) 2015, CartoDB Inc.  
+All rights reserved.
+
+Derived from "CartoDB Basemaps" (https://github.com/CartoDB/CartoDB-basemaps)
+designed by Stamen and Paul Norman for CartoDB Inc., licensed under CC-BY 3.0.
+
+# Code license: BSD 3-Clause License
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+# Design license: CC-BY 4.0
+
+The visual design features of the style (also known as the "look and feel" of
+the map) are licensed under the Creative Commons Attribution 4.0 license.
+
+To view a copy of the license, visit http://creativecommons.org/licenses/by/4.0/.
+
+Attribution for the design defined in this repository needs not to be provided
+on map images, but should be reasonably accessible from maps based on this style
+(for example, in a webpage linked from copyright notice on the map).
+
+Products or services using maps derived from OpenMapTiles schema need to visibly
+credit "OpenMapTiles.org" or reference "OpenMapTiles" with a link to
+http://openmaptiles.org/.
+
+For a browsable electronic map based on OpenMapTiles and OpenStreetMap data, the
+credit should appear in the corner of the map. For example:
+
+[© OpenMapTiles](http://openmaptiles.org/)
+[© OpenStreetMap contributors](http://www.openstreetmap.org/copyright)
+
+For printed and static maps a similar attribution should be made in a textual
+description near the image, in the same fashion as if you cite a photograph.
+
+Exceptions to OpenMapTiles attribution requirement can be in a written form granted
+by Klokan Technologies GmbH (info@klokantech.com).  
+The project contributors grant Klokan Technologies GmbH the license to give such
+exceptions on a commercial basis.
 
 == Noto Sans (map labels) ==
 Copyright 2022 The Noto Project Authors (https://github.com/notofonts)
@@ -218,28 +292,123 @@ INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
 DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 OTHER DEALINGS IN THE FONT SOFTWARE.
-== Map icons (tangrams/icons, via Protomaps sprites) ==
-The MIT License (MIT)
+== Map icons (Maki, via the OpenFreeMap sprites) ==
+CC0 1.0 Universal
 
-Copyright (c) 2017 Mapzen
+Statement of Purpose
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
+The laws of most jurisdictions throughout the world automatically confer
+exclusive Copyright and Related Rights (defined below) upon the creator and
+subsequent owner(s) (each and all, an "owner") of an original work of
+authorship and/or a database (each, a "Work").
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Certain owners wish to permanently relinquish those rights to a Work for the
+purpose of contributing to a commons of creative, cultural and scientific
+works ("Commons") that the public can reliably and without fear of later
+claims of infringement build upon, modify, incorporate in other works, reuse
+and redistribute as freely as possible in any form whatsoever and for any
+purposes, including without limitation commercial purposes. These owners may
+contribute to the Commons to promote the ideal of a free culture and the
+further production of creative, cultural and scientific works, or to gain
+reputation or greater distribution for their Work in part through the use and
+efforts of others.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+For these and/or other purposes and motivations, and without any expectation
+of additional consideration or compensation, the person associating CC0 with a
+Work (the "Affirmer"), to the extent that he or she is an owner of Copyright
+and Related Rights in the Work, voluntarily elects to apply CC0 to the Work
+and publicly distribute the Work under its terms, with knowledge of his or her
+Copyright and Related Rights in the Work and the meaning and intended legal
+effect of CC0 on those rights.
 
+1. Copyright and Related Rights. A Work made available under CC0 may be
+protected by copyright and related or neighboring rights ("Copyright and
+Related Rights"). Copyright and Related Rights include, but are not limited
+to, the following:
+
+  i. the right to reproduce, adapt, distribute, perform, display, communicate,
+  and translate a Work;
+
+  ii. moral rights retained by the original author(s) and/or performer(s);
+
+  iii. publicity and privacy rights pertaining to a person's image or likeness
+  depicted in a Work;
+
+  iv. rights protecting against unfair competition in regards to a Work,
+  subject to the limitations in paragraph 4(a), below;
+
+  v. rights protecting the extraction, dissemination, use and reuse of data in
+  a Work;
+
+  vi. database rights (such as those arising under Directive 96/9/EC of the
+  European Parliament and of the Council of 11 March 1996 on the legal
+  protection of databases, and under any national implementation thereof,
+  including any amended or successor version of such directive); and
+
+  vii. other similar, equivalent or corresponding rights throughout the world
+  based on applicable law or treaty, and any national implementations thereof.
+
+2. Waiver. To the greatest extent permitted by, but not in contravention of,
+applicable law, Affirmer hereby overtly, fully, permanently, irrevocably and
+unconditionally waives, abandons, and surrenders all of Affirmer's Copyright
+and Related Rights and associated claims and causes of action, whether now
+known or unknown (including existing as well as future claims and causes of
+action), in the Work (i) in all territories worldwide, (ii) for the maximum
+duration provided by applicable law or treaty (including future time
+extensions), (iii) in any current or future medium and for any number of
+copies, and (iv) for any purpose whatsoever, including without limitation
+commercial, advertising or promotional purposes (the "Waiver"). Affirmer makes
+the Waiver for the benefit of each member of the public at large and to the
+detriment of Affirmer's heirs and successors, fully intending that such Waiver
+shall not be subject to revocation, rescission, cancellation, termination, or
+any other legal or equitable action to disrupt the quiet enjoyment of the Work
+by the public as contemplated by Affirmer's express Statement of Purpose.
+
+3. Public License Fallback. Should any part of the Waiver for any reason be
+judged legally invalid or ineffective under applicable law, then the Waiver
+shall be preserved to the maximum extent permitted taking into account
+Affirmer's express Statement of Purpose. In addition, to the extent the Waiver
+is so judged Affirmer hereby grants to each affected person a royalty-free,
+non transferable, non sublicensable, non exclusive, irrevocable and
+unconditional license to exercise Affirmer's Copyright and Related Rights in
+the Work (i) in all territories worldwide, (ii) for the maximum duration
+provided by applicable law or treaty (including future time extensions), (iii)
+in any current or future medium and for any number of copies, and (iv) for any
+purpose whatsoever, including without limitation commercial, advertising or
+promotional purposes (the "License"). The License shall be deemed effective as
+of the date CC0 was applied by Affirmer to the Work. Should any part of the
+License for any reason be judged legally invalid or ineffective under
+applicable law, such partial invalidity or ineffectiveness shall not
+invalidate the remainder of the License, and in such case Affirmer hereby
+affirms that he or she will not (i) exercise any of his or her remaining
+Copyright and Related Rights in the Work or (ii) assert any associated claims
+and causes of action with respect to the Work, in either case contrary to
+Affirmer's express Statement of Purpose.
+
+4. Limitations and Disclaimers.
+
+  a. No trademark or patent rights held by Affirmer are waived, abandoned,
+  surrendered, licensed or otherwise affected by this document.
+
+  b. Affirmer offers the Work as-is and makes no representations or warranties
+  of any kind concerning the Work, express, implied, statutory or otherwise,
+  including without limitation warranties of title, merchantability, fitness
+  for a particular purpose, non infringement, or the absence of latent or
+  other defects, accuracy, or the present or absence of errors, whether or not
+  discoverable, all to the greatest extent permissible under applicable law.
+
+  c. Affirmer disclaims responsibility for clearing rights of other persons
+  that may apply to the Work or any use thereof, including without limitation
+  any person's Copyright and Related Rights in the Work. Further, Affirmer
+  disclaims responsibility for obtaining any necessary consents, permissions
+  or other rights required for any use of the Work.
+
+  d. Affirmer understands and acknowledges that Creative Commons is not a
+  party to this document and has no duty or obligation with respect to this
+  CC0 or use of the Work.
+
+For more information, please see
+<http://creativecommons.org/publicdomain/zero/1.0/>
 
 == MapLibre Native Android ==
 BSD 2-Clause License

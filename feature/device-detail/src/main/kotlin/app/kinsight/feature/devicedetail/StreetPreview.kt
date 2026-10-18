@@ -15,7 +15,7 @@ internal sealed interface StreetPreview {
     data object Loading : StreetPreview
 
     /** The block is wanted and waits (for Wi-Fi, or for its check): «Карта улиц будет загружена по Wi-Fi». */
-    data object WaitingWifi : StreetPreview
+    data object Waiting : StreetPreview
 
     /** The point's block is on the phone; [blocks] the block files within 3 km of the point. */
     data class Ready(val blocks: Map<Cell, String>) : StreetPreview
@@ -30,7 +30,7 @@ internal sealed interface StreetPreview {
             }
             if (!cloudOn) return None
             if (own in streets.skipped) return None
-            return if (streets.downloading) Loading else WaitingWifi
+            return if (streets.downloading) Loading else Waiting
         }
     }
 }

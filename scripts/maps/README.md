@@ -15,6 +15,6 @@ range not bundled (for example Vietnamese) is simply not drawn. `MAP_ASSETS_OUT=
 ## build-licenses.sh
 
 Rebuilds `feature/settings/src/main/res/raw/open_source_licenses.txt`, the text behind «Ещё → О приложении →
-Лицензии открытого ПО»: OSM attribution and data licenses, the Protomaps style, Noto Sans (OFL), the map icons,
-MapLibre Native with its third-party notices, MapLibre gestures and Java, Nunito, Apache 2.0. Run it after a MapLibre
+Лицензии открытого ПО»: OSM and OpenMapTiles attribution, the OpenMapTiles, OpenFreeMap styles and Positron licences, Noto Sans (OFL),
+the Maki icons, MapLibre Native with its third-party notices, MapLibre gestures and Java, Nunito, Apache 2.0. Run it after a MapLibre
 or style update and commit the result.

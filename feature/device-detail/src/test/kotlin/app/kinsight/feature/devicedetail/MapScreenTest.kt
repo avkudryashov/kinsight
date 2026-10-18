@@ -371,7 +371,7 @@ class MapScreenTest {
         awaitPreview()
         rule.onNodeWithTag("fake_maplibre").assertExists()
         rule.onNodeWithTag("loc_map").assertDoesNotExist()
-        rule.onNodeWithTag("loc_osm").assertTextEquals("© OpenStreetMap")
+        rule.onNodeWithTag("loc_osm").assertTextEquals("© OpenMapTiles © OpenStreetMap")
         val (style, frame) = drawn!!
         assertTrue("pmtiles://file://$block" in style)
         assertFalse("http" in style)
@@ -388,7 +388,7 @@ class MapScreenTest {
     @Test
     fun attributionShowsAtStartThenCollapsesToInfoButton() {
         showPreviewReady()
-        rule.onNodeWithTag("loc_osm").assertTextEquals("© OpenStreetMap")
+        rule.onNodeWithTag("loc_osm").assertTextEquals("© OpenMapTiles © OpenStreetMap")
         rule.onNodeWithTag("loc_osm_info").assertDoesNotExist()
         rule.mainClock.advanceTimeBy(5_500)
         rule.onNodeWithTag("loc_osm").assertDoesNotExist()
@@ -401,7 +401,7 @@ class MapScreenTest {
         rule.mainClock.advanceTimeBy(5_500)
         rule.onNodeWithTag("loc_osm_info").performClick()
         rule.mainClock.advanceTimeByFrame()
-        rule.onNodeWithTag("loc_osm").assertTextEquals("© OpenStreetMap")
+        rule.onNodeWithTag("loc_osm").assertTextEquals("© OpenMapTiles © OpenStreetMap")
         rule.mainClock.advanceTimeBy(5_500)
         rule.onNodeWithTag("loc_osm").assertDoesNotExist()
         rule.onNodeWithTag("loc_osm_info").assertExists()
@@ -466,9 +466,9 @@ class MapScreenTest {
     }
 
     @Test
-    fun waitingForWifiSaysSo() {
+    fun waitingForTheNetworkSaysSo() {
         showStreets(StreetMaps(emptyMap(), emptySet(), downloading = false))
-        rule.onNodeWithTag("loc_streets_status").assertTextEquals("The street map will download over Wi-Fi")
+        rule.onNodeWithTag("loc_streets_status").assertTextEquals("The street map will download when the phone is online")
     }
 
     @Test
@@ -487,8 +487,8 @@ class MapScreenTest {
 
     @Test
     @Config(qualifiers = "ru")
-    fun russianWifiCaption() {
+    fun russianNetworkCaption() {
         showStreets(StreetMaps(emptyMap(), emptySet(), downloading = false))
-        rule.onNodeWithTag("loc_streets_status").assertTextEquals("Карта улиц будет загружена по Wi-Fi")
+        rule.onNodeWithTag("loc_streets_status").assertTextEquals("Карта улиц будет загружена при подключении к сети")
     }
 }

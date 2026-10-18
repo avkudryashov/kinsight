@@ -13,8 +13,9 @@ The three files are static instances (weights 400, 700, 800) of Nunito[wght].ttf
 github.com/google/fonts, cut with fontTools varLib.instancer.
 
 Offline street map (feature/device-detail/src/main/assets/map)
-Map style: Protomaps basemaps (https://github.com/protomaps/basemaps), code BSD-3-Clause, visual design CC0.
+Map style: OpenFreeMap Positron and Dark (https://github.com/hyperknot/openfreemap-styles), MIT; derived from the
+Positron GL style, code BSD-3-Clause, design CC BY 4.0 (© MapTiler.com & OpenMapTiles contributors, © CartoDB Inc.).
 Glyphs: Noto Sans, SIL Open Font License 1.1: feature/device-detail/src/main/assets/map/glyphs/OFL.txt
-Sprites: Protomaps basemaps-assets, derived from MIT-licensed tangrams/icons.
-Map data shown in the app: © OpenStreetMap contributors, ODbL 1.0.
+Sprites: OpenFreeMap ofm sprites with Maki icons, CC0 1.0.
+Map data shown in the app: © OpenMapTiles © OpenStreetMap contributors, ODbL 1.0; tiles from OpenFreeMap.
 MapLibre Native Android: BSD-2-Clause. Full texts: feature/settings/src/main/res/raw/open_source_licenses.txt

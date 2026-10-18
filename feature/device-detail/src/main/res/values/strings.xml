@@ -152,8 +152,8 @@
     <string name="loc_osm_info">Map data licence</string>
     <string name="loc_preview_description">Street map with the child\'s place, today\'s route and the zones. Tap to open it in a maps app</string>
     <string name="map_streets_loading">Street map is loading</string>
-    <string name="map_streets_wifi">The street map will download over Wi-Fi</string>
-    <string name="map_osm_attribution" translatable="false">© OpenStreetMap</string>
+    <string name="map_streets_network">The street map will download when the phone is online</string>
+    <string name="map_osm_attribution" translatable="false">© OpenMapTiles © OpenStreetMap</string>
     <string name="loc_open_in_maps">Open in maps</string>
     <string name="det_map_scale_m">%1$d m</string>
     <string name="det_map_scale_km">%1$d km</string>

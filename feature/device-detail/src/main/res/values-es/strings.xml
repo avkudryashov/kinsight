@@ -154,7 +154,7 @@
     <string name="loc_osm_info">Licencia de los datos del mapa</string>
     <string name="loc_preview_description">Mapa de calles con el lugar del menor, la ruta de hoy y las zonas. Tócalo para abrirlo en una aplicación de mapas</string>
     <string name="map_streets_loading">El mapa de calles se está descargando</string>
-    <string name="map_streets_wifi">El mapa de calles se descargará por wifi</string>
+    <string name="map_streets_network">El mapa de calles se descargará cuando haya conexión</string>
     <string name="loc_open_in_maps">Abrir en mapas</string>
     <string name="det_map_scale_m">%1$d m</string>
     <string name="det_map_scale_km">%1$d km</string>

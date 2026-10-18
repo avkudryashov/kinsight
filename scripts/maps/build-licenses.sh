@@ -16,17 +16,20 @@ strip_apache() {
   echo "Kinsight uses the following open source software and data."
   echo
   echo "== Map data =="
-  echo "© OpenStreetMap contributors. Available under the Open Database License (ODbL) 1.0:"
-  echo "https://www.openstreetmap.org/copyright"
-  echo "The street map blocks are cut from a Protomaps basemap build (https://maps.protomaps.com/builds)."
+  echo "© OpenMapTiles © OpenStreetMap contributors."
+  echo "OpenStreetMap data is available under the Open Database License (ODbL) 1.0: https://www.openstreetmap.org/copyright"
+  echo "The street map tiles come from OpenFreeMap (https://openfreemap.org), built with the OpenMapTiles schema."
   echo
-  get https://raw.githubusercontent.com/protomaps/basemaps/42ffaaa4a85a41bfcb23e43cc0f5b492a5eca123/LICENSE_DATA.md
-  echo "== Protomaps basemaps (map style) =="
-  get https://raw.githubusercontent.com/protomaps/basemaps/42ffaaa4a85a41bfcb23e43cc0f5b492a5eca123/LICENSE.md
+  echo "== OpenMapTiles (map schema and design) =="
+  get https://raw.githubusercontent.com/openmaptiles/openmaptiles/6c11838d38030148832c039c2ea367274db86a87/LICENSE.md
+  echo "== OpenFreeMap styles (map style) =="
+  get https://raw.githubusercontent.com/hyperknot/openfreemap-styles/6e5361286c3e1eac7b7c89800ff63218297b5cfd/LICENSE.md
+  echo "== Positron GL style (the light style; the dark style derives from it) =="
+  get https://raw.githubusercontent.com/hyperknot/openfreemap-styles/6e5361286c3e1eac7b7c89800ff63218297b5cfd/styles/positron/LICENSE.md
   echo "== Noto Sans (map labels) =="
   get https://raw.githubusercontent.com/protomaps/basemaps-assets/028c18f713baecad011301ff7a69acc39bcc2ae7/fonts/OFL.txt
-  echo "== Map icons (tangrams/icons, via Protomaps sprites) =="
-  get https://raw.githubusercontent.com/tangrams/icons/92510779634f4a006c61ea70e50cb8c52c765a81/LICENSE.md
+  echo "== Map icons (Maki, via the OpenFreeMap sprites) =="
+  get https://raw.githubusercontent.com/mapbox/maki/28e2a3602e4bde033a1dd388e86e9c117b425e34/LICENSE.txt
   echo "== MapLibre Native Android =="
   get https://raw.githubusercontent.com/maplibre/maplibre-native/android-v13.7.1/LICENSE.md
   get https://raw.githubusercontent.com/maplibre/maplibre-native/android-v13.7.1/LICENSES.core.md | strip_apache

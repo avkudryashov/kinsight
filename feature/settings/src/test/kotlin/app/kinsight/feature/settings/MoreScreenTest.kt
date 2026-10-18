@@ -206,7 +206,7 @@ class MoreScreenTest {
         rule.onNodeWithTag("about_licenses").assertTextEquals("Open source licenses").performClick()
         rule.waitUntil(5_000) { rule.onAllNodes(hasTestTag("about_licenses_text")).fetchSemanticsNodes().isNotEmpty() }
         // The list is lazy: scroll to each notice, then it is on screen.
-        for (needle in listOf("© OpenStreetMap contributors", "MapLibre Native Android", "SIL OPEN FONT LICENSE", "MIT License")) {
+        for (needle in listOf("© OpenStreetMap contributors", "OpenMapTiles", "MapLibre Native Android", "SIL OPEN FONT LICENSE", "MIT License")) {
             rule.onNodeWithTag("about_licenses_text").performScrollToNode(hasText(needle, substring = true, ignoreCase = true))
             rule.onAllNodes(hasText(needle, substring = true, ignoreCase = true)).onFirst().assertExists()
         }

@@ -84,7 +84,7 @@ private fun PlainMap(child: ChildLocation, mark: Color, preview: StreetPreview, 
     }
     val caption = when (preview) {
         StreetPreview.Loading -> R.string.map_streets_loading
-        StreetPreview.WaitingWifi -> R.string.map_streets_wifi
+        StreetPreview.Waiting -> R.string.map_streets_network
         else -> null
     }
     if (caption != null) {

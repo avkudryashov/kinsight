@@ -156,7 +156,7 @@
     <string name="loc_osm_info">Лицензия данных карты</string>
     <string name="loc_preview_description">Карта улиц с местом ребёнка, маршрутом за сегодня и зонами. Нажмите, чтобы открыть её в приложении карт</string>
     <string name="map_streets_loading">Карта улиц загружается</string>
-    <string name="map_streets_wifi">Карта улиц будет загружена по Wi-Fi</string>
+    <string name="map_streets_network">Карта улиц будет загружена при подключении к сети</string>
     <string name="loc_open_in_maps">Открыть в картах</string>
     <string name="det_map_scale_m">%1$d м</string>
     <string name="det_map_scale_km">%1$d км</string>
