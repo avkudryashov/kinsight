@@ -615,7 +615,7 @@ class Pruner(
             detailRetentionDays = s.detailRetentionDays.toLong(),
             summaryRetentionDays = s.summaryRetentionDays.toLong(),
             // One clock for everything: LOCATION's 48 h and the usage days' date (not the wall date).
-            today = { LocalDate.ofInstant(Instant.ofEpochMilli(clock()), ZoneId.systemDefault()) },
+            today = { Instant.ofEpochMilli(clock()).atZone(ZoneId.systemDefault()).toLocalDate() },
             nowMs = clock,
         )
         val store = RoomEntryStore(db, group.groupId)
