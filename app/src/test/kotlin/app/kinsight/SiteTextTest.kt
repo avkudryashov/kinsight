@@ -27,6 +27,7 @@ class SiteTextTest {
         assertTrue("parent who holds the storage" in page("en"))
         // OpenFreeMap spec §7: the street map from OpenFreeMap over any network but roaming, and what OpenFreeMap sees.
         assertTrue("Карту улиц приложение само докачивает с сервиса OpenFreeMap участками около 90 × 90 км" in page("ru"))
+        assertTrue("можно понять квадрат около 30 × 30 км, где был ребёнок" in page("ru"))
         assertTrue("OpenFreeMap видит, какой участок скачан, и IP-адрес телефона родителя." in page("ru"))
         assertTrue("OpenFreeMap sees which area is downloaded and the IP address of the parent's phone." in page("en"))
         assertTrue("OpenFreeMap ve qué zona se ha descargado y la dirección IP del teléfono del adulto." in page("es"))
