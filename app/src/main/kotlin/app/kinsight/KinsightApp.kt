@@ -1,5 +1,6 @@
 package app.kinsight
 
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
@@ -190,6 +191,9 @@ private fun MainScaffold(appVersion: String, role: Role?, openDevice: StateFlow<
     val context = LocalContext.current
     val graph = remember { AppGraph.get(context) }
     val nav = rememberNavController()
+    // The whole stack, not just the top entry: a report pushed over a tab keeps that tab selected. No public
+    // NavController API exposes it as state, hence the suppression.
+    @SuppressLint("RestrictedApi")
     val stack by nav.currentBackStack.collectAsStateWithLifecycle()
     // Screens without their own top bar keep clear of the status bar and cutout; the suite handles the navigation bar.
     val topInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
