@@ -10,9 +10,12 @@ import app.kinsight.core.database.KinsightDatabaseFactory
 import app.kinsight.core.database.RoomEntryStore
 import app.kinsight.core.keystore.DeviceIdentity
 import app.kinsight.core.model.DeviceId
+import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.proto.StateEvent
+import app.kinsight.core.sync.EntryStore
+import app.kinsight.core.sync.SessionHandoff
 import app.kinsight.core.usage.PublishTarget
 import app.kinsight.core.usage.UsageGraph
 import app.kinsight.core.usage.ownUsageAllowed
@@ -20,9 +23,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -65,6 +70,28 @@ object SyncGraph {
     @Volatile
     var onSessionFinished: (Context) -> Unit = {}
 
+    /**
+     * The cloud hand-off for a session (spec §6 «Раздача»), set by the app: core/data sits above this module. Null hands
+     * nothing. Must not throw (a failure is logged and the session runs without the hand-off).
+     */
+    @Volatile
+    var cloudHandoff: suspend (Context, GroupConfig, EntryStore, DeviceKeys) -> SessionHandoff? = { _, _, _, _ -> null }
+
+    /** The storage generation of the last successful cloud sync (spec §7), set by the app at start; 0 without the cloud. */
+    @Volatile
+    var cloudGeneration: suspend (Context) -> Long = { 0L }
+
+    /**
+     * The cloud as the notification needs it (on for this phone, its last successful run), set by the app: core/data sits
+     * above this module. Without it the service knows only Bluetooth.
+     */
+    @Volatile
+    var cloudSync: (Context) -> Flow<CloudSync> = { flowOf(CloudSync()) }
+
+    /** The channel the service's notification of [s] is on ([ServiceChannels]): the parent's once it exists, until the role is read. */
+    fun channelFor(nm: NotificationManager, s: ServiceSnapshot): String =
+        ServiceChannels.forRole(s.peersAreParents, parentChannelExists = nm.getNotificationChannel(ServiceChannels.PARENT) != null)
+
     internal fun publish(s: ServiceSnapshot) {
         _snapshot.value = s
     }
@@ -75,9 +102,10 @@ object SyncGraph {
      */
     fun snapshotNow(context: Context): ServiceSnapshot {
         val nm = context.applicationContext.getSystemService(NotificationManager::class.java)
-        return _snapshot.value.copy(
+        val s = _snapshot.value
+        return s.copy(
             notificationsEnabled = nm.areNotificationsEnabled(),
-            channelImportance = nm.getNotificationChannel(SyncService.CHANNEL_ID)?.importance,
+            channelImportance = nm.getNotificationChannel(channelFor(nm, s))?.importance,
         )
     }
 
@@ -86,9 +114,6 @@ object SyncGraph {
         val app = context.applicationContext
         UsageGraph.targetProvider = { target(app) }
         UsageGraph.ownUsageGate = { t -> t != null && allowsOwnUsage(t, app) }
-        // S-M3: a hidden notification on a consenting child pauses usage. NotificationWatch keeps the «since» only once
-        // NOTIFICATION_HIDDEN was accepted, so a parent or a child before consent is never paused. DataStore read only.
-        UsageGraph.ownUsagePaused = { state(app).notificationHiddenSinceMs() != null }
     }
 
     /**
@@ -170,13 +195,23 @@ object SyncGraph {
             keys = keys,
             store = store,
             policy = SyncPolicies.forDevice(membership, keys.deviceId, settings),
+            handoff = handoffOrNull(context, group, store, keys),
         )
     }
 
+    private suspend fun handoffOrNull(context: Context, group: GroupConfig, store: EntryStore, keys: DeviceKeys): SessionHandoff? = try {
+        cloudHandoff(context, group, store, keys)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "no cloud hand-off for this session: ${e.javaClass.simpleName}")
+        null
+    }
+
     /**
-     * Before a session: the notification check first (a notification hidden since the last session pauses this run's
-     * usage, S-M3), then fresh own usage (spec §7, force), the daily Heartbeat and a refused stop interval. Never inside
-     * the pipeline lock.
+     * Before a session: the notification check first (a notification hidden since the last session is signed as
+     * NOTIFICATION_HIDDEN, a signal the parents see), then fresh own usage (spec §7, force), the daily Heartbeat and a
+     * refused stop interval. Never inside the pipeline lock.
      */
     suspend fun prepare(context: Context) {
         onNotificationVisibility(context, notificationVisibleNow(context))
@@ -199,8 +234,17 @@ object SyncGraph {
             append = { build -> UsageGraph.pipeline(app).appendOwn(build = build) },
             // Room only, never the pipeline: runs inside the Heartbeat's build, under stateLock and the pipeline lock.
             ownLog = { author -> RoomEntryStore(KinsightDatabaseFactory.shared(app), author.groupId).ownLog(author.keys.deviceId) },
+            cloudGeneration = { cloudGeneration(app) },
+            interval = {
+                val t = target(app)
+                heartbeatInterval(cloudGeneration(app), t?.let { membership(app, it) }, t?.keys?.deviceId)
+            },
         )
     }
+
+    /** [Heartbeats.intervalFor] for this phone: hourly only as an active child of its group with a cloud storage. */
+    internal fun heartbeatInterval(cloudGeneration: Long, membership: MembershipState?, self: DeviceId?): Long =
+        Heartbeats.intervalFor(cloudGeneration, child = self != null && membership?.active?.get(self)?.isChild == true)
 
     /** Unserialised: callers go through [onBluetoothOff] and [onBluetoothOn]. */
     private fun bluetoothOff(context: Context): BluetoothOffTracker {
@@ -263,6 +307,16 @@ object SyncGraph {
     }
 
     /**
+     * Spec §10: the child's location access and the system switch (LocationWatch). [gate] is core/data's
+     * (FamilyLocation.watchGate), computed by the caller before this lock. [access] and [enabled] are read inside it (Y5
+     * parked minor), so checks racing on one toggle each act on the state of their turn. [enabled] null: the system state
+     * is unknown. True when an event was queued. Only while a group exists.
+     */
+    suspend fun onLocationState(context: Context, gate: GateState, access: () -> Boolean, enabled: () -> Boolean?): Boolean = stateLock.withLock {
+        if (groups(context).exists()) LocationWatch(state(context), recorder(context)).onCheck(gate, access, enabled) else false
+    }
+
+    /**
      * At process start (Application), with or without a group: without one (or before consent) the exits are only
      * marked as seen, so the baseline exists by the time the device joins and its first force stop is reported.
      */
@@ -296,10 +350,11 @@ object SyncGraph {
 
     /** Names for the notification line and whether they are the parents who see this child's data. */
     suspend fun notificationPeers(context: Context): NotificationPeers {
-        val ctx = syncContext(context) ?: return NotificationPeers(emptyList(), parentsOnly = false)
-        val state = Membership.compute(ctx.groupId, ctx.store.membershipEntries()) ?: return NotificationPeers(emptyList(), false)
+        // Role unknown (null) without a group, keys or membership: the notification then fails closed (StatusText.childPhone).
+        val ctx = syncContext(context) ?: return NotificationPeers(emptyList(), parentsOnly = null)
+        val state = Membership.compute(ctx.groupId, ctx.store.membershipEntries()) ?: return NotificationPeers(emptyList(), null)
         val self = ctx.keys.deviceId
-        return NotificationPeers(StatusText.peerNames(state.active.values, self), parentsOnly = state.active[self]?.isChild == true)
+        return NotificationPeers(StatusText.peerNames(state.active.values, self), parentsOnly = StatusText.selfIsChild(state.active, self))
     }
 
     private fun readGroupOrNull(context: Context): GroupConfig? = try {

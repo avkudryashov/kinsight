@@ -1,19 +1,22 @@
 package app.kinsight.feature.devicedetail
 
 import android.text.format.DateUtils
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -31,12 +34,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -61,38 +64,37 @@ import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.AppList
 import app.kinsight.core.data.AppUsage
 import app.kinsight.core.data.Categories
-import app.kinsight.core.data.DayTotal
+import app.kinsight.core.data.CategoryTotal
 import app.kinsight.core.data.DetailRange
 import app.kinsight.core.data.DeviceDetail
-import app.kinsight.core.data.Heatmap
 import app.kinsight.core.data.HourTotal
 import app.kinsight.core.data.Period
 import app.kinsight.core.data.Role
 import app.kinsight.core.data.Sharing
+import app.kinsight.core.data.ThresholdEval
 import app.kinsight.core.data.ThresholdRule
 import app.kinsight.core.data.ThresholdTarget
+import app.kinsight.core.data.TodayComparison
 import app.kinsight.core.data.UsageReadModel
 import app.kinsight.core.designsystem.component.AppIcon
-import app.kinsight.core.designsystem.component.BarChart
-import app.kinsight.core.designsystem.component.CategoryLegend
+import app.kinsight.core.designsystem.component.CategoryStrip
 import app.kinsight.core.designsystem.component.ChartScale
 import app.kinsight.core.designsystem.component.EmptyState
 import app.kinsight.core.designsystem.component.PeriodHeader
+import app.kinsight.core.designsystem.component.Pill
 import app.kinsight.core.designsystem.component.StackedBarChart
-import app.kinsight.core.designsystem.component.dataMoment
+import app.kinsight.core.designsystem.component.StripPart
 import app.kinsight.core.designsystem.component.categoryColor
+import app.kinsight.core.designsystem.component.dataMoment
 import app.kinsight.core.designsystem.component.durationText
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.usage.UsageSettings
-import kotlinx.coroutines.delay
 import java.time.LocalDate
 import java.time.format.TextStyle
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
-import app.kinsight.core.designsystem.component.Heatmap as HeatmapChart
-
-private const val TOP_APPS = 5
+import kotlinx.coroutines.delay
 
 /** Events drawn at most; the period's list is uncapped in core/data, so the screen says how many it leaves out. */
 private const val MAX_EVENTS = 100
@@ -102,8 +104,7 @@ private val SWIPE_THRESHOLD = 72.dp
 
 /**
  * [onAllApps] opens the full list of the range on screen; [onOpenApp] (a package name and the range on screen) opens
- * one app on the same period, its rows are clickable only when it is given; [onThresholds] opens the child's limits
- * (offered on a parent's phone only).
+ * one app on the same period, its rows are clickable only when it is given.
  */
 @Composable
 fun DeviceDetailRoute(
@@ -111,7 +112,6 @@ fun DeviceDetailRoute(
     onAllApps: (DetailRange) -> Unit,
     onBack: () -> Unit,
     onOpenApp: ((String, DetailRange) -> Unit)? = null,
-    onThresholds: () -> Unit = {},
 ) {
     val graph = AppGraph.get(LocalContext.current)
     val vm: DeviceDetailViewModel = viewModel(key = "detail-${id.hex}") { DeviceDetailViewModel(graph.usage, id, createSavedStateHandle()) }
@@ -139,7 +139,6 @@ fun DeviceDetailRoute(
             onOpenApp = onOpenApp?.let { open -> { pkg: String -> open(pkg, d.range) } },
             detailRetentionDays = settings.detailRetentionDays,
             thresholds = thresholds,
-            onThresholds = onThresholds,
             nowMs = now,
         )
         loaded -> MissingDevice(onBack)
@@ -212,14 +211,10 @@ internal fun SectionTitle(text: String) =
     Text(text, style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
 
 /**
- * Spec §9.3: the period switch and its header (arrows, or a horizontal swipe on the content), level 1 (total, days by
- * category: tap a bar to open that day), level 3 (legend and category list), level 2 (top apps), level 4 (hours of a
- * day, heatmap of a week or month, or why there are none) and the range's events. A day without a summary reads
- * «no data» rather than «0 min» (DayTotal.known); a parent's phone has no usage to show at all (Play Stalkerware
- * ruling), only its events. [detailRetentionDays] is how long hourly detail is kept, for the «unavailable» text.
- * [thresholds] (a parent's phone only, else null) adds the «Limits» entry with their count ([onThresholds]) and draws
- * the total's limit: a line on the WEEK and MONTH charts, a line of text under a DAY's total (its chart is clock
- * hours, which follows the total right away).
+ * UI refresh §4: «Сегодня · Неделя · Месяц», arrows and swipe, then on every tab: 1) the figure, unlocks and the comparison,
+ * 2) the chart (hours of a day, days of a week or month) in one colour, 3) one category strip, 4) the top three apps with
+ * «лимит» marks and «Все приложения»; then the range's events. [thresholds] (a parent's phone only) draws the day limit
+ * and the marks.
  */
 @Composable
 fun DeviceDetailScreen(
@@ -233,7 +228,6 @@ fun DeviceDetailScreen(
     onOpenApp: ((String) -> Unit)? = null,
     detailRetentionDays: Int = UsageSettings().detailRetentionDays,
     thresholds: List<ThresholdRule>? = null,
-    onThresholds: () -> Unit = {},
     nowMs: Long = System.currentTimeMillis(),
 ) = Screen(detail.member.name, onBack) { padding ->
     val child = detail.member.role == Role.CHILD
@@ -271,76 +265,29 @@ fun DeviceDetailScreen(
             }
             if (detail.sharing != Sharing.On) item(key = "sharing") { SharingNote(detail.sharing) }
             if (known) {
-                item(key = "total") {
-                    Column {
-                        Text(durationText(detail.totalMs), style = MaterialTheme.typography.displaySmall)
-                        // Only a range that holds the child's today: «Data as of 14:05», with the child's clock when it differs (U3).
-                        val updated = detail.updatedMs
-                        if (updated != null && !today.isBefore(detail.range.start) && !today.isAfter(detail.range.end)) {
-                            val stale = UsageReadModel.isStale(updated, nowMs)
-                            Text(
-                                stringResource(if (stale) R.string.det_data_stale else R.string.det_data_at, dataMoment(LocalContext.current, updated, nowMs, detail.childZoneId)),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (stale) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.testTag("det_data_at"),
-                            )
-                        }
-                        Text(pluralStringResource(R.plurals.det_unlocks, detail.unlocks, detail.unlocks))
-                        if (detail.period == Period.DAY && totalLimit != null) {
-                            Text(stringResource(R.string.det_limit_line, durationText(totalLimit)), Modifier.testTag("det_limit"))
-                        }
-                    }
-                }
-                if (detail.period == Period.DAY) {
-                    timeOfDay(detail, today, detailRetentionDays) // U17: a day's chart is its hours, right under the total
-                } else {
-                    item(key = "chart") { DaysChart(detail, today, onOpenDay, limit = totalLimit) } // U19: the month too
-                }
+                item(key = "total") { PeriodFigure(detail, today, nowMs, totalLimit) } // block 1
+                if (detail.period == Period.DAY) dayHours(detail, today, detailRetentionDays) // block 2
+                else item(key = "chart") { DaysChart(detail, today, onOpenDay, limit = totalLimit) }
+                if (detail.categories.isNotEmpty()) item(key = "strip") { CategoryBlock(detail.categories) } // block 3
             } else if (detail.period == Period.DAY) {
                 item(key = "no_data") { Text(stringResource(R.string.det_no_data_day), style = MaterialTheme.typography.titleLarge) }
             } else {
                 item(key = "no_data") { EmptyState(stringResource(R.string.det_no_data_title), stringResource(R.string.det_no_data_body)) }
             }
-            if (thresholds != null && detail.sharing != Sharing.Left) {
-                item(key = "thresholds") {
-                    ListItem(
-                        headlineContent = { Text(stringResource(R.string.det_thresholds)) },
-                        supportingContent = {
-                            Text(
-                                if (thresholds.isEmpty()) {
-                                    stringResource(R.string.det_thresholds_none)
-                                } else {
-                                    pluralStringResource(R.plurals.det_thresholds_count, thresholds.size, thresholds.size)
-                                },
-                            )
-                        },
-                        modifier = Modifier.heightIn(min = 48.dp).clickable(onClick = onThresholds).testTag("det_thresholds"),
-                    )
-                }
-            }
-            if (detail.categories.isNotEmpty()) {
-                item(key = "categories_title") { SectionTitle(stringResource(R.string.det_categories)) }
-                item(key = "legend") { CategoryLegend(detail.categories.map { categoryName(it.category) to categoryColor(it.category.ordinal) }) }
-                items(detail.categories, key = { "cat:${it.category}" }) { c ->
-                    val share = if (detail.totalMs > 0) (c.totalMs * 100.0 / detail.totalMs).roundToInt() else 0
-                    ListItem(
-                        headlineContent = { Text(categoryName(c.category)) },
-                        trailingContent = { Text(stringResource(R.string.det_category_share, durationText(c.totalMs), share)) },
-                        modifier = Modifier.testTag("det_category_${c.category.name}"),
-                    )
-                }
-            }
+            // Block 4: the top three apps and the way to every app (with the categories).
             item(key = "apps_title") { SectionTitle(stringResource(R.string.det_top_apps)) }
             if (detail.apps.isEmpty()) item(key = "no_apps") { Text(stringResource(R.string.det_no_apps)) }
-            items(detail.apps.take(TOP_APPS), key = { "app:${it.packageName}" }) { AppRow(it, onOpenApp) }
-            if (detail.apps.size > TOP_APPS) {
+            items(detail.apps.take(UsageReadModel.TOP_APPS), key = { "app:${it.packageName}" }) { app ->
+                val category = detail.appCategories[app.packageName] ?: AppCategory.OTHER
+                AppRow(app, onOpenApp, limited = thresholds?.let { ThresholdEval.limited(it, detail.member.id, app.packageName, category) } == true)
+            }
+            if (detail.apps.isNotEmpty()) {
                 item(key = "all_apps") {
                     TextButton({ onAllApps(detail.range) }, Modifier.testTag("det_all_apps")) {
                         Text(stringResource(R.string.det_all_apps, detail.apps.size))
                     }
                 }
             }
-            if (known && detail.period != Period.DAY) timeOfDay(detail, today, detailRetentionDays)
         } else {
             item(key = "not_shared") { Text(stringResource(R.string.det_parent_not_shared)) }
         }
@@ -359,23 +306,79 @@ fun DeviceDetailScreen(
     }
 }
 
-/** Level 4: the hours of a DAY, the heatmap of a WEEK or MONTH, or why there are none (pruned, or not arrived yet). */
-private fun LazyListScope.timeOfDay(detail: DeviceDetail, today: LocalDate, detailRetentionDays: Int) {
-    item(key = "hours_title") { SectionTitle(stringResource(R.string.det_time_of_day)) }
+/** Block 2 of a DAY: its 24 clock hours in one colour, or why there are none (pruned, or not arrived yet). */
+private fun LazyListScope.dayHours(detail: DeviceDetail, today: LocalDate, detailRetentionDays: Int) {
     val hours = detail.hours
-    val heatmap = detail.heatmap
     // Without detail: past the viewer's detail retention it was pruned, otherwise it has not arrived yet.
     val horizon = today.minusDays(detailRetentionDays.toLong())
     val pruned = detail.days.any { it.known && it.date.isBefore(horizon) }
     when {
-        detail.period == Period.DAY && hours != null -> item(key = "hours") { HoursCharts(hours) }
-        detail.period != Period.DAY && heatmap != null -> item(key = "heatmap") { HeatmapSection(heatmap) }
+        hours != null -> item(key = "hours") { HoursChart(hours) }
         pruned -> item(key = "hours_unavailable") {
             Text(pluralStringResource(R.plurals.det_hours_unavailable, detailRetentionDays, detailRetentionDays))
         }
         else -> item(key = "hours_not_arrived") { Text(stringResource(R.string.det_hours_not_arrived)) }
     }
 }
+
+/** Block 1 (UI refresh §4): the period's time, its unlocks, the comparison; a DAY's total limit under them. */
+@Composable
+private fun PeriodFigure(detail: DeviceDetail, today: LocalDate, nowMs: Long, totalLimit: Long?) {
+    Column(Modifier.testTag("det_total"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(durationText(detail.totalMs), style = MaterialTheme.typography.displaySmall)
+        // Only a range that holds the child's today: «Data as of 14:05», with the child's clock when it differs (U3).
+        val updated = detail.updatedMs
+        if (updated != null && !today.isBefore(detail.range.start) && !today.isAfter(detail.range.end)) {
+            val stale = UsageReadModel.isStale(updated, nowMs)
+            Text(
+                stringResource(if (stale) R.string.det_data_stale else R.string.det_data_at, dataMoment(LocalContext.current, updated, nowMs, detail.childZoneId)),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (stale) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("det_data_at"),
+            )
+        }
+        Text(pluralStringResource(R.plurals.det_unlocks, detail.unlocks, detail.unlocks))
+        periodVersus(detail)?.let {
+            Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("det_versus"))
+        }
+        if (detail.period == Period.DAY && totalLimit != null) {
+            Text(stringResource(R.string.det_limit_line, durationText(totalLimit)), Modifier.testTag("det_limit"))
+        }
+    }
+}
+
+/** A DAY against its usual (TodayComparison), a WEEK or MONTH as its mean per day with data. */
+@Composable
+private fun periodVersus(detail: DeviceDetail): String? {
+    if (detail.period != Period.DAY) {
+        val known = detail.days.filter { it.known }
+        if (known.isEmpty()) return null
+        return stringResource(R.string.det_avg_per_day, durationText(known.sumOf { it.totalMs } / known.size))
+    }
+    return when (val c = detail.dayComparison) {
+        is TodayComparison.ByThisTime -> versus(detail.totalMs, c.usualMs, R.string.det_vs_hour_same, R.string.det_vs_hour_more, R.string.det_vs_hour_less)
+        is TodayComparison.FullDay -> versus(detail.totalMs, c.averageMs, R.string.det_vs_same, R.string.det_vs_more, R.string.det_vs_less)
+        null -> null
+    }
+}
+
+/** Text, never colour alone: within [UsageReadModel.aboutTheSame] it reads «about the same». */
+@Composable
+private fun versus(totalMs: Long, usualMs: Long, same: Int, more: Int, less: Int): String {
+    val diff = totalMs - usualMs
+    return when {
+        UsageReadModel.aboutTheSame(totalMs, usualMs) -> stringResource(same)
+        diff > 0 -> stringResource(more, durationText(diff))
+        else -> stringResource(less, durationText(-diff))
+    }
+}
+
+/** Block 3: one strip, up to four categories and Other, names and times under it. */
+@Composable
+private fun CategoryBlock(categories: List<CategoryTotal>) = CategoryStrip(
+    stripParts(categories).map { StripPart(categoryName(it.category), durationText(it.totalMs), it.totalMs, categoryColor(it.category.ordinal)) },
+    Modifier.fillMaxWidth().testTag("det_strip"),
+)
 
 /**
  * A horizontal drag of at least [SWIPE_THRESHOLD] steps back (towards the start edge: a right swipe in LTR) or forward,
@@ -407,6 +410,19 @@ private fun Modifier.swipeSteps(canBack: Boolean, canForward: Boolean, onBack: (
 fun AllAppsScreen(list: AppList, onBack: () -> Unit, onOpenApp: ((String) -> Unit)? = null) =
     Screen(stringResource(R.string.det_all_apps_title, list.member.name, rangeTitle(list.range, list.today ?: LocalDate.now())), onBack) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("det_apps"), contentPadding = PaddingValues(16.dp)) {
+            if (list.categories.isNotEmpty()) {
+                item(key = "categories_title") { SectionTitle(stringResource(R.string.det_categories)) }
+                val total = list.categories.sumOf { it.totalMs }
+                items(list.categories, key = { "cat:${it.category}" }) { c ->
+                    val share = if (total > 0) (c.totalMs * 100.0 / total).roundToInt() else 0
+                    ListItem(
+                        leadingContent = { Box(Modifier.size(12.dp).background(categoryColor(c.category.ordinal), CircleShape)) },
+                        headlineContent = { Text(categoryName(c.category)) },
+                        trailingContent = { Text(stringResource(R.string.det_category_share, durationText(c.totalMs), share)) },
+                        modifier = Modifier.testTag("det_category_${c.category.name}"),
+                    )
+                }
+            }
             if (list.apps.isEmpty()) item { Text(stringResource(R.string.det_no_apps)) }
             items(list.apps, key = { it.packageName }) { AppRow(it, onOpenApp) }
         }
@@ -422,12 +438,17 @@ internal fun appLabel(packageName: String, label: String): String =
     if (packageName == Categories.REMAINDER_PACKAGE) stringResource(R.string.det_other_apps) else label
 
 @Composable
-private fun AppRow(app: AppUsage, onOpen: ((String) -> Unit)?) {
+private fun AppRow(app: AppUsage, onOpen: ((String) -> Unit)?, limited: Boolean = false) {
     val openLabel = stringResource(R.string.det_open_app)
     ListItem(
         leadingContent = { AppIcon(app.icon) },
         headlineContent = { Text(appLabel(app.packageName, app.label)) },
-        trailingContent = { Text(durationText(app.totalMs)) },
+        trailingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (limited) Pill(stringResource(R.string.det_limit_pill), Modifier.testTag("det_limit_pill"))
+                Text(durationText(app.totalMs))
+            }
+        },
         modifier = Modifier.testTag("det_app_${app.packageName}")
             .then(if (onOpen != null) Modifier.clickable(onClickLabel = openLabel) { onOpen(app.packageName) } else Modifier),
     )
@@ -462,15 +483,13 @@ private fun DaysChart(detail: DeviceDetail, today: LocalDate, onOpenDay: (LocalD
         busiestName,
         durationText(busiest.totalMs),
     )
-    val top = detail.categories.take(2).map { stringResource(R.string.det_category_item, categoryName(it.category), durationText(it.totalMs)) }
-    val summary = if (top.isEmpty()) daysSummary else "$daysSummary. " + stringResource(R.string.det_categories_summary, top.joinToString(", "))
-    val stacks = days.mapIndexed { i, d -> stackOf(detail.dayCategories.getOrNull(i), d) }
+    val stacks = days.map { listOf(if (it.known) it.totalMs else 0L) }
     val barTexts = rememberBarTexts(days, today, locale)
     StackedBarChart(
         stacks = stacks,
-        colors = AppCategory.entries.map { categoryColor(it.ordinal) },
+        colors = listOf(MaterialTheme.colorScheme.primary),
         labels = labels,
-        summary = summary,
+        summary = daysSummary,
         modifier = Modifier.testTag("det_chart"),
         onBarClick = { i -> onOpenDay(days[i].date) },
         barDescription = { i -> barTexts[i] },
@@ -488,15 +507,9 @@ private fun DaysChart(detail: DeviceDetail, today: LocalDate, onOpenDay: (LocalD
     )
 }
 
-/** One bar's segments in AppCategory order; a known day without a breakdown is all Other. */
-private fun stackOf(cats: Map<AppCategory, Long>?, day: DayTotal): List<Long> {
-    val byCat = cats?.takeIf { it.isNotEmpty() } ?: if (day.known && day.totalMs > 0) mapOf(AppCategory.OTHER to day.totalMs) else emptyMap()
-    return AppCategory.entries.map { byCat[it] ?: 0L }
-}
-
-/** Level 4 of a day: 24 clock hours by category, then unlocks per hour. */
+/** Block 2 of a day: 24 clock hours, one colour (no unlock chart: block 1 says the day's unlocks). */
 @Composable
-private fun HoursCharts(hours: List<HourTotal>) {
+private fun HoursChart(hours: List<HourTotal>) {
     val locale = locale()
     val is24 = android.text.format.DateFormat.is24HourFormat(LocalContext.current)
     val names = (0..23).map { hourLabel(it, locale, is24) }
@@ -504,69 +517,15 @@ private fun HoursCharts(hours: List<HourTotal>) {
     val busiest = hours.maxByOrNull { it.totalMs }?.takeIf { it.totalMs > 0 }
     val summary = busiest?.let { stringResource(R.string.det_hours_summary, hourTime(it.hour, locale, is24), durationText(it.totalMs)) }
         ?: stringResource(R.string.det_hours_none)
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        StackedBarChart(
-            stacks = hours.map { h -> AppCategory.entries.map { h.byCategory[it] ?: 0L } },
-            colors = AppCategory.entries.map { categoryColor(it.ordinal) },
-            labels = labels,
-            summary = summary,
-            modifier = Modifier.testTag("det_hours"),
-            labelAnchor = 0,
-            scale = ChartScale.DURATION,
-        )
-        Text(stringResource(R.string.det_unlocks_by_hour), style = MaterialTheme.typography.labelLarge)
-        val mostUnlocks = hours.maxByOrNull { it.unlocks }?.takeIf { it.unlocks > 0 }
-        val unlockSummary = mostUnlocks?.let { stringResource(R.string.det_unlocks_summary, hourTime(it.hour, locale, is24), it.unlocks) }
-            ?: stringResource(R.string.det_unlocks_none)
-        Box(Modifier.testTag("det_hour_unlocks")) { BarChart(hours.map { it.unlocks.toLong() }, labels, unlockSummary, highlightLast = false, labelAnchor = 0, scale = ChartScale.COUNT) }
-    }
-}
-
-/** Level 4 of a week or month: weekday × hour, rows from the data's first day of week (the range's WeekFields). */
-@Composable
-private fun HeatmapSection(heatmap: Heatmap) {
-    val locale = locale()
-    val first = heatmap.firstDayOfWeek
-    val weekdays = (0L..6).map { first.plus(it) }
-    val is24 = android.text.format.DateFormat.is24HourFormat(LocalContext.current)
-    // The busiest cell; an all-empty grid says so rather than naming the first cell.
-    var best: Pair<Int, Int>? = null
-    var bestMs = 0L
-    heatmap.cells.take(7).forEachIndexed { d, row ->
-        row.take(24).forEachIndexed { h, v ->
-            if (v > bestMs) {
-                bestMs = v
-                best = d to h
-            }
-        }
-    }
-    val summary = best?.let { (d, h) ->
-        stringResource(R.string.det_heatmap_summary, weekdays[d].getDisplayName(TextStyle.FULL, locale), hourTime(h, locale, is24))
-    } ?: stringResource(R.string.det_hours_none)
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        HeatmapChart(
-            cells = heatmap.cells,
-            rowLabels = weekdays.map { it.getDisplayName(TextStyle.SHORT, locale) },
-            summary = summary,
-            modifier = Modifier.fillMaxWidth().testTag("det_heatmap"),
-            hourLabels = hourLabels(locale, is24),
-        )
-        Text(
-            pluralStringResource(R.plurals.det_heatmap_coverage, heatmap.rangeDays, heatmap.coveredDays, heatmap.rangeDays),
-            style = MaterialTheme.typography.bodySmall,
-        )
-        // As on a DAY: unlocks per clock hour, here the mean over the covered days.
-        val names = (0..23).map { hourLabel(it, locale, is24) }
-        val labels = names.mapIndexed { h, n -> if (h % 6 == 0) n else "" }
-        val unlocks = (0..23).map { heatmap.unlocks.getOrElse(it) { 0 }.coerceAtLeast(0) }
-        val most = unlocks.indices.maxByOrNull { unlocks[it] }?.takeIf { unlocks[it] > 0 }
-        val unlockSummary = most?.let { stringResource(R.string.det_unlocks_summary, hourTime(it, locale, is24), unlocks[it]) }
-            ?: stringResource(R.string.det_unlocks_none)
-        Text(stringResource(R.string.det_unlocks_by_hour_average), style = MaterialTheme.typography.labelLarge)
-        Box(Modifier.testTag("det_heatmap_unlocks")) {
-            BarChart(unlocks.map { it.toLong() }, labels, unlockSummary, highlightLast = false, labelAnchor = 0, scale = ChartScale.COUNT)
-        }
-    }
+    StackedBarChart(
+        stacks = hours.map { listOf(it.totalMs) },
+        colors = listOf(MaterialTheme.colorScheme.primary),
+        labels = labels,
+        summary = summary,
+        modifier = Modifier.testTag("det_hours"),
+        labelAnchor = 0,
+        scale = ChartScale.DURATION,
+    )
 }
 
 @Composable

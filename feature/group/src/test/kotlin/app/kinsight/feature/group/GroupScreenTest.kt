@@ -48,21 +48,38 @@ class GroupScreenTest {
         members: List<MemberView>,
         nowMs: Long = 0,
         leaving: Boolean = false,
+        ownsStorage: Boolean = false,
         onGrantAdmin: (DeviceId) -> Unit = {},
         onRemove: (DeviceId) -> Unit = {},
         onLeave: () -> Unit = {},
+        onBack: (() -> Unit)? = null,
     ) = rule.setContent {
-        KinsightTheme(dynamicColor = false) {
+        KinsightTheme() {
             GroupScreen(
-                GroupState.Ready(group, self, members),
+                GroupState.Ready(group, self, members, selfOwnsStorage = ownsStorage),
                 nowMs = nowMs,
                 leaving = leaving,
                 onInvite = {},
                 onGrantAdmin = onGrantAdmin,
                 onRemove = onRemove,
                 onLeave = onLeave,
+                onBack = onBack,
             )
         }
+    }
+
+    @Test
+    fun openedFromMoreItHasABackArrowAndOtherwiseNone() {
+        var backs = 0
+        show(mom, listOf(mom, kid), onBack = { backs++ })
+        rule.onNodeWithTag("grp_back").performClick()
+        assertEquals(1, backs)
+    }
+
+    @Test
+    fun withoutOnBackThereIsNoBackArrow() {
+        show(mom, listOf(mom, kid))
+        rule.onNodeWithTag("grp_back").assertDoesNotExist()
     }
 
     @Test
@@ -144,7 +161,7 @@ class GroupScreenTest {
 
     @Test
     fun whileLeavingLeaveIsDisabledAndProgressShown() {
-        val self = kid.copy(isSelf = true)
+        val self = dad.copy(isSelf = true)
         show(self, listOf(self, mom.copy(isSelf = false)), leaving = true)
         rule.onNodeWithTag("grp_list").performScrollToNode(hasTestTag("grp_leave"))
         rule.onNodeWithTag("grp_leave").assertIsNotEnabled()
@@ -193,7 +210,7 @@ class GroupScreenTest {
     @Test
     fun aMemberWhoMayLeaveConfirmsFirst() {
         var left = false
-        val self = kid.copy(isSelf = true)
+        val self = dad.copy(isSelf = true)
         show(self, listOf(self, mom.copy(isSelf = false)), onLeave = { left = true })
         rule.onNodeWithTag("grp_list").performScrollToNode(hasTestTag("grp_leave"))
         rule.onNodeWithTag("grp_leave").assertIsEnabled().performClick()
@@ -207,6 +224,15 @@ class GroupScreenTest {
     }
 
     @Test
+    fun aChildCannotLeaveFromItsOwnPhone() {
+        val self = kid.copy(isSelf = true)
+        show(self, listOf(self, mom.copy(isSelf = false)))
+        rule.onNodeWithTag("grp_list").performScrollToNode(hasTestTag("grp_leave_child"))
+        rule.onNodeWithTag("grp_leave").assertDoesNotExist()
+        rule.onNodeWithText("A parent can remove this phone", substring = true).assertExists()
+    }
+
+    @Test
     fun lastSeenIsShownOrSaidToBeMissing() {
         show(mom, listOf(mom, dad.copy(lastSeenMs = 1_000L), kid), nowMs = 1_000L + 3 * 60 * 60_000L)
         rule.onNodeWithText("Parent · admin · this phone", substring = true).assertExists()
@@ -216,7 +242,7 @@ class GroupScreenTest {
 
     @Test
     fun leavingShowsProgress() {
-        rule.setContent { KinsightTheme(dynamicColor = false) { LeavingContent() } }
+        rule.setContent { KinsightTheme() { LeavingContent() } }
         rule.onNodeWithTag("grp_leaving").assertExists()
         rule.onNodeWithText("telling your family", substring = true).assertExists()
     }
@@ -225,7 +251,7 @@ class GroupScreenTest {
     fun leaveErrorIsExplainedAndDismissed() {
         var dismissed = false
         rule.setContent {
-            KinsightTheme(dynamicColor = false) { GroupErrorDialog(GroupError.Leave(LeaveError.WIPE_FAILED), onDismiss = { dismissed = true }) }
+            KinsightTheme() { GroupErrorDialog(GroupError.Leave(LeaveError.WIPE_FAILED), onDismiss = { dismissed = true }) }
         }
         rule.onNodeWithText("clearing this phone failed", substring = true).assertExists()
         rule.onNodeWithTag("grp_error_ok").performClick()
@@ -247,5 +273,35 @@ class GroupScreenTest {
         assertEquals(errors.size, texts.toSet().size)
         assertTrue(texts.all { it.isNotBlank() })
         assertTrue(texts.all { t -> t.any { it in 'а'..'я' } == russian })
+    }
+
+    @Test
+    fun anOwnerAloneIsToldTheCloudTurnsOff() {
+        show(mom, listOf(mom), ownsStorage = true)
+        rule.onNodeWithTag("grp_list").performScrollToNode(hasTestTag("grp_leave"))
+        rule.onNodeWithTag("grp_leave").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Sync through Yandex Disk turns off", substring = true).assertExists()
+    }
+
+    @Test
+    fun anOwnerWithAnotherAdminParentIsNotToldTheCloudTurnsOff() {
+        // Spec §7.1: the role can go to Dad, so the leave is refused (OWNER_HANDOVER) instead.
+        show(mom, listOf(mom, dad.copy(isAdmin = true)), ownsStorage = true)
+        rule.onNodeWithTag("grp_list").performScrollToNode(hasTestTag("grp_leave"))
+        rule.onNodeWithTag("grp_leave").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Everyone in the group will be told", substring = true).assertExists()
+        rule.onNodeWithText("Sync through Yandex Disk turns off", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun aPhoneWithoutTheStorageIsNotToldTheCloudTurnsOff() {
+        show(mom, listOf(mom), ownsStorage = false)
+        rule.onNodeWithTag("grp_list").performScrollToNode(hasTestTag("grp_leave"))
+        rule.onNodeWithTag("grp_leave").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Everyone in the group will be told", substring = true).assertExists()
+        rule.onNodeWithText("Sync through Yandex Disk turns off", substring = true).assertDoesNotExist()
     }
 }

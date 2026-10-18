@@ -5,6 +5,10 @@ import android.content.ContextWrapper
 import app.kinsight.core.database.KinsightDatabaseFactory
 import app.kinsight.core.database.RoomEntryStore
 import app.kinsight.core.database.RoomUsageQueue
+import app.kinsight.core.keystore.AesGcmWrap
+import app.kinsight.core.keystore.CloudTokenVault
+import app.kinsight.core.keystore.GroupKeyFile
+import app.kinsight.core.keystore.RetiredTokenFile
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.Membership
 import app.kinsight.core.transport.ble.GroupStore
@@ -33,6 +37,7 @@ import java.io.File
 import java.nio.file.Files
 import java.time.ZoneId
 import java.util.Collections
+import javax.crypto.KeyGenerator
 
 /** Just enough Context for Room on the JVM: database names are absolute paths. */
 class HostContext : ContextWrapper(null) {
@@ -56,10 +61,6 @@ class FakeSyncControl : SyncControl {
 
 private object NoEvents : EventSource {
     override fun read(fromMs: Long, untilMs: Long): List<UsageEvent> = emptyList()
-}
-
-private object Granted : UsageAccess {
-    override fun granted() = true
 }
 
 private object NoLaunchers : LauncherSource {
@@ -96,9 +97,14 @@ class TestDevice(
     val sessions = MutableStateFlow(SessionProgress(finished = 0, syncing = false))
     var identityBroken: Exception? = null
     val keyProvider: suspend () -> DeviceKeys = { identityBroken?.let { throw it } ?: keys }
+
+    /** Usage access (AppOpsManager): a new child grants it only after pairing (UI refresh §6). */
+    @Volatile var usageAccessGranted = true
     val pipeline = UsagePipeline(
         db = db,
-        collector = Collector(RoomUsageQueue(db), NoEvents, Granted, FixedClock { now }, NoLaunchers),
+        collector = Collector(RoomUsageQueue(db), NoEvents, object : UsageAccess {
+            override fun granted() = usageAccessGranted
+        }, FixedClock { now }, NoLaunchers),
         settings = settings,
         apps = NoApps,
         target = { groups.read()?.let { PublishTarget(it.groupId, keys) } },
@@ -109,6 +115,17 @@ class TestDevice(
         },
     )
     val snapshots = Snapshots(db, groups, keyProvider, transport, scope = scope)
+    // A JVM AES key stands in for the Keystore wrap key; one wrap for all the files, like CloudFiles.wrap.
+    private val cloudAes = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
+    private val cloudWrap = AesGcmWrap { cloudAes }
+    @Volatile var onAccess: () -> Unit = {} // CloudSecrets' onAccess (the app schedules a cloud run there)
+    val cloudSecrets = CloudSecrets(
+        CloudTokenVault(File(dir, CloudTokenVault.FILE_NAME), cloudWrap),
+        GroupKeyFile(File(dir, GroupKeyFile.FILE_NAME), cloudWrap),
+        RetiredTokenFile(File(dir, RetiredTokenFile.FILE_NAME), cloudWrap),
+        onAccess = { onAccess() },
+    )
+    val cloudState = CloudStateStore.create(File(dir, "c.preferences_pb"), scope)
     val identityResets: MutableList<Boolean> = Collections.synchronizedList(mutableListOf()) // was the database empty when the identity went
     var identityWipeFails: Exception? = null
     var afterKeyWipeFails: Exception? = null // a crash right after the keys went, before the data
@@ -120,6 +137,8 @@ class TestDevice(
         forgetGroupFiles = {
             groups.delete()
             transport.clear()
+            cloudSecrets.forget()
+            cloudState.clear()
         },
         settings = settings,
         prefs = prefs,
@@ -127,6 +146,7 @@ class TestDevice(
         wipeIdentity = { onKeyWipe?.invoke(); identityWipeFails?.let { throw it }; identityResets += runBlocking { db.entryDao().all().isEmpty() }; keys = DeviceKeys.generate(); afterKeyWipeFails?.let { throw it } },
         snapshots = snapshots,
         marker = resetMarker,
+        runLock = cloudSecrets.runLock,
     )
     val group = GroupRepository(
         snapshots = snapshots,
@@ -138,6 +158,7 @@ class TestDevice(
         scope = scope,
         sessions = sessions,
         forget = { reset.resetIdentity(keepName = true) },
+        runLock = cloudSecrets.runLock,
         leaveTimeoutMs = leaveTimeoutMs,
     )
     val appendOwn: OwnAppend = { build -> pipeline.appendOwn(build = build) }

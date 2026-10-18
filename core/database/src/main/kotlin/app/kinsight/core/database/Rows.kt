@@ -126,3 +126,10 @@ data class CatalogStateRow(
     @PrimaryKey @ColumnInfo(name = "package_name") val packageName: String,
     val hash: String,
 )
+
+/** The single cloud cursor row (id = 0, cloud Y2): CloudCursorCodec bytes of this device's progress on the Disk. */
+@Entity(tableName = "cloud_cursor")
+class CloudCursorRow(
+    @PrimaryKey val id: Int = 0,
+    val state: ByteArray,
+)

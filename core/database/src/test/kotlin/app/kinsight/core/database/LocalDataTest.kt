@@ -9,6 +9,7 @@ import app.kinsight.core.model.proto.AppCatalog
 import app.kinsight.core.model.proto.Heartbeat
 import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.model.proto.UsageSummary
+import app.kinsight.core.transport.cloud.CloudCursor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
@@ -105,7 +106,7 @@ class LocalDataTest {
 
     @Test
     fun wipedTablesAreEveryTableOfTheSchema() {
-        val json = File("schemas/app.kinsight.core.database.KinsightDatabase/3.json").readText()
+        val json = File("schemas/app.kinsight.core.database.KinsightDatabase/5.json").readText()
         val tables = Regex("\"tableName\": \"([a-z_]+)\"").findAll(json).map { it.groupValues[1] }.toSet()
         assertEquals(tables, WIPED_TABLES.toSet())
     }
@@ -126,10 +127,24 @@ class LocalDataTest {
         queue.setLastUsagePublishMs(1)
         queue.setCatalogHash("a.app", "x")
         db.vectorDao().addAbove(AboveRow(keys.deviceId.hex, 9))
+        db.cloudCursorDao().set(CloudCursorRow(state = byteArrayOf(1)))
         for (table in WIPED_TABLES) assertTrue(count(table) > 0, "$table empty before wipe")
         db.wipeAll()
         for (table in WIPED_TABLES) assertEquals(0L, count(table), table)
         assertEquals(0L, store.authorState(keys.deviceId).lastSeq)
+    }
+
+    @Test
+    fun aCloudCursorThatFailsToDecodeInAnyWayStartsOver() = runTest {
+        db.cloudCursorDao().set(CloudCursorRow(state = byteArrayOf(42)))
+        val logged = mutableListOf<String>()
+        assertEquals(CloudCursor(), RoomCloudCursorStore(db, { logged += it }).load())
+        val broken = RoomCloudCursorStore(db, { logged += it }, decode = { throw IllegalStateException("codec bug") })
+        assertEquals(CloudCursor(), broken.load())
+        assertEquals(2, logged.size)
+        val c = CloudCursor(uploadedUpTo = 5)
+        RoomCloudCursorStore(db).save(c)
+        assertEquals(c, RoomCloudCursorStore(db).load())
     }
 
     @Test

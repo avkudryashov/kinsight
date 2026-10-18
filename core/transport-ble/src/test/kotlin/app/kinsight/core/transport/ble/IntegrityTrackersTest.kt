@@ -8,6 +8,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.async
 import java.io.File
 import java.nio.file.Files
 import kotlin.test.AfterTest
@@ -317,5 +319,110 @@ class IntegrityTrackersTest {
         stops.retryPending() // nothing left
         assertEquals(listOf(Triple(StateEvent.Kind.SYNC_STOPPED, 1_000_000L, 1_010_000L)), recorded)
         assertNull(state.stoppedAtMs())
+    }
+
+    private val location = LocationWatch(state, record, clock = { now })
+    private val openGate = GateState.Open(0L)
+
+    /**
+     * Y5 parked minor: one toggle sends several checks at once. A check that waited for the lock reads the switch then,
+     * so it never opens LOCATION_DISABLED from a value read before the other check turned it back.
+     */
+    @Test
+    fun aCheckThatWaitedReadsTheSwitchInItsTurn() = runBlocking<Unit> {
+        val lock = kotlinx.coroutines.sync.Mutex()
+        var systemOn = false
+        lock.lock() // an earlier check holds it
+        val late = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            lock.withLock { location.onCheck(openGate, access = { true }, enabled = { systemOn }) }
+        }
+        systemOn = true // switched back on before the late check got its turn
+        lock.unlock()
+        assertFalse(late.await())
+        assertTrue(recorded.isEmpty())
+        assertNull(state.locationDisabledSinceMs())
+    }
+
+    @Test
+    fun locationRevokedIsReportedAtOnceAndClosedWhenBack() = runBlocking<Unit> {
+        assertFalse(location.onCheck(openGate, access = false, enabled = true), "never granted: nothing was revoked")
+        assertFalse(location.onCheck(openGate, access = true, enabled = true))
+        now += 60_000
+        assertTrue(location.onCheck(openGate, access = false, enabled = true))
+        assertEquals(listOf(Triple(StateEvent.Kind.LOCATION_PERMISSION_OFF, 1_060_000L, 1_060_000L)), recorded)
+        assertFalse(location.onCheck(openGate, access = false, enabled = true), "reported once")
+        now += 60_000
+        assertTrue(location.onCheck(openGate, access = true, enabled = true))
+        assertEquals(Triple(StateEvent.Kind.LOCATION_PERMISSION_OFF, 1_060_000L, 1_120_000L), recorded.last())
+        assertNull(state.locationAccessOffSinceMs())
+    }
+
+    @Test
+    fun locationOffInTheSystemIsReportedAtOnceAndClosedWhenOn() = runBlocking<Unit> {
+        assertTrue(location.onCheck(openGate, access = true, enabled = false))
+        now += 5_000
+        assertTrue(location.onCheck(openGate, access = true, enabled = true))
+        assertEquals(
+            listOf(
+                Triple(StateEvent.Kind.LOCATION_DISABLED, 1_000_000L, 1_000_000L),
+                Triple(StateEvent.Kind.LOCATION_DISABLED, 1_000_000L, 1_005_000L),
+            ),
+            recorded,
+        )
+    }
+
+    /** Parked Task 9 item: without a LocationManager the system state is unknown, which signs nothing either way. */
+    @Test
+    fun anUnknownSystemLocationStateSignsNothing() = runBlocking<Unit> {
+        assertFalse(location.onCheck(openGate, access = true, enabled = null))
+        assertEquals(emptyList(), recorded)
+        assertTrue(location.onCheck(openGate, access = true, enabled = false))
+        recorded.clear()
+        now += 1_000
+        assertFalse(location.onCheck(openGate, access = true, enabled = null), "an open problem is not closed by an unknown")
+        assertEquals(emptyList(), recorded)
+        assertEquals(1_000_000L, state.locationDisabledSinceMs())
+    }
+
+    @Test
+    fun aClosingGateClosesAnOpenLocationProblemAndForgetsTheBaseline() = runBlocking<Unit> {
+        location.onCheck(openGate, access = true, enabled = false)
+        now += 1_000
+        assertTrue(location.onCheck(GateState.Closed, access = true, enabled = false), "the cloud went off, say")
+        assertEquals(Triple(StateEvent.Kind.LOCATION_DISABLED, 1_000_000L, 1_001_000L), recorded.last())
+        assertNull(state.locationDisabledSinceMs())
+        recorded.clear()
+        assertFalse(location.onCheck(openGate, access = false, enabled = true), "the access baseline went with the gate")
+        assertEquals(emptyList(), recorded)
+    }
+
+    /** Y5 parked minor: a closing gate closes a revoked access too, and both problems at once. */
+    @Test
+    fun aClosingGateClosesBothLocationProblems() = runBlocking<Unit> {
+        location.onCheck(openGate, access = true, enabled = true)
+        assertTrue(location.onCheck(openGate, access = false, enabled = false))
+        now += 2_000
+        assertTrue(location.onCheck(GateState.Closed, access = false, enabled = false))
+        assertEquals(
+            setOf(
+                Triple(StateEvent.Kind.LOCATION_PERMISSION_OFF, 1_000_000L, 1_002_000L),
+                Triple(StateEvent.Kind.LOCATION_DISABLED, 1_000_000L, 1_002_000L),
+            ),
+            recorded.drop(2).toSet(),
+        )
+        assertNull(state.locationAccessOffSinceMs())
+        assertNull(state.locationDisabledSinceMs())
+    }
+
+    @Test
+    fun anUnknownGateOrARefusalKeepsTheLocationStateForTheNextCheck() = runBlocking<Unit> {
+        location.onCheck(openGate, access = true, enabled = true)
+        assertFalse(location.onCheck(GateState.Unknown, access = false, enabled = false))
+        assertEquals(emptyList(), recorded)
+        accept = false
+        assertFalse(location.onCheck(openGate, access = true, enabled = false))
+        assertNull(state.locationDisabledSinceMs(), "a refused event keeps no «since»")
+        accept = true
+        assertTrue(location.onCheck(openGate, access = true, enabled = false))
     }
 }

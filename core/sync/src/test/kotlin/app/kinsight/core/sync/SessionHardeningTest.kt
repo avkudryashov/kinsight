@@ -4,8 +4,10 @@ import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.addMember
+import app.kinsight.core.model.parentPinEntry
 import app.kinsight.core.model.proto.AppTotal
 import app.kinsight.core.model.proto.BatchAck
+import app.kinsight.core.model.proto.CloudHandoff
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.Done
 import app.kinsight.core.model.proto.EntryBatch
@@ -69,6 +71,7 @@ class SessionHardeningTest {
         assertNotNull(announce.vector_announce)
         got += announce
         ch.put(SyncMessage(vector_announce = VectorAnnounce(vector = member.store.versionVector().toProto())))
+        ch.put(SyncMessage(cloud_handoff = CloudHandoff()))
         while (true) {
             val m = ch.next()
             got += m
@@ -81,16 +84,19 @@ class SessionHardeningTest {
     }
 
     @Test
-    fun aChildAskingForForeignEntriesGetsMembershipButNoBatch() = runBlocking<Unit> {
+    fun aChildAskingForForeignEntriesGetsMembershipAndOnlyTheParentsShare() = runBlocking<Unit> {
         val (parent, other, child) = buildGroup(3, role = { if (it == 2) DeviceRole.CHILD else DeviceRole.PARENT })
         parent.publish(other.author.summary(TODAY.toString(), 1)) // another member's data the parent would relay
         parent.publish(parent.author.categoryOverride("com.example.game", 1))
+        val pin = parent.author.parentPinEntry(ByteArray(16) { 1 }, ByteArray(32) { 2 }, 19_456, 2, rank = 1)
+        parent.publish(pin)
         val late = DeviceKeys.generate()
         val add = parent.author.addMember(late.sign.publicKey, late.dh.publicKey, "late", DeviceRole.CHILD)
         parent.publish(add)
         val (result, got) = withTimeout(30.seconds) { actAs(child, parent, wantsForeign = true) }
-        assertEquals(0, assertIs<SessionResult.Completed>(result).sentBatches)
-        assertTrue(got.none { it.batch != null }, "a child got ${got.count { it.batch != null }} batches")
+        assertEquals(1, assertIs<SessionResult.Completed>(result).sentBatches)
+        val sent = got.mapNotNull { it.batch }.flatMap { it.entries }.map { DecodedEntry.decode(it.toByteArray()) }
+        assertEquals(listOf(pin), sent, "a child takes the parents' PIN and nothing else of theirs")
         val offered = got.mapNotNull { it.membership }.flatMap { it.entries }.map { DecodedEntry.decode(it.toByteArray()) }
         assertTrue(add in offered, "the child must still receive the membership op")
     }
@@ -148,6 +154,7 @@ class SessionHardeningTest {
             ch.put(SyncMessage(hello = Hello(protocol_version = PROTOCOL_VERSION, group_id = hello.group_id, membership_hash = hello.membership_hash, wants_foreign_entries = false)))
             assertNotNull(ch.next().vector_announce)
             ch.put(SyncMessage(vector_announce = VectorAnnounce(vector = a.store.versionVector().toProto())))
+            ch.put(SyncMessage(cloud_handoff = CloudHandoff()))
             ch.put(SyncMessage(batch = EntryBatch(entries = listOf(a.author.summary(TODAY.toString(), 1).bytes.toByteString()))))
             repeat(1_000) { ch.put(SyncMessage(ack = BatchAck())) } // the unbounded MemoryPipe never blocks us
             delay(500)
@@ -178,6 +185,7 @@ class SessionHardeningTest {
             ch.put(SyncMessage(hello = Hello(protocol_version = PROTOCOL_VERSION, group_id = hello.group_id, membership_hash = hello.membership_hash, wants_foreign_entries = true)))
             assertNotNull(ch.next().vector_announce)
             ch.put(SyncMessage(vector_announce = VectorAnnounce(vector = a.store.versionVector().toProto())))
+            ch.put(SyncMessage(cloud_handoff = CloudHandoff()))
             ch.put(SyncMessage(batch = EntryBatch(entries = tampered.map { it.bytes.toByteString() })))
             val seen = mutableListOf<SyncMessage>()
             try {
@@ -187,6 +195,78 @@ class SessionHardeningTest {
             }
             assertEquals(SessionResult.TooManyInvalid(a.keys.deviceId), session.await())
             assertTrue(seen.any { it.reject?.reason == Reject.Reason.TOO_MANY_INVALID }, "no reject among ${seen.size} messages")
+        }
+    }
+
+    /**
+     * [a] plays a protocol 3 peer against [b]'s honest session holding [handoff]: Hello with the right hash, then its
+     * VectorAnnounce, then [afterAnnounce]; returns [b]'s result.
+     */
+    private suspend fun handoffPeer(a: Node, b: Node, handoff: SessionHandoff?, afterAnnounce: suspend (SecureChannel) -> Unit): SessionResult {
+        val (sa, sb) = MemoryPipe.pair()
+        val prologue = SecureChannel.prologue(b.store.groupId)
+        return coroutineScope {
+            val session = async { SyncSession(b.store, b.policy, idleTimeout = 5.seconds, handoff = handoff).run(SecureChannel.accept(sb, b.keys.dh, prologue)) }
+            val ch = SecureChannel.initiate(sa, a.keys.dh, prologue)
+            val hello = assertNotNull(ch.next().hello)
+            ch.put(SyncMessage(hello = Hello(protocol_version = PROTOCOL_VERSION, group_id = hello.group_id, membership_hash = hello.membership_hash, wants_foreign_entries = false)))
+            assertNotNull(ch.next().vector_announce)
+            ch.put(SyncMessage(vector_announce = VectorAnnounce(vector = a.store.versionVector().toProto())))
+            try {
+                afterAnnounce(ch)
+            } catch (e: IOException) {
+                // b hung up on a protocol violation
+            }
+            session.await()
+        }
+    }
+
+    /** Finishes as an honest peer that wants nothing: Done, wait for b's Done, bye. */
+    private suspend fun finish(ch: SecureChannel) {
+        ch.put(SyncMessage(done = Done()))
+        while (ch.next().done == null) Unit
+        ch.put(SyncMessage(done = Done()))
+    }
+
+    @Test
+    fun aPeerThatSkipsTheHandoffFailsTheSession() = runBlocking {
+        val (a, b) = buildGroup(2)
+        val result = handoffPeer(a, b, RecordingHandoff(null)) { ch -> finish(ch) }
+        assertIs<SessionResult.Failed>(result)
+        assertTrue(result.cause.message.orEmpty().contains("expected cloud handoff"), "${result.cause}")
+    }
+
+    @Test
+    fun aSecondHandoffFailsTheSession() = runBlocking {
+        val (a, b) = buildGroup(2)
+        val h = RecordingHandoff(null)
+        val one = CloudHandoff(storage_generation = 1, storage_id = ByteArray(16) { 1 }.toByteString(), access_token = "AT", expires_at_ms = 5)
+        val result = handoffPeer(a, b, h) { ch ->
+            ch.put(SyncMessage(cloud_handoff = one))
+            ch.put(SyncMessage(cloud_handoff = one))
+            finish(ch)
+        }
+        assertIs<SessionResult.Failed>(result)
+        assertTrue(result.cause.message.orEmpty().contains("unexpected message"), "${result.cause}")
+        assertEquals(listOf("AT"), h.got.map { it.accessToken }, "the first, in order, was taken")
+    }
+
+    @Test
+    fun malformedHandoffsAreDroppedAndTheSessionCompletes() = runBlocking {
+        val (a, b) = buildGroup(2)
+        val malformed = listOf(
+            CloudHandoff(storage_generation = 1, storage_id = ByteArray(15).toByteString(), access_token = "AT"),
+            CloudHandoff(storage_generation = 0, storage_id = ByteArray(16).toByteString(), access_token = "AT"),
+            CloudHandoff(storage_generation = 1, storage_id = ByteArray(16).toByteString(), access_token = "x".repeat(HandedAccess.MAX_TOKEN_CHARS + 1)),
+        )
+        for (m in malformed) {
+            val h = RecordingHandoff(null)
+            val result = handoffPeer(a, b, h) { ch ->
+                ch.put(SyncMessage(cloud_handoff = m))
+                finish(ch)
+            }
+            assertIs<SessionResult.Completed>(result)
+            assertTrue(h.got.isEmpty() && h.calls == 0)
         }
     }
 
@@ -202,6 +282,7 @@ class SessionHardeningTest {
             assertNotNull(ch.next().vector_announce)
             val own = app.kinsight.core.model.proto.VectorItem(author_id = b.keys.deviceId.bytes().toByteString(), seq = ownSeen)
             ch.put(SyncMessage(vector_announce = VectorAnnounce(vector = listOf(own))))
+            ch.put(SyncMessage(cloud_handoff = CloudHandoff()))
             ch.put(SyncMessage(done = Done()))
             while (ch.next().done == null) Unit
             ch.put(SyncMessage(done = Done()))

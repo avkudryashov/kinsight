@@ -11,9 +11,9 @@ import androidx.sqlite.driver.bundled.BundledSQLiteDriver
     entities = [
         EntryRow::class, ContigRow::class, AboveRow::class,
         PendingUsageRow::class, PendingHourRow::class, PendingDayRow::class, PendingEventRow::class,
-        CollectorStateRow::class, PublishStateRow::class, AuthorStateRow::class, CatalogStateRow::class,
+        CollectorStateRow::class, PublishStateRow::class, AuthorStateRow::class, CatalogStateRow::class, CloudCursorRow::class,
     ],
-    version = 3,
+    version = 5,
     exportSchema = true,
 )
 abstract class KinsightDatabase : RoomDatabase() {
@@ -22,6 +22,7 @@ abstract class KinsightDatabase : RoomDatabase() {
     abstract fun usageDao(): UsageDao
     abstract fun authorDao(): AuthorDao
     abstract fun wipeDao(): WipeDao
+    abstract fun cloudCursorDao(): CloudCursorDao
 }
 
 object KinsightDatabaseFactory {
@@ -34,7 +35,7 @@ object KinsightDatabaseFactory {
     fun open(context: Context, name: String = DEFAULT_NAME): KinsightDatabase =
         Room.databaseBuilder(context.applicationContext, KinsightDatabase::class.java, name)
             .setDriver(BundledSQLiteDriver())
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             .build()
 
     /** The process-wide database (one KinsightDatabase per process). Never closed by the app. */

@@ -3,6 +3,7 @@ package app.kinsight.core.transport.ble
 import app.kinsight.core.crypto.DiscoveryTags
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.proto.BatchAck
+import app.kinsight.core.model.proto.CloudHandoff
 import app.kinsight.core.model.proto.Hello
 import app.kinsight.core.model.proto.SyncMessage
 import app.kinsight.core.model.proto.VectorAnnounce
@@ -140,7 +141,7 @@ class SyncEngineTest {
         val g = TestGroup.create(2)
         val (d0, d1) = g.devices
         d0.store.applyBatch(listOf(d0.author.summary(TODAY.toString(), 5)))
-        var v0 = 3..3
+        var v0 = PROTOCOL_VERSION + 1..PROTOCOL_VERSION + 1
         val e0 = engine(g, d0, versions = { v0 })
         val e1 = engine(g, d1)
         seeEachOther("d0", e0, "d1", e1)
@@ -262,11 +263,12 @@ class SyncEngineTest {
 
     @Test
     fun twoFastPeersWhoseVectorsNeverMatchStopAfterOneEmptySession() = runBlocking<Unit> {
-        val g = TestGroup.create(2)
-        val (d0, d1) = g.devices
-        d0.store.applyBatch(listOf(d0.author.summary(TODAY.toString(), 5)))
+        val g = TestGroup.create(3)
+        val (d0, d1, d2) = g.devices
+        d0.store.applyBatch(listOf(d0.author.summary(TODAY.toString(), 5), d2.author.summary(TODAY.toString(), 7)))
         val e0 = engine(g, d0)
-        // A child: it never takes the other's own entries, so the two vectors never match (emulator run 2026-10-10).
+        // A child (emulator run 2026-10-10): its position for d0 follows d0's own log, but it never takes the third
+        // member's usage that d0 holds, and only that member can complete its log, so the two vectors never match.
         val e1 = engine(g, d1, syncPolicy = d1.policy().copy(showOthers = false))
         e0.setFast(Long.MAX_VALUE)
         e1.setFast(Long.MAX_VALUE)
@@ -277,7 +279,8 @@ class SyncEngineTest {
             mono += 1_000 // a fast-mode scan reports every advert at once: one batch a second for a minute
         }
         assertTrue(d0.store.versionVector() != d1.store.versionVector())
-        assertTrue(connects.get() <= 2, "a fast minute dialled ${connects.get()} times")
+        // One session: it records the vectors as its completions left them, so it is «nothing new» right away.
+        assertEquals(1, connects.get(), "a fast minute dialled ${connects.get()} times")
         assertTrue(logs.count { it.contains(": skip ") } <= 4 * 2, "skip lines are rate-limited: ${logs.filter { it.contains(": skip ") }}")
     }
 
@@ -374,6 +377,7 @@ class SyncEngineTest {
         )
         val vector = d0.store.versionVector().toProto()
         send(SyncMessage(vector_announce = VectorAnnounce(vector = vector)))
+        send(SyncMessage(cloud_handoff = CloudHandoff()))
         // Never Done: a stray ack every 50 ms keeps the session's 30-second idle timeout from ever firing.
         withTimeout(10.seconds) {
             assertFailsWith<IOException> {

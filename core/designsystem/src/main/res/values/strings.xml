@@ -9,8 +9,9 @@
     <string name="ds_period_previous">Previous period</string>
     <string name="ds_period_next">Next period</string>
     <string name="ds_moment_with_child">%1$s (child\'s time %2$s)</string>
-    <string name="ds_heat_less">Less</string>
-    <string name="ds_heat_more">More</string>
     <!-- Debug placeholder: :app overrides it from kinsight.privacyUrl, and release packaging fails while it is a placeholder. -->
     <string name="ds_privacy_policy_url" translatable="false">https://kinsight.example/privacy</string>
+    <string name="ds_limit_left">%1$s left of %2$s</string>
+    <string name="ds_limit_over">%1$s over the limit</string>
+    <string name="ds_limit_reached">Limit reached</string>
 </resources>

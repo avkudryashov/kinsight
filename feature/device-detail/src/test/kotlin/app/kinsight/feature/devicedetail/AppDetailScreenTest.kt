@@ -73,7 +73,7 @@ class AppDetailScreenTest {
     }
 
     private fun show(a: AppDetail, onOpenDay: (LocalDate) -> Unit = {}, onCategory: (AppCategory?) -> Unit = {}, changedBy: String? = null) = rule.setContent {
-        KinsightTheme(dynamicColor = false) {
+        KinsightTheme() {
             AppDetailScreen(a, onPeriod = {}, onBack = {}, onOpenDay = onOpenDay, onCategory = onCategory, detailRetentionDays = 30, categoryChangedBy = changedBy)
         }
     }
@@ -197,7 +197,7 @@ class AppDetailScreenTest {
             kid, weekRange, weekRange.dates().map { DayTotal(it, 0, 0) }, 0, 0,
             listOf(AppUsage("~other", "~other", null, 60_000)), emptyList(), Sharing.On,
         )
-        rule.setContent { KinsightTheme(dynamicColor = false) { AllAppsScreen(AppList(detail.member, detail.range, detail.apps, null), onBack = {}) } }
+        rule.setContent { KinsightTheme() { AllAppsScreen(AppList(detail.member, detail.range, detail.apps, null), onBack = {}) } }
         rule.onNodeWithText("Other apps").assertExists()
     }
 
@@ -208,13 +208,13 @@ class AppDetailScreenTest {
             listOf(AppUsage("com.example.game", "Game", null, 60_000)), emptyList(), Sharing.On,
         )
         var opened: String? = null
-        rule.setContent { KinsightTheme(dynamicColor = false) { AllAppsScreen(AppList(detail.member, detail.range, detail.apps, null), onBack = {}, onOpenApp = { opened = it }) } }
+        rule.setContent { KinsightTheme() { AllAppsScreen(AppList(detail.member, detail.range, detail.apps, null), onBack = {}, onOpenApp = { opened = it }) } }
         rule.onNodeWithTag("det_app_com.example.game").performClick()
         assertEquals("com.example.game", opened)
     }
 
     private fun showLimit(a: AppDetail, threshold: ThresholdRule?, onSet: (Long) -> Unit = {}, onRemove: () -> Unit = {}) = rule.setContent {
-        KinsightTheme(dynamicColor = false) {
+        KinsightTheme() {
             AppDetailScreen(a, onPeriod = {}, onBack = {}, threshold = threshold, onThreshold = onSet, onRemoveThreshold = onRemove)
         }
     }

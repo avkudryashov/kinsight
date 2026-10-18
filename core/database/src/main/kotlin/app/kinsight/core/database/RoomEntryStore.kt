@@ -43,6 +43,16 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
         return entryDao.bytesAfter(author.hex, afterSeq, limit).map(DecodedEntry::decode)
     }
 
+    /**
+     * Through the kind index. Rows stored as [EntryKinds.UNKNOWN] before an update that taught this build their kind are
+     * not found by their new kind (see EntryKinds); asking for [EntryKind.UNKNOWN] finds them.
+     */
+    override suspend fun entriesAfter(author: DeviceId, afterSeq: Long, kinds: Set<EntryKind>, limit: Int): List<DecodedEntry> {
+        require(limit >= 0) { "Requested element count $limit is less than zero." }
+        if (kinds.isEmpty()) return emptyList()
+        return entryDao.bytesOfKindsAfter(kinds.map(EntryKinds::code).distinct(), author.hex, afterSeq, limit).map(DecodedEntry::decode)
+    }
+
     override suspend fun applyBatch(entries: List<DecodedEntry>, seen: Map<DeviceId, Set<Long>>): Unit = db.write {
         val touched = HashSet<String>()
         entries.forEachIndexed { i, e ->
@@ -94,8 +104,20 @@ class RoomEntryStore(private val db: KinsightDatabase, override val groupId: Gro
     /** Every StateEvent, LEFT_GROUP included, ordered by author and seq. */
     suspend fun stateEvents(): List<DecodedEntry> = entryDao.bytesOfKind(EntryKinds.STATE_EVENT).map(DecodedEntry::decode)
 
+    /** The live StorageHandover entries (spec §7.1), one per author. */
+    suspend fun storageHandovers(): List<DecodedEntry> = entryDao.bytesOfKind(EntryKinds.STORAGE_HANDOVER).map(DecodedEntry::decode)
+
+    /** Every LOCATION entry (spec §8), each author's by seq; at most 48 h of them after the daily prune. */
+    suspend fun locations(): List<DecodedEntry> = entryDao.bytesOfKind(EntryKinds.LOCATION).map(DecodedEntry::decode)
+
+    /** The live SafeZone entries (spec §8.1), one per author and zone; read through core/data SafeZones. */
+    suspend fun safeZones(): List<DecodedEntry> = entryDao.bytesOfKind(EntryKinds.SAFE_ZONE).map(DecodedEntry::decode)
+
+    /** The live ParentPin entries (spec §10), one per author; read through core/data ParentPins. */
+    suspend fun parentPins(): List<DecodedEntry> = entryDao.bytesOfKind(EntryKinds.PARENT_PIN).map(DecodedEntry::decode)
+
     override suspend fun prune(policy: SyncPolicy): Unit = db.write {
-        for (bytes in entryDao.bytesWithUsageDate()) {
+        for (bytes in entryDao.bytesWithUsageDate() + entryDao.bytesOfKind(EntryKinds.LOCATION)) {
             val e = DecodedEntry.decode(bytes)
             if (policy.isExpired(e)) entryDao.delete(e.author.hex, e.seq)
         }

@@ -1,5 +1,6 @@
 package app.kinsight.core.data
 
+import app.kinsight.core.transport.ble.CloudSync
 import app.kinsight.core.transport.ble.ServiceSnapshot
 import app.kinsight.core.transport.ble.ServiceState
 import app.kinsight.core.transport.ble.SyncStatus
@@ -36,6 +37,29 @@ class ServiceRepositoryTest {
         repo.stop()
         repo.syncNow()
         assertEquals(listOf("startByUser", "requestStop", "start:true"), d.sync.calls)
+    }
+
+    @Test
+    fun theLastSyncIsTheNewerOfBluetoothAndTheDisk() = runBlocking<Unit> {
+        val snapshot = MutableStateFlow(ServiceSnapshot(ServiceState.RUNNING, lastSyncWallMs = 7L))
+        val cloud = MutableStateFlow(CloudSync())
+        val repo = ServiceRepository(snapshot, d.transport, { emptyList() }, d.sync, cloud = cloud)
+        assertEquals(7L, repo.status.first().lastSyncMs)
+        assertFalse(repo.status.first().cloudOn)
+        cloud.value = CloudSync(on = true, lastSyncMs = 9L)
+        val withCloud = repo.status.first { it.cloudOn }
+        assertEquals(9L, withCloud.lastSyncMs, "a Disk sync after the last Bluetooth one is the last sync")
+        snapshot.value = snapshot.value.copy(sync = SyncStatus(lastSyncWallMs = 12L))
+        assertEquals(12L, repo.status.first { it.lastSyncMs == 12L }.lastSyncMs)
+    }
+
+    @Test
+    fun syncNowAlsoAsksTheDisk() = runBlocking<Unit> {
+        var asked = 0
+        val repo = ServiceRepository(MutableStateFlow(ServiceSnapshot(ServiceState.RUNNING)), d.transport, { emptyList() }, d.sync, cloudNow = { asked++ })
+        repo.syncNow()
+        assertEquals(listOf("start:true"), d.sync.calls)
+        assertEquals(1, asked)
     }
 
     @Test

@@ -11,6 +11,7 @@ import app.kinsight.core.data.Role
 import app.kinsight.core.data.ServiceRepository
 import app.kinsight.core.data.ServiceStatus
 import app.kinsight.core.data.SettingsRepository
+import app.kinsight.core.data.ThresholdRule
 import app.kinsight.core.data.UsageRepository
 import app.kinsight.core.model.DeviceId
 import kotlinx.coroutines.CancellationException
@@ -33,7 +34,31 @@ data class DashboardUi(
     val sharingFailed: Boolean = false,
     /** On a child's phone: parents it has not acknowledged yet (U7 banner). */
     val newParents: List<MemberView> = emptyList(),
+    /** On a child's phone: it agreed to an older consent text (UsageSettings.consentOutdated); Overview asks it to look. */
+    val consentOutdated: Boolean = false,
+    /** The parent's day limits of the group's children: the card's bar and the apps' «лимит» marks (UI refresh §3). */
+    val thresholds: List<ThresholdRule> = emptyList(),
 )
+
+/**
+ * The loaded screen state. The new-parents banner and the re-consent card ([consentOutdated], the stored consent is
+ * older than the text) are a child's phone's only: an adult's phone never shows them, whatever its own consent record.
+ */
+internal fun dashboardUi(
+    d: DashboardState?,
+    s: ServiceStatus?,
+    noContactHours: Int,
+    sharingFailed: Boolean,
+    ack: Set<DeviceId>?,
+    consentOutdated: Boolean,
+): DashboardUi {
+    val parents = d?.takeIf { it.self.role == Role.CHILD }?.parents // a child's phone only
+    return DashboardUi(
+        d, s, loaded = true, noContactHours = noContactHours, sharingFailed = sharingFailed,
+        newParents = parents?.let { NewParents.of(it, ack) }.orEmpty(),
+        consentOutdated = parents != null && consentOutdated,
+    )
+}
 
 class DashboardViewModel(
     usage: UsageRepository,
@@ -49,9 +74,16 @@ class DashboardViewModel(
     // Overview is still news here.
     private val acknowledged = settings.acknowledgedParents.catch { emit(null) }
 
-    val ui: StateFlow<DashboardUi> = combine(usage.dashboard, service.status, noContactHours, sharingFailed, acknowledged) { d, s, h, f, ack ->
-        val parents = d?.takeIf { it.self.role == Role.CHILD }?.parents // a child's phone only
-        DashboardUi(d, s, loaded = true, noContactHours = h, sharingFailed = f, newParents = parents?.let { NewParents.of(it, ack) }.orEmpty())
+    // A read failure shows no re-consent card.
+    private val childFlags = combine(acknowledged, settings.usageSettings.map { it.consentOutdated }.catch { emit(false) }) { ack, old -> ack to old }
+
+    // A read failure shows no bar and no mark, never an error.
+    private val rules = usage.thresholds.catch { emit(emptyList()) }
+
+    private val prefsAndRules = combine(noContactHours, rules) { h, r -> h to r }
+
+    val ui: StateFlow<DashboardUi> = combine(usage.dashboard, service.status, prefsAndRules, sharingFailed, childFlags) { d, s, (h, r), f, (ack, old) ->
+        dashboardUi(d, s, h, f, ack, old).copy(thresholds = r)
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUi())
 
@@ -68,9 +100,6 @@ class DashboardViewModel(
             }
         }
     }
-
-    /** Signs SHARING_PAUSED (a consenting child only; the pipeline refuses otherwise): the family is told. */
-    fun pause() = setSharing(false)
 
     fun resume() = setSharing(true)
 

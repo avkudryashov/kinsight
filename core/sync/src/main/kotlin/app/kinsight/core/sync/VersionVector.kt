@@ -7,6 +7,9 @@ import okio.ByteString.Companion.toByteString
 class VersionVector(val entries: Map<DeviceId, Long>) {
     operator fun get(id: DeviceId): Long = entries[id] ?: 0L
 
+    /** This vector with [id] at [seq]; zero leaves [id] out, as a store's vector does. */
+    fun with(id: DeviceId, seq: Long): VersionVector = VersionVector(if (seq > 0) entries + (id to seq) else entries - id)
+
     /** Authors by DeviceId order, each as its 16 bytes plus its seq (8 B big-endian): input of the advert vector tag. */
     fun canonicalBytes(): ByteArray {
         val out = java.io.ByteArrayOutputStream(entries.size * 24)

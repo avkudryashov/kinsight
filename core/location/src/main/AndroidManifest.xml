@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Spec §8, §12: the child's position through the system LocationManager only (no Google Play services).
+         COARSE goes with FINE: Android 12+ asks for both in one request. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <application>
+        <!-- Spec §8.1: outside every safe zone, with its notification. -->
+        <service
+            android:name=".LocationService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
+        <!-- Proximity alerts (one explicit, mutable PendingIntent per zone) and the 5-minute alarm tick. -->
+        <receiver
+            android:name=".ZoneAlertReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".LocationTickReceiver"
+            android:exported="false" />
+
+        <!-- Proximity alerts and alarms do not survive a reboot or an update: registered again. -->
+        <receiver
+            android:name=".LocationBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

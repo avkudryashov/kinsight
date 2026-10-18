@@ -22,14 +22,15 @@ suspend fun RoomEntryStore.ownLog(self: DeviceId): OwnLog =
 
 /**
  * Heartbeat entries (spec §4.3, superseded by the next one): when the radio starts and before sessions, at most once
- * per [INTERVAL_MS] unless the app or protocol version changed, again whenever the clock went backwards, and whenever
- * the own log moved past the current Heartbeat, at most once per [MOVED_INTERVAL_MS] (audit A-2: each one carries the
- * author's signed live set, which lets relays' receivers close gaps; a later statement is never stale, so the delay
- * costs nothing but a slower gap close). [append] is UsagePipeline.appendOwn: the same lock and own-log entry point as usage;
- * false means no group yet. [ownLog] reads the log of the author it gets, from Room only (never the pipeline); it runs
- * inside [append]'s build, under the pipeline lock: no own entry can be stored or superseded between reading the live
- * set and signing it, so a live entry is never declared dead. When neither the clock nor the log calls for one, the
- * build returns nothing and no Heartbeat is signed.
+ * per [interval] (daily, hourly for a cloud child, see [intervalFor]) unless the app or protocol version changed,
+ * again whenever the clock went backwards, and whenever the own log moved past the current Heartbeat, at most once per
+ * [MOVED_INTERVAL_MS] (audit A-2: each one carries the author's signed live set, which lets relays' receivers close
+ * gaps; a later statement is never stale, so the delay costs nothing but a slower gap close). [append] is
+ * UsagePipeline.appendOwn: the same lock and own-log entry point as usage; false means no group yet. [ownLog] reads
+ * the log of the author it gets, from Room only (never the pipeline); it runs inside [append]'s build, under the
+ * pipeline lock: no own entry can be stored or superseded between reading the live set and signing it, so a live entry
+ * is never declared dead. When neither the clock nor the log calls for one, the build returns nothing and no Heartbeat
+ * is signed. Each carries the cloud storage generation ([cloudGeneration]); a new generation is due at once.
  */
 class Heartbeats(
     private val state: TransportStateStore,
@@ -37,13 +38,21 @@ class Heartbeats(
     private val append: suspend (suspend (EntryAuthor) -> List<DecodedEntry>) -> Boolean,
     private val ownLog: suspend (EntryAuthor) -> OwnLog = { OwnLog(emptyList(), null) },
     private val clock: () -> Long = System::currentTimeMillis,
+    /** The storage generation of the last successful cloud sync (spec §7), 0 without the cloud. A new one makes a Heartbeat due. */
+    private val cloudGeneration: suspend () -> Long = { 0L },
+    /** How long a Heartbeat waits without another cause ([intervalFor]): a cloud child beats hourly (spec §10). */
+    private val interval: suspend () -> Long = { INTERVAL_MS },
 ) {
-    private val version = "$appVersion/$PROTOCOL_VERSION"
+    private val baseVersion = "$appVersion/$PROTOCOL_VERSION"
 
     suspend fun emitIfDue(): Boolean {
         val now = clock()
+        val generation = cloudGeneration()
+        // The generation is part of the mark: the first Heartbeat after a switch is due at once, which is how the phone
+        // that replaced a token learns that everyone switched (spec §7.1 «Когда все активные подтвердили»).
+        val version = if (generation == 0L) baseVersion else "$baseVersion/g$generation"
         val last = state.heartbeat()
-        val timeDue = last == null || last.version != version || now - last.atMs !in 0 until INTERVAL_MS
+        val timeDue = last == null || last.version != version || now - last.atMs !in 0 until interval()
         // Cheap checks first: inside the moved floor nothing is due, so neither the pipeline lock nor the own log is taken.
         if (!timeDue && now - last!!.atMs < MOVED_INTERVAL_MS) return false
         var signed = false
@@ -52,7 +61,7 @@ class Heartbeats(
             val moved = (log.liveSeqs.lastOrNull() ?: 0L) > (log.heartbeatSeq ?: 0L)
             if (!timeDue && !moved) return@append emptyList()
             signed = true
-            listOf(author.create { it.copy(heartbeat = LiveSet.heartbeat(appVersion, PROTOCOL_VERSION, log.liveSeqs, log.heartbeatSeq)) })
+            listOf(author.create { it.copy(heartbeat = LiveSet.heartbeat(appVersion, PROTOCOL_VERSION, log.liveSeqs, log.heartbeatSeq, storageGeneration = generation)) })
         }
         if (!appended || !signed) return false
         state.setHeartbeat(HeartbeatMark(now, version))
@@ -61,6 +70,17 @@ class Heartbeats(
 
     companion object {
         const val INTERVAL_MS = 24 * 60 * 60_000L
+
+        /** A child that reaches its parents through the Disk (spec §9: it uploads at least hourly). */
+        const val CLOUD_CHILD_INTERVAL_MS = 60 * 60_000L
+
+        /**
+         * Spec §10 «нет HEARTBEAT дольше порога»: a child with a cloud storage may sign nothing else for hours (no usage at
+         * night), so it beats hourly and «Нет связи N ч» (N >= 6) means N hours of real silence; a phone on Bluetooth only
+         * is seen by its sessions, and a parent is never watched, so they beat daily.
+         */
+        fun intervalFor(cloudGeneration: Long, child: Boolean): Long =
+            if (cloudGeneration > 0 && child) CLOUD_CHILD_INTERVAL_MS else INTERVAL_MS
 
         /** Least time between Heartbeats signed only because the own log moved (Publisher's hourly rhythm). */
         const val MOVED_INTERVAL_MS = 60 * 60_000L

@@ -6,6 +6,8 @@ import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.GroupId
+import app.kinsight.core.model.locationEntry
+import app.kinsight.core.model.proto.Location
 import app.kinsight.core.model.proto.AddMember
 import app.kinsight.core.model.proto.Heartbeat
 import app.kinsight.core.model.proto.MembershipOp
@@ -265,5 +267,20 @@ abstract class EntryStoreContract {
         val took2Ms = (System.nanoTime() - started2) / 1_000_000
         assertTrue(took2Ms < 1_000, "advancing over ${LiveSet.MAX_SPARSE} sparse seqs took $took2Ms ms")
         assertEquals(2L + LiveSet.MAX_SPARSE, store.versionVector()[keys.deviceId])
+    }
+
+    /** Review Focus 4 (spec §8: LOCATION kept 48 h). */
+    @Test
+    fun pruneDropsLocationsOlderThan48HoursButKeepsTheVector() = runTest {
+        val now = 1_760_000_000_000L
+        val hour = 3_600_000L
+        fun at(ms: Long) = author.locationEntry(1, 2, 10, ms, Location.Provider.GPS)
+        val old = at(now - 49 * hour)
+        val fresh = at(now - 47 * hour)
+        val future = at(now + 49 * hour)
+        store.applyBatch(listOf(genesis.entry, old, fresh, future))
+        store.prune(SyncPolicy(self = keys.deviceId, today = { TODAY }, nowMs = { now }))
+        assertEquals(setOf(genesis.entry, fresh), store.liveEntries().toSet())
+        assertEquals(future.seq, store.versionVector()[keys.deviceId])
     }
 }

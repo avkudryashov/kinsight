@@ -137,6 +137,77 @@ class NearbyWatch(
     }
 }
 
+/**
+ * Spec §10: location access revoked (LOCATION_PERMISSION_OFF) and location turned off in the system (LOCATION_DISABLED).
+ * Unlike Nearby, sync goes on while they are off, so the family hears at once: an open event (to = from = noticed), and
+ * when it is back the closing one (from = noticed, to = back, always after from). A revoke counts only after the access
+ * was once complete (the child granted it); the system switch counts at any time. [gate] is open while this phone should
+ * share its location (core/data FamilyLocation.watchGate). A closed gate closes an open problem (the cloud went off, say)
+ * and forgets the baseline even when the closing event is refused (unlike an open gate: a refusal there happens only once
+ * this phone is no longer a consenting child, whom nobody watches any more); an unknown one changes nothing. A refused
+ * event keeps no «since», so the next check tries again. [enabled] null: the system state is unknown (no
+ * LocationManager), which opens and closes nothing. Returns true when an event was recorded (the caller signs and
+ * uploads it at once).
+ */
+class LocationWatch(
+    private val state: TransportStateStore,
+    private val record: EventRecorder,
+    private val clock: () -> Long = System::currentTimeMillis,
+) {
+    suspend fun onCheck(gate: GateState, access: Boolean, enabled: Boolean?): Boolean = onCheck(gate, { access }, { enabled })
+
+    /**
+     * [access] and [enabled] are read here, after the caller's lock was taken (Y5 parked minor): a check that waited for
+     * another acts on the state as it is now, never on one read before the other check finished.
+     */
+    suspend fun onCheck(gate: GateState, access: () -> Boolean, enabled: () -> Boolean?): Boolean {
+        val now = clock()
+        val accessSince = state.locationAccessOffSinceMs()
+        val offSince = state.locationDisabledSinceMs()
+        when (gate) {
+            GateState.Unknown -> return false
+            GateState.Closed -> {
+                var any = false
+                if (accessSince != null) any = close(StateEvent.Kind.LOCATION_PERMISSION_OFF, accessSince, now) || any
+                if (offSince != null) any = close(StateEvent.Kind.LOCATION_DISABLED, offSince, now) || any
+                state.clearLocationWatch()
+                return any
+            }
+            is GateState.Open -> Unit
+        }
+        val granted = access()
+        val on = enabled()
+        var any = false
+        if (granted) {
+            if (!state.locationAccessSeen()) state.setLocationAccessSeen(true)
+            if (accessSince != null && close(StateEvent.Kind.LOCATION_PERMISSION_OFF, accessSince, now)) {
+                state.setLocationAccessOffSinceMs(null)
+                any = true
+            }
+        } else if (accessSince == null && state.locationAccessSeen()) {
+            if (record(StateEvent.Kind.LOCATION_PERMISSION_OFF, now, now)) {
+                state.setLocationAccessOffSinceMs(now)
+                any = true
+            }
+        }
+        if (on == true) {
+            if (offSince != null && close(StateEvent.Kind.LOCATION_DISABLED, offSince, now)) {
+                state.setLocationDisabledSinceMs(null)
+                any = true
+            }
+        } else if (on == false && offSince == null) {
+            if (record(StateEvent.Kind.LOCATION_DISABLED, now, now)) {
+                state.setLocationDisabledSinceMs(now)
+                any = true
+            }
+        }
+        return any
+    }
+
+    /** The closing event: its end is after its start even if the clock went back, so it never reads as open. */
+    private suspend fun close(kind: StateEvent.Kind, since: Long, now: Long) = record(kind, since, maxOf(since + 1, now))
+}
+
 /** One ApplicationExitInfo record; (timestamp, pid) identifies it whatever the wall clock does later. */
 data class AppExit(val timestampMs: Long, val pid: Int)
 

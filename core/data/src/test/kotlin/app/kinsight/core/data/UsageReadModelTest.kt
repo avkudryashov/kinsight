@@ -8,6 +8,7 @@ import app.kinsight.core.model.proto.AppCatalog
 import app.kinsight.core.model.proto.AppTotal
 import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.model.proto.UsageSummary
+import app.kinsight.core.model.zoneEventEntry
 import okio.ByteString.Companion.toByteString
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -423,7 +424,7 @@ class UsageReadModelTest {
     }
 
     @Test
-    fun aHiddenNotificationIsTheCauseNotCollectionOff() {
+    fun aHiddenNotificationNoLongerHoldsTheTimeBack() {
         val day = 24 * 3_600_000L
         val consent = event(StateEvent.Kind.SHARING_RESUMED, createdMs = noonToday - 3 * day)
         val hidden = event(StateEvent.Kind.NOTIFICATION_HIDDEN, createdMs = noonToday - 2 * day)
@@ -431,7 +432,7 @@ class UsageReadModelTest {
         val stale = null // no summary since the consent three days ago
         val open = UsageReadModel.usage(member, stale, UsageReadModel.events(listOf(consent, hidden)), today, nowMs = noonToday)
         assertTrue(open.notificationHidden, "hidden two days ago, never shown again")
-        assertFalse(open.collectionOff, "the phone collects; it holds the time back")
+        assertTrue(open.collectionOff, "cloud Y5: a hidden notification holds nothing back, so three silent days are collection off")
         val closed = UsageReadModel.usage(member, stale, UsageReadModel.events(listOf(consent, hidden, shown)), today, nowMs = noonToday)
         assertFalse(closed.notificationHidden)
         assertTrue(closed.collectionOff, "shown again a day ago and still nothing: collection is off")
@@ -490,5 +491,72 @@ class UsageReadModelTest {
         assertFalse(UsageReadModel.collects(Sharing.Left, localConsent = true))
         assertTrue(UsageReadModel.collects(null, localConsent = true), "no snapshot of this device yet: the local consent")
         assertFalse(UsageReadModel.collects(null, localConsent = false))
+    }
+
+    @Test
+    fun zoneEventsCarryTheirZoneName() {
+        val keys = app.kinsight.core.model.DeviceKeys.generate()
+        val g = app.kinsight.core.model.GroupGenesis.create(keys, "Mom")
+        val a = app.kinsight.core.model.EntryAuthor(g.groupId, keys, lastSeq = 1)
+        val zone = ByteArray(16) { 0x0b }
+        val e = a.zoneEventEntry(zone, entered = false, atMs = 5_000)
+        val v = UsageReadModel.events(listOf(e), mapOf("0b".repeat(16) to "School")).single()
+        assertEquals("0b".repeat(16), v.zoneId)
+        assertEquals("School", v.zoneName)
+        assertEquals(5_000L, v.atMs)
+        assertEquals(null, UsageReadModel.events(listOf(e)).single().zoneName)
+    }
+
+    @Test
+    fun theCardListsTodaysThreeLargestAppsWithTheirCategories() {
+        val entries = listOf(
+            summary(
+                today, 105, 0,
+                "com.example.a" to 10L, "com.example.b" to 40L, Categories.REMAINDER_PACKAGE to 30L, "com.example.c" to 20L, "com.example.d" to 5L,
+            ),
+            summary(today.minusDays(1), 60, 0, "com.example.d" to 60L),
+            kid.create { it.copy(app_catalog = AppCatalog(package_name = "com.example.b", label = "Bee")) },
+        )
+        val by = UsageReadModel.summaries(entries)[kidKeys.deviceId]
+        val catalog = UsageReadModel.catalogOf(entries, kidKeys.deviceId)
+        val noon = today.atTime(12, 0).atZone(ZoneId.of("Europe/Madrid")).toInstant().toEpochMilli()
+        val u = UsageReadModel.usage(member, by, emptyList(), today, nowMs = noon, catalog = catalog, overrides = mapOf("com.example.c" to AppCategory.GAMES))
+        assertEquals(listOf("com.example.b", "com.example.c", "com.example.a"), u.topApps.map { it.app.packageName })
+        assertEquals("Bee", u.topApps.first().app.label)
+        assertEquals(AppCategory.GAMES, u.topApps[1].category)
+    }
+
+    @Test
+    fun aChildsOpenLocationProblemIsAWarningOnItsCard() {
+        val off = event(StateEvent.Kind.LOCATION_DISABLED, fromMs = noonToday, toMs = noonToday)
+        val u = UsageReadModel.usage(member, null, UsageReadModel.events(listOf(off)), today, nowMs = noonToday)
+        assertEquals(setOf(SetupWarning.LOCATION_DISABLED), u.setupWarnings)
+        val adult = member.copy(role = Role.PARENT)
+        assertEquals(emptySet(), UsageReadModel.usage(adult, null, UsageReadModel.events(listOf(off)), today, nowMs = noonToday).setupWarnings)
+    }
+
+    @Test
+    fun aPastDayIsComparedWithTheSevenDaysBeforeItAndAWeekIsNot() {
+        val by = byDate(summary(today.minusDays(3), 90), summary(today.minusDays(4), 60), summary(today.minusDays(5), 30))
+        val day = UsageReadModel.detail(member, by, emptyMap(), emptyList(), range(Period.DAY, today.minusDays(3)), today)
+        assertEquals(TodayComparison.FullDay(45 * min), day.dayComparison)
+        assertNull(UsageReadModel.detail(member, by, emptyMap(), emptyList(), range(Period.WEEK), today).dayComparison)
+        assertNull(UsageReadModel.detail(member, by, emptyMap(), emptyList(), range(Period.DAY, today.minusDays(6)), today).dayComparison, "no summary that day")
+    }
+
+    @Test
+    fun theDetailKnowsEachAppsCategoryAndAllAppsSumsTheCategories() {
+        val entries = listOf(
+            summary(today, 50, 0, "com.example.game" to 30L, "com.example.tube" to 20L),
+            kid.create { it.copy(app_catalog = AppCatalog(package_name = "com.example.tube", label = "Tube")) },
+        )
+        val by = UsageReadModel.summaries(entries)[kidKeys.deviceId]
+        val catalog = UsageReadModel.catalogOf(entries, kidKeys.deviceId)
+        val overrides = mapOf("com.example.game" to AppCategory.GAMES, "com.example.tube" to AppCategory.VIDEO)
+        val d = UsageReadModel.detail(member, by, catalog, emptyList(), range(Period.DAY), today, overrides = overrides)
+        assertEquals(AppCategory.GAMES, d.appCategories["com.example.game"])
+        assertEquals(AppCategory.VIDEO, d.appCategories["com.example.tube"])
+        val list = UsageReadModel.appList(member, by, catalog, range(Period.DAY), today, overrides = overrides)
+        assertEquals(listOf(CategoryTotal(AppCategory.GAMES, 30 * min), CategoryTotal(AppCategory.VIDEO, 20 * min)), list.categories)
     }
 }

@@ -103,10 +103,10 @@ class InviteTest {
 
     @Test
     fun currentInvitesKeepThe072Layout() {
-        // min = max = 2: no range tail, so a 0.7.2 phone (strict about trailing bytes) still parses our invites.
+        // min 2 < max 3: the range tail (2 bytes) follows the 0.7.2 layout; a 0.7.2 phone, strict about trailing bytes, rejects it.
         assertEquals(MIN_PROTOCOL_VERSION, invite.minProtocolVersion)
         assertEquals(PROTOCOL_VERSION, invite.protocolVersion)
-        assertEquals(1 + 2 + 16 + 32 + 32 + 16 + 1 + 1 + "Mom".encodeToByteArray().size, invite.encode().size)
+        assertEquals(1 + 2 + 16 + 32 + 32 + 16 + 1 + 1 + "Mom".encodeToByteArray().size + 2, invite.encode().size)
     }
 
     private fun hex(s: String): ByteArray = s.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
@@ -169,7 +169,7 @@ class InviteTest {
         val back = Invite.parse(wider.toUri())
         assertEquals(PROTOCOL_VERSION, back.minProtocolVersion)
         assertEquals(PROTOCOL_VERSION + 1, back.protocolVersion)
-        assertEquals(invite.encode().size + 2, wider.encode().size)
+        assertEquals(invite.encode().size, wider.encode().size)
     }
 
     @Test

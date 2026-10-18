@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="onb_welcome_title">Kinsight</string>
-    <string name="onb_welcome_body">Tiempo de pantalla para tu familia. Los teléfonos lo comparten directamente entre sí por Bluetooth: sin cuentas ni servidores.</string>
+    <string name="onb_welcome_body">Tiempo de pantalla para tu familia y, si un adulto activa la sincronización con su Yandex Disk, también la ubicación del menor. Los teléfonos lo comparten por Bluetooth o a través de ese Disk; el desarrollador no guarda nada.</string>
     <string name="onb_create">Crear un grupo familiar</string>
     <string name="onb_join">Unirse con un código QR</string>
     <string name="onb_create_hint">Crea el grupo en el teléfono de un adulto.</string>
@@ -16,21 +16,21 @@
     <string name="onb_name_error">Usa entre 1 y 64 caracteres, sin caracteres invisibles ni de control.</string>
     <string name="onb_parent_title">Qué hace este teléfono</string>
     <string name="onb_parent_body">Este teléfono muestra el tiempo de pantalla de los menores de tu grupo familiar. No comparte su propio tiempo de pantalla con nadie.</string>
-    <string name="onb_parent_privacy">Los datos solo circulan entre los teléfonos de tu familia por Bluetooth. Nada va a internet, a servidores ni a nosotros.</string>
+    <string name="onb_parent_privacy">Los datos circulan entre los teléfonos de tu familia por Bluetooth. Kinsight solo se conecta a internet para la sincronización a través de tu Yandex Disk, si la activas, y entonces también para descargar el mapa de calles desde OpenFreeMap. El desarrollador no guarda nada.</string>
     <string name="onb_consent_title">Qué verá tu familia</string>
-    <string name="onb_consent_body">Kinsight cuenta cuánto tiempo se usa cada aplicación en este teléfono, cuántas veces se desbloquea y a qué horas se usa. Kinsight lo envía por Bluetooth a los teléfonos de todos los adultos de tu grupo familiar (ahora %1$s) y de los adultos que se unan más adelante. Verán este tiempo de hoy y de días anteriores. El recuento se hace en segundo plano, incluso con Kinsight cerrado.</string>
-    <string name="onb_consent_body_group">Kinsight cuenta cuánto tiempo se usa cada aplicación en este teléfono, cuántas veces se desbloquea y a qué horas se usa. Kinsight lo envía por Bluetooth a los teléfonos de todos los adultos de tu grupo familiar, incluidos los que se unan más adelante. Verán este tiempo de hoy y de días anteriores. El recuento se hace en segundo plano, incluso con Kinsight cerrado.</string>
+    <string name="onb_consent_body">Kinsight cuenta cuánto tiempo se usa cada aplicación en este teléfono, cuántas veces se desbloquea y a qué horas se usa. Kinsight lo envía por Bluetooth a los teléfonos de todos los adultos de tu grupo familiar (ahora %1$s) y de los adultos que se unan más adelante y, si un adulto activó la sincronización con su Yandex Disk, también cifrado a través de ese Disk. Verán este tiempo de hoy y de días anteriores. El recuento se hace en segundo plano, incluso con Kinsight cerrado. Con esa sincronización también ven dónde está este teléfono: su último lugar, su recorrido de hoy y cuándo sale de una zona segura o entra en ella.</string>
+    <string name="onb_consent_body_group">Kinsight cuenta cuánto tiempo se usa cada aplicación en este teléfono, cuántas veces se desbloquea y a qué horas se usa. Kinsight lo envía por Bluetooth a los teléfonos de todos los adultos de tu grupo familiar, incluidos los que se unan más adelante y, si un adulto activó la sincronización con su Yandex Disk, también cifrado a través de ese Disk. Verán este tiempo de hoy y de días anteriores. El recuento se hace en segundo plano, incluso con Kinsight cerrado. Con esa sincronización también ven dónde está este teléfono: su último lugar, su recorrido de hoy y cuándo sale de una zona segura o entra en ella.</string>
     <string name="onb_consent_backlog">Si aceptas, el primer envío incluye también hasta 7 días de tiempo de pantalla que este teléfono ya haya registrado.</string>
-    <string name="onb_consent_privacy">Nada va a internet, a servidores ni a nosotros. En este teléfono siempre se muestra una notificación de Kinsight. Si la ocultas, el intercambio se pausa hasta que vuelvas a activar la notificación: tu familia ve que está oculta, y el tiempo contado mientras tanto se envía cuando vuelva a mostrarse.</string>
+    <string name="onb_consent_privacy">Kinsight solo se conecta a internet para la sincronización a través del Yandex Disk de un adulto de la familia, si este la activó; el desarrollador no guarda nada. En este teléfono siempre se muestra una notificación de Kinsight. Si la ocultas, tu familia ve que está oculta.</string>
     <string name="onb_privacy_policy">Política de privacidad</string>
-    <string name="onb_consent_pause">Puedes pausar el intercambio con dos toques. Tu familia verá la pausa, y el tiempo de la pausa se enviará cuando reanudes el intercambio. El intercambio no se puede ocultar, solo detener abiertamente.</string>
+    <string name="onb_consent_pause">En este teléfono no se puede pausar ni detener el intercambio: solo un adulto de la familia puede cambiarlo, desde su teléfono o con el PIN de los adultos aquí. Puedes desactivar el acceso a datos de uso, la ubicación o la notificación de Kinsight en los ajustes de Android, pero tu familia lo ve.</string>
     <string name="onb_consent_protect">Es posible que Google Play Protect te avise de que hay instalada una aplicación de control parental. Es lo esperado.</string>
     <string name="onb_consent_not_now">Si eliges «Ahora no», este teléfono se une al grupo sin compartir, y tu familia ve que no comparte.</string>
     <string name="onb_nearby_title">Dispositivos cercanos</string>
     <string name="onb_nearby_body">Kinsight encuentra por Bluetooth los teléfonos de tu familia que están cerca e intercambia con ellos el tiempo de pantalla. Kinsight no usa el Bluetooth para saber dónde estás.</string>
     <string name="onb_nearby_required">Para unirse a un grupo, Kinsight necesita el permiso «Dispositivos cercanos». Toca «Aceptar» y permítelo, o permítelo en los ajustes de la aplicación.</string>
     <string name="onb_scan_title">Escanea la invitación</string>
-    <string name="onb_scan_body">En el teléfono del administrador, abre «Grupo», toca un botón de invitación y escanea el código QR que aparece. También puedes escanearlo con la aplicación de cámara de este teléfono.</string>
+    <string name="onb_scan_body">En el teléfono del administrador, abre Más → Familia, toca un botón de invitación y escanea el código QR que aparece. También puedes escanearlo con la aplicación de cámara de este teléfono.</string>
     <string name="onb_scan_invalid">Esto no es una invitación de Kinsight.</string>
     <string name="onb_scan_unsupported">Esta invitación es de otra versión de Kinsight. Actualiza Kinsight en los dos teléfonos.</string>
     <string name="onb_scan_unavailable">No se ha podido abrir la cámara. Escanea el código con la aplicación de cámara de este teléfono.</string>
@@ -42,10 +42,10 @@
     <string name="onb_usage_body">Para contar el tiempo de pantalla, Kinsight necesita el acceso a datos de uso. Kinsight lee qué aplicaciones se abrieron y cuándo, y envía los totales solo a los teléfonos de tu familia. A continuación se abrirán los ajustes de Android: busca Kinsight y permite el acceso a datos de uso.</string>
     <string name="onb_usage_agree">Aceptar y abrir ajustes</string>
     <string name="onb_notifications_title">Notificaciones</string>
-    <string name="onb_notifications_body_child">Mientras el intercambio está activado, Kinsight siempre muestra una notificación que indica quién ve tu tiempo de pantalla. Kinsight también te avisa cuando se une un nuevo adulto. Si desactivas las notificaciones, tu familia verá que la notificación está desactivada en este teléfono. Mientras las notificaciones estén desactivadas, el intercambio sigue en pausa y tu familia lo ve en pausa; el tiempo de la pausa se envía cuando las permitas.</string>
-    <string name="onb_notifications_body_parent">Kinsight muestra una notificación mientras sincroniza, te avisa cuando un menor pausa el intercambio o se queda sin contacto, y envía un resumen diario.</string>
+    <string name="onb_notifications_body_child">Kinsight siempre muestra una notificación que dice que este teléfono está en un grupo familiar de Kinsight y quién ve tus datos. Kinsight también te avisa cuando se une un adulto nuevo. Si desactivas las notificaciones, tu familia verá que la notificación está desactivada en este teléfono.</string>
+    <string name="onb_notifications_body_parent">Kinsight muestra una notificación mientras sincroniza, te avisa cuando se desactiva algo en el teléfono del menor o se pierde el contacto con él, y envía un resumen diario.</string>
     <string name="onb_battery_title">Mantén Kinsight en funcionamiento</string>
-    <string name="onb_battery_body">Algunos teléfonos detienen las aplicaciones en segundo plano. Deja que Kinsight funcione sin restricciones de batería para que los teléfonos de tu familia sigan sincronizados.</string>
+    <string name="onb_battery_body">Algunos teléfonos detienen las aplicaciones en segundo plano. Deja que Kinsight funcione sin restricciones de batería para que la aplicación no se detenga en segundo plano.</string>
     <string name="onb_battery_open">Abrir los ajustes de batería</string>
     <string name="onb_battery_ok">Kinsight ya funciona sin restricciones de batería.</string>
     <string name="onb_battery_samsung">Ajustes → Batería → Límites de uso en segundo plano → Aplicaciones que nunca entran en suspensión → añade Kinsight. Además: Ajustes → Aplicaciones → Kinsight → Batería → Sin restricciones.</string>
@@ -57,17 +57,18 @@
     <string name="onb_battery_vivo">Ajustes → Batería → Gestión del consumo en segundo plano → Kinsight → Permitir.</string>
     <string name="onb_battery_other">Toca el botón de abajo y luego: Información de la aplicación → Uso de batería de la aplicación → Sin restricciones. La ruta exacta depende del fabricante del teléfono.</string>
     <string name="onb_done_title">Todo listo</string>
-    <string name="onb_done_body_parent">Siguiente paso: invita al teléfono de un menor desde la pestaña «Grupo».</string>
+    <string name="onb_done_body_parent">Siguiente paso: invita al teléfono de un menor en Más → Familia.</string>
     <string name="onb_done_body_child">Este teléfono está en tu grupo familiar.</string>
     <string name="onb_done_open">Abrir Kinsight</string>
-    <string name="onb_create_failed">No se ha podido crear el grupo. Abre Ajustes → Diagnóstico en este teléfono.</string>
-    <string name="onb_consent_child">Los adultos de tu familia verán cuánto tiempo pasas con el teléfono y en qué aplicaciones.</string>
-    <string name="onb_consent_failed">No se ha podido activar el intercambio. Inténtalo de nuevo o abre Ajustes → Diagnóstico en este teléfono.</string>
+    <string name="onb_create_failed">No se ha podido crear el grupo. Abre Más → Sincronización → Diagnóstico en este teléfono.</string>
+    <string name="onb_consent_child">Los adultos de tu familia verán cuánto tiempo pasas con el teléfono y en qué aplicaciones y, si uno de ellos activa la sincronización con su Yandex Disk, dónde está este teléfono.</string>
+    <string name="onb_consent_failed">No se ha podido activar el intercambio. Inténtalo de nuevo o abre Más → Sincronización → Diagnóstico en este teléfono.</string>
     <string name="onb_step">Paso %1$d de %2$d</string>
     <string name="onb_consent_point_what">Qué se ve: cuánto tiempo pasas en cada aplicación, cuántas veces desbloqueas el teléfono y a qué horas. Kinsight lo cuenta en segundo plano, y el primer envío incluye también hasta los últimos 7 días.</string>
     <string name="onb_consent_point_who">Quién lo ve: todos los adultos de tu grupo familiar (ahora %1$s) y los que se unan más adelante.</string>
     <string name="onb_consent_point_who_group">Quién lo ve: todos los adultos de tu grupo familiar, incluidos los que se unan más adelante.</string>
-    <string name="onb_consent_point_pause">Cómo pararlo: basta con dos toques en «Vista general». Tu familia ve la pausa, y mientras el intercambio está activado siempre se muestra una notificación.</string>
+    <string name="onb_consent_point_where">Dónde: si un adulto activa la sincronización con su Yandex Disk, los adultos de tu familia ven dónde está este teléfono, su recorrido de hoy y cuándo sale de una zona segura o entra en ella.</string>
+    <string name="onb_consent_point_pause">Quién lo cambia: solo un adulto de la familia, desde su teléfono o con el PIN de los adultos en este teléfono. Siempre se ve una notificación de Kinsight, y tu familia ve si se desactiva algo en los ajustes de Android.</string>
     <string name="onb_consent_more">Más detalles</string>
     <string name="onb_consent_less">Menos detalles</string>
     <string name="onb_consent_expanded">Desplegado</string>
@@ -75,4 +76,10 @@
     <string name="onb_open_settings">Abrir los ajustes de la aplicación</string>
     <string name="onb_nearby_blocked">El permiso «Dispositivos cercanos» está desactivado para Kinsight y Android no volverá a preguntar. Abre los ajustes de la aplicación y luego Permisos → Dispositivos cercanos → Permitir.</string>
     <string name="onb_done_body_joined_parent">Este teléfono está en tu grupo familiar. Mostrará el tiempo de pantalla de los menores en cuanto sus teléfonos se sincronicen.</string>
+    <string name="onb_later">Más tarde</string>
+    <string name="onb_location_title">Dónde está el teléfono</string>
+    <string name="onb_location_body">Para que los adultos de tu familia vean dónde está el teléfono y sepan cuándo sales de una zona segura, Kinsight necesita la ubicación precisa. Android te lo preguntará ahora: elige «Precisa» y «Mientras se usa la app».</string>
+    <string name="onb_location_agree">Permitir</string>
+    <string name="onb_background_title">Ubicación en segundo plano</string>
+    <string name="onb_background_body">El teléfono avisa de que sales de una zona con Kinsight cerrado solo si la ubicación está permitida siempre. Ahora se abrirán los ajustes: elige «Permitir todo el tiempo».</string>
 </resources>

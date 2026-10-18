@@ -11,6 +11,6 @@ import app.kinsight.core.designsystem.theme.KinsightTheme
 @Preview(name = "Dark", showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES or Configuration.UI_MODE_TYPE_NORMAL)
 annotation class ThemePreviews
 
-/** The fallback palette (dynamic colour needs a wallpaper), on a surface. */
+/** The app's only palette, on a surface. */
 @Composable
-fun PreviewTheme(content: @Composable () -> Unit) = KinsightTheme(dynamicColor = false) { Surface { content() } }
+fun PreviewTheme(content: @Composable () -> Unit) = KinsightTheme { Surface { content() } }

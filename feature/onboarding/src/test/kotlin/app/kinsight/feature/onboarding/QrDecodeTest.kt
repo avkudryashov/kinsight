@@ -1,19 +1,30 @@
 package app.kinsight.feature.onboarding
 
 import app.kinsight.core.designsystem.component.qrMatrix
-import app.kinsight.core.model.DeviceKeys
-import app.kinsight.core.model.GroupGenesis
+import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.proto.DeviceRole
+import app.kinsight.core.sync.MIN_PROTOCOL_VERSION
+import app.kinsight.core.sync.PROTOCOL_VERSION
 import app.kinsight.core.sync.pairing.Invite
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /** The camera path minus the camera: our own QR rendered as a Y plane, decoded the way the analyzer does. */
+
 class QrDecodeTest {
-    private val admin = DeviceKeys.generate()
-    private val invite = Invite.create(GroupGenesis.create(admin, "Mom").groupId, admin, DeviceRole.CHILD, "Mom")
+    /**
+     * A fixed invite, not a random one: with fresh keys and token each run, the QR pattern (mask, module layout) differs
+     * per run, and about 4% of those patterns do not decode from this synthetic frame at all (measured: 13 of 300, rotated
+     * or not), so the test flaked. These bytes were checked to decode both upright and rotated.
+     */
+    private val invite = Invite(
+        PROTOCOL_VERSION, GroupId("00112233445566778899aabbccddeeff"), ByteArray(32) { (it * 7 + 1).toByte() },
+        ByteArray(32) { (it * 11 + 3).toByte() }, ByteArray(Invite.TOKEN_BYTES) { (it * 13 + 5).toByte() }, DeviceRole.CHILD, "Mom",
+        MIN_PROTOCOL_VERSION,
+    )
 
     private class Frame(val y: ByteArray, val width: Int, val height: Int, val rowStride: Int)
 
@@ -71,5 +82,36 @@ class QrDecodeTest {
         val rot = ByteArray(n * n)
         for (r in 0 until n) for (c in 0 until n) rot[c * n + (n - 1 - r)] = f.y[r * n + c]
         assertEquals(invite.toUri(), QrDecode.decode(rot, n, n, n))
+    }
+
+    private fun rotated(f: Frame): ByteArray {
+        val n = f.width
+        val rot = ByteArray(n * n)
+        for (r in 0 until n) for (c in 0 until n) rot[c * n + (n - 1 - r)] = f.y[r * n + c]
+        return rot
+    }
+
+    /** Random invites (fixed seed): every one decodes upright and rotated, each frame within a live camera's budget. */
+    @Test
+    fun threeHundredRandomInvitesDecodeUprightAndRotated() {
+        val rnd = Random(20261017)
+        var upright = 0
+        var turned = 0
+        var worstNs = 0L
+        repeat(300) {
+            val inv = Invite(
+                PROTOCOL_VERSION, GroupId(rnd.nextBytes(16).joinToString("") { "%02x".format(it) }), rnd.nextBytes(32), rnd.nextBytes(32),
+                rnd.nextBytes(Invite.TOKEN_BYTES), DeviceRole.CHILD, "Mom", MIN_PROTOCOL_VERSION,
+            )
+            val f = frame(inv.toUri(), padding = 0)
+            val t0 = System.nanoTime()
+            if (QrDecode.decode(f.y, f.width, f.width, f.height) != inv.toUri()) upright++
+            val t1 = System.nanoTime()
+            if (QrDecode.decode(rotated(f), f.width, f.width, f.height) != inv.toUri()) turned++
+            worstNs = maxOf(worstNs, t1 - t0, System.nanoTime() - t1)
+        }
+        assertEquals(0, upright, "upright failures of 300")
+        assertEquals(0, turned, "rotated failures of 300")
+        assertTrue(worstNs < 50_000_000, "slowest frame ${worstNs / 1_000_000} ms")
     }
 }

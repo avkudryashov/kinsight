@@ -7,6 +7,21 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasAnyDescendant
+import app.kinsight.core.designsystem.theme.ChildColorKey
+import app.kinsight.core.designsystem.theme.childColor
+import app.kinsight.core.data.AppCategory
+import app.kinsight.core.data.AppUsage
+import app.kinsight.core.data.SetupWarning
+import app.kinsight.core.data.ThresholdRule
+import app.kinsight.core.data.ThresholdTarget
+import app.kinsight.core.data.TopApp
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -29,6 +44,7 @@ import app.kinsight.core.transport.ble.SyncService
 import app.kinsight.core.transport.ble.SyncProblem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -56,7 +72,6 @@ class DashboardScreenTest {
 
     private fun show(
         ui: DashboardUi,
-        onPause: () -> Unit = {},
         onStart: () -> Unit = {},
         onResume: () -> Unit = {},
         onConsent: () -> Unit = {},
@@ -66,9 +81,9 @@ class DashboardScreenTest {
         onOpenSettings: () -> Unit = {},
         onAcknowledgeParents: (Set<DeviceId>) -> Unit = {},
     ) = rule.setContent {
-        KinsightTheme(dynamicColor = false) {
+        KinsightTheme() {
             DashboardScreen(
-                ui, now, onOpenDevice, onPause = onPause, onResume = onResume, onConsent = onConsent, onStart = onStart,
+                ui, now, onOpenDevice, onResume = onResume, onConsent = onConsent, onStart = onStart,
                 onSyncNow = onSyncNow, onInviteChild = onInviteChild, onOpenSettings = onOpenSettings,
                 onAcknowledgeParents = onAcknowledgeParents,
             )
@@ -81,19 +96,13 @@ class DashboardScreenTest {
     }
 
     @Test
-    fun childHeaderNamesTheParentsAndPauseTakesTwoTaps() {
-        var paused = false
+    fun childHeaderNamesTheParentsAndOnlyAParentChangesSharing() {
         val self = kid.copy(isSelf = true)
-        show(DashboardUi(DashboardState(self, usage(self, 30, 30), emptyList(), listOf(mom.copy(isSelf = false), dad)), running, true), onPause = { paused = true })
+        show(DashboardUi(DashboardState(self, usage(self, 30, 30), emptyList(), listOf(mom.copy(isSelf = false), dad)), running, true))
         rule.onNodeWithText("Mom, Dad", substring = true).assertExists()
-        rule.onNodeWithText("your parents are told", substring = true).assertExists()
-        rule.onNodeWithTag("dash_pause").performClick()
-        rule.waitForIdle()
-        assertFalse(paused)
-        rule.onNodeWithText("sent when you resume", substring = true).assertExists()
-        rule.onNodeWithTag("dash_pause_confirm").performClick()
-        rule.waitForIdle()
-        assertTrue(paused)
+        rule.onNodeWithTag("dash_parent_only").assertExists()
+        rule.onNodeWithText("Only a parent can change sharing", substring = true).assertExists()
+        assertNoPauseButton()
     }
 
     @Test
@@ -125,7 +134,7 @@ class DashboardScreenTest {
         rule.onNodeWithText("Last sync", substring = true).assertDoesNotExist()
         rule.onNodeWithTag("dash_sync_now").assertDoesNotExist()
         rule.onNodeWithTag("dash_banner").assertDoesNotExist()
-        rule.onNodeWithTag("dash_pause").assertDoesNotExist()
+        assertNoPauseButton()
         rule.onNodeWithTag("dash_consent").assertDoesNotExist()
     }
 
@@ -133,7 +142,7 @@ class DashboardScreenTest {
     fun childSeesTheTransparencyRowAndItsOwnCardButNoThisPhone() {
         show(childUi(Sharing.On))
         rule.onNodeWithText("Your screen time is visible to: Mom").assertExists()
-        rule.onNodeWithTag("dash_pause").assertExists()
+        rule.onNodeWithTag("dash_parent_only").assertExists()
         rule.onNodeWithText("Kid").assertExists()
         rule.onNodeWithText("This phone").assertDoesNotExist()
         rule.onNodeWithTag("dash_sync_now").assertDoesNotExist()
@@ -231,10 +240,10 @@ class DashboardScreenTest {
         )
         var current by mutableStateOf<ServiceStatus?>(states.first())
         rule.setContent {
-            KinsightTheme(dynamicColor = false) {
+            KinsightTheme() {
                 DashboardScreen(
                     DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), emptyList()), current, true), now, {},
-                    onPause = {}, onResume = {}, onConsent = {}, onStart = {}, onSyncNow = {}, onInviteChild = {}, onOpenSettings = {},
+                    onResume = {}, onConsent = {}, onStart = {}, onSyncNow = {}, onInviteChild = {}, onOpenSettings = {},
                 )
             }
         }
@@ -279,7 +288,8 @@ class DashboardScreenTest {
         val empty = DayTotal(today, 0, 0)
         val u = usage(kid, 0, 60).copy(today = empty, week = (6 downTo 0).map { DayTotal(today.minusDays(it.toLong()), 0, 0) }, updatedMs = null)
         show(DashboardUi(DashboardState(mom, null, listOf(u), emptyList()), running, true))
-        rule.onNodeWithText("No data today").assertExists()
+        rule.onNodeWithText("No data yet").assertExists()
+        rule.onNodeWithTag("dash_last_sync", useUnmergedTree = true).assertExists()
         rule.onNodeWithText("<1 min").assertDoesNotExist()
         rule.onNodeWithText("less than", substring = true).assertDoesNotExist()
     }
@@ -290,7 +300,7 @@ class DashboardScreenTest {
         val u = usage(kid, 0, null).copy(today = zero)
         show(DashboardUi(DashboardState(mom, null, listOf(u), emptyList()), running, true))
         rule.onNodeWithText("<1 min").assertExists()
-        rule.onNodeWithText("No data today").assertDoesNotExist()
+        rule.onNodeWithText("No data yet").assertDoesNotExist()
     }
 
     @Test
@@ -361,21 +371,10 @@ class DashboardScreenTest {
     }
 
     @Test
-    fun cancellingThePauseDialogDoesNotPause() {
-        var paused = false
-        show(childUi(Sharing.On), onPause = { paused = true })
-        rule.onNodeWithTag("dash_pause").performClick()
-        rule.onNodeWithText("Cancel").performClick()
-        rule.waitForIdle()
-        assertFalse(paused)
-        rule.onNodeWithTag("dash_pause_confirm").assertDoesNotExist()
-    }
-
-    @Test
     fun pausedOffersResume() {
         var resumed = false
         show(childUi(Sharing.Paused(now - hour)), onResume = { resumed = true })
-        rule.onNodeWithTag("dash_pause").assertDoesNotExist()
+        assertNoPauseButton()
         rule.onNodeWithTag("dash_resume").performClick()
         rule.waitForIdle()
         assertTrue(resumed)
@@ -385,7 +384,7 @@ class DashboardScreenTest {
     fun neverSharedOffersConsent() {
         var consent = false
         show(childUi(Sharing.Never), onConsent = { consent = true })
-        rule.onNodeWithTag("dash_pause").assertDoesNotExist()
+        assertNoPauseButton()
         rule.onNodeWithTag("dash_consent").performClick()
         rule.waitForIdle()
         assertTrue(consent)
@@ -395,7 +394,7 @@ class DashboardScreenTest {
     fun leftChildHeaderSaysSo() {
         show(childUi(Sharing.Left))
         rule.onNodeWithText("You left the group", substring = true).assertExists()
-        rule.onNodeWithTag("dash_pause").assertDoesNotExist()
+        assertNoPauseButton()
         rule.onNodeWithTag("dash_consent").assertDoesNotExist()
     }
 
@@ -422,10 +421,10 @@ class DashboardScreenTest {
     }
 
     @Test
-    fun aHiddenNotificationShowsThePauseBannerWithNotificationSettings() {
+    fun aHiddenNotificationShowsTheBannerWithNotificationSettings() {
         show(childUi(Sharing.On).copy(service = running.copy(notificationHidden = true)))
         rule.onNodeWithTag("dash_banner").assertExists()
-        rule.onNodeWithText("Notification hidden: sharing is paused", substring = true).assertExists()
+        rule.onNodeWithText("Notification hidden: your family sees it", substring = true).assertExists()
         rule.onNodeWithTag("dash_notification_settings").assertExists()
     }
 
@@ -460,7 +459,15 @@ class DashboardScreenTest {
     fun theParentsCardNamesAHiddenNotification() {
         val hidden = usage(kid, 30, 30).copy(updatedMs = now - 30 * hour, notificationHidden = true)
         show(DashboardUi(DashboardState(mom, null, listOf(hidden), emptyList()), running, true))
-        rule.onNodeWithText("The notification is hidden on the child's phone: sharing is paused").assertExists()
+        rule.onNodeWithText("The Kinsight notification is hidden on the child's phone").assertExists()
+        rule.onNodeWithText("collection is off", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun aHiddenNotificationIsNamedBeforeCollectionOff() {
+        val both = usage(kid, 30, 30).copy(updatedMs = now - 30 * hour, collectionOff = true, notificationHidden = true)
+        show(DashboardUi(DashboardState(mom, null, listOf(both), emptyList()), running, true))
+        rule.onNodeWithText("The Kinsight notification is hidden on the child's phone").assertExists()
         rule.onNodeWithText("collection is off", substring = true).assertDoesNotExist()
     }
 
@@ -469,7 +476,7 @@ class DashboardScreenTest {
     fun theRussianParentsCardNamesAHiddenNotification() {
         val hidden = usage(kid, 30, 30).copy(notificationHidden = true)
         show(DashboardUi(DashboardState(mom, null, listOf(hidden), emptyList()), running, true))
-        rule.onNodeWithText("На телефоне ребёнка скрыто уведомление: обмен приостановлен").assertExists()
+        rule.onNodeWithText("На телефоне ребёнка скрыто уведомление Kinsight").assertExists()
         rule.onNodeWithText("Сбор данных не включён", substring = true).assertDoesNotExist()
     }
 
@@ -512,10 +519,10 @@ class DashboardScreenTest {
     }
 
     private fun showLive(service: () -> ServiceStatus) = rule.setContent {
-        KinsightTheme(dynamicColor = false) {
+        KinsightTheme() {
             DashboardScreen(
                 DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), emptyList()), service(), true), now, {},
-                onPause = {}, onResume = {}, onConsent = {}, onStart = {}, onSyncNow = {}, onInviteChild = {}, onOpenSettings = {},
+                onResume = {}, onConsent = {}, onStart = {}, onSyncNow = {}, onInviteChild = {}, onOpenSettings = {},
                 wallClock = { now },
             )
         }
@@ -529,8 +536,23 @@ class DashboardScreenTest {
         rule.onNodeWithTag("dash_list").performTouchInput { swipeDown(startY = top + 10f, endY = bottom, durationMillis = 600) }
         rule.waitForIdle()
         rule.onNodeWithTag("dash_searching").assertExists()
-        rule.onNodeWithText("Looking for your family's phones", substring = true).assertExists()
+        rule.onNodeWithText("Looking for phones nearby", substring = true).assertExists()
         service = running.copy(lastSyncMs = now + 1_000)
+        rule.waitForIdle()
+        rule.onNodeWithTag("dash_searching").assertDoesNotExist()
+    }
+
+    @Test
+    fun withTheCloudOnAPullSaysUpdatingUntilADiskSyncArrives() {
+        var service by mutableStateOf(running.copy(lastSyncMs = now - hour, cloudOn = true))
+        showLive { service }
+        rule.onNodeWithTag("dash_list").performTouchInput { swipeDown(startY = top + 10f, endY = bottom, durationMillis = 600) }
+        rule.waitForIdle()
+        rule.onNodeWithTag("dash_searching").assertExists()
+        rule.onNodeWithText("Updating", substring = true).assertExists()
+        rule.onNodeWithText("Looking for phones nearby", substring = true).assertDoesNotExist()
+        // ServiceStatus.lastSyncMs is the newer of both paths: a Disk run after the pull ends it.
+        service = service.copy(lastSyncMs = now + 1_000)
         rule.waitForIdle()
         rule.onNodeWithTag("dash_searching").assertDoesNotExist()
     }
@@ -544,5 +566,146 @@ class DashboardScreenTest {
         rule.mainClock.advanceTimeBy(SyncService.FAST_MS + 1_000)
         rule.waitForIdle()
         rule.onNodeWithTag("dash_searching").assertDoesNotExist()
+    }
+
+    private val limit2h get() = ThresholdRule.of(kid.id, ThresholdTarget.Total, 2 * hour)!!
+
+    @Test
+    fun theDayLimitShowsWhatIsLeftThenByHowMuchItIsPassed() {
+        var used by mutableStateOf(90L)
+        rule.setContent {
+            KinsightTheme {
+                DashboardScreen(
+                    DashboardUi(DashboardState(mom, null, listOf(usage(kid, used, 60)), listOf(dad)), running, true, thresholds = listOf(limit2h)),
+                    now, onOpenDevice = {}, onResume = {}, onConsent = {}, onStart = {}, onSyncNow = {}, onInviteChild = {}, onOpenSettings = {},
+                )
+            }
+        }
+        rule.onNodeWithTag("limit_bar_text", useUnmergedTree = true).assertTextEquals("30 min left of 2 h")
+        used = 150
+        rule.onNodeWithTag("limit_bar_text", useUnmergedTree = true).assertTextEquals("30 min over the limit")
+    }
+
+    @Test
+    fun withoutADayLimitThereIsNoBar() {
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 90, 60)), listOf(dad)), running, true))
+        rule.onNodeWithTag("limit_bar", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun anOpenLocationProblemIsAWarningOnTheCard() {
+        val u = usage(kid, 30, 30).copy(setupWarnings = setOf(SetupWarning.LOCATION_DISABLED))
+        show(DashboardUi(DashboardState(mom, null, listOf(u), listOf(dad)), running, true))
+        rule.onNodeWithTag("dash_warning_LOCATION_DISABLED", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("Location is off", useUnmergedTree = true).assertExists()
+    }
+
+    @Test
+    fun theTopThreeAppsCarryALimitPillWhenTheAppOrItsCategoryHasALimit() {
+        val apps = listOf(
+            TopApp(AppUsage("com.example.game", "Game", null, 40 * 60_000L), AppCategory.GAMES),
+            TopApp(AppUsage("com.example.tube", "Tube", null, 30 * 60_000L), AppCategory.VIDEO),
+            TopApp(AppUsage("com.example.chat", "Chat", null, 10 * 60_000L), AppCategory.SOCIAL),
+        )
+        val rules = listOf(
+            ThresholdRule.of(kid.id, ThresholdTarget.App("com.example.game"), hour)!!,
+            ThresholdRule.of(kid.id, ThresholdTarget.Category(AppCategory.VIDEO), hour)!!,
+        )
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 80, 60).copy(topApps = apps)), listOf(dad)), running, true, thresholds = rules))
+        rule.onNodeWithText("Most used today").assertExists()
+        fun pillIn(pkg: String) = rule.onNode(hasTestTag("dash_limit_pill") and hasAnyAncestor(hasTestTag("dash_app_$pkg")), useUnmergedTree = true)
+        pillIn("com.example.game").assertExists()
+        pillIn("com.example.tube").assertExists()
+        pillIn("com.example.chat").assertDoesNotExist()
+    }
+
+    private val sis = kid.copy(id = DeviceId("dd".repeat(16)), name = "Test")
+
+    private fun tops(vararg a: Pair<String, Long>) = a.map { (label, min) -> TopApp(AppUsage("com.example.${label.lowercase()}", label, null, min * 60_000L), AppCategory.GAMES) }
+
+    @Test
+    fun oneChildShowsTheFullCardAndItsTopApps() {
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 80, 60).copy(topApps = tops("Game" to 40L))), listOf(dad)), running, true))
+        rule.onNodeWithTag("dash_card").assertExists()
+        rule.onNodeWithTag("dash_top_apps").assertExists()
+        rule.onNodeWithTag("dash_compact_card").assertDoesNotExist()
+    }
+
+    @Test
+    fun twoChildrenGetCompactCardsWithTheirTopAppAndNoTopAppsBlock() {
+        val a = usage(kid, 80, 60).copy(topApps = tops("Game" to 40L, "Chat" to 10L), comparison = TodayComparison.FullDay(60 * 60_000))
+        val b = usage(sis, 90, 60).copy(topApps = tops("Tube" to 82L))
+        show(DashboardUi(DashboardState(mom, null, listOf(a, b), listOf(dad)), running, true, thresholds = listOf(limit2h)))
+        rule.onAllNodes(hasTestTag("dash_compact_card")).assertCountEquals(2)
+        rule.onNodeWithTag("dash_card").assertDoesNotExist()
+        rule.onNodeWithTag("dash_top_apps").assertDoesNotExist()
+        rule.onNodeWithText("Most used: Game · 40 min", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("Most used: Tube · 1 h 22 min", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("Kid", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("1 h 20 min", useUnmergedTree = true).assertExists()
+        // Only the first child has a day limit; the comparison and the data time stay in the report.
+        rule.onAllNodes(hasTestTag("limit_bar"), useUnmergedTree = true).assertCountEquals(1)
+        rule.onNodeWithText("more than", substring = true, useUnmergedTree = true).assertDoesNotExist()
+        rule.onNodeWithTag("dash_data_at", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun aCompactCardWithoutUsageTodayHasNoTopLine() {
+        val a = usage(kid, 80, 60).copy(topApps = tops("Game" to 40L))
+        val b = usage(sis, 0, null).copy(today = DayTotal(today, 0, 0), updatedMs = null)
+        show(DashboardUi(DashboardState(mom, null, listOf(a, b), listOf(dad)), running, true))
+        rule.onAllNodes(hasText("Most used:", substring = true), useUnmergedTree = true).assertCountEquals(1)
+        rule.onNodeWithText("No data yet", useUnmergedTree = true).assertExists()
+    }
+
+    @Test
+    fun aCompactCardOpensTheReportAndShowsTheWarnings() {
+        var opened: DeviceId? = null
+        val b = usage(sis, 30, 30).copy(setupWarnings = setOf(SetupWarning.LOCATION_PERMISSION_OFF))
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30), b), listOf(dad)), running, true), onOpenDevice = { opened = it })
+        rule.onNodeWithTag("dash_warning_LOCATION_PERMISSION_OFF", useUnmergedTree = true).assertExists()
+        rule.onNode(hasTestTag("dash_compact_card") and hasClickAction() and hasAnyDescendant(hasText("Test")), useUnmergedTree = true).performClick()
+        rule.waitForIdle()
+        assertEquals(sis.id, opened)
+    }
+
+    @Test
+    fun twoChildrenGetDifferentColours() {
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 80, 60), usage(sis, 90, 60)), listOf(dad)), running, true))
+        val all = listOf(kid.id.hex, sis.id.hex)
+        for (m in listOf(kid, sis)) {
+            rule.onNode(hasTestTag("dash_compact_card") and SemanticsMatcher.expectValue(ChildColorKey, childColor(m.id.hex, all))).assertExists()
+        }
+        assertNotEquals(childColor(kid.id.hex, all), childColor(sis.id.hex, all))
+    }
+
+    @Test
+    fun aChildKeepsItsColourOnTheCard() {
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 30, 30)), listOf(dad)), running, true))
+        rule.onNode(hasTestTag("dash_card") and SemanticsMatcher.expectValue(ChildColorKey, childColor(kid.id.hex, listOf(kid.id.hex)))).assertExists()
+    }
+
+    @Test
+    fun aChildWithAnOldConsentIsAskedToSeeWhatChanged() {
+        var consent = false
+        show(childUi(Sharing.On).copy(consentOutdated = true), onConsent = { consent = true })
+        rule.onNodeWithText("through a parent's Yandex Disk", substring = true).assertExists()
+        rule.onNodeWithTag("dash_reconsent_open").performClick()
+        rule.waitForIdle()
+        assertTrue(consent)
+    }
+
+    @Test
+    fun aCurrentConsentShowsNoCard() {
+        show(childUi(Sharing.On))
+        rule.onNodeWithTag("dash_reconsent").assertDoesNotExist()
+    }
+
+    /**
+     * Y5 T8 parked minor: the pause button is gone with its tag, so a tag check could never fail. Nothing clickable on the
+     * screen speaks of pausing (spec §10: no switch on a child's phone).
+     */
+    private fun assertNoPauseButton() {
+        rule.onAllNodes(hasClickAction() and hasText("pause", substring = true, ignoreCase = true), useUnmergedTree = true).assertCountEquals(0)
     }
 }

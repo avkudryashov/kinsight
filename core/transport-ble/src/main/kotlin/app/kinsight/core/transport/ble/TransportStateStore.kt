@@ -88,7 +88,7 @@ class TransportStateStore(private val store: DataStore<Preferences>) {
         store.edit { if (ms == null) it.remove(NOTIFICATION_HIDDEN_SINCE) else it[NOTIFICATION_HIDDEN_SINCE] = ms }
     }
 
-    /** Whether the sync notification is hidden as NotificationWatch recorded it: the system pause (S-M3) and its banner. */
+    /** Whether the sync notification is hidden as NotificationWatch recorded it: its banner (a signal, no pause). */
     val notificationHiddenFlow: Flow<Boolean> = store.data.map { it[NOTIFICATION_HIDDEN_SINCE] != null }.distinctUntilChanged()
 
     /** Since when «Nearby devices» is missing; null while granted (NearbyWatch). */
@@ -96,6 +96,36 @@ class TransportStateStore(private val store: DataStore<Preferences>) {
 
     suspend fun setNearbyOffSinceMs(ms: Long?) {
         store.edit { if (ms == null) it.remove(NEARBY_OFF_SINCE) else it[NEARBY_OFF_SINCE] = ms }
+    }
+
+    /** LocationWatch: the child's location access was complete once, so a later loss is a revoke (spec §10). */
+    suspend fun locationAccessSeen(): Boolean = store.data.first()[LOCATION_ACCESS_SEEN] ?: false
+
+    suspend fun setLocationAccessSeen(seen: Boolean) {
+        store.edit { if (seen) it[LOCATION_ACCESS_SEEN] = true else it.remove(LOCATION_ACCESS_SEEN) }
+    }
+
+    /** Since when the location access is missing, once LOCATION_PERMISSION_OFF was accepted; null otherwise. */
+    suspend fun locationAccessOffSinceMs(): Long? = store.data.first()[LOCATION_ACCESS_OFF_SINCE]
+
+    suspend fun setLocationAccessOffSinceMs(ms: Long?) {
+        store.edit { if (ms == null) it.remove(LOCATION_ACCESS_OFF_SINCE) else it[LOCATION_ACCESS_OFF_SINCE] = ms }
+    }
+
+    /** Since when location is off in the system, once LOCATION_DISABLED was accepted; null otherwise. */
+    suspend fun locationDisabledSinceMs(): Long? = store.data.first()[LOCATION_DISABLED_SINCE]
+
+    suspend fun setLocationDisabledSinceMs(ms: Long?) {
+        store.edit { if (ms == null) it.remove(LOCATION_DISABLED_SINCE) else it[LOCATION_DISABLED_SINCE] = ms }
+    }
+
+    /** The location gate closed: no open problem and no baseline. */
+    suspend fun clearLocationWatch() {
+        store.edit {
+            it.remove(LOCATION_ACCESS_SEEN)
+            it.remove(LOCATION_ACCESS_OFF_SINCE)
+            it.remove(LOCATION_DISABLED_SINCE)
+        }
     }
 
     /** What ForceStopCheck already knows of the system's exit records; null before the first check. */
@@ -147,6 +177,9 @@ class TransportStateStore(private val store: DataStore<Preferences>) {
         private val PEER_SEEN = stringPreferencesKey("peer_seen")
         private val NEARBY_OFF_SINCE = longPreferencesKey("nearby_off_since_ms")
         private val FORCE_STOP_SEEN = stringPreferencesKey("force_stop_seen")
+        private val LOCATION_ACCESS_SEEN = booleanPreferencesKey("location_access_seen")
+        private val LOCATION_ACCESS_OFF_SINCE = longPreferencesKey("location_access_off_since_ms")
+        private val LOCATION_DISABLED_SINCE = longPreferencesKey("location_disabled_since_ms")
 
         /** "hex=ms;hex=ms"; malformed parts are skipped (the file is a cache). */
         internal fun decodePeers(text: String?): Map<DeviceId, Long> = text.orEmpty().split(';').mapNotNull { part ->

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -20,6 +21,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -27,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -73,7 +76,7 @@ private sealed interface GroupAction {
  * own, so there is no «left» callback.
  */
 @Composable
-fun GroupRoute(onInvite: (Role) -> Unit) {
+fun GroupRoute(onInvite: (Role) -> Unit, onBack: (() -> Unit)? = null) {
     val context = LocalContext.current
     val vm: GroupViewModel = viewModel { GroupViewModel(AppGraph.get(context).group) }
     val state by vm.state.collectAsStateWithLifecycle()
@@ -81,7 +84,7 @@ fun GroupRoute(onInvite: (Role) -> Unit) {
     val error by vm.error.collectAsStateWithLifecycle()
     val nowMs by rememberNowMs()
     when (val s = state) {
-        is GroupState.Ready -> GroupScreen(s, nowMs, leaving, onInvite, vm::grantAdmin, vm::remove, vm::leave)
+        is GroupState.Ready -> GroupScreen(s, nowMs, leaving, onInvite, vm::grantAdmin, vm::remove, vm::leave, onBack)
         GroupState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         GroupState.Leaving -> LeavingContent()
         GroupState.NoGroup -> EmptyState(stringResource(R.string.grp_no_group_title), stringResource(R.string.grp_no_group_body))
@@ -117,6 +120,8 @@ internal fun GroupError.messageRes(): Int = when (this) {
         LeaveError.SOLE_ADMIN -> R.string.grp_err_leave_sole_admin
         LeaveError.NOT_SIGNED -> R.string.grp_err_leave_not_signed
         LeaveError.WIPE_FAILED -> R.string.grp_err_leave_wipe_failed
+        LeaveError.OWNER_HANDOVER -> R.string.grp_err_leave_owner_handover
+        LeaveError.CLOUD_SWITCHING -> R.string.grp_err_leave_cloud_switching
     }
     GroupError.GrantFailed -> R.string.grp_err_grant
     GroupError.RemoveFailed -> R.string.grp_err_remove
@@ -146,58 +151,73 @@ fun GroupScreen(
     onGrantAdmin: (DeviceId) -> Unit,
     onRemove: (DeviceId) -> Unit,
     onLeave: () -> Unit,
+    /** Set when the screen is opened from «Ещё»: a top bar with a back arrow. */
+    onBack: (() -> Unit)? = null,
 ) {
     val self = state.self
     var pending by remember { mutableStateOf<GroupAction?>(null) }
-    LazyColumn(Modifier.fillMaxSize().testTag("grp_list"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item {
-            Text(
-                stringResource(R.string.grp_title),
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.semantics { heading() },
-            )
-        }
-        if (GroupRules.needsSecondAdmin(self, state.members)) {
+    Column(Modifier.fillMaxSize()) {
+        if (onBack != null) BackBar(onBack)
+        LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("grp_list"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
-                Card(
-                    Modifier.testTag("grp_second_admin"),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
-                ) {
-                    Text(stringResource(R.string.grp_second_admin), Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onTertiaryContainer)
-                }
+                Text(
+                    stringResource(R.string.grp_title),
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.semantics { heading() },
+                )
             }
-        }
-        if (GroupRules.canInvite(self)) {
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button({ onInvite(Role.CHILD) }, Modifier.fillMaxWidth().testTag("grp_invite_child")) { Text(stringResource(R.string.grp_invite_child)) }
-                    OutlinedButton({ onInvite(Role.PARENT) }, Modifier.fillMaxWidth().testTag("grp_invite_parent")) {
-                        Text(stringResource(R.string.grp_invite_parent))
+            if (GroupRules.needsSecondAdmin(self, state.members)) {
+                item {
+                    Card(
+                        Modifier.testTag("grp_second_admin"),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+                    ) {
+                        Text(stringResource(R.string.grp_second_admin), Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onTertiaryContainer)
                     }
                 }
             }
-        }
-        items(state.members, key = { it.id.hex }) { m -> MemberRow(m, self, nowMs) { pending = it } }
-        item {
-            val canLeave = GroupRules.canLeave(state)
-            Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (leaving) {
-                    CircularProgressIndicator()
-                    Text(stringResource(R.string.grp_leaving), color = MaterialTheme.colorScheme.onSurface)
+            if (GroupRules.canInvite(self)) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button({ onInvite(Role.CHILD) }, Modifier.fillMaxWidth().testTag("grp_invite_child")) { Text(stringResource(R.string.grp_invite_child)) }
+                        OutlinedButton({ onInvite(Role.PARENT) }, Modifier.fillMaxWidth().testTag("grp_invite_parent")) {
+                            Text(stringResource(R.string.grp_invite_parent))
+                        }
+                    }
                 }
-                OutlinedButton(
-                    onClick = { pending = GroupAction.Leave },
-                    enabled = canLeave && !leaving,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                    modifier = Modifier.fillMaxWidth().testTag("grp_leave"),
-                ) { Text(stringResource(R.string.grp_leave)) }
-                if (!canLeave) {
-                    Text(
-                        stringResource(R.string.grp_leave_sole_admin),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            }
+            items(state.members, key = { it.id.hex }) { m -> MemberRow(m, self, nowMs) { pending = it } }
+            item {
+                val canLeave = GroupRules.canLeave(state)
+                Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (leaving) {
+                        CircularProgressIndicator()
+                        Text(stringResource(R.string.grp_leaving), color = MaterialTheme.colorScheme.onSurface)
+                    }
+                    if (self.role != Role.CHILD) {
+                        OutlinedButton(
+                            onClick = { pending = GroupAction.Leave },
+                            enabled = canLeave && !leaving,
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                            modifier = Modifier.fillMaxWidth().testTag("grp_leave"),
+                        ) { Text(stringResource(R.string.grp_leave)) }
+                        if (!canLeave) {
+                            Text(
+                                stringResource(R.string.grp_leave_sole_admin),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    } else {
+                        // Spec §10: leaving is switching everything off, so a child's phone cannot do it by itself.
+                        Text(
+                            stringResource(R.string.grp_leave_child),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.testTag("grp_leave_child"),
+                        )
+                    }
                 }
             }
         }
@@ -206,7 +226,9 @@ fun GroupScreen(
         val (title, body) = when (action) {
             is GroupAction.GrantAdmin -> stringResource(R.string.grp_grant_title, action.member.name) to stringResource(R.string.grp_grant_body)
             is GroupAction.Remove -> stringResource(R.string.grp_remove_title, action.member.name) to stringResource(R.string.grp_remove_body)
-            GroupAction.Leave -> stringResource(R.string.grp_leave_title) to stringResource(R.string.grp_leave_body)
+            GroupAction.Leave -> stringResource(R.string.grp_leave_title) to (
+                stringResource(R.string.grp_leave_body) + if (GroupRules.leaveTurnsCloudOff(state)) "\n\n" + stringResource(R.string.grp_leave_cloud_off) else ""
+            )
         }
         val confirmLabel = stringResource(
             when (action) {
@@ -293,3 +315,13 @@ internal fun rememberNowMs(clock: () -> Long = System::currentTimeMillis, period
             value = clock()
         }
     }
+
+/** The back arrow of the screen opened from «Ещё». */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BackBar(onBack: () -> Unit) = TopAppBar(
+    title = {},
+    navigationIcon = {
+        IconButton(onBack, Modifier.testTag("grp_back")) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.grp_back)) }
+    },
+)

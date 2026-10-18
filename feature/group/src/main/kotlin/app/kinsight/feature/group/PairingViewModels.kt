@@ -42,8 +42,16 @@ internal fun interface JoinStarter {
     fun start(scope: CoroutineScope, invite: Invite, name: String, consent: Boolean, freshIdentity: Boolean): JoinHandle
 }
 
-private fun PairingCoordinator.opener() = InviteOpener { scope, role, adminName ->
-    val s = invite(scope, role, adminName)
+/** [PairingCoordinator.invite] as the invite screen calls it; a seam for tests. */
+internal fun interface Inviter {
+    fun invite(scope: CoroutineScope, role: Role, adminName: String, transferOwner: Boolean): InviteHandle
+}
+
+/** [transfer]: the storage owner's invite of its own new phone (spec §7.3): every invite it opens has transferOwner. */
+internal fun Inviter.opener(transfer: Boolean) = InviteOpener { scope, role, adminName -> invite(scope, role, adminName, transfer) }
+
+private fun PairingCoordinator.inviter() = Inviter { scope, role, adminName, transferOwner ->
+    val s = invite(scope, role, adminName, transferOwner = transferOwner)
     object : InviteHandle {
         override val state = s.state
 
@@ -77,11 +85,15 @@ class InviteViewModel internal constructor(
     private val adminName: suspend () -> String,
     private val role: Role,
 ) : ViewModel() {
-    constructor(pairing: PairingCoordinator, prefs: AppPrefs, role: Role) : this(
-        pairing.opener(),
+    constructor(pairing: PairingCoordinator, prefs: AppPrefs, role: Role, transfer: Boolean = false) : this(
+        pairing.inviter(),
         { prefs.current().deviceName?.takeIf { it.isNotBlank() } ?: FALLBACK_ADMIN_NAME },
         role,
+        transfer,
     )
+
+    internal constructor(inviter: Inviter, adminName: suspend () -> String, role: Role, transfer: Boolean) :
+        this(inviter.opener(transfer), adminName, role)
 
     private val _state = MutableStateFlow<InviteState>(InviteState.Starting)
     val state: StateFlow<InviteState> = _state.asStateFlow()

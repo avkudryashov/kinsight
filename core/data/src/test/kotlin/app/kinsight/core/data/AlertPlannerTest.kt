@@ -165,7 +165,12 @@ class AlertPlannerTest {
     @Test
     fun everyNonRecoveryKindAlerts() {
         val back = listOf("_RESTORED", "_RESUMED", "_SHOWN")
-        for (kind in StateEvent.Kind.entries) {
+        // The location kinds (protocol 3) have no alert behaviour yet.
+        val locationKinds = setOf(
+            StateEvent.Kind.LOCATION_PERMISSION_OFF, StateEvent.Kind.LOCATION_DISABLED,
+            StateEvent.Kind.ZONE_ENTER, StateEvent.Kind.ZONE_EXIT,
+        )
+        for (kind in StateEvent.Kind.entries - locationKinds) {
             val expected = kind != StateEvent.Kind.KIND_UNSPECIFIED && back.none { kind.name.endsWith(it) }
             assertEquals(expected, kind in AlertPlanner.INTEGRITY_KINDS, kind.name)
             val alerts = AlertPlanner.plan(input(events = listOf(ev(kid, 1, kind)))).alerts
@@ -425,7 +430,7 @@ class AlertPlannerTest {
         assertEquals(AlertLevel.TRANSPARENCY, AlertPlanner.level(Alert.NewParent("Dad", dad.id)))
         assertEquals(AlertLevel.SUMMARY, AlertPlanner.level(Alert.Summary(false, emptyList())))
         assertEquals(AlertLevel.THRESHOLD, AlertPlanner.level(Alert.Threshold(kid.id, "Kid", ThresholdTarget.Total, null, 2, 1)))
-        assertEquals(setOf(StateEvent.Kind.CLOCK_CHANGED, StateEvent.Kind.DATA_GAP), AlertPlanner.MINOR_KINDS)
+        assertEquals(setOf(StateEvent.Kind.CLOCK_CHANGED, StateEvent.Kind.DATA_GAP, StateEvent.Kind.ZONE_ENTER), AlertPlanner.MINOR_KINDS)
     }
 
     @Test
@@ -449,5 +454,73 @@ class AlertPlannerTest {
             listOf(StateEvent.Kind.NOTIFICATION_HIDDEN),
             AlertPlanner.openProblems(input(events = listOf(e(1, StateEvent.Kind.NOTIFICATION_HIDDEN), e(2, StateEvent.Kind.BLUETOOTH_OFF)), markers = told(2))).map { it.kind },
         )
+    }
+
+    @Test
+    fun aChildsZoneEventsAreAnnouncedWithTheZoneLeavingLoudly() {
+        val exit = EventView(kid.id, 5, StateEvent.Kind.ZONE_EXIT, at(10, 11), 0, at(10, 11), 0, zoneId = "aa".repeat(16), zoneName = "Home")
+        val enter = EventView(kid.id, 6, StateEvent.Kind.ZONE_ENTER, at(10, 12), 0, at(10, 12), 0, zoneId = "aa".repeat(16), zoneName = null)
+        val plan = AlertPlanner.plan(input(events = listOf(exit, enter)))
+        assertEquals(
+            listOf(
+                Alert.Integrity("Kid", StateEvent.Kind.ZONE_EXIT, at(10, 11), kid.id, null, "Home"),
+                Alert.Integrity("Kid", StateEvent.Kind.ZONE_ENTER, at(10, 12), kid.id, null, null),
+            ),
+            plan.alerts.filterIsInstance<Alert.Integrity>(),
+        )
+        assertEquals(AlertLevel.IMPORTANT, AlertPlanner.level(plan.alerts[0]))
+        assertEquals(AlertLevel.MINOR, AlertPlanner.level(plan.alerts[1]))
+        assertTrue(AlertPlanner.plan(input(events = listOf(exit, enter), markers = plan.markers)).alerts.none { it is Alert.Integrity })
+        assertTrue(StateEvent.Kind.ZONE_EXIT !in AlertPlanner.INTEGRITY_KINDS, "zone news is not an integrity signal (IntegrityFastSync)")
+    }
+
+    private fun loc(seq: Long, kind: StateEvent.Kind, from: Long, to: Long) = EventView(kid.id, seq, kind, from, to, seq * 1_000, 0)
+
+    @Test
+    fun aLocationProblemIsAnnouncedAtOnceAndResolvedWhenBack() {
+        val off = StateEvent.Kind.LOCATION_PERMISSION_OFF
+        val first = AlertPlanner.plan(input(events = listOf(loc(1, off, 5_000, 5_000))))
+        assertEquals(listOf<Alert>(Alert.Integrity("Kid", off, 5_000, kid.id)), first.alerts)
+        assertEquals(AlertLevel.IMPORTANT, AlertPlanner.level(first.alerts.single()))
+        val second = AlertPlanner.plan(input(events = listOf(loc(1, off, 5_000, 5_000), loc(2, off, 5_000, 65_000)), markers = first.markers))
+        assertEquals(listOf<Alert>(Alert.Resolved(kid.id, off, "Kid")), second.alerts)
+        // Never seen open (both came late, the open one pruned): the interval itself is the news, with its length.
+        val disabled = StateEvent.Kind.LOCATION_DISABLED
+        val late = AlertPlanner.plan(input(events = listOf(loc(3, disabled, 7_000, 67_000))))
+        assertEquals(listOf<Alert>(Alert.Integrity("Kid", disabled, 7_000, kid.id, durationMs = 60_000)), late.alerts)
+    }
+
+    @Test
+    fun anOpenLocationProblemIsRepostedLikeAPause() {
+        val disabled = StateEvent.Kind.LOCATION_DISABLED
+        val markers = AlertMarkers(knownParents = setOf(mom.id), initialized = true, notifiedSeq = mapOf(kid.id to 1L))
+        assertEquals(listOf(Alert.Integrity("Kid", disabled, 5_000, kid.id)), AlertPlanner.openProblems(input(events = listOf(loc(1, disabled, 5_000, 5_000)), markers = markers)))
+        val closed = listOf(loc(1, disabled, 5_000, 5_000), loc(2, disabled, 5_000, 9_000))
+        assertEquals(emptyList(), AlertPlanner.openProblems(input(events = closed, markers = markers.copy(notifiedSeq = mapOf(kid.id to 2L)))))
+    }
+
+    @Test
+    fun aShortLocationBlackoutInOneBatchIsAnnouncedWithItsLength() {
+        val off = StateEvent.Kind.LOCATION_PERMISSION_OFF
+        val markers = AlertMarkers(knownParents = setOf(mom.id), initialized = true)
+        val plan = AlertPlanner.plan(input(events = listOf(loc(1, off, 5_000, 5_000), loc(2, off, 5_000, 65_000)), markers = markers))
+        assertEquals(listOf<Alert>(Alert.Integrity("Kid", off, 5_000, kid.id, durationMs = 60_000)), plan.alerts)
+    }
+
+    @Test
+    fun aFlappingLocationSwitchResolvesTheFirstAndAnnouncesTheNext() {
+        val off = StateEvent.Kind.LOCATION_DISABLED
+        val first = AlertPlanner.plan(input(events = listOf(loc(1, off, 5_000, 5_000))))
+        assertEquals(listOf<Alert>(Alert.Integrity("Kid", off, 5_000, kid.id)), first.alerts)
+        val events = listOf(loc(1, off, 5_000, 5_000), loc(2, off, 5_000, 65_000), loc(3, off, 70_000, 70_000))
+        val second = AlertPlanner.plan(input(events = events, markers = first.markers))
+        assertEquals(listOf(Alert.Resolved(kid.id, off, "Kid"), Alert.Integrity("Kid", off, 70_000, kid.id)), second.alerts)
+        // All three new in one pass: the closed interval with its length, then the open one.
+        val fresh = AlertMarkers(knownParents = setOf(mom.id), initialized = true)
+        assertEquals(
+            listOf<Alert>(Alert.Integrity("Kid", off, 5_000, kid.id, durationMs = 60_000), Alert.Integrity("Kid", off, 70_000, kid.id)),
+            AlertPlanner.plan(input(events = events, markers = fresh)).alerts,
+        )
+        assertEquals(listOf(Alert.Integrity("Kid", off, 70_000, kid.id)), AlertPlanner.openProblems(input(events = events, markers = second.markers)))
     }
 }

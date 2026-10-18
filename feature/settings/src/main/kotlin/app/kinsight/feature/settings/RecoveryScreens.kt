@@ -94,7 +94,7 @@ fun RemovedScreen(onStartOver: () -> Unit, busy: Boolean = false, failed: Boolea
  * disabled until the user ticks «I understand» (tag set_reset_ack).
  */
 @Composable
-internal fun ResetIdentityDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+internal fun ResetIdentityDialog(onConfirm: () -> Unit, onDismiss: () -> Unit, cloudOff: Boolean = false) {
     var understood by rememberSaveable { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -103,6 +103,8 @@ internal fun ResetIdentityDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(stringResource(R.string.set_reset_body))
+                // Spec §7.1: the owner leaving with no parent to take the storage is warned that the cloud turns off.
+                if (cloudOff) Text(stringResource(R.string.set_cloud_leave_off))
                 Row(
                     Modifier.fillMaxWidth()
                         .toggleable(understood, role = Role.Checkbox, onValueChange = { understood = it })

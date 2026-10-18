@@ -1,6 +1,7 @@
 package app.kinsight.core.data
 
 import app.kinsight.core.model.DeviceId
+import app.kinsight.core.model.WireConstants
 import app.kinsight.core.model.proto.StateEvent
 import java.time.DayOfWeek
 import java.time.Instant
@@ -12,6 +13,7 @@ sealed interface Alert {
     /**
      * [id]: the child's device, so tapping the alert can open its detail screen; null when unknown. [durationMs]: an
      * interval event's length (to_ms after from_ms), null when it has none; a short Bluetooth break is quiet (U4).
+     * [zoneName]: ZONE_ENTER / ZONE_EXIT, the zone's name, null when unknown (shown, never logged: not in toString).
      */
     data class Integrity(
         val device: String,
@@ -19,11 +21,15 @@ sealed interface Alert {
         val atMs: Long,
         val id: DeviceId? = null,
         val durationMs: Long? = null,
-    ) : Alert
+        val zoneName: String? = null,
+    ) : Alert {
+        override fun toString() = "Integrity($device, $kind, $atMs, $id, $durationMs)"
+    }
 
     /**
      * The child undid an open problem ([kind] is the open kind: SHARING_PAUSED or NOTIFICATION_HIDDEN, see
-     * AlertPlanner.CLOSERS): the app cancels that child's notification of [kind] instead of posting.
+     * AlertPlanner.CLOSERS, or a self-closing location kind, see AlertPlanner.SELF_CLOSING): the app cancels that
+     * child's notification of [kind] instead of posting.
      */
     data class Resolved(val id: DeviceId, val kind: StateEvent.Kind, val device: String) : Alert
 
@@ -55,8 +61,9 @@ enum class AlertLevel { IMPORTANT, MINOR, TRANSPARENCY, SUMMARY, THRESHOLD }
 
 /**
  * A child's today as the thresholds read it (AlertPlanner.input): its actual date (the zone of its latest summary; one
- * day before or after the parent's, UsageReadModel.childToday with thresholds = true) and the usage of that date; [usage] null when no summary of that date arrived yet (nothing to evaluate,
- * never the day before). [appLabels]: catalog labels of the apps the parent's rules name.
+ * day before or after the parent's, UsageReadModel.childToday with thresholds = true) and the usage of that date;
+ * [usage] null when no summary of that date arrived yet (nothing to evaluate, never the day before). [appLabels]:
+ * catalog labels of the apps the parent's rules name.
  */
 data class ThresholdDay(val date: LocalDate, val usage: TodayUsage?, val appLabels: Map<String, String> = emptyMap())
 
@@ -93,6 +100,7 @@ data class AlertPlan(val alerts: List<Alert>, val markers: AlertMarkers)
  * (each once, by seq; the first run marks history as seen) and their resolution (a resume after a pause, a shown
  * after a hidden notification: once per closing event, by the same seq marker), no contact for longer than N hours
  * (once per loss) and a daily (after [SUMMARY_HOUR]) or weekly (Sunday) summary. A child hears about every new parent.
+ * A child's zone exit is important, an entry minor, each naming its zone.
  *
  * The summary is posted at most once per day and is a snapshot of that moment: usage synced later the same evening does
  * not re-post or update it (the dashboard shows the live figure). A child is left out of the summary on the day it
@@ -110,6 +118,8 @@ object AlertPlanner {
         StateEvent.Kind.BLUETOOTH_OFF,
         StateEvent.Kind.DATA_GAP,
         StateEvent.Kind.CLOCK_CHANGED,
+        StateEvent.Kind.LOCATION_PERMISSION_OFF,
+        StateEvent.Kind.LOCATION_DISABLED,
     )
     /**
      * Open problems the child can undo, by their closing kind. Their notification stays up until the closing event
@@ -122,8 +132,25 @@ object AlertPlanner {
     )
     private val OPENERS = CLOSERS.entries.associate { it.value to it.key }
 
-    /** Events that need nothing from a parent: «Прочие события», no sound (U4). */
-    val MINOR_KINDS = setOf(StateEvent.Kind.CLOCK_CHANGED, StateEvent.Kind.DATA_GAP)
+    /**
+     * Spec §10: problems signed when noticed (to = from) and closed by a second event of the same kind (to after from).
+     * The open one is announced; the closing one resolves it like a resume, but only when the open one was announced in
+     * an earlier pass. A closed one whose open one was never announced (pruned, or both new in this pass: posting and
+     * cancelling in one pass would hide it, against «любое отключение видно родителю») is announced with its length
+     * instead, and that open one stays quiet.
+     */
+    val SELF_CLOSING = setOf(StateEvent.Kind.LOCATION_PERMISSION_OFF, StateEvent.Kind.LOCATION_DISABLED)
+
+    private fun isOpen(e: EventView) = e.toMs <= e.fromMs
+
+    /** Safe zone news (spec §8.1): announced like integrity events, but never a fast Bluetooth start (IntegrityFastSync). */
+    val ZONE_KINDS = WireConstants.ZONE_KINDS
+
+    /**
+     * Events that need nothing from a parent: «Прочие события», no sound (U4); an arrival in a zone needs nothing from
+     * a parent.
+     */
+    val MINOR_KINDS = setOf(StateEvent.Kind.CLOCK_CHANGED, StateEvent.Kind.DATA_GAP, StateEvent.Kind.ZONE_ENTER)
 
     /** A Bluetooth break shorter than this is minor; one of unknown length is important. */
     const val SHORT_BLUETOOTH_MS = 30 * 60_000L
@@ -189,7 +216,7 @@ object AlertPlanner {
             self = members.first { it.isSelf },
             members = members,
             departed = departed,
-            events = UsageReadModel.events(ready.events),
+            events = UsageReadModel.events(ready.events, SafeZones.names(ready.safeZones, ready.membership)),
             children = SnapshotViews.dashboard(ready, today, nowMs).children,
             nowMs = nowMs,
             zone = zone,
@@ -214,7 +241,21 @@ object AlertPlanner {
             val sorted = own.sortedBy { it.seq }
             for ((index, e) in sorted.withIndex()) {
                 if (e.seq <= mark) continue
-                if (e.kind in INTEGRITY_KINDS) alerts += Alert.Integrity(child.name, e.kind, e.atMs, child.id, durationOf(e))
+                if (e.kind in SELF_CLOSING) {
+                    if (isOpen(e)) {
+                        // Closed later in this same pass: the closing event says it, with its length.
+                        if (sorted.subList(index + 1, sorted.size).firstOrNull { it.kind == e.kind }?.let { !isOpen(it) } == true) continue
+                    } else {
+                        val before = sorted.subList(0, index).lastOrNull { it.kind == e.kind }
+                        if (before != null && isOpen(before) && before.seq <= mark) {
+                            alerts += Alert.Resolved(child.id, e.kind, child.name)
+                            continue
+                        }
+                    }
+                }
+                if (e.kind in INTEGRITY_KINDS || e.kind in ZONE_KINDS) {
+                    alerts += Alert.Integrity(child.name, e.kind, e.atMs, child.id, durationOf(e), e.zoneName)
+                }
                 val open = OPENERS[e.kind] ?: continue
                 // Resolved only when the pair's latest earlier event is the open one: a repeated resume says nothing.
                 val before = sorted.subList(0, index).lastOrNull { it.kind == open || it.kind == e.kind }
@@ -310,9 +351,10 @@ object AlertPlanner {
     }
 
     /**
-     * Each current child's problems still open (a pause or a hidden notification whose latest event of the pair is the
-     * opening one) that were already announced (seq within the child's marker: a newer one is the plan's to say,
-     * with sound), as alerts; for a re-post after their notifications were lost, not for the markers.
+     * Each current child's problems still open (a pause, a hidden notification or a location problem: the latest event
+     * of the pair, or of the self-closing kind, is the opening one) that were already announced (seq within the child's
+     * marker: a newer one is the plan's to say, with sound), as alerts; for a re-post after their notifications were
+     * lost, not for the markers.
      */
     fun openProblems(i: AlertInput): List<Alert.Integrity> =
         i.members.filter { it.role == Role.CHILD && !it.isSelf }.flatMap { child ->
@@ -321,6 +363,9 @@ object AlertPlanner {
             CLOSERS.mapNotNull { (open, close) ->
                 own.filter { it.kind == open || it.kind == close }.maxByOrNull { it.seq }?.takeIf { it.kind == open }
                     ?.let { Alert.Integrity(child.name, open, it.atMs, child.id, durationOf(it)) }
+            } + SELF_CLOSING.mapNotNull { kind ->
+                own.filter { it.kind == kind }.maxByOrNull { it.seq }?.takeIf(::isOpen)
+                    ?.let { Alert.Integrity(child.name, kind, it.atMs, child.id) }
             }
         }
 

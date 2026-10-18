@@ -15,7 +15,11 @@ dependencies {
     api(project(":core:transport-ble"))
     api(project(":core:usage"))
     api(project(":core:keystore"))
+    api(project(":core:transport-cloud"))
+    api(project(":core:location"))
+    api(project(":core:maps"))
     api(libs.coroutines.core)
     api(libs.datastore.preferences)
+    implementation(libs.work.runtime)
     testImplementation(project(":core:testing"))
 }

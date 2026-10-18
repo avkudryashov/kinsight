@@ -1,5 +1,7 @@
 package app.kinsight.core.data
 
+import kotlin.test.assertTrue
+import kotlin.test.assertFalse
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
@@ -144,5 +146,18 @@ class ThresholdsTest {
         val noon = date.atTime(12, 0).toInstant(ZoneOffset.UTC).toEpochMilli()
         assertNull(UsageReadModel.todayUsage(child.copy(role = Role.PARENT), by, emptyMap(), date, emptyMap(), noon))
         assertNull(UsageReadModel.todayUsage(child, null, emptyMap(), date, emptyMap(), noon))
+    }
+
+    @Test
+    fun anAppIsLimitedByItsOwnRuleOrItsCategorysForThatChildOnly() {
+        val rules = listOfNotNull(
+            ThresholdRule.of(kidA, ThresholdTarget.App("com.example.game"), 60 * min),
+            ThresholdRule.of(kidA, ThresholdTarget.Category(AppCategory.VIDEO), 60 * min),
+            ThresholdRule.of(kidA, ThresholdTarget.Total, 120 * min),
+        )
+        assertTrue(ThresholdEval.limited(rules, kidA, "com.example.game", AppCategory.GAMES))
+        assertTrue(ThresholdEval.limited(rules, kidA, "com.example.tube", AppCategory.VIDEO))
+        assertFalse(ThresholdEval.limited(rules, kidA, "com.example.chat", AppCategory.SOCIAL), "the day total alone is no pill")
+        assertFalse(ThresholdEval.limited(rules, kidB, "com.example.game", AppCategory.GAMES))
     }
 }

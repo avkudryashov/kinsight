@@ -9,9 +9,15 @@ import android.graphics.Paint
 import android.util.Log
 import app.kinsight.core.crypto.toHex
 import app.kinsight.core.data.AppGraph
+import app.kinsight.core.data.CloudTrigger
+import app.kinsight.core.data.MapBlocks
+import app.kinsight.core.data.MapWork
 import app.kinsight.core.database.KinsightDatabaseFactory
 import app.kinsight.core.database.RoomEntryStore
 import app.kinsight.core.keystore.DeviceIdentity
+import app.kinsight.core.location.LocationDebug
+import app.kinsight.core.location.LocationPermissions
+import app.kinsight.core.maps.BlockStore
 import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.Membership
 import app.kinsight.core.model.proto.AppCatalog
@@ -28,6 +34,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import okio.ByteString.Companion.toByteString
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.time.LocalDateTime
 import java.time.ZoneId
 import kotlin.time.Duration.Companion.seconds
@@ -37,21 +44,71 @@ import kotlin.time.Duration.Companion.seconds
  * for the two-phone test (stage 4 pairing creates groups). The answer is the broadcast's result data.
  * No intent filter: adb addresses it explicitly, e.g.
  * `am broadcast -n app.kinsight/.debug.DebugGroupReceiver -a app.kinsight.debug.STATUS`.
+ * Cloud hooks: CLOUD_SYNC_NOW (one run of the process-wide runner), CLOUD_STATUS (never a token), CLOUD_FAKE_DISK
+ * (`--ez on true|false`, the in-memory Disk instead of Yandex), CLOUD_FAKE_ENABLE (an admin parent with the fake Disk
+ * on turns the cloud on through the real path with a fake token, CloudDebugEnable). Location hooks: ZONE_ADD (an admin
+ * parent adds a safe zone through LocationRepository; the answer is the save result only), LOCATION_STATUS (the child's
+ * gate, tracker mode, outside service, next tick, zone counts, permission and open tamper problems, then the debug
+ * switches below; never a coordinate).
+ *
+ * Device steps of the location service (task-6 report; switches of the debug build only, LocationSeams, off at every
+ * process start): LOCATION_REFUSE_FGS (`--es at start|service|none`: the next startForegroundService throws
+ * ForegroundServiceStartNotAllowedException, or the service's startForeground throws SecurityException and it stops
+ * itself by its start id; none is the real path) and LOCATION_SLOW_TICK (`--ei seconds N`, 0 to 600: every outside tick
+ * waits N seconds before its fix, so with N over 30 the broadcast is released before the tick re-arms the alarm; logcat
+ * KinsightLocation says "tick held" and "held tick done", the window to kill the process in).
+ *
+ * Emulator check of the child's location (the in-memory Disk is per process: the two emulators never share a storage,
+ * no pack travels between them, and cross-emulator cloud sync is out of scope; the child gets the access over Bluetooth):
+ * ```
+ * R=app.kinsight/.debug.DebugGroupReceiver; A=app.kinsight.debug
+ * # both phones, after pairing over Bluetooth:
+ * adb -s <phone> shell am broadcast -n $R -a $A.CLOUD_FAKE_DISK --ez on true
+ * # the parent (an admin):
+ * adb -s <parent> shell am broadcast -n $R -a $A.CLOUD_FAKE_ENABLE
+ * adb -s <parent> shell am broadcast -n $R -a $A.ZONE_ADD --es lat 40.4168 --es lon -3.7038 --ei radius 150 --es name Home
+ * adb -s <parent> shell am broadcast -n $R -a $A.SYNC_NOW   # the StorageOwner, CloudAccess and zone reach the child
+ * # the child (consented, sharing):
+ * adb -s <child> shell am broadcast -n $R -a $A.SYNC_NOW
+ * adb -s <child> shell am broadcast -n $R -a $A.CLOUD_STATUS      # cloud=on self=member access=yes
+ * adb -s <child> shell am broadcast -n $R -a $A.LOCATION_STATUS
+ * ```
+ * The fake Disk lives as long as the process: after a restart switch it on again before any cloud run, or the fake token
+ * goes to Yandex and the run ends in a 401.
+ *
+ * Offline map hooks (spec §3, §7; a block copied from a phone that downloaded it): MAP_INSTALL_LOCAL
+ * (`--ei x X --ei y Y --es path P`: the PMTiles v3 file at P is installed as block z10-X-Y through BlockStore.install
+ * (partial file, copy checked by size and sha256, atomic rename) and recorded as `local/<max zoom>`, the cell is
+ * marked used now, and a map check is queued so the Карта tab sees it; the answer is `installed X Y BYTES`) and
+ * MAP_STATUS (the block cells on the phone, the ledger's last-used time of each cell in ms, the OpenFreeMap build of
+ * the cached TileJSON or none, the free bytes). Both answers name cells: adb only, never logcat.
+ * ```
+ * R=app.kinsight/.debug.DebugGroupReceiver; A=app.kinsight.debug; D=/data/user/0/app.kinsight/files/maps-in
+ * adb -s <phone with the map> exec-out run-as app.kinsight cat files/maps/z10-510-389.pmtiles > z10-510-389.pmtiles
+ * adb push z10-510-389.pmtiles /data/local/tmp/
+ * adb shell run-as app.kinsight sh -c 'mkdir -p files/maps-in && cp /data/local/tmp/z10-510-389.pmtiles files/maps-in/'
+ * adb shell am broadcast -n $R -a $A.MAP_INSTALL_LOCAL --ei x 510 --ei y 389 --es path $D/z10-510-389.pmtiles
+ * adb shell am broadcast -n $R -a $A.MAP_STATUS
+ * ```
+ * A block no child point comes near is deleted after 7 days like any other.
  */
 class DebugGroupReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val pending = goAsync()
         val app = context.applicationContext
         CoroutineScope(Dispatchers.IO).launch {
-            val (code, data) = try {
-                0 to withTimeout(25.seconds) { handle(app, intent) }
-            } catch (e: Exception) {
-                1 to "error: ${e::class.simpleName}: ${e.message}"
-            }
+            val (code, data) = answer(app, intent)
             Log.i(TAG, logLine(intent.action, code, data)) // the data can hold an invite token: never logged
             pending.setResult(code, data, null)
             pending.finish()
         }
+    }
+
+    /** The result code (0 done, 1 failed) and data of [intent]; a failure is the answer, never a crash of the receiver. */
+    internal suspend fun answer(c: Context, intent: Intent): Pair<Int, String> = try {
+        0 to withTimeout(25.seconds) { handle(c, intent) }
+    } catch (e: Exception) {
+        1 to "error: ${e::class.simpleName}: ${e.message}"
     }
 
     private suspend fun handle(c: Context, intent: Intent): String = when (intent.action) {
@@ -64,6 +121,12 @@ class DebugGroupReceiver : BroadcastReceiver() {
             val on = intent.getBooleanExtra("on", true)
             UsageGraph.pipeline(c).setSharing(on)
             "sharing=$on"
+        }
+        "$PREFIX.CONSENT" -> {
+            // «Принимаю» on the consent screen without the screen (a locked test phone): the same call the button makes.
+            val repo = AppGraph.get(c).settingsRepository
+            repo.agreeToConsent()
+            "consent=" + AppGraph.get(c).settings.current().let { "${it.consentAtMs} outdated=${it.consentOutdated} sharing=${it.sharing}" }
         }
         "$PREFIX.BUMP" -> {
             // A fresh publish plus a new Heartbeat (it supersedes the last one): our vector moves for sure.
@@ -83,6 +146,29 @@ class DebugGroupReceiver : BroadcastReceiver() {
         "$PREFIX.DEMO_USAGE" -> demoUsage(c, intent.getIntExtra("days", 14), intent.getLongExtra("seed", 1L))
         "$PREFIX.SYNC_NOW" -> SyncService.instance?.syncNow() ?: "service not running"
         "$PREFIX.STATUS" -> status(c)
+        "$PREFIX.CLOUD_SYNC_NOW" -> "cloud=" + AppGraph.get(c).cloud.run(CloudTrigger.NOW)
+        "$PREFIX.CLOUD_STATUS" -> AppGraph.get(c).cloud.describe()
+        "$PREFIX.CLOUD_FAKE_DISK" -> DebugCloud.fakeDisk(intent.getBooleanExtra("on", true))
+        "$PREFIX.CLOUD_FAKE_ENABLE" -> DebugCloud.fakeEnable(AppGraph.get(c).cloudSignIn)
+        "$PREFIX.ZONE_ADD" -> {
+            val d = DebugLocation.draft(intent.getStringExtra("lat"), intent.getStringExtra("lon"), intent.getIntExtra("radius", 0), intent.getStringExtra("name"))
+            "zone=" + AppGraph.get(c).location.save(d)
+        }
+        "$PREFIX.LOCATION_STATUS" -> locationStatus(c) + " " + LocationDebug.seams()
+        "$PREFIX.LOCATION_REFUSE_FGS" -> when (val at = intent.getStringExtra("at") ?: "none") {
+            "start" -> LocationDebug.refuse(start = true, foreground = false)
+            "service" -> LocationDebug.refuse(start = false, foreground = true)
+            "none" -> LocationDebug.refuse(start = false, foreground = false)
+            else -> error("at must be start, service or none, not $at")
+        }
+        "$PREFIX.LOCATION_SLOW_TICK" -> LocationDebug.slowTick(intent.getIntExtra("seconds", 0) * 1_000L)
+        "$PREFIX.MAP_INSTALL_LOCAL" -> {
+            val path = intent.getStringExtra("path") ?: error("path extra missing")
+            val answer = DebugMaps.installLocal(mapStore(c), intent.getIntExtra("x", -1), intent.getIntExtra("y", -1), path, System.currentTimeMillis())
+            MapWork.checkSoon(c) // the check refreshes the Карта tab's view of the blocks
+            answer
+        }
+        "$PREFIX.MAP_STATUS" -> DebugMaps.status(mapStore(c))
         else -> error("unknown action ${intent.action}")
     }
 
@@ -129,6 +215,27 @@ class DebugGroupReceiver : BroadcastReceiver() {
         } finally {
             bitmap.recycle()
         }
+    }
+
+    /** The folder AppGraph's store keeps the blocks in (filesDir/maps). */
+    private fun mapStore(c: Context) = BlockStore(File(c.filesDir, MapBlocks.DIR))
+
+    /** LOCATION_STATUS: counts, modes and times only (DebugLocation.statusLine); the result never holds a coordinate. */
+    private suspend fun locationStatus(c: Context): String {
+        val graph = AppGraph.get(c)
+        val t = SyncGraph.state(c)
+        val problems = DebugLocation.problems(
+            t.bluetoothOffSinceMs(), t.notificationHiddenSinceMs(), t.nearbyOffSinceMs(), t.locationAccessOffSinceMs(), t.locationDisabledSinceMs(),
+        )
+        return DebugLocation.statusLine(
+            LocationDebug.status(c),
+            graph.familyLocation.watchGate(),
+            graph.familyLocation.zones()?.size,
+            LocationPermissions.state(c),
+            LocationPermissions.systemEnabled(c),
+            problems,
+            System.currentTimeMillis(),
+        )
     }
 
     private suspend fun status(c: Context): String {

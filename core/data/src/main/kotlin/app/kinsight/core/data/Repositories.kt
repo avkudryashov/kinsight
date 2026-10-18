@@ -10,18 +10,24 @@ import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
+import app.kinsight.core.model.Membership
 import app.kinsight.core.model.grantAdminEntry
 import app.kinsight.core.model.leaveGroupEntry
 import app.kinsight.core.model.removeMemberEntry
 import app.kinsight.core.sync.CategoryOverrideRules
 import app.kinsight.core.sync.SyncPolicy
 import app.kinsight.core.model.proto.CategoryOverride
+import app.kinsight.core.transport.ble.CloudSync
 import app.kinsight.core.transport.ble.GroupConfig
 import app.kinsight.core.transport.ble.GroupStore
+import app.kinsight.core.transport.ble.LastSync
 import app.kinsight.core.transport.ble.ServiceSnapshot
 import app.kinsight.core.transport.ble.ServiceState
 import app.kinsight.core.transport.ble.SyncProblem
 import app.kinsight.core.transport.ble.TransportStateStore
+import app.kinsight.core.transport.cloud.GroupKey
+import app.kinsight.core.transport.cloud.OwnerLeaveBlock
+import app.kinsight.core.transport.cloud.OwnerLifecycle
 import app.kinsight.core.usage.PublishTarget
 import app.kinsight.core.usage.SettingsStore
 import app.kinsight.core.usage.UsagePipeline
@@ -44,6 +50,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.merge
@@ -53,9 +60,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.time.Instant
 import java.time.LocalDate
-import java.time.temporal.WeekFields
-import java.util.Locale
+import java.time.ZoneId
 
 /** The sync engine's session progress: finished sessions (any outcome; from zero after a service restart), one running. */
 data class SessionProgress(val finished: Int, val syncing: Boolean)
@@ -67,6 +74,12 @@ enum class LeaveError {
 
     /** The only admin while others remain: grant admin to another parent first (spec §9.5). */
     SOLE_ADMIN,
+
+    /** Spec §7.1: this phone holds the family's storage and another parent could take it: hand it over first. */
+    OWNER_HANDOVER,
+
+    /** Spec §7.1: the storage moved off this phone's Disk and not every phone switched yet (its old token is revoked then). */
+    CLOUD_SWITCHING,
 
     /** LEFT_GROUP could not be signed or stored; nothing was wiped. */
     NOT_SIGNED,
@@ -91,6 +104,7 @@ class GroupRepository(
     private val scope: CoroutineScope,
     private val sessions: Flow<SessionProgress>,
     private val forget: suspend () -> Unit,
+    private val runLock: Mutex = Mutex(),
     private val leaveTimeoutMs: Long = LEAVE_TIMEOUT_MS,
     private val random: (Int) -> ByteArray = Primitives::randomBytes,
     private val io: CoroutineDispatcher = Dispatchers.IO,
@@ -151,11 +165,24 @@ class GroupRepository(
         sync.start(fast = true)
     }
 
-    /** RemoveMember with the removed device's contiguous seq as we know it (spec §4.5). Throws without a group. */
+    /**
+     * RemoveMember with the removed device's contiguous seq as we know it (spec §4.5), and in the same batch the group key
+     * rotation (spec §5, §7.4; the privacy policy promises the key changes whenever a phone is removed), cloud on or off.
+     * Under the cloud [runLock] (never held by callers), so a cloud run's own rotation cannot slip in between the read and
+     * the append and win the epoch with a key sealed to the removed phone. Throws without a group.
+     */
     suspend fun remove(id: DeviceId) {
         val group = checkNotNull(withContext(io) { groups.read() }) { "no group: cannot remove a member" }
-        val lastSeq = RoomEntryStore(db, group.groupId).versionVector()[id]
-        signOwn("remove member") { author -> listOf(author.removeMemberEntry(id, lastSeq)) }
+        val store = RoomEntryStore(db, group.groupId)
+        runLock.withLock {
+            val lastSeq = store.versionVector()[id]
+            val entries = store.membershipEntries()
+            signOwn("remove member") { author ->
+                val removal = author.removeMemberEntry(id, lastSeq)
+                val after = Membership.compute(group.groupId, entries + removal)
+                if (after != null && GroupKey.rotationNeeded(after)) listOf(removal, GroupKey.rotate(author, after)) else listOf(removal)
+            }
+        }
         sync.start(fast = true)
     }
 
@@ -183,7 +210,8 @@ class GroupRepository(
 
     /**
      * The «Leave group» button (spec §9.5), on the app scope:
-     * 1. refuse ([leaveError]) without a group or for the sole admin of others ([SnapshotViews.canLeave]);
+     * 1. refuse ([leaveError]) without a group, for the sole admin of others ([SnapshotViews.canLeave]), for the storage
+     *    owner while another parent could take it, and for a former owner whose storage is still moving (spec §7.1);
      * 2. sign LEFT_GROUP and start a fast sync; a failure here wipes nothing ([LeaveError.NOT_SIGNED]);
      * 3. right after the commit, take the session baseline and wait (bounded by [leaveTimeoutMs]) for a session that
      *    began after it: one more finished session, two if one was running at the commit. The family gets LEFT_GROUP
@@ -250,7 +278,11 @@ class GroupRepository(
         return when {
             ready == null || ready.removed -> LeaveError.NO_GROUP
             !SnapshotViews.canLeave(ready) -> LeaveError.SOLE_ADMIN
-            else -> null
+            else -> when (OwnerLifecycle.leaveBlock(ready.membership, ready.self, ready.heartbeats)) {
+                OwnerLeaveBlock.HANDOVER_NEEDED -> LeaveError.OWNER_HANDOVER
+                OwnerLeaveBlock.SWITCHING -> LeaveError.CLOUD_SWITCHING
+                null -> null
+            }
         }
     }
 
@@ -442,18 +474,18 @@ class UsageRepository(
     suspend fun removeThreshold(id: String) = prefs.removeThreshold(id)
 
     /**
-     * [range] of device [id], reloaded on every log change; the device's UsageDetail entries of the range are read with
-     * each snapshot for level 4 (an equal state is not re-emitted). [weekFields]: the same as the range's, it orders the
-     * heatmap's weekday rows.
+     * [range] of device [id], reloaded on every log change (an equal state is not re-emitted). A DAY also reads the
+     * UsageDetail entries of the 7 days before it: the hours of the day and the «usually by this time» comparison.
+     * A week or month needs none.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
-    fun detail(id: DeviceId, range: DetailRange, weekFields: WeekFields = WeekFields.of(Locale.getDefault())): Flow<DeviceDetail?> =
+    fun detail(id: DeviceId, range: DetailRange): Flow<DeviceDetail?> =
         snapshots.snapshots.mapLatest { s ->
             (s as? GroupSnapshot.Ready)?.let {
                 // Overrides from the same snapshot: never paired with another snapshot's map.
                 val o = CategoryOverrides.effective(it)
-                val details = snapshots.details(it.groupId, id, range)
-                SnapshotViews.detail(it, id, range, today(), clock(), overrides = o, details = details, weekFields = weekFields)
+                val details = if (range.period == Period.DAY) snapshots.details(it.groupId, id, range.start.minusDays(7), range.end) else emptyList()
+                SnapshotViews.detail(it, id, range, today(), clock(), overrides = o, details = details)
             }
         }.distinctUntilChanged()
 
@@ -499,10 +531,12 @@ data class ServiceStatus(
     val finishedSessions: Int = 0,
     /** Peers refusing us over the protocol version: true when this phone must update (SyncStatus.outdated). */
     val outdated: Map<DeviceId, Boolean> = emptyMap(),
-    /** This child's sync notification is hidden: usage is paused until it is shown again (S-M3). */
+    /** This child's sync notification is hidden (a signal its parents see, spec §10). */
     val notificationHidden: Boolean = false,
     /** Usage access (AppOpsManager GET_USAGE_STATS) is granted to this app; re-read with the permissions (U1). */
     val usageAccessGranted: Boolean = true,
+    /** The family's Disk carries this phone's data too (CloudViews.sync). */
+    val cloudOn: Boolean = false,
 )
 
 class ServiceRepository(
@@ -512,6 +546,10 @@ class ServiceRepository(
     private val control: SyncControl,
     /** Whether usage access is granted (AppOpsUsageAccess.granted); read on every tick like [missingPermissions]. */
     private val usageAccess: () -> Boolean = { true },
+    /** The cloud of this phone (CloudViews.sync): [ServiceStatus.lastSyncMs] is the newer of both paths. */
+    private val cloud: Flow<CloudSync> = flowOf(CloudSync()),
+    /** «Sync now» asks the Disk too while the cloud is on (CloudWork.opened, the app-open read). */
+    private val cloudNow: () -> Unit = {},
 ) {
     /** [refresh]: a screen came back to the foreground, maybe from Android's settings (U1). */
     private val refreshes = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
@@ -528,11 +566,12 @@ class ServiceRepository(
     )
 
     val status: Flow<ServiceStatus> =
-        combine(snapshot, transport.stoppedByUserFlow, transport.notificationHiddenFlow, ticks) { s, stopped, hidden, _ ->
+        combine(snapshot, transport.stoppedByUserFlow, transport.notificationHiddenFlow, cloud, ticks) { s, stopped, hidden, c, _ ->
             ServiceStatus(
                 state = s.state,
                 stoppedByUser = stopped,
-                lastSyncMs = s.sync.lastSyncWallMs ?: s.lastSyncWallMs,
+                // One sync status for both paths: the newest sync by Bluetooth or through the Disk.
+                lastSyncMs = LastSync.of(s.sync.lastSyncWallMs ?: s.lastSyncWallMs, c.lastSyncMs),
                 missingPermissions = missingPermissions(),
                 syncing = s.sync.syncing,
                 problem = s.sync.lastProblem,
@@ -540,6 +579,7 @@ class ServiceRepository(
                 outdated = s.sync.outdated,
                 notificationHidden = hidden,
                 usageAccessGranted = usageAccess(),
+                cloudOn = c.on,
             )
         }
 
@@ -547,7 +587,10 @@ class ServiceRepository(
 
     fun stop() = control.requestStop()
 
-    fun syncNow() = control.start(fast = true)
+    fun syncNow() {
+        control.start(fast = true)
+        cloudNow()
+    }
 
     /** Re-reads the permissions and usage access now, e.g. on ON_RESUME after the user granted one in Settings. */
     fun refresh() {
@@ -571,6 +614,9 @@ class Pruner(
             self = keys().deviceId,
             detailRetentionDays = s.detailRetentionDays.toLong(),
             summaryRetentionDays = s.summaryRetentionDays.toLong(),
+            // One clock for everything: LOCATION's 48 h and the usage days' date (not the wall date).
+            today = { Instant.ofEpochMilli(clock()).atZone(ZoneId.systemDefault()).toLocalDate() },
+            nowMs = clock,
         )
         val store = RoomEntryStore(db, group.groupId)
         store.prune(policy)
@@ -584,6 +630,8 @@ class SettingsRepository(
     private val pipeline: UsagePipeline,
     private val prune: suspend () -> Unit,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** After [upgradeConsent]: the app asks for a cloud run and a location refresh at once. */
+    private val onConsentUpgraded: () -> Unit = {},
 ) {
     val usageSettings: Flow<UsageSettings> = settings.settings
     val appPrefs: Flow<Prefs> = prefs.prefs
@@ -599,6 +647,18 @@ class SettingsRepository(
         settings.recordConsent(clock())
         pipeline.setSharing(true)
     }
+
+    /** «Принимаю» on the consent screen of a child that agreed to an older text: only the version moves (roadmap Y5). */
+    suspend fun upgradeConsent() {
+        settings.upgradeConsent()
+        onConsentUpgraded()
+    }
+
+    /**
+     * «Принимаю» on the consent screen (ruling P5): a child that agreed to an older text only moves the version
+     * ([upgradeConsent] keeps the first consent time and the sharing switch), any other consent is [consentAndShare].
+     */
+    suspend fun agreeToConsent() = if (settings.current().consentOutdated) upgradeConsent() else consentAndShare()
 
     suspend fun setSharing(on: Boolean) = pipeline.setSharing(on)
 

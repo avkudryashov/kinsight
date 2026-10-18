@@ -5,7 +5,7 @@ import app.kinsight.core.sync.pairing.Invite
 
 enum class Path { CREATE, JOIN }
 
-enum class Step { WELCOME, NAME, PARENT_INFO, NEARBY, CAMERA, SCAN, CONSENT, PAIR, USAGE_ACCESS, NOTIFICATIONS, BATTERY, DONE }
+enum class Step { WELCOME, NAME, PARENT_INFO, NEARBY, CAMERA, SCAN, CONSENT, PAIR, USAGE_ACCESS, LOCATION, LOCATION_BACKGROUND, NOTIFICATIONS, BATTERY, DONE }
 
 /** What is already granted: those permission steps are skipped (research §6.2: one disclosure right before each request). */
 data class Env(
@@ -13,6 +13,12 @@ data class Env(
     val notificationsGranted: Boolean,
     val usageAccessGranted: Boolean,
     val cameraGranted: Boolean = false,
+    /** Precise location granted (UI refresh §6 step 2). */
+    val locationPrecise: Boolean = false,
+    /** Location «all the time» granted (§6 step 3). */
+    val locationAlways: Boolean = false,
+    /** Kinsight is exempt from battery optimisation (§6 step 4). */
+    val batteryUnrestricted: Boolean = false,
 ) {
     companion object {
         val NOTHING = Env(nearbyGranted = false, notificationsGranted = false, usageAccessGranted = false)
@@ -38,7 +44,7 @@ data class StepProgress(val number: Int, val total: Int)
 /**
  * Spec §9.4 with the Play disclosure rules (research §6.2). Create: name, what a parent's phone does, Nearby,
  * notifications, battery. Join: name, Nearby (needed to pair), the camera disclosure and the QR (both skipped with a
- * deep link), consent for a child or the parent text, pairing, then usage access (a consenting child only),
+ * deep link), consent for a child or the parent text, pairing, then usage access, precise location and location «all the time» (a consenting child only),
  * notifications, battery. Only a child invite ever reaches CONSENT or USAGE_ACCESS: adults never share (Play
  * Stalkerware ruling).
  */
@@ -54,7 +60,8 @@ object OnboardingFlow {
                 else -> Unit
             }
             add(Step.PAIR)
-            if (s.role == DeviceRole.CHILD && s.consent) add(Step.USAGE_ACCESS)
+            // UI refresh §6: right after consent, while the parent is next to the child.
+            if (s.role == DeviceRole.CHILD && s.consent) addAll(listOf(Step.USAGE_ACCESS, Step.LOCATION, Step.LOCATION_BACKGROUND))
             addAll(listOf(Step.NOTIFICATIONS, Step.BATTERY, Step.DONE))
         }
     }
@@ -65,6 +72,10 @@ object OnboardingFlow {
         Step.USAGE_ACCESS -> env.usageAccessGranted
         Step.CAMERA -> env.cameraGranted || s.invite != null || s.joinedRole != null
         Step.SCAN -> s.invite != null || s.joinedRole != null
+        Step.LOCATION -> env.locationPrecise
+        // Android grants «all the time» only on top of a foreground grant: without precise location there is nothing to ask.
+        Step.LOCATION_BACKGROUND -> env.locationAlways || !env.locationPrecise
+        Step.BATTERY -> env.batteryUnrestricted
         else -> false
     }
 

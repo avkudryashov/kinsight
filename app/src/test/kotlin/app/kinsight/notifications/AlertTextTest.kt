@@ -92,7 +92,7 @@ class AlertTextTest {
     @Config(qualifiers = "ru")
     fun russianTexts() {
         assertTrue(AlertText.of(context, Alert.NewParent("Папа")).title.contains("Папа"))
-        assertTrue(AlertText.of(context, Alert.NoContact("Kid", 1_000)).title.contains("на связи"))
+        assertTrue(AlertText.of(context, Alert.NoContact("Kid", 1_000)).title.contains("нет связи"))
     }
 
     @Test
@@ -165,5 +165,73 @@ class AlertTextTest {
         assertEquals("Limits", channel.name.toString())
         assertEquals(NotificationManager.IMPORTANCE_DEFAULT, channel.importance)
         assertTrue(channel.description.orEmpty().isNotBlank())
+    }
+
+    @Test
+    fun zoneAlertsNameTheZone() {
+        val exit = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.ZONE_EXIT, 1_000, zoneName = "Home"))
+        assertEquals("Kid left “Home”", exit.title)
+        assertEquals(AlertChannels.IMPORTANT, exit.channel)
+        assertTrue(exit.body, exit.body.lines().last().startsWith("Open Kinsight"))
+        val enter = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.ZONE_ENTER, 1_000))
+        assertEquals("Kid arrived at a safe zone", enter.title)
+        assertEquals(AlertChannels.EVENTS, enter.channel)
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun zoneAlertsInRussianStayNeutral() {
+        assertEquals("Kid: выход из зоны «Дом»", AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.ZONE_EXIT, 1_000, zoneName = "Дом")).title)
+    }
+
+    @Test
+    fun noContactSaysForHowLong() {
+        val now = 1_760_000_000_000L
+        assertEquals("Kid: no contact for 7 h", AlertText.of(context, Alert.NoContact("Kid", now - 7 * 3_600_000L), nowMs = now).title)
+    }
+
+    /** Final review Important 2: an interval already over says how long it lasted, and asks for nothing to be fixed. */
+    @Test
+    fun aClosedIntervalSaysItsLengthAndNoFix() {
+        val loc = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.LOCATION_PERMISSION_OFF, 1_000, durationMs = 3 * min))
+        assertEquals("Kid: location access was off for 3 min", loc.title)
+        assertEquals(1, loc.body.lines().size)
+        assertTrue(loc.body, loc.body.startsWith("When: "))
+        val off = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.LOCATION_DISABLED, 1_000, durationMs = 3 * min))
+        assertEquals("Kid: location was off on the phone for 3 min", off.title)
+        assertEquals(1, off.body.lines().size)
+        val bt = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.BLUETOOTH_OFF, 1_000, durationMs = 45 * min))
+        assertEquals("Kid: Bluetooth was off for 45 min", bt.title)
+        // Still open: the state and the advice as before.
+        val open = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.LOCATION_PERMISSION_OFF, 1_000))
+        assertEquals("Kid: location access turned off", open.title)
+        assertEquals(2, open.body.lines().size)
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun aClosedIntervalSaysItsLengthInRussian() {
+        assertEquals(
+            "Kid: доступ к местоположению был выключен 3 мин",
+            AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.LOCATION_PERMISSION_OFF, 1_000, durationMs = 3 * min)).title,
+        )
+        assertEquals(
+            "Kid: местоположение на телефоне было выключено 3 мин",
+            AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.LOCATION_DISABLED, 1_000, durationMs = 3 * min)).title,
+        )
+        assertEquals("Kid: Bluetooth был выключен 45 мин", AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.BLUETOOTH_OFF, 1_000, durationMs = 45 * min)).title)
+    }
+
+    @Test
+    @Config(qualifiers = "es")
+    fun aClosedIntervalSaysItsLengthInSpanish() {
+        assertEquals(
+            "Kid: acceso a la ubicación desactivado durante 3 min",
+            AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.LOCATION_PERMISSION_OFF, 1_000, durationMs = 3 * min)).title,
+        )
+        assertEquals(
+            "Kid: Bluetooth desactivado durante 45 min",
+            AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.BLUETOOTH_OFF, 1_000, durationMs = 45 * min)).title,
+        )
     }
 }

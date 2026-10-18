@@ -1,0 +1,494 @@
+package app.kinsight.feature.devicedetail
+
+import android.app.Application
+import android.content.Intent
+import android.content.pm.ActivityInfo
+import android.content.pm.ResolveInfo
+import android.net.Uri
+import android.text.format.DateUtils
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertContentDescriptionEquals
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertHasNoClickAction
+import androidx.compose.ui.test.getBoundsInRoot
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.hasClickAction
+import app.kinsight.core.designsystem.theme.ChildColorKey
+import app.kinsight.core.designsystem.theme.childColor
+import kotlinx.coroutines.flow.flowOf
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import app.kinsight.core.data.ChildLocation
+import app.kinsight.core.data.EventView
+import app.kinsight.core.data.GeoPoint
+import app.kinsight.core.data.MemberView
+import app.kinsight.core.data.PlaceStatus
+import app.kinsight.core.data.Role
+import app.kinsight.core.data.Sharing
+import app.kinsight.core.data.ZoneView
+import app.kinsight.core.designsystem.theme.KinsightTheme
+import app.kinsight.core.maps.Bounds
+import app.kinsight.core.maps.Cell
+import app.kinsight.core.maps.StreetMaps
+import app.kinsight.core.model.DeviceId
+import app.kinsight.core.model.proto.StateEvent
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
+
+@RunWith(AndroidJUnit4::class)
+@Config(sdk = [35])
+class MapScreenTest {
+    @get:Rule
+    val rule = createComposeRule()
+
+    private val now = 1_760_000_000_000L
+    private val min = 60_000L
+    private val kid = MemberView(DeviceId("cc".repeat(16)), "Kid", Role.CHILD, isAdmin = false, isSelf = false, lastSeenMs = null)
+    private val home = ZoneView("aa".repeat(16), "Home", 404_168_000, -37_038_000, 150, DeviceId("aa".repeat(16)))
+    private val p1 = GeoPoint(404_100_000, -37_100_000, 20, now - 20 * min)
+    private val p2 = GeoPoint(404_120_000, -37_080_000, 15, now - 5 * min)
+    private val exit = EventView(kid.id, 7, StateEvent.Kind.ZONE_EXIT, now - 25 * min, 0, now - 25 * min, 0, zoneId = home.id, zoneName = "Home")
+    private var zonesOpened = 0
+    private val app get() = ApplicationProvider.getApplicationContext<Application>()
+    private val status get() = rule.onNodeWithTag("loc_status", useUnmergedTree = true)
+
+    private fun show(vararg c: ChildLocation, cloudOn: Boolean = true, canEditZones: Boolean = false, searching: Boolean = false) = rule.setContent {
+        KinsightTheme { MapScreen(MapState(c.toList(), cloudOn, loaded = true, canEditZones = canEditZones, searching = searching), now, onZones = { zonesOpened++ }) }
+    }
+
+    private fun ago(ms: Long) = DateUtils.getRelativeTimeSpanString(ms, now, DateUtils.MINUTE_IN_MILLIS).toString()
+
+    @Test
+    fun outsideNamesTheNearestZoneAndShowsTheRouteAndTheExit() {
+        show(ChildLocation(kid, PlaceStatus.Outside(p2, p2.timeMs), p2, listOf(p1, p2), listOf(home), listOf(exit), Sharing.On))
+        status.assertTextContains("Outside the zones ·", substring = true)
+        status.assertTextContains("from “Home” · " + ago(p2.timeMs), substring = true)
+        // Task 12: the last point line keeps its time and accuracy, never the raw coordinates.
+        rule.onNodeWithTag("loc_last").assertTextContains("accuracy 15 m", substring = true)
+        rule.onNodeWithText("40.41200", substring = true).assertDoesNotExist()
+        rule.onNodeWithText("-3.70800", substring = true).assertDoesNotExist()
+        rule.onNodeWithContentDescription("Map of the safe zones and today's route").assertExists()
+        rule.onNodeWithTag("loc_list").performScrollToNode(hasTestTag("loc_event_7"))
+        rule.onNodeWithText("Left the zone “Home”").assertExists()
+        rule.onNodeWithTag("loc_list").performScrollToNode(hasTestTag("loc_zones"))
+        rule.onNodeWithTag("loc_zones").performClick()
+        assertEquals(1, zonesOpened)
+    }
+
+    @Test
+    fun inAZoneSaysSinceWhen() {
+        val enteredAt = now - 40 * min
+        val enter = EventView(kid.id, 9, StateEvent.Kind.ZONE_ENTER, enteredAt, 0, enteredAt, 0, zoneId = home.id, zoneName = "Home")
+        show(ChildLocation(kid, PlaceStatus.InZone(home.id, "Home", now - 10 * min), null, emptyList(), listOf(home), listOf(enter), Sharing.On))
+        status.assertTextEquals("In “Home” since " + DateUtils.formatDateTime(app, enteredAt, DateUtils.FORMAT_SHOW_TIME))
+    }
+
+    @Test
+    fun withoutAPlaceItSaysWhy() {
+        show(ChildLocation(kid, null, null, emptyList(), listOf(home), emptyList(), Sharing.On))
+        status.assertTextEquals("No location yet")
+        rule.onNodeWithTag("loc_reason", useUnmergedTree = true).assertTextEquals("Waiting for the first point from the phone.")
+    }
+
+    @Test
+    fun withTheCloudOffItSaysSo() {
+        show(ChildLocation(kid, null, null, emptyList(), emptyList(), emptyList(), Sharing.On), cloudOn = false)
+        rule.onNodeWithTag("loc_reason", useUnmergedTree = true).assertTextContains("Yandex Disk is off", substring = true)
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun russianStatus() {
+        show(ChildLocation(kid, PlaceStatus.Outside(p2, p2.timeMs), p2, listOf(p2), listOf(home), emptyList(), Sharing.On))
+        status.assertTextContains("Вне зон · ", substring = true)
+        status.assertTextContains(" · " + ago(p2.timeMs), substring = true)
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun russianWithoutZones() {
+        show(ChildLocation(kid, PlaceStatus.Outside(p2, p2.timeMs), p2, listOf(p2), emptyList(), emptyList(), Sharing.On))
+        status.assertTextEquals("Зоны не заданы · " + ago(p2.timeMs))
+        rule.onNodeWithTag("loc_zone_hint", useUnmergedTree = true).assertTextEquals("Добавьте зону «Дом»")
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun aFreshPointWithoutZonesIsJustNowNeverZeroMinutes() {
+        val fresh = GeoPoint(404_120_000, -37_080_000, 15, now - 20_000)
+        show(ChildLocation(kid, PlaceStatus.Outside(fresh, fresh.timeMs), fresh, listOf(fresh), emptyList(), emptyList(), Sharing.On))
+        status.assertTextEquals("Зоны не заданы · только что")
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun aFreshPointOutsideZonesIsJustNow() {
+        val fresh = GeoPoint(404_120_000, -37_080_000, 15, now - 20_000)
+        show(ChildLocation(kid, PlaceStatus.Outside(fresh, fresh.timeMs), fresh, listOf(fresh), listOf(home), emptyList(), Sharing.On))
+        status.assertTextContains(" · только что", substring = true)
+    }
+
+    @Test
+    fun withoutZonesAnAdminIsOfferedTheZonesScreen() {
+        show(ChildLocation(kid, PlaceStatus.Outside(p2, p2.timeMs), p2, listOf(p2), emptyList(), emptyList(), Sharing.On), canEditZones = true)
+        status.assertTextEquals("Zones not set · " + ago(p2.timeMs))
+        rule.onNodeWithTag("loc_zone_hint", useUnmergedTree = true).assertTextEquals("Add a “Home” zone")
+        rule.onNode(hasTestTag("loc_zone_hint") and hasClickAction()).performClick()
+        assertEquals(1, zonesOpened)
+    }
+
+    @Test
+    fun withoutZonesAnotherParentReadsThePlainHint() {
+        show(ChildLocation(kid, PlaceStatus.Outside(p2, p2.timeMs), p2, listOf(p2), emptyList(), emptyList(), Sharing.On))
+        rule.onNodeWithTag("loc_zone_hint", useUnmergedTree = true).assertExists()
+        rule.onNode(hasTestTag("loc_zone_hint") and hasClickAction(), useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun aKnownZoneWithoutAnEntryTodayShowsTheAge() {
+        show(ChildLocation(kid, PlaceStatus.InZone(home.id, "Home", now - 3 * min), null, emptyList(), listOf(home), emptyList(), Sharing.On))
+        status.assertTextEquals("In “Home” · " + ago(now - 3 * min))
+        rule.onNodeWithTag("loc_zone_hint", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun theStatusAvatarCarriesTheChildsColour() {
+        show(ChildLocation(kid, null, null, emptyList(), listOf(home), emptyList(), Sharing.On))
+        rule.onNode(hasTestTag("loc_avatar_${kid.id.hex}") and SemanticsMatcher.expectValue(ChildColorKey, childColor(kid.id.hex, listOf(kid.id.hex))), useUnmergedTree = true).assertExists()
+    }
+
+    @Test
+    fun anUpdateInProgressIsShown() {
+        show(ChildLocation(kid, null, null, emptyList(), listOf(home), emptyList(), Sharing.On), searching = true)
+        rule.onNodeWithTag("loc_searching", useUnmergedTree = true).assertExists()
+    }
+
+    @Test
+    fun noUpdateNoIndicator() {
+        show(ChildLocation(kid, null, null, emptyList(), listOf(home), emptyList(), Sharing.On))
+        rule.onNodeWithTag("loc_searching", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    private class CountingSource : MapSource {
+        var syncs = 0
+        override fun children() = flowOf(emptyList<ChildLocation>())
+        override fun cloudOn() = flowOf(true)
+        override fun syncNow() {
+            syncs++
+        }
+    }
+
+    @Test
+    fun openingTheTabAsksForOneSync() {
+        val source = CountingSource()
+        val vm = MapViewModel(source)
+        var tick by mutableIntStateOf(0)
+        rule.setContent {
+            KinsightTheme {
+                Text("t$tick")
+                MapRoute(vm, onZones = {})
+            }
+        }
+        rule.waitForIdle()
+        tick++ // a recomposition is no new opening
+        rule.waitForIdle()
+        assertEquals(1, source.syncs)
+    }
+
+    @Test
+    fun tappingAnotherChildShowsItsMap() {
+        val sis = kid.copy(id = DeviceId("dd".repeat(16)), name = "Test")
+        var picked: String? = null
+        rule.setContent {
+            KinsightTheme {
+                MapScreen(
+                    MapState(listOf(ChildLocation(kid, null, null, emptyList(), emptyList(), emptyList(), Sharing.On), ChildLocation(sis, PlaceStatus.Outside(p2, p2.timeMs), p2, listOf(p2), emptyList(), emptyList(), Sharing.On)), true, loaded = true),
+                    now, selectedId = picked, onSelect = { picked = it }, onZones = {},
+                )
+            }
+        }
+        rule.onNodeWithTag("loc_last").assertDoesNotExist()
+        rule.onNodeWithTag("loc_card_${sis.id.hex}").performClick()
+        rule.waitForIdle()
+        assertEquals(sis.id.hex, picked)
+    }
+
+    @Test
+    fun withoutChildrenItSaysSo() {
+        show()
+        rule.onNodeWithText("No children yet").assertExists()
+    }
+
+    private val geo = "geo:40.4120000,-3.7080000?q=40.4120000,-3.7080000"
+
+    private fun installMapApp() {
+        val info = ResolveInfo().apply { activityInfo = ActivityInfo().apply { packageName = "com.example.maps"; name = "Maps" } }
+        shadowOf(app.packageManager).addResolveInfoForIntent(Intent(Intent.ACTION_VIEW, Uri.parse(geo)), info)
+    }
+
+    @Test
+    fun noMapsButtonsAreRendered() {
+        install(ExternalMaps.yandex(p2.latE7, p2.lonE7), ExternalMaps.YANDEX)
+        install(ExternalMaps.google(p2.latE7, p2.lonE7), ExternalMaps.GOOGLE)
+        installMapApp()
+        show(outside)
+        for (tag in listOf("loc_open_map", "loc_open_yandex", "loc_open_google")) rule.onNodeWithTag(tag).assertDoesNotExist()
+        rule.onNodeWithText("Yandex Maps").assertDoesNotExist()
+        rule.onNodeWithText("Google Maps").assertDoesNotExist()
+    }
+
+    @Test
+    fun tappingTheSchemeOpensAGeoAppWithTheLastPoint() {
+        installMapApp()
+        show(outside)
+        rule.onNodeWithTag("loc_open_hint", useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag("loc_map").assertHasClickAction().performClick()
+        val sent = shadowOf(app).nextStartedActivity
+        assertEquals(Intent.ACTION_VIEW, sent.action)
+        assertEquals(geo, sent.dataString)
+    }
+
+    @Test
+    fun tappingTheSchemeOpensYandexFirstThenGoogle() {
+        install(ExternalMaps.yandex(p2.latE7, p2.lonE7), ExternalMaps.YANDEX)
+        install(ExternalMaps.google(p2.latE7, p2.lonE7), ExternalMaps.GOOGLE)
+        show(outside)
+        rule.onNodeWithTag("loc_map").performClick()
+        val sent = shadowOf(app).nextStartedActivity
+        assertEquals(ExternalMaps.YANDEX, sent.`package`)
+        assertEquals("yandexmaps://maps.yandex.ru/?pt=-3.7080000,40.4120000&z=17&l=map", sent.dataString)
+    }
+
+    @Test
+    fun onlyGoogleOpensGoogleFromTheScheme() {
+        install(ExternalMaps.google(p2.latE7, p2.lonE7), ExternalMaps.GOOGLE)
+        show(outside)
+        rule.onNodeWithTag("loc_map").performClick()
+        val sent = shadowOf(app).nextStartedActivity
+        assertEquals(ExternalMaps.GOOGLE, sent.`package`)
+        assertEquals(geo, sent.dataString)
+    }
+
+    @Test
+    fun withoutAMapsAppTheSchemeIsNotClickableAndHasNoHint() {
+        show(outside)
+        rule.onNodeWithTag("loc_map").assertHasNoClickAction()
+        rule.onNodeWithTag("loc_open_hint", useUnmergedTree = true).assertDoesNotExist()
+        assertNull(shadowOf(app).nextStartedActivity)
+    }
+
+    @Test
+    fun theMapSurfaceIsLabelledOpenInMaps() {
+        installMapApp()
+        show(outside)
+        rule.onNodeWithTag("loc_map").assert(SemanticsMatcher("click label") {
+            it.config.getOrNull(SemanticsActions.OnClick)?.label == "Open in maps"
+        })
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun russianClickLabel() {
+        installMapApp()
+        show(outside)
+        rule.onNodeWithTag("loc_map").assert(SemanticsMatcher("click label") {
+            it.config.getOrNull(SemanticsActions.OnClick)?.label == "Открыть в картах"
+        })
+    }
+
+    @Test
+    fun theGeoLinkKeepsFullPrecisionWithDots() =
+        assertEquals("geo:40.4168123,-3.7038001?q=40.4168123,-3.7038001", geoUri(404_168_123, -37_038_001))
+
+    /** Y4 review Minor 4: a last point from an earlier day carries its date, today's only its time. */
+    @Test
+    fun aPointFromAnEarlierDayShowsItsDate() {
+        val zone = java.time.ZoneId.systemDefault()
+        val yesterday = java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate().minusDays(1).atTime(12, 0).atZone(zone).toInstant().toEpochMilli()
+        val old = GeoPoint(404_120_000, -37_080_000, 15, yesterday)
+        show(ChildLocation(kid, PlaceStatus.Outside(old, old.timeMs), old, listOf(old), listOf(home), emptyList(), Sharing.On))
+        val date = DateUtils.formatDateTime(app, yesterday, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH)
+        rule.onNodeWithTag("loc_last").assertTextContains(date, substring = true)
+        assertEquals(DateUtils.FORMAT_SHOW_TIME, timeFlags(now - 5 * min, now, zone))
+    }
+
+    private fun install(intent: Intent, pkg: String) {
+        val info = ResolveInfo().apply { activityInfo = ActivityInfo().apply { packageName = pkg; name = "Main" } }
+        shadowOf(app.packageManager).addResolveInfoForIntent(intent, info)
+    }
+
+    private val outside get() = ChildLocation(kid, PlaceStatus.Outside(p2, p2.timeMs), p2, listOf(p1, p2), listOf(home), emptyList(), Sharing.On)
+
+    @Test
+    fun theYandexLinkPutsLongitudeFirst() =
+        assertEquals("yandexmaps://maps.yandex.ru/?pt=-3.7038001,40.4168123&z=17&l=map", ExternalMaps.yandexUri(404_168_123, -37_038_001))
+
+    private val madrid = Cell(501, 386)
+    private val block = "/data/user/0/app.kinsight/files/maps/z10-501-386.pmtiles"
+    private var drawn: Pair<String, Bounds>? = null
+    private val fakeMap: StreetMapSlot = { style, frame, modifier ->
+        drawn = style to frame
+        Box(modifier.testTag("fake_maplibre"))
+    }
+
+    private fun showStreets(streets: StreetMaps, cloudOn: Boolean = true) = rule.setContent {
+        KinsightTheme { MapScreen(MapState(listOf(outside), cloudOn, loaded = true, streets = streets), now, onZones = {}, streetMap = fakeMap) }
+    }
+
+    /** The style is composed off the main thread; the plain map shows until it is ready. */
+    private fun awaitPreview() = rule.waitUntil(5_000) { rule.onAllNodesWithTag("loc_preview").fetchSemanticsNodes().isNotEmpty() }
+
+    /** Offline map spec §4: with the block on the phone, the street preview with the OSM attribution, no plain map. */
+    @Test
+    fun withTheBlockTheStreetPreviewShows() {
+        showStreets(StreetMaps(mapOf(madrid to block), emptySet(), downloading = false))
+        awaitPreview()
+        rule.onNodeWithTag("fake_maplibre").assertExists()
+        rule.onNodeWithTag("loc_map").assertDoesNotExist()
+        rule.onNodeWithTag("loc_osm").assertTextEquals("© OpenMapTiles © OpenStreetMap")
+        val (style, frame) = drawn!!
+        assertTrue("pmtiles://file://$block" in style)
+        assertFalse("http" in style)
+        assertTrue(frame.south < 40.412 && 40.412 < frame.north && frame.west < -3.708 && -3.708 < frame.east)
+    }
+
+    private fun showPreviewReady() {
+        install(ExternalMaps.yandex(p2.latE7, p2.lonE7), ExternalMaps.YANDEX)
+        showStreets(StreetMaps(mapOf(madrid to block), emptySet(), downloading = false))
+        awaitPreview()
+        rule.mainClock.autoAdvance = false
+    }
+
+    @Test
+    fun attributionShowsAtStartThenCollapsesToInfoButton() {
+        showPreviewReady()
+        rule.onNodeWithTag("loc_osm").assertTextEquals("© OpenMapTiles © OpenStreetMap")
+        rule.onNodeWithTag("loc_osm_info").assertDoesNotExist()
+        rule.mainClock.advanceTimeBy(5_500)
+        rule.onNodeWithTag("loc_osm").assertDoesNotExist()
+        rule.onNodeWithTag("loc_osm_info").assertExists().assertContentDescriptionEquals("Map data licence")
+    }
+
+    @Test
+    fun tappingInfoShowsAttributionAgainAndItCollapsesAgain() {
+        showPreviewReady()
+        rule.mainClock.advanceTimeBy(5_500)
+        rule.onNodeWithTag("loc_osm_info").performClick()
+        rule.mainClock.advanceTimeByFrame()
+        rule.onNodeWithTag("loc_osm").assertTextEquals("© OpenMapTiles © OpenStreetMap")
+        rule.mainClock.advanceTimeBy(5_500)
+        rule.onNodeWithTag("loc_osm").assertDoesNotExist()
+        rule.onNodeWithTag("loc_osm_info").assertExists()
+    }
+
+    @Test
+    fun tappingTheAttributionOpensTheLicenceNotTheMaps() {
+        showPreviewReady()
+        rule.onNodeWithTag("loc_osm").performClick()
+        val sent = shadowOf(app).nextStartedActivity
+        assertEquals(Intent.ACTION_VIEW, sent.action)
+        assertEquals("https://www.openstreetmap.org/copyright", sent.dataString)
+        assertNull(shadowOf(app).nextStartedActivity)
+    }
+
+    @Test
+    fun tappingInfoDoesNotOpenMaps() {
+        showPreviewReady()
+        rule.mainClock.advanceTimeBy(5_500)
+        rule.onNodeWithTag("loc_osm_info").performClick()
+        assertNull(shadowOf(app).nextStartedActivity)
+    }
+
+    @Test
+    fun tappingThePreviewOpensYandexFirst() {
+        install(ExternalMaps.yandex(p2.latE7, p2.lonE7), ExternalMaps.YANDEX)
+        install(ExternalMaps.google(p2.latE7, p2.lonE7), ExternalMaps.GOOGLE)
+        showStreets(StreetMaps(mapOf(madrid to block), emptySet(), downloading = false))
+        awaitPreview()
+        rule.onNodeWithTag("loc_preview_tap").performClick()
+        assertEquals(ExternalMaps.YANDEX, shadowOf(app).nextStartedActivity.`package`)
+    }
+
+    @Test
+    fun theStreetPreviewHasAHintAwayFromTheAttributionAndALabel() {
+        installMapApp()
+        showStreets(StreetMaps(mapOf(madrid to block), emptySet(), downloading = false))
+        awaitPreview()
+        rule.onNodeWithTag("loc_open_hint", useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag("loc_preview_tap").assert(SemanticsMatcher("click label") {
+            it.config.getOrNull(SemanticsActions.OnClick)?.label == "Open in maps"
+        })
+        val hint = rule.onNodeWithTag("loc_open_hint", useUnmergedTree = true).getBoundsInRoot()
+        val osm = rule.onNodeWithTag("loc_osm").getBoundsInRoot()
+        assertTrue(hint.bottom <= osm.top)
+    }
+
+    @Test
+    fun withoutAMapsAppThePreviewIsNotClickableAndHasNoHint() {
+        showStreets(StreetMaps(mapOf(madrid to block), emptySet(), downloading = false))
+        awaitPreview()
+        rule.onNodeWithTag("loc_preview_tap").assertHasNoClickAction()
+        rule.onNodeWithTag("loc_open_hint", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun withoutTheBlockThePlainMapSaysItIsLoading() {
+        showStreets(StreetMaps(emptyMap(), emptySet(), downloading = true))
+        rule.onNodeWithTag("loc_map").assertExists()
+        rule.onNodeWithTag("fake_maplibre").assertDoesNotExist()
+        rule.onNodeWithTag("loc_streets_status").assertTextEquals("Street map is loading")
+    }
+
+    @Test
+    fun waitingForTheNetworkSaysSo() {
+        showStreets(StreetMaps(emptyMap(), emptySet(), downloading = false))
+        rule.onNodeWithTag("loc_streets_status").assertTextEquals("The street map will download when the phone is online")
+    }
+
+    @Test
+    fun aSkippedCellShowsThePlainMapOnly() {
+        showStreets(StreetMaps(emptyMap(), setOf(madrid), downloading = false))
+        rule.onNodeWithTag("loc_map").assertExists()
+        rule.onNodeWithTag("loc_streets_status").assertDoesNotExist()
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun russianStreetCaptions() {
+        showStreets(StreetMaps(emptyMap(), emptySet(), downloading = true))
+        rule.onNodeWithTag("loc_streets_status").assertTextEquals("Карта улиц загружается")
+    }
+
+    @Test
+    @Config(qualifiers = "ru")
+    fun russianNetworkCaption() {
+        showStreets(StreetMaps(emptyMap(), emptySet(), downloading = false))
+        rule.onNodeWithTag("loc_streets_status").assertTextEquals("Карта улиц будет загружена при подключении к сети")
+    }
+}

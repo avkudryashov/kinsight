@@ -1,33 +1,30 @@
 # Kinsight
 
-Family screen time, phone to phone. A child's phone shares its screen time with the parents' phones over Bluetooth, with the child's consent on the child's phone. No servers, no accounts, the app never connects to the internet.
+Экранное время и где ребёнок. **Бесплатно, без серверов: только ваш Яндекс Диск.**
 
-## Download (Android 12+)
-
-The app is distributed as an APK while it is in family testing.
-
-- **Latest release:** see [Releases](https://github.com/avkudryashov/kinsight/releases/latest) (file `kinsight-<version>.apk`, SHA-256 in the release notes).
-- Install: open the downloaded file, allow installation from this source when Android asks. Updates install over the previous version and keep your data.
-- Xiaomi (MIUI): after installing, open Settings → Apps → Kinsight and enable **Autostart**, set battery saver to **No restrictions**, and lock the app in Recents; otherwise MIUI stops the background sync.
-
-## Screens
+[Скачать для Android](https://github.com/avkudryashov/kinsight/releases/latest) · [RuStore](https://www.rustore.ru/catalog/app/app.kinsight)
 
 <p>
-<img src="img/overview.webp" width="200" alt="Parent overview with the child card">
-<img src="img/day.webp" width="200" alt="Child's day: total, data time, hourly chart">
-<img src="img/week.webp" width="200" alt="Week view with gridlines and the average line">
-<img src="img/month.webp" width="200" alt="Month view with daily totals and the limit line">
-<img src="img/limits.webp" width="200" alt="Daily limits that only notify">
-<img src="img/child.webp" width="200" alt="Child's overview: who sees my screen time, pause">
-<img src="img/who-sees.webp" width="200" alt="Who sees my data screen on the child's phone">
+<img src="img/01-free.webp" width="200" alt="Бесплатно и без серверов">
+<img src="img/02-overview.webp" width="200" alt="Экранное время за сегодня">
+<img src="img/03-week.webp" width="200" alt="Отчёт за неделю и месяц">
+<img src="img/04-map.webp" width="200" alt="Где ребёнок: путь за день и безопасные зоны">
+<img src="img/05-limits.webp" width="200" alt="Лимиты на день с уведомлением">
+<img src="img/06-child.webp" width="200" alt="Ребёнок видит, кто получает его данные">
 </p>
 
-## Privacy
+## Что умеет
 
-- [Privacy Policy (English)](privacy-en.html)
-- [Политика конфиденциальности (русский)](privacy-ru.html)
-- [Política de privacidad (español)](privacy-es.html)
+- **Экранное время:** сегодня, неделя и месяц, по приложениям и по часам; лимиты на день с уведомлением, ничего не блокируется.
+- **Где ребёнок:** последнее место и путь за сегодня на карте улиц; безопасные зоны, например дом и школа, с уведомлением, когда ребёнок пришёл или ушёл.
+- **Честно с ребёнком:** ребёнок соглашается на своём телефоне и всегда видит, кто получает данные; изменить обмен может только родитель, с PIN.
 
-## Source
+## Без серверов
 
-The code is public: [github.com/avkudryashov/kinsight](https://github.com/avkudryashov/kinsight).
+Рядом телефоны обмениваются данными по Bluetooth, даже без интернета. Издалека синхронизируются в зашифрованном виде через Яндекс Диск родителя. Нет аккаунтов и аналитики, разработчик ничего не хранит. Карта улиц загружается с OpenFreeMap. Подробно: [Политика конфиденциальности](privacy-ru.html).
+
+## Установка
+
+Android 12 или новее. Установите из [RuStore](https://www.rustore.ru/catalog/app/app.kinsight) или возьмите APK `arm64-v8a` в [Releases](https://github.com/avkudryashov/kinsight/releases/latest) (`armeabi-v7a` для старых телефонов); обновление ставится поверх и сохраняет данные. На Xiaomi включите для Kinsight **Автозапуск** и режим батареи **Нет ограничений**.
+
+Код открыт: [github.com/avkudryashov/kinsight](https://github.com/avkudryashov/kinsight).

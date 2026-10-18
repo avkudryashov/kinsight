@@ -14,7 +14,7 @@ import android.util.Log
  */
 fun privacyPolicyUrl(context: Context): String = context.getString(R.string.ds_privacy_policy_url)
 
-/** Opens the policy in the browser (the app itself has no INTERNET permission); no browser is logged, never a crash. */
+/** Opens the policy in the browser (the app goes online only for the Yandex Disk sync and, on a parent's phone, for the street map download from OpenFreeMap); no browser is logged, never a crash. */
 fun openPrivacyPolicy(context: Context) {
     try {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(privacyPolicyUrl(context))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))

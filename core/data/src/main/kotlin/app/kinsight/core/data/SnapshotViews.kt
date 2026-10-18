@@ -6,8 +6,6 @@ import app.kinsight.core.model.GroupId
 import app.kinsight.core.model.Member
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.temporal.WeekFields
-import java.util.Locale
 
 sealed interface GroupState {
     data object Loading : GroupState
@@ -27,8 +25,11 @@ sealed interface GroupState {
      */
     data object Leaving : GroupState
 
-    /** [members]: active members, this device first, then parents, then children, each by name. */
-    data class Ready(val groupId: GroupId, val self: MemberView, val members: List<MemberView>) : GroupState
+    /**
+     * [members]: active members, this device first, then parents, then children, each by name. [selfOwnsStorage]: the
+     * family's cloud storage is on this phone's Disk (spec §7.1: leaving turns the cloud off when nobody can take it).
+     */
+    data class Ready(val groupId: GroupId, val self: MemberView, val members: List<MemberView>, val selfOwnsStorage: Boolean = false) : GroupState
 }
 
 /** [selfUsage] for a child (its own card), [children] for a parent; [parents]: who sees this device's data. */
@@ -47,7 +48,7 @@ object SnapshotViews {
         GroupSnapshot.NoGroup -> GroupState.NoGroup
         is GroupSnapshot.Ready -> if (s.removed) GroupState.Removed else {
             val members = members(s, nowMs)
-            GroupState.Ready(s.groupId, members.first { it.isSelf }, members)
+            GroupState.Ready(s.groupId, members.first { it.isSelf }, members, selfOwnsStorage = s.membership.storageOwner?.deviceId == s.self)
         }
     }
 
@@ -79,15 +80,24 @@ object SnapshotViews {
         val members = members(s, nowMs)
         val self = members.first { it.isSelf }
         val byAuthor = UsageReadModel.summaries(s.summaries)
-        val events = UsageReadModel.events(s.events).groupBy { it.author }
+        val names = SafeZones.names(s.safeZones, s.membership)
+        val events = UsageReadModel.events(s.events, names).groupBy { it.author }
+        val overrides = CategoryOverrides.effective(s)
         fun usage(m: MemberView) = UsageReadModel.usage(
             m, byAuthor[m.id], events[m.id].orEmpty(), today, nowMs = nowMs, noContactMs = noContactMs,
             details = details[m.id]?.let { UsageReadModel.details(it)[m.id] },
+            catalog = UsageReadModel.catalogOf(s.catalog, m.id), overrides = overrides,
         )
         return DashboardState(
             self = self,
             selfUsage = if (self.role == Role.CHILD) usage(self) else null,
-            children = if (self.role == Role.PARENT) members.filter { it.role == Role.CHILD }.map(::usage) else emptyList(),
+            children = if (self.role == Role.PARENT) {
+                members.filter { it.role == Role.CHILD }.map { m ->
+                    usage(m).copy(place = LocationReadModel.status(s.locations, s.events, m.id, names))
+                }
+            } else {
+                emptyList()
+            },
             parents = members.filter { it.role == Role.PARENT && !it.isSelf },
         )
     }
@@ -102,7 +112,6 @@ object SnapshotViews {
         zone: ZoneId = ZoneId.systemDefault(),
         overrides: Map<String, AppCategory> = emptyMap(),
         details: List<DecodedEntry> = emptyList(),
-        weekFields: WeekFields = WeekFields.of(Locale.getDefault()),
     ): DeviceDetail? {
         val departed = s.membership.departed[id]
         val member = s.membership.active[id] ?: departed?.member ?: return null
@@ -110,14 +119,13 @@ object SnapshotViews {
             member = view(s, member, nowMs),
             byDate = UsageReadModel.summaries(s.summaries)[id],
             catalog = UsageReadModel.catalogOf(s.catalog, id),
-            events = UsageReadModel.events(s.events).filter { it.author == id },
+            events = UsageReadModel.events(s.events, SafeZones.names(s.safeZones, s.membership)).filter { it.author == id },
             range = range,
             today = today,
             departed = departed != null,
             zone = zone,
             overrides = overrides,
             details = UsageReadModel.details(details)[id],
-            weekFields = weekFields,
             nowMs = nowMs,
         )
     }
@@ -132,6 +140,7 @@ object SnapshotViews {
             range = range,
             today = today,
             nowMs = nowMs,
+            overrides = CategoryOverrides.effective(s),
         )
     }
 

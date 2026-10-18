@@ -42,8 +42,10 @@ sealed interface Decision {
  *  - at least [fastSpacingMs] between two dials to the same peer and after any session with it;
  *  - after [fastMaxFailures] failed dials in a row the normal cooldown and backoff apply again until [onFastStart];
  *  - a peer whose last session (either side dialled) moved nothing either way is not dialled again while neither its
- *    vector nor ours changed («nothing new»). This is what ends the loop between a child and a parent: the child
- *    (showOthers off) never takes the parent's own entries, so their vectors never match.
+ *    vector nor ours changed («nothing new»). This is what ends the loop between a child and a parent whose vectors
+ *    never match: the child's position for the parent follows the parent's own log (the parent completes it), but a
+ *    third member's log that the parent holds and the child never takes keeps them apart. With one parent and one
+ *    child they can match, and «in sync» ends it.
  * Normal mode applies «nothing new» too, for at most [maxSilenceMs] after that empty session (audit A-3: a child and
  * a parent at night otherwise ran an empty session every 10 minutes). «Unchanged» does not depend on the window: the
  * advertised vector tag rotates every window (§6.1), so the session's two canonical vectors are stored and the advert
@@ -141,7 +143,8 @@ class ConnectPolicy(
 
     /**
      * A finished (or rejected) session: next one with this peer after the cooldown. [empty]: nothing moved either way;
-     * [ourVector] and [peerVector] (canonical bytes, as exchanged in the session) are kept when [empty], whoever dialled.
+     * [ourVector] and [peerVector] (canonical bytes: as exchanged in the session, plus the authors' completions it made,
+     * SessionResult.Completed) are kept when [empty], whoever dialled.
      */
     @Synchronized
     fun onCompleted(

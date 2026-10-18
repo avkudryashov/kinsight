@@ -24,7 +24,7 @@ class CenteredContentTest {
     val rule = createComposeRule()
 
     private fun show() = rule.setContent {
-        KinsightTheme(dynamicColor = false) { CenteredContent { Box(Modifier.fillMaxSize().testTag("content")) } }
+        KinsightTheme() { CenteredContent { Box(Modifier.fillMaxSize().testTag("content")) } }
     }
 
     @Test

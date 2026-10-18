@@ -18,9 +18,9 @@ import kotlin.test.assertTrue
  * runs this build's validator: the test pins the Hello path and the current validator, not 0.7.2's.
  */
 class MixedVersionTest {
-    /** A payload field this build does not know (EntryBody field 17, length-delimited, holding field 1 = 1). */
+    /** A payload field this build does not know (EntryBody field 30, length-delimited, holding field 1 = 1). */
     private fun EntryAuthor.futureKind(): DecodedEntry = create {
-        it.copy(unknownFields = Buffer().writeByte(0x8A).writeByte(0x01).writeByte(2).writeByte(0x08).writeByte(0x01).readByteString())
+        it.copy(unknownFields = Buffer().writeByte(0xF2).writeByte(0x01).writeByte(2).writeByte(0x08).writeByte(0x01).readByteString())
     }
 
     /** A StateEvent whose kind (field 1) is a value the current enum does not have. */
@@ -37,7 +37,7 @@ class MixedVersionTest {
         val newCategory = future.author.categoryOverride("com.example.game", CategoryOverrideRules.MAX_CATEGORY + 1)
         future.publish(newKind, newEvent, newCategory)
 
-        val (rf, rc) = syncPair(future, current, versionsA = 2..3)
+        val (rf, rc) = syncPair(future, current, versionsA = 2..3, versionsB = 2..2)
         assertEquals(2, assertIs<SessionResult.Completed>(rf).protocolVersion)
         assertEquals(2, assertIs<SessionResult.Completed>(rc).protocolVersion)
         val held = current.store.liveEntries()

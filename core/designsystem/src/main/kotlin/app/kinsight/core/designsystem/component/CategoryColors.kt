@@ -21,15 +21,15 @@ import androidx.compose.ui.unit.dp
 /** Number of distinct category colours; [categoryColor] wraps around after it. */
 internal const val CATEGORY_COLOR_COUNT = 9
 
-// Tone ~40 of nine Material tonal palettes (light) and tone ~80 of the same hues (dark): every colour keeps 3:1 against
-// the surface (WCAG 1.4.11), the hues stay apart in both themes. The last one is a neutral grey for "Other".
+// UI refresh §1: nine hues picked against the family palette. Light: at least 3:1 on white cards and on #F3F0F9
+// (WCAG 1.4.11); dark: at least 3:1 on #221F2E and #17151F. The last one is the neutral for "Other".
 private val LightCategoryColors = listOf(
-    Color(0xFF6750A4), Color(0xFF1565C0), Color(0xFFC62828), Color(0xFF2E7D32), Color(0xFFB45309),
-    Color(0xFFAD1457), Color(0xFF00838F), Color(0xFF6D4C41), Color(0xFF616161),
+    Color(0xFF6A4FD8), Color(0xFF2F6FDB), Color(0xFFD9485F), Color(0xFF2E8B57), Color(0xFFC76A00),
+    Color(0xFFC2378A), Color(0xFF00838F), Color(0xFF8D6E63), Color(0xFF7A7890),
 )
 private val DarkCategoryColors = listOf(
-    Color(0xFFD0BCFF), Color(0xFF90CAF9), Color(0xFFEF9A9A), Color(0xFFA5D6A7), Color(0xFFFFCC80),
-    Color(0xFFF48FB1), Color(0xFF80DEEA), Color(0xFFBCAAA4), Color(0xFFBDBDBD),
+    Color(0xFFA28BF5), Color(0xFF7FB0FF), Color(0xFFFF8A9B), Color(0xFF6FD39B), Color(0xFFFFB547),
+    Color(0xFFF48FC6), Color(0xFF5FD3DE), Color(0xFFC9A99B), Color(0xFFABA8C0),
 )
 
 /** The fixed categorical palette for a light or dark theme, [CATEGORY_COLOR_COUNT] colours in a stable order. */

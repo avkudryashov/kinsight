@@ -33,6 +33,16 @@ class GroupRulesTest {
         assertFalse(GroupRules.canRemove(dad, kid))
     }
 
+    /** Spec §7.1: any other parent, admin or not, takes the storage instead of the cloud turning off; a child does not. */
+    @Test
+    fun theCloudTurnsOffOnlyWithNoOtherParent() {
+        fun owner(members: List<MemberView>) = ready(mom, members).copy(selfOwnsStorage = true)
+        assertFalse(GroupRules.leaveTurnsCloudOff(owner(listOf(mom, dad, kid))))
+        assertFalse(GroupRules.leaveTurnsCloudOff(owner(listOf(mom, dad.copy(isAdmin = true)))))
+        assertTrue(GroupRules.leaveTurnsCloudOff(owner(listOf(mom, kid))))
+        assertFalse(GroupRules.leaveTurnsCloudOff(ready(mom, listOf(mom, kid))), "not the owner")
+    }
+
     @Test
     fun soleAdminCannotLeaveOthersBehind() {
         assertFalse(GroupRules.canLeave(ready(mom, listOf(mom, dad, kid))))

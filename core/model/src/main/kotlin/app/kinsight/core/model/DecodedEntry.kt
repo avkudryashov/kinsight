@@ -7,7 +7,10 @@ import app.kinsight.core.model.proto.StateEvent
 import java.time.LocalDate
 import java.time.format.DateTimeParseException
 
-enum class EntryKind { USAGE_SUMMARY, USAGE_DETAIL, APP_CATALOG, STATE_EVENT, HEARTBEAT, MEMBERSHIP_OP, CATEGORY_OVERRIDE, UNKNOWN }
+enum class EntryKind {
+    USAGE_SUMMARY, USAGE_DETAIL, APP_CATALOG, STATE_EVENT, HEARTBEAT, MEMBERSHIP_OP, CATEGORY_OVERRIDE,
+    CLOUD_ACCESS, LOCATION, SAFE_ZONE, STORAGE_HANDOVER, PARENT_PIN, UNKNOWN,
+}
 
 class EntryFormatException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
@@ -33,6 +36,11 @@ class DecodedEntry private constructor(
         body.heartbeat != null -> EntryKind.HEARTBEAT
         body.membership_op != null -> EntryKind.MEMBERSHIP_OP
         body.category_override != null -> EntryKind.CATEGORY_OVERRIDE
+        body.cloud_access != null -> EntryKind.CLOUD_ACCESS
+        body.location != null -> EntryKind.LOCATION
+        body.safe_zone != null -> EntryKind.SAFE_ZONE
+        body.storage_handover != null -> EntryKind.STORAGE_HANDOVER
+        body.parent_pin != null -> EntryKind.PARENT_PIN
         else -> EntryKind.UNKNOWN
     }
 
@@ -42,6 +50,10 @@ class DecodedEntry private constructor(
         EntryKind.APP_CATALOG -> "${author.hex}/app/${body.app_catalog!!.package_name}"
         EntryKind.HEARTBEAT -> "${author.hex}/hb"
         EntryKind.CATEGORY_OVERRIDE -> "${author.hex}/cat/${body.category_override!!.package_name}"
+        EntryKind.CLOUD_ACCESS -> "${author.hex}/access"
+        EntryKind.SAFE_ZONE -> "${author.hex}/zone/${body.safe_zone!!.zone_id.hex()}"
+        EntryKind.STORAGE_HANDOVER -> "${author.hex}/handover"
+        EntryKind.PARENT_PIN -> "${author.hex}/pin"
         else -> null
     }
 

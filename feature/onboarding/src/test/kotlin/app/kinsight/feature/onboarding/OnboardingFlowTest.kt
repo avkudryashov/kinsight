@@ -15,7 +15,7 @@ class OnboardingFlowTest {
     private val groupId = GroupGenesis.create(admin, "Mom").groupId
     private fun invite(role: DeviceRole) = Invite.create(groupId, admin, role, "Mom")
     private val none = Env(nearbyGranted = false, notificationsGranted = false, usageAccessGranted = false)
-    private val all = Env(nearbyGranted = true, notificationsGranted = true, usageAccessGranted = true)
+    private val all = Env(nearbyGranted = true, notificationsGranted = true, usageAccessGranted = true, locationPrecise = true, locationAlways = true)
 
     private fun walk(start: OnboardingState, env: Env): List<Step> {
         val steps = mutableListOf(start.step)
@@ -47,7 +47,7 @@ class OnboardingFlowTest {
     @Test
     fun childWithConsentIsAskedForUsageAccessAfterPairing() {
         val s = OnboardingState(step = Step.CONSENT, path = Path.JOIN, name = "Kid", invite = invite(DeviceRole.CHILD), consent = true)
-        assertEquals(listOf(Step.CONSENT, Step.PAIR, Step.USAGE_ACCESS, Step.NOTIFICATIONS, Step.BATTERY, Step.DONE), walk(s, none))
+        assertEquals(listOf(Step.CONSENT, Step.PAIR, Step.USAGE_ACCESS, Step.LOCATION, Step.NOTIFICATIONS, Step.BATTERY, Step.DONE), walk(s, none))
     }
 
     @Test
@@ -126,7 +126,7 @@ class OnboardingFlowTest {
         assertEquals(StepProgress(1, 8), OnboardingFlow.progress(join))
         val child = join.copy(step = Step.CONSENT, invite = invite(DeviceRole.CHILD))
         assertEquals(StepProgress(5, 8), OnboardingFlow.progress(child))
-        assertEquals(StepProgress(7, 9), OnboardingFlow.progress(child.copy(step = Step.USAGE_ACCESS, consent = true)))
+        assertEquals(StepProgress(7, 11), OnboardingFlow.progress(child.copy(step = Step.USAGE_ACCESS, consent = true)))
         assertEquals(StepProgress(5, 8), OnboardingFlow.progress(join.copy(step = Step.PARENT_INFO, invite = invite(DeviceRole.PARENT))))
     }
 
@@ -139,5 +139,35 @@ class OnboardingFlowTest {
             s = s.copy(step = OnboardingFlow.next(s, all))
         }
         assertEquals(numbers.sorted().distinct(), numbers)
+    }
+
+    @Test
+    fun aConsentingChildIsAskedForLocationThenBackgroundRightAfterUsageAccess() {
+        val s = OnboardingState(step = Step.USAGE_ACCESS, path = Path.JOIN, name = "Kid", invite = invite(DeviceRole.CHILD), consent = true)
+        assertEquals(Step.LOCATION, OnboardingFlow.next(s, none))
+        assertEquals(Step.LOCATION_BACKGROUND, OnboardingFlow.next(s.copy(step = Step.LOCATION), none.copy(locationPrecise = true)))
+    }
+
+    @Test
+    fun grantedLocationAndBatteryStepsAreNotAskedAgain() {
+        val s = OnboardingState(step = Step.CONSENT, path = Path.JOIN, name = "Kid", invite = invite(DeviceRole.CHILD), consent = true)
+        val granted = none.copy(usageAccessGranted = true, locationPrecise = true, locationAlways = true, batteryUnrestricted = true)
+        assertEquals(listOf(Step.CONSENT, Step.PAIR, Step.NOTIFICATIONS, Step.DONE), walk(s, granted))
+    }
+
+    /** Review Focus 4: «Позже» (or «Approximate») on precise location skips «all the time». */
+    @Test
+    fun withoutPreciseLocationTheBackgroundStepIsSkipped() {
+        val s = OnboardingState(step = Step.LOCATION, path = Path.JOIN, name = "Kid", invite = invite(DeviceRole.CHILD), consent = true)
+        assertEquals(Step.NOTIFICATIONS, OnboardingFlow.next(s, none))
+    }
+
+    @Test
+    fun aParentNeverGetsTheLocationSteps() {
+        val dad = OnboardingState(step = Step.PAIR, path = Path.JOIN, joinedRole = DeviceRole.PARENT)
+        assertFalse(Step.LOCATION in OnboardingFlow.order(dad))
+        assertFalse(Step.LOCATION in OnboardingFlow.order(OnboardingState(path = Path.CREATE)))
+        val kidNoConsent = OnboardingState(step = Step.PAIR, path = Path.JOIN, joinedRole = DeviceRole.CHILD, consent = false)
+        assertFalse(Step.LOCATION in OnboardingFlow.order(kidNoConsent))
     }
 }

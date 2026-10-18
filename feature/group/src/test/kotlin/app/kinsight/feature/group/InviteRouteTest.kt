@@ -42,7 +42,7 @@ class InviteRouteTest {
 
     private fun show() = rule.setContent {
         val vm: InviteViewModel = viewModel { InviteViewModel(opener, { "Mom" }, Role.CHILD) }
-        KinsightTheme(dynamicColor = false) { InviteRoute(vm, Role.CHILD, onClose = {}) }
+        KinsightTheme() { InviteRoute(vm, Role.CHILD, onClose = {}) }
     }
 
     @Test

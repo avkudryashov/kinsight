@@ -23,8 +23,10 @@ import okio.ByteString.Companion.toByteString
 import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
@@ -217,7 +219,7 @@ class SyncSessionTest {
 
     @Test
     fun protocolOneMeetsCurrentCleanlyRejectedWithoutTransfer() = runBlocking {
-        assertEquals(2, PROTOCOL_VERSION)
+        assertEquals(3, PROTOCOL_VERSION)
         val (old, new) = buildGroup(2)
         new.publish(new.author.categoryOverride("com.example.game", 1))
         val before = old.store.liveEntries().toSet()
@@ -298,7 +300,7 @@ class SyncSessionTest {
             val offers = received.mapNotNull { it.membership }
             assertTrue(offers.isNotEmpty(), "got $received")
             assertTrue(offers.all { it.entries.isEmpty() }, "a non-member got membership entries: $offers")
-            assertTrue(received.none { it.vector_announce != null || it.ack != null || it.batch != null }, "got $received")
+            assertTrue(received.none { it.vector_announce != null || it.ack != null || it.batch != null || it.cloud_handoff != null }, "got $received")
             assertEquals(Reject.Reason.NOT_A_MEMBER, received.last().reject?.reason)
         }
     }
@@ -453,6 +455,63 @@ class SyncSessionTest {
         b.store = InMemoryEntryStore(b.store.groupId).also { it.storeMembership(a.store.membershipEntries()) }
         assertIs<SessionResult.Completed>(syncPair(a, b).second)
         assertEquals(5L, b.store.versionVector()[b.keys.deviceId], "b must not hand out seqs 1..5 again")
+    }
+
+    @Test
+    fun theCloudHandoffGoesOverAfterAuthentication() = runBlocking {
+        val (a, b) = buildGroup(2)
+        val ha = RecordingHandoff(HandedAccess(1, ByteArray(16) { 1 }, "AT", 5))
+        val hb = RecordingHandoff(null)
+        val (ra, rb) = syncPair(a, b, handoffA = ha, handoffB = hb)
+        assertIs<SessionResult.Completed>(ra)
+        assertIs<SessionResult.Completed>(rb)
+        assertEquals(listOf("AT"), hb.got.map { it.accessToken })
+        assertTrue(ha.got.isEmpty(), "an empty hand-off is not delivered")
+    }
+
+    @Test
+    fun aProtocol2PeerGetsNoHandoffAndTheSessionCompletes() = runBlocking {
+        val (a, b) = buildGroup(2)
+        val ha = RecordingHandoff(HandedAccess(1, ByteArray(16) { 1 }, "AT", 5))
+        val hb = RecordingHandoff(null)
+        val (ra, rb) = syncPair(a, b, versionsB = 2..2, handoffA = ha, handoffB = hb)
+        assertIs<SessionResult.Completed>(ra)
+        assertIs<SessionResult.Completed>(rb)
+        assertTrue(hb.got.isEmpty())
+    }
+
+    @Test
+    fun aMalformedHandedAccessCannotBeBuilt() {
+        assertNull(HandedAccess.of(1, ByteArray(15), "AT", 5), "a storage id of 15 bytes")
+        assertNull(HandedAccess.of(0, ByteArray(16), "AT", 5), "generation 0")
+        assertNull(HandedAccess.of(1, ByteArray(16), "", 5), "no token")
+        assertNull(HandedAccess.of(1, ByteArray(16), "x".repeat(HandedAccess.MAX_TOKEN_CHARS + 1), 5), "token too long")
+        assertFailsWith<IllegalArgumentException> { HandedAccess(1, ByteArray(15), "AT", 5) }
+    }
+
+    @Test
+    fun aFailingHandoffConsumerDoesNotStopTheSync() = runBlocking {
+        val (a, b) = buildGroup(2)
+        val ea = a.author.summary("2026-10-09", 100)
+        a.publish(ea)
+        val ha = RecordingHandoff(HandedAccess(1, ByteArray(16) { 1 }, "AT", 5))
+        val hb = RecordingHandoff(null, failReceive = true)
+        val (ra, rb) = syncPair(a, b, handoffA = ha, handoffB = hb)
+        assertIs<SessionResult.Completed>(ra)
+        assertIs<SessionResult.Completed>(rb)
+        assertEquals(1, hb.calls, "the hand-off reached the consumer")
+        assertTrue(ea in b.store.liveEntries(), "the data still synced")
+    }
+
+    @Test
+    fun aFailingHandoffOfferSendsNothingAndTheSyncGoesOn() = runBlocking {
+        val (a, b) = buildGroup(2)
+        val ha = RecordingHandoff(null, failOffer = true)
+        val hb = RecordingHandoff(null)
+        val (ra, rb) = syncPair(a, b, handoffA = ha, handoffB = hb)
+        assertIs<SessionResult.Completed>(ra)
+        assertIs<SessionResult.Completed>(rb)
+        assertTrue(hb.got.isEmpty())
     }
 }
 

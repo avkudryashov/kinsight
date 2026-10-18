@@ -5,14 +5,20 @@ import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.addMember
+import app.kinsight.core.model.grantAdminEntry
+import app.kinsight.core.model.storageOwnerEntry
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.PairMessage
 import app.kinsight.core.model.proto.PairPending
 import app.kinsight.core.model.proto.PairReject
 import app.kinsight.core.model.proto.PairRequest
 import app.kinsight.core.sync.ByteStream
+import app.kinsight.core.sync.HandedAccess
 import app.kinsight.core.sync.MemoryPipe
+import app.kinsight.core.sync.PROTOCOL_VERSION
+import app.kinsight.core.sync.PendingRevoke
 import app.kinsight.core.sync.SecureChannel
+import app.kinsight.core.sync.WelcomeCloud
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -290,5 +296,243 @@ class PairingTest {
         hostJob.cancel()
         hostJob.join()
         assertFalse(after)
+    }
+
+    private fun welcomeWithCloud(cloud: WelcomeCloud, extra: List<ByteArray>): suspend (Joiner) -> HostDecision = { j ->
+        val add = admin.addMember(j.signPublicKey, j.dhPublicKey, j.displayName, DeviceRole.CHILD)
+        HostDecision.Welcome(discoveryKey, listOf(genesis.entry.bytes) + extra + add.bytes, cloud)
+    }
+
+    @Test
+    fun theWelcomeCarriesTheStorageAccess() = runTest {
+        val storageId = ByteArray(16) { 3 }
+        val owner = admin.storageOwnerEntry(adminKeys.deviceId, storageId, 1)
+        val (_, g) = pair({ host().serve(it, welcomeWithCloud(WelcomeCloud(0, null, HandedAccess(1, storageId, "AT", 99)), listOf(owner.bytes))) }, { guest().join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertEquals("AT", joined.cloud!!.access!!.accessToken)
+        assertEquals(0, joined.cloud!!.keyEpoch)
+        assertNull(joined.cloud!!.groupKey)
+    }
+
+    @Test
+    fun accessForAnotherStorageIsDropped() = runTest {
+        val owner = admin.storageOwnerEntry(adminKeys.deviceId, ByteArray(16) { 3 }, 1)
+        val (_, g) = pair({ host().serve(it, welcomeWithCloud(WelcomeCloud(0, null, HandedAccess(1, ByteArray(16) { 4 }, "AT", 99)), listOf(owner.bytes))) }, { guest().join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertNull(joined.cloud!!.access)
+    }
+
+    @Test
+    fun accessFromAnAdminThatDoesNotOwnTheStorageIsDropped() = runTest {
+        // R3: only the storage owner hands the token; here the owner is another parent, not the inviting admin.
+        val dadKeys = DeviceKeys.generate()
+        val storageId = ByteArray(16) { 3 }
+        val addDad = admin.addMember(dadKeys.sign.publicKey, dadKeys.dh.publicKey, "Dad", DeviceRole.PARENT)
+        val grant = admin.grantAdminEntry(dadKeys.deviceId)
+        val owner = admin.storageOwnerEntry(dadKeys.deviceId, storageId, 1)
+        val cloud = WelcomeCloud(0, null, HandedAccess(1, storageId, "AT", 99))
+        val (_, g) = pair({ host().serve(it, welcomeWithCloud(cloud, listOf(addDad.bytes, grant.bytes, owner.bytes))) }, { guest().join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertEquals(dadKeys.deviceId, joined.state.storageOwner?.deviceId, "the fixture names Dad as the owner")
+        assertNull(joined.cloud!!.access)
+    }
+
+    @Test
+    fun aGroupKeyOfAGenerationTheMembershipDoesNotHaveIsDropped() = runTest {
+        val (_, g) = pair({ host().serve(it, welcomeWithCloud(WelcomeCloud(1, ByteArray(32) { 5 }, null), emptyList())) }, { guest().join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertEquals(0, joined.cloud!!.keyEpoch, "generation 1 does not exist in this membership")
+        assertNull(joined.cloud!!.groupKey)
+    }
+
+    /** Final review Minor 3: an owner without the newest generation still hands its token; only the key is dropped. */
+    @Test
+    fun theOwnersAccessStaysWhenItsKeyIsNotTheNewest() = runTest {
+        val storageId = ByteArray(16) { 3 }
+        val owner = admin.storageOwnerEntry(adminKeys.deviceId, storageId, 1)
+        val cloud = WelcomeCloud(1, ByteArray(32) { 5 }, HandedAccess(1, storageId, "AT", 99))
+        val (_, g) = pair({ host().serve(it, welcomeWithCloud(cloud, listOf(owner.bytes))) }, { guest().join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertEquals("AT", joined.cloud!!.access!!.accessToken)
+        assertEquals(0, joined.cloud!!.keyEpoch)
+        assertNull(joined.cloud!!.groupKey)
+    }
+
+    @Test
+    fun aWelcomeWithoutCloudFieldsJoinsOnGenerationZero() = runTest {
+        val (_, g) = pair({ host().serve(it, welcomeAs(DeviceRole.CHILD)) }, { guest().join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertEquals(0, joined.cloud!!.keyEpoch)
+        assertNull(joined.cloud!!.groupKey)
+        assertNull(joined.cloud!!.access)
+    }
+
+    @Test
+    fun aFullFirstPageStillFitsTheCloudFields() = runTest {
+        // Enough membership for a second page, and the largest token HandedAccess allows, in 3-byte UTF-8 chars.
+        val others = (0 until 400).map { n ->
+            val k = DeviceKeys.generate()
+            admin.addMember(k.sign.publicKey, k.dh.publicKey, "Kid $n".padEnd(60, 'x'), DeviceRole.CHILD).bytes
+        }
+        assertTrue(others.sumOf { it.size } > PairingProtocol.PAGE_BYTES, "the fixture must page")
+        val storageId = ByteArray(16) { 3 }
+        val owner = admin.storageOwnerEntry(adminKeys.deviceId, storageId, 1)
+        val token = "\u0436".repeat(HandedAccess.MAX_TOKEN_CHARS)
+        val cloud = WelcomeCloud(0, null, HandedAccess(1, storageId, token, 99))
+        val (_, g) = pair({ host().serve(it, welcomeWithCloud(cloud, listOf(owner.bytes) + others)) }, { guest().join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertEquals(token, joined.cloud!!.access!!.accessToken)
+    }
+
+    private val parentInvite = Invite.create(genesis.groupId, adminKeys, DeviceRole.PARENT, "Mom")
+
+    private fun parentHost() = PairingHost(parentInvite, adminKeys.dh, now + Invite.LIFETIME_MS, clock = { now })
+
+    /** The owner's transfer welcome (spec §7.3): its storage, the joiner as a parent, made an admin when [makeAdmin]. */
+    private fun transfer(makeAdmin: Boolean, cloud: WelcomeCloud, extra: List<ByteArray> = emptyList()): suspend (Joiner) -> HostDecision = { j ->
+        val owner = admin.storageOwnerEntry(adminKeys.deviceId, ByteArray(16) { 3 }, 1)
+        val add = admin.addMember(j.signPublicKey, j.dhPublicKey, j.displayName, DeviceRole.PARENT)
+        val grant = if (makeAdmin) listOf(admin.grantAdminEntry(j.id).bytes) else emptyList()
+        HostDecision.Welcome(discoveryKey, listOf(genesis.entry.bytes, owner.bytes) + extra + add.bytes + grant, cloud)
+    }
+
+    private val handed = WelcomeCloud(0, null, HandedAccess(1, ByteArray(16) { 3 }, "AT", 99), refreshToken = "RT")
+
+    @Test
+    fun aTransferWelcomeHandsTheRefreshTokenToTheNewAdmin() = runTest {
+        val (_, g) = pair({ parentHost().serve(it, transfer(makeAdmin = true, handed)) }, { guest(parentInvite, name = "Pixel").join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertEquals("RT", joined.cloud?.refreshToken)
+        assertEquals("AT", joined.cloud?.access?.accessToken)
+        assertFalse("RT" in joined.cloud.toString())
+    }
+
+    @Test
+    fun onlyATransferWelcomeCarriesTheRefreshToken() = runTest {
+        // Review Focus 5: a phone the welcome did not make an admin never keeps the refresh token.
+        val (_, g) = pair({ parentHost().serve(it, transfer(makeAdmin = false, handed)) }, { guest(parentInvite, name = "Pixel").join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertNull(joined.cloud?.refreshToken)
+        assertEquals("AT", joined.cloud?.access?.accessToken, "the access itself is the owner's, as before")
+    }
+
+    @Test
+    fun aRefreshTokenWithoutTheOwnersAccessIsDropped() = runTest {
+        val otherStorage = WelcomeCloud(0, null, HandedAccess(1, ByteArray(16) { 4 }, "AT", 99), refreshToken = "RT")
+        val (_, g) = pair({ parentHost().serve(it, transfer(makeAdmin = true, otherStorage)) }, { guest(parentInvite, name = "Pixel").join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertNull(joined.cloud?.access)
+        assertNull(joined.cloud?.refreshToken)
+    }
+
+    @Test
+    fun aRefreshTokenWithoutAnyAccessIsNotSent() = runTest {
+        val noAccess = WelcomeCloud(0, null, null, refreshToken = "RT")
+        val (_, g) = pair({ parentHost().serve(it, transfer(makeAdmin = true, noAccess)) }, { guest(parentInvite, name = "Pixel").join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertNull(joined.cloud?.refreshToken)
+    }
+
+    @Test
+    fun aFullFirstPageStillFitsBothTokens() = runTest {
+        // The largest access and refresh tokens, each in 3-byte UTF-8 chars, over a membership that pages: the first
+        // frame must stay under SecureChannel.MAX_PLAINTEXT (the channel refuses a larger one).
+        val others = (0 until 400).map { n ->
+            val k = DeviceKeys.generate()
+            admin.addMember(k.sign.publicKey, k.dh.publicKey, "Kid $n".padEnd(60, 'x'), DeviceRole.CHILD).bytes
+        }
+        assertTrue(others.sumOf { it.size } > PairingProtocol.PAGE_BYTES, "the fixture must page")
+        val access = "\u20ac".repeat(HandedAccess.MAX_TOKEN_CHARS)
+        val refresh = "\u20ad".repeat(HandedAccess.MAX_TOKEN_CHARS)
+        assertEquals(3 * HandedAccess.MAX_TOKEN_CHARS, refresh.encodeToByteArray().size)
+        // And the most retired tokens a welcome carries (final review, Important 2).
+        val retired = (1..PendingRevoke.MAX).map { n -> PendingRevoke(n.toLong(), "\u20ae".repeat(PendingRevoke.MAX_BYTES / PendingRevoke.MAX / 3)) }
+        val cloud = WelcomeCloud(0, null, HandedAccess(1, ByteArray(16) { 3 }, access, 99), refreshToken = refresh, retired = retired)
+        val (_, g) = pair({ parentHost().serve(it, transfer(makeAdmin = true, cloud, others)) }, { guest(parentInvite, name = "Pixel").join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertEquals(access, joined.cloud!!.access!!.accessToken)
+        assertEquals(refresh, joined.cloud!!.refreshToken)
+        assertEquals(PendingRevoke.MAX, joined.cloud!!.retired.size)
+    }
+
+    /** Final review, Important 2: the old owner's pending revokes go with the refresh token only, with their generations. */
+    @Test
+    fun aTransferWelcomeHandsThePendingRevokes() = runTest {
+        val cloud = WelcomeCloud(0, null, HandedAccess(1, ByteArray(16) { 3 }, "AT", 99), refreshToken = "RT", retired = listOf(PendingRevoke(1, "OLD")))
+        val (_, g) = pair({ parentHost().serve(it, transfer(makeAdmin = true, cloud)) }, { guest(parentInvite, name = "Pixel").join(it) })
+        val joined = assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertEquals(listOf(1L to "OLD"), joined.cloud!!.retired.map { it.generation to it.accessToken })
+        assertFalse("OLD" in joined.cloud.toString())
+        val (_, plain) = pair({ parentHost().serve(it, transfer(makeAdmin = false, cloud)) }, { guest(parentInvite, name = "Pixel").join(it) })
+        assertEquals(emptyList(), assertIs<GuestResult.Joined>(plain.getOrThrow()).cloud!!.retired, "no refresh token kept: none")
+    }
+
+    @Test
+    fun onlyTheNewestWellFormedRevokesFitAWelcome() {
+        val many = (1..PendingRevoke.MAX + 2).map { PendingRevoke(it.toLong(), "T$it") }
+        assertEquals((3..PendingRevoke.MAX + 2).map { "T$it" }, PendingRevoke.fitting(many).map { it.accessToken })
+        assertEquals(listOf("ok"), PendingRevoke.fitting(listOf(PendingRevoke(0, "zero"), PendingRevoke(1, ""), PendingRevoke(2, "ok"))).map { it.accessToken })
+        val big = "x".repeat(HandedAccess.MAX_TOKEN_CHARS)
+        assertEquals(PendingRevoke.MAX_BYTES / HandedAccess.MAX_TOKEN_CHARS, PendingRevoke.fitting(List(PendingRevoke.MAX) { PendingRevoke(1, big) }).size)
+    }
+
+    @Test
+    fun theGuestTellsItsProtocolVersion() = runTest {
+        var seen = -1
+        val (_, g) = pair({ host().serve(it) { j -> seen = j.protocolVersion; welcomeAs(DeviceRole.CHILD)(j) } }, { guest().join(it) })
+        assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertEquals(PROTOCOL_VERSION, seen)
+    }
+
+    @Test
+    fun theHostReportsTheRoleTakenOnlyOnTheGuestsAck() = runTest {
+        var handedTo: String? = null
+        val (h, g) = pair({ parentHost().serve(it, transfer(makeAdmin = true, handed)) }, { s ->
+            guest(parentInvite, name = "Pixel").join(s, onOwnerHandover = { j -> handedTo = j.cloud?.refreshToken; true })
+        })
+        assertIs<GuestResult.Joined>(g.getOrThrow())
+        assertEquals("RT", handedTo)
+        assertTrue(assertIs<HostOutcome.Welcomed>(h.getOrThrow()).ownerRoleTaken)
+    }
+
+    @Test
+    fun aTransferTheGuestCouldNotTakeIsNotReported() = runTest {
+        // The guest stored the welcome but could not sign the StorageOwner; and a guest the welcome did not make an admin.
+        for ((admin, answer) in listOf(true to false, false to true)) {
+            var called = false
+            val (h, g) = pair({ parentHost().serve(it, transfer(makeAdmin = admin, handed)) }, { s ->
+                guest(parentInvite, name = "Pixel").join(s, onOwnerHandover = { called = true; answer })
+            })
+            assertIs<GuestResult.Joined>(g.getOrThrow())
+            val outcome = assertIs<HostOutcome.Welcomed>(h.getOrThrow())
+            assertFalse(outcome.ownerRoleTaken)
+            assertTrue(outcome.ownerRoleRefused, "an explicit PairAck(false) either way")
+            assertEquals(admin, called, "only a kept refresh token asks the guest to take the role")
+        }
+    }
+
+    @Test
+    fun aGuestThatNeverAnswersIsNotATransfer() = runTest {
+        // A guest older than Y3 skips refresh_token and hangs up without a PairAck.
+        val (h, g) = pair({ parentHost().serve(it, transfer(makeAdmin = true, handed)) }, { stream ->
+            val ch = SecureChannel.initiate(stream, kidKeys.dh, PairingProtocol.prologue(parentInvite.groupId, parentInvite.token))
+            PairingProtocol.send(ch, requestOf(parentInvite.token, kidKeys, kidKeys.dh.publicKey, "Pixel"))
+            assertNotNull(PairingProtocol.receive(ch).pending)
+            assertNotNull(PairingProtocol.receive(ch).welcome)
+            ch.close()
+            GuestResult.Rejected(PairReject.Reason.REASON_UNSPECIFIED)
+        })
+        g.getOrThrow()
+        val outcome = assertIs<HostOutcome.Welcomed>(h.getOrThrow())
+        assertFalse(outcome.ownerRoleTaken)
+        assertFalse(outcome.ownerRoleRefused, "no answer is no refusal: the role may still arrive")
+    }
+
+    @Test
+    fun aPlainWelcomeIsNotATransfer() = runTest {
+        var called = false
+        val (h, _) = pair({ host().serve(it, welcomeAs(DeviceRole.CHILD)) }, { s -> guest().join(s, onOwnerHandover = { called = true; true }) })
+        assertFalse(assertIs<HostOutcome.Welcomed>(h.getOrThrow()).ownerRoleTaken)
+        assertFalse(called)
     }
 }

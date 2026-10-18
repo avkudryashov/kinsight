@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.annotation.VisibleForTesting
 import app.kinsight.core.data.AppGraph
+import app.kinsight.core.data.CloudWork
 import app.kinsight.core.designsystem.theme.KinsightTheme
 import app.kinsight.feature.widget.KinsightWidget
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +28,7 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) {
             invite.value = inviteOf(intent)
             device.value = deviceOf(intent)
+            yandexLinkOf(intent)?.let(::finishYandexSignIn)
         }
         val version = packageManager.getPackageInfo(packageName, 0).versionName.orEmpty()
         setContent { KinsightTheme { KinsightApp(
@@ -43,12 +45,17 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         inviteOf(intent)?.let { invite.value = it }
         deviceOf(intent)?.let { device.value = it }
+        yandexLinkOf(intent)?.let(::finishYandexSignIn)
     }
 
-    /** Opening the app starts sync, but honours the user's Stop (SyncControl.start; only the Start button clears it). */
+    /**
+     * Opening the app starts sync, but honours the user's Stop (SyncControl.start; only the Start button clears it), and
+     * reads the cloud at once (spec §9).
+     */
     override fun onStart() {
         super.onStart()
         AppGraph.get(this).sync.start(fast = false)
+        CloudWork.opened(applicationContext)
     }
 
     /**
@@ -75,6 +82,15 @@ class MainActivity : ComponentActivity() {
      */
     private fun inviteOf(intent: Intent?): String? =
         intent?.takeIf { it.action == Intent.ACTION_VIEW }?.data?.takeIf { it.scheme == "kinsight" && it.host == "pair" }?.toString()
+
+    /** The Yandex sign-in redirect (spec §3, §14); it carries the code and the state, so it is never logged. */
+    private fun yandexLinkOf(intent: Intent?): String? =
+        intent?.takeIf { it.action == Intent.ACTION_VIEW }?.data?.takeIf { it.scheme == BuildConfig.YANDEX_SCHEME }?.toString()
+
+    private fun finishYandexSignIn(link: String) {
+        val g = AppGraph.get(this)
+        g.scope.launch { g.cloudSignIn.finish(link) }
+    }
 
     companion object {
         /** The hex id of a child's device whose detail screen an alert opens. */

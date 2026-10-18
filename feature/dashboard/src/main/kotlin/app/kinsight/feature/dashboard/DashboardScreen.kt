@@ -6,6 +6,7 @@ import android.content.Intent
 import android.provider.Settings
 import android.text.format.DateUtils
 import android.util.Log
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,19 +14,26 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
@@ -33,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -43,7 +52,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -54,7 +64,9 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -68,22 +80,30 @@ import app.kinsight.core.data.DeviceUsage
 import app.kinsight.core.data.MemberView
 import app.kinsight.core.data.Role as MemberRole
 import app.kinsight.core.data.ServiceStatus
+import app.kinsight.core.data.SetupWarning
 import app.kinsight.core.data.Sharing
+import app.kinsight.core.data.ThresholdEval
+import app.kinsight.core.data.ThresholdRule
+import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.data.TodayComparison
 import app.kinsight.core.data.UsageReadModel
-import app.kinsight.core.designsystem.component.dialogTestTags
-import app.kinsight.core.designsystem.component.BarChart
+import app.kinsight.core.designsystem.component.AppIcon
+import app.kinsight.core.designsystem.component.Avatar
 import app.kinsight.core.designsystem.component.EmptyState
+import app.kinsight.core.designsystem.component.LimitBar
+import app.kinsight.core.designsystem.component.Pill
 import app.kinsight.core.designsystem.component.dataMoment
 import app.kinsight.core.designsystem.component.durationText
 import app.kinsight.core.designsystem.component.relativeTime
+import app.kinsight.core.designsystem.theme.ChildColorKey
+import app.kinsight.core.designsystem.theme.OnChildCard
+import app.kinsight.core.designsystem.theme.childColor
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.transport.ble.ServiceState
 import app.kinsight.core.transport.ble.SyncProblem
 import app.kinsight.core.transport.ble.SyncService
 import app.kinsight.core.usage.UsageAccessSettings
 import kotlinx.coroutines.delay
-import java.time.format.TextStyle
 
 private const val HOUR_MS = 3_600_000L
 
@@ -112,15 +132,15 @@ fun DashboardRoute(onOpenDevice: (DeviceId) -> Unit, onConsent: () -> Unit, onIn
         }
     }
     DashboardScreen(
-        ui, now, onOpenDevice, vm::pause, vm::resume, onConsent, vm::start, vm::syncNow, onInviteChild, onOpenSettings,
+        ui, now, onOpenDevice, vm::resume, onConsent, vm::start, vm::syncNow, onInviteChild, onOpenSettings,
         onAcknowledgeParents = vm::acknowledgeParents,
     )
 }
 
 /**
  * Spec §9.2 and §9.6, reshaped by user feedback 2026-10-10 (the Family Link / Screen Time pattern): a parent's home
- * shows its children only (and an invite while there are none); a child's shows one «who sees my data» row with the
- * two-tap open pause, then its own card. This phone's sync status lives in Settings; Overview shows it only as a
+ * shows its children only (and an invite while there are none); a child's shows one «who sees my data» row
+ * (only a parent changes sharing, spec §10), then its own card. This phone's sync status lives in Settings; Overview shows it only as a
  * banner when the service needs the user, so the move never hides a problem. Pull to refresh runs «Sync now».
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -129,7 +149,6 @@ fun DashboardScreen(
     ui: DashboardUi,
     nowMs: Long,
     onOpenDevice: (DeviceId) -> Unit,
-    onPause: () -> Unit,
     onResume: () -> Unit,
     onConsent: () -> Unit,
     onStart: () -> Unit,
@@ -145,7 +164,7 @@ fun DashboardScreen(
             if (!ui.loaded) {
                 CircularProgressIndicator()
             } else {
-                EmptyState(stringResource(R.string.dash_no_group_title), stringResource(R.string.dash_no_group_body))
+                EmptyState(stringResource(R.string.dash_no_group_title), stringResource(R.string.dash_no_group_body), icon = Icons.Filled.Home)
             }
         }
         return
@@ -178,7 +197,9 @@ fun DashboardScreen(
     // While the user's Stop holds, «Sync now» does nothing (the start honours the Stop): no pull, no action; the banner's
     // Start is the way back.
     val canSync = attention != SyncAttention.STOPPED
-    val searching = canSync && stillSearching(searchSince, ui.service?.lastSyncMs)
+    val searching = if (canSync) searchLine(searchSince, ui.service?.lastSyncMs, ui.service?.cloudOn == true) else null
+    // The group's children fix each one's colour (same on every phone); a child's own phone knows no siblings.
+    val childHexes = if (child) emptyList() else d.children.map { it.member.id.hex }
     val listState = rememberLazyListState() // kept when the pull comes and goes with the Stop
     val list: @Composable BoxScope.() -> Unit = {
         LazyColumn(
@@ -199,21 +220,35 @@ fun DashboardScreen(
         ) {
             item { Text(stringResource(R.string.dash_title), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() }) }
             attention?.let { a -> item { AttentionBanner(a, onStart, onOpenSettings) } }
-            if (searching) item { Searching() }
+            searching?.let { line -> item { Searching(line) } }
             // Not the user's fault nor fixable here: a neutral note, never the error banner.
             updateText?.let { text -> item { UpdateNotice(text) } }
             if (child && ui.newParents.isNotEmpty()) item { NewParentBanner(ui.newParents, onAcknowledgeParents) }
+            if (child && ui.consentOutdated) item { ReconsentCard(onConsent) }
             if (child) {
-                item { ChildTransparencyRow(d.parents, d.selfUsage?.sharing ?: Sharing.Never, ui.sharingFailed, onPause, onResume, onConsent) }
-                d.selfUsage?.let { u -> item { DeviceCard(u, nowMs, noContactMs) { onOpenDevice(u.member.id) } } }
+                item { ChildTransparencyRow(d.parents, d.selfUsage?.sharing ?: Sharing.Never, ui.sharingFailed, onResume, onConsent) }
+                d.selfUsage?.let { u ->
+                    item { ChildCard(u, childHexes, nowMs, noContactMs, totalLimit(ui.thresholds, u)) { onOpenDevice(u.member.id) } }
+                    item { TopApps(u, ui.thresholds) }
+                }
             } else if (d.children.isEmpty()) {
                 item {
-                    EmptyState(stringResource(R.string.dash_empty_title), stringResource(R.string.dash_empty_body)) {
+                    EmptyState(stringResource(R.string.dash_empty_title), stringResource(R.string.dash_empty_body), icon = Icons.Filled.Person) {
                         Button(onInviteChild, Modifier.testTag("dash_invite_child")) { Text(stringResource(R.string.dash_invite_child)) }
                     }
                 }
+            } else if (d.children.size == 1) {
+                items(d.children, key = { it.member.id.hex }) { u ->
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ChildCard(u, childHexes, nowMs, noContactMs, totalLimit(ui.thresholds, u)) { onOpenDevice(u.member.id) }
+                        TopApps(u, ui.thresholds)
+                    }
+                }
             } else {
-                items(d.children, key = { it.member.id.hex }) { u -> DeviceCard(u, nowMs, noContactMs) { onOpenDevice(u.member.id) } }
+                // Task 12: two children or more get compact cards, so the second one is on screen without scrolling.
+                items(d.children, key = { it.member.id.hex }) { u ->
+                    CompactChildCard(u, childHexes, nowMs, noContactMs, totalLimit(ui.thresholds, u)) { onOpenDevice(u.member.id) }
+                }
             }
         }
     }
@@ -232,17 +267,29 @@ fun DashboardScreen(
     }
 }
 
-/** U6: a sync was asked for and no newer one has finished yet. */
-internal fun stillSearching(sinceMs: Long?, lastSyncMs: Long?): Boolean = sinceMs != null && (lastSyncMs == null || lastSyncMs <= sinceMs)
+/** What Overview says after a pull (U6, Task 13): looking for phones nearby (Bluetooth only), or updating (the cloud too). */
+internal enum class SearchLine { NEARBY, UPDATING }
+
+/**
+ * U6: a sync was asked for at [sinceMs] and none has finished after it. [lastSyncMs] is the newest sync by either path
+ * (ServiceStatus.lastSyncMs, LastSync), so a Bluetooth session or a Disk run ends it alike. «Looking for phones nearby»
+ * only while the cloud is off for this phone; with it on, «Updating».
+ */
+internal fun searchLine(sinceMs: Long?, lastSyncMs: Long?, cloudOn: Boolean): SearchLine? = when {
+    sinceMs == null -> null
+    lastSyncMs != null && lastSyncMs > sinceMs -> null
+    cloudOn -> SearchLine.UPDATING
+    else -> SearchLine.NEARBY
+}
 
 @Composable
-private fun Searching() = Row(
+private fun Searching(line: SearchLine) = Row(
     Modifier.fillMaxWidth().testTag("dash_searching").semantics { liveRegion = LiveRegionMode.Polite },
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(12.dp),
 ) {
     CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-    Text(stringResource(R.string.dash_searching), style = MaterialTheme.typography.bodyMedium)
+    Text(stringResource(if (line == SearchLine.UPDATING) R.string.dash_updating else R.string.dash_searching), style = MaterialTheme.typography.bodyMedium)
 }
 
 /** A sync problem the user has to act on. Running, waiting, syncing and starting are normal and show nothing. */
@@ -260,7 +307,7 @@ internal enum class SyncAttention {
         /**
          * The old «This phone» card's precedence: the user's Stop first, then what blocks the radio, then missing
          * usage access (U1; only where [needsUsageAccess]: a consenting child), then a radio error, which retries by
-         * itself, then the system pause of a hidden notification (S-M3: sync runs, but no usage is signed).
+         * itself, then a hidden notification (the family sees it).
          */
         fun of(s: ServiceStatus?, needsUsageAccess: Boolean = false): SyncAttention? = when {
             s == null -> null
@@ -272,6 +319,23 @@ internal enum class SyncAttention {
             s.state == ServiceState.RADIO_ERROR -> RADIO_ERROR
             s.notificationHidden -> NOTIFICATION_HIDDEN
             else -> null
+        }
+    }
+}
+
+/** Roadmap Y5: a child that agreed to the Bluetooth-only text sees what changed before anything goes through the Disk. */
+@Composable
+private fun ReconsentCard(onOpen: () -> Unit) {
+    Card(
+        Modifier.fillMaxWidth().testTag("dash_reconsent"),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        ),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.dash_reconsent_body))
+            Button(onOpen, Modifier.testTag("dash_reconsent_open")) { Text(stringResource(R.string.dash_reconsent_open)) }
         }
     }
 }
@@ -397,11 +461,9 @@ private fun ChildTransparencyRow(
     parents: List<MemberView>,
     sharing: Sharing,
     failed: Boolean,
-    onPause: () -> Unit,
     onResume: () -> Unit,
     onConsent: () -> Unit,
 ) {
-    var ask by remember { mutableStateOf(false) }
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
@@ -410,10 +472,11 @@ private fun ChildTransparencyRow(
                 style = MaterialTheme.typography.titleSmall,
             )
             when (sharing) {
-                Sharing.On -> {
-                    Text(stringResource(R.string.dash_pause_hint), style = MaterialTheme.typography.bodySmall)
-                    OutlinedButton({ ask = true }, Modifier.testTag("dash_pause")) { Text(stringResource(R.string.dash_pause)) }
-                }
+                Sharing.On -> Text(
+                    stringResource(R.string.dash_parent_only),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.testTag("dash_parent_only"),
+                )
                 is Sharing.Paused -> {
                     Text(stringResource(R.string.dash_paused_since, dateTime(sharing.sinceMs)), style = MaterialTheme.typography.bodySmall)
                     Button(onResume, Modifier.testTag("dash_resume")) { Text(stringResource(R.string.dash_resume)) }
@@ -433,51 +496,95 @@ private fun ChildTransparencyRow(
             }
         }
     }
-    if (ask) {
-        AlertDialog(
-            onDismissRequest = { ask = false },
-            modifier = Modifier.dialogTestTags(), // its own window: the root flag does not reach it
-            title = { Text(stringResource(R.string.dash_pause_title)) },
-            text = { Text(stringResource(R.string.dash_pause_body)) },
-            confirmButton = {
-                TextButton({
-                    ask = false
-                    onPause()
-                }, Modifier.testTag("dash_pause_confirm")) { Text(stringResource(R.string.dash_pause)) }
-            },
-            dismissButton = { TextButton({ ask = false }, Modifier.testTag("dash_pause_cancel")) { Text(stringResource(R.string.dash_cancel)) } },
-        )
+}
+
+/** The child's «Всего за день» limit when a parent set one (UsageRepository.thresholds lists the group's children only). */
+internal fun totalLimit(rules: List<ThresholdRule>, u: DeviceUsage): Long? =
+    rules.firstOrNull { it.child == u.member.id && it.target == ThresholdTarget.Total }?.limitMs
+
+/**
+ * UI refresh §3: one bright card per child. Avatar and name, today's time large, the comparison, the day limit's bar
+ * when one is set and the data time; without data today «Данных пока нет» and the last sync. Then what needs a parent:
+ * open location problems, «no contact», a pause. Tapping it opens the report. White on the gradient keeps 4.5:1.
+ */
+@Composable
+private fun ChildCard(u: DeviceUsage, childHexes: List<String>, nowMs: Long, noContactMs: Long, limitMs: Long?, onClick: () -> Unit) {
+    Column(
+        Modifier.childCard(u, childHexes, "dash_card", onClick).padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        CompositionLocalProvider(LocalContentColor provides OnChildCard) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Avatar(u.member.name)
+                Text(u.member.name, style = MaterialTheme.typography.titleLarge)
+            }
+            if (u.today.hasData) {
+                Text(durationText(u.today.totalMs), style = MaterialTheme.typography.displaySmall, modifier = Modifier.testTag("dash_today"))
+                comparison(u)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                if (limitMs != null) LimitBar(u.today.totalMs, limitMs, onCard = true)
+                u.updatedMs?.let { DataAt(it, nowMs, u.childZoneId) }
+            } else {
+                Text(stringResource(R.string.dash_card_no_data), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.testTag("dash_today"))
+                if (!u.member.isSelf) LastSync(u.member.lastSeenMs, nowMs)
+            }
+            u.setupWarnings.sortedBy { it.ordinal }.forEach { SetupWarningLine(it) }
+            status(u, nowMs, noContactMs)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        }
     }
 }
 
+/**
+ * The child's card surface: its own colour's gradient (Task 12, the same child the same colour on every phone),
+ * clickable to the report, tagged [tag]. White on every palette gradient keeps 4.5:1 (ChildColorsTest).
+ */
 @Composable
-private fun DeviceCard(u: DeviceUsage, nowMs: Long, noContactMs: Long, onClick: () -> Unit) {
-    // The same list instance between ticks, so the chart skips recomposition (U16).
-    val bars = remember(u.week) { u.week.map { it.totalMs } }
-    val locale = LocalConfiguration.current.locales[0]
-    val withData = u.week.filter { it.hasData }
-    val busiest = withData.maxByOrNull { it.totalMs }
-    val summary = if (busiest == null) {
-        stringResource(R.string.dash_week_no_data)
-    } else {
-        stringResource(
-            R.string.dash_week_summary,
-            durationText(withData.sumOf { it.totalMs }),
-            busiest.date.dayOfWeek.getDisplayName(TextStyle.FULL, locale),
-        )
-    }
+private fun Modifier.childCard(u: DeviceUsage, childHexes: List<String>, tag: String, onClick: () -> Unit): Modifier {
     val label = stringResource(R.string.dash_open_details, u.member.name)
-    Card(Modifier.fillMaxWidth().clip(CardDefaults.shape).clickable(onClickLabel = label, role = Role.Button, onClick = onClick)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(u.member.name, style = MaterialTheme.typography.titleMedium)
-            if (u.today.hasData) {
-                Text(durationText(u.today.totalMs), style = MaterialTheme.typography.displaySmall)
-            } else {
-                Text(stringResource(R.string.dash_no_data_today), style = MaterialTheme.typography.titleLarge)
+    val color = childColor(u.member.id.hex, childHexes)
+    return fillMaxWidth().clip(MaterialTheme.shapes.large)
+        .background(Brush.linearGradient(color.gradient))
+        .semantics { set(ChildColorKey, color) }
+        .clickable(onClickLabel = label, role = Role.Button, onClick = onClick)
+        .testTag(tag)
+}
+
+/**
+ * Task 12: with two children or more, a smaller card per child. Avatar and name, today's time (28 sp), the day limit's
+ * bar when one is set, «Чаще всего: TikTok · 1 ч 22 мин» when today has usage, the setup warnings and the status as on
+ * the full card. The comparison and «Данные на» stay in the report; the top apps block is left out.
+ */
+@Composable
+private fun CompactChildCard(u: DeviceUsage, childHexes: List<String>, nowMs: Long, noContactMs: Long, limitMs: Long?, onClick: () -> Unit) {
+    Column(
+        Modifier.childCard(u, childHexes, "dash_compact_card", onClick).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        CompositionLocalProvider(LocalContentColor provides OnChildCard) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Avatar(u.member.name, size = 32.dp)
+                Text(u.member.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            u.updatedMs?.let { DataAt(it, nowMs, u.childZoneId) }
-            if (u.today.hasData) comparison(u)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-            BarChart(values = bars, labels = emptyList(), summary = summary, height = 40.dp)
+            if (u.today.hasData) {
+                Text(
+                    durationText(u.today.totalMs),
+                    style = MaterialTheme.typography.displaySmall.copy(fontSize = 28.sp, lineHeight = 34.sp),
+                    modifier = Modifier.testTag("dash_today"),
+                )
+                if (limitMs != null) LimitBar(u.today.totalMs, limitMs, onCard = true)
+                u.topApps.firstOrNull()?.takeIf { it.app.totalMs > 0 }?.let { t ->
+                    Text(
+                        stringResource(R.string.dash_top_line, t.app.label, durationText(t.app.totalMs)),
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("dash_top_line"),
+                    )
+                }
+            } else {
+                Text(stringResource(R.string.dash_card_no_data), style = MaterialTheme.typography.titleLarge, modifier = Modifier.testTag("dash_today"))
+                if (!u.member.isSelf) LastSync(u.member.lastSeenMs, nowMs)
+            }
+            u.setupWarnings.sortedBy { it.ordinal }.forEach { SetupWarningLine(it) }
             status(u, nowMs, noContactMs)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
         }
     }
@@ -485,7 +592,7 @@ private fun DeviceCard(u: DeviceUsage, nowMs: Long, noContactMs: Long, onClick: 
 
 /**
  * «Data as of 14:05» under the figure (U3), on the viewer's clock with the child's own when it differs; older than
- * STALE_AFTER_MS it also says it may be out of date.
+ * STALE_AFTER_MS it says it may be out of date. On the card's gradient: the words carry the staleness, not a colour.
  */
 @Composable
 private fun DataAt(updatedMs: Long, nowMs: Long, childZoneId: String?) {
@@ -493,9 +600,70 @@ private fun DataAt(updatedMs: Long, nowMs: Long, childZoneId: String?) {
     Text(
         stringResource(if (stale) R.string.dash_data_stale else R.string.dash_data_at, dataMoment(LocalContext.current, updatedMs, nowMs, childZoneId)),
         style = MaterialTheme.typography.bodySmall,
-        color = if (stale) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.testTag("dash_data_at"),
     )
+}
+
+/** UI refresh «Ошибки»: no data today says when the child's phone was last in touch. */
+@Composable
+private fun LastSync(lastSeenMs: Long?, nowMs: Long) = Text(
+    lastSeenMs?.let { stringResource(R.string.dash_last_sync, relativeTime(it, nowMs)) } ?: stringResource(R.string.dash_never_synced),
+    style = MaterialTheme.typography.bodyMedium,
+    modifier = Modifier.testTag("dash_last_sync"),
+)
+
+/** An unfinished setup on the child's phone (UI refresh §6), on a darker chip so the white text keeps 4.5:1. */
+@Composable
+private fun SetupWarningLine(w: SetupWarning) = Row(
+    Modifier.clip(MaterialTheme.shapes.small).background(Color.Black.copy(alpha = 0.18f))
+        .padding(horizontal = 10.dp, vertical = 6.dp).testTag("dash_warning_${w.name}"),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+) {
+    Icon(Icons.Filled.Warning, contentDescription = null, modifier = Modifier.size(18.dp))
+    Text(
+        stringResource(
+            when (w) {
+                SetupWarning.LOCATION_PERMISSION_OFF -> R.string.dash_warn_location_off
+                SetupWarning.LOCATION_DISABLED -> R.string.dash_warn_location_disabled
+            },
+        ),
+        style = MaterialTheme.typography.labelLarge,
+    )
+}
+
+/** Under the card: today's three largest apps with their time and a «лимит» mark when a limit counts them (§3). */
+@Composable
+private fun TopApps(u: DeviceUsage, rules: List<ThresholdRule>) {
+    if (u.topApps.isEmpty()) return
+    Card(
+        Modifier.fillMaxWidth().testTag("dash_top_apps"),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                stringResource(R.string.dash_top_today),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.semantics { heading() },
+            )
+            u.topApps.forEach { t ->
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 48.dp).semantics(mergeDescendants = true) {}.testTag("dash_app_${t.app.packageName}"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    AppIcon(t.app.icon)
+                    Text(t.app.label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (ThresholdEval.limited(rules, u.member.id, t.app.packageName, t.category)) {
+                        Pill(stringResource(R.string.dash_limit_pill), Modifier.testTag("dash_limit_pill"))
+                    }
+                    Text(durationText(t.app.totalMs), style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        }
+    }
 }
 
 /** U2: «usual by this time» with hourly detail, whole days only late in the day, else nothing. */
@@ -530,9 +698,9 @@ private fun status(u: DeviceUsage, nowMs: Long, noContactMs: Long): String? = wh
         val seen = u.member.lastSeenMs
         when {
             !u.member.isSelf && seen != null && nowMs - seen > noContactMs -> stringResource(R.string.dash_card_not_seen, relativeTime(seen, nowMs))
-            !u.member.isSelf && u.collectionOff -> stringResource(R.string.dash_card_collection_off)
+            // The more specific cause first: a hidden notification, then collection off (cloud Y5).
             !u.member.isSelf && u.notificationHidden -> stringResource(R.string.dash_card_notification_hidden)
-            u.updatedMs == null -> stringResource(R.string.dash_card_no_data)
+            !u.member.isSelf && u.collectionOff -> stringResource(R.string.dash_card_collection_off)
             else -> null
         }
     }

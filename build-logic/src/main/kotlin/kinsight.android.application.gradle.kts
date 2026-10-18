@@ -5,12 +5,25 @@ plugins {
 
 val libs = extensions.getByType<VersionCatalogsExtension>().named("libs")
 
+// The Yandex OAuth app (spec §2, §3): kinsight.yandex.clientId / kinsight.yandex.clientSecret, and once the Android platform
+// is registered with the release SHA-256 (spec §14) kinsight.yandex.redirectUri, from local.properties or -P. Into
+// BuildConfig; never into git. A debug build without them simply does not offer the cloud.
+val yandex = ReleaseGates.yandexClient({ providers.gradleProperty(it).orNull }, rootProject.file("local.properties"))
+
 android {
     compileSdk = KinsightAndroid.COMPILE_SDK
     defaultConfig {
         minSdk = KinsightAndroid.MIN_SDK
         targetSdk = KinsightAndroid.TARGET_SDK
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "YANDEX_CLIENT_ID", "\"${ReleaseGates.yandexClientId(yandex)}\"")
+        buildConfigField("String", "YANDEX_CLIENT_SECRET", "\"${ReleaseGates.yandexClientSecret(yandex)}\"")
+        buildConfigField("String", "YANDEX_REDIRECT_URI", "\"${ReleaseGates.yandexRedirect(yandex)}\"")
+        buildConfigField("String", "YANDEX_SCHEME", "\"${ReleaseGates.yandexScheme(yandex)}\"")
+        manifestPlaceholders["yandexScheme"] = ReleaseGates.yandexScheme(yandex)
+    }
+    buildFeatures {
+        buildConfig = true
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
@@ -78,9 +91,12 @@ androidComponents {
         val urlGate = tasks.register<CheckPrivacyUrlTask>("check${name}PrivacyUrl") {
             if (privacyUrl != null) url.set(privacyUrl)
         }
+        val yandexGate = tasks.register<CheckYandexClientTask>("check${name}YandexClient") {
+            problem.set(ReleaseGates.yandexClientProblem(yandex).orEmpty())
+        }
         tasks.named("check") { dependsOn(gate) }
         val packaging = ReleaseGates.packagingTasks(variant.name)
-        tasks.matching { it.name in packaging }.configureEach { dependsOn(gate, urlGate) }
+        tasks.matching { it.name in packaging }.configureEach { dependsOn(gate, urlGate, yandexGate) }
     }
 }
 

@@ -3,7 +3,6 @@ package app.kinsight.core.data
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.StateEvent
-import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.WeekFields
 
@@ -92,32 +91,6 @@ data class DetailRange(val period: Period, val start: LocalDate, val end: LocalD
  */
 data class HourTotal(val hour: Int, val totalMs: Long, val unlocks: Int, val byCategory: Map<AppCategory, Long>)
 
-/**
- * Level 4 of a week or month: [cells] is [weekday][hour], weekday 0 being the locale's first day of week, each cell the
- * mean over the covered days of that weekday (a weekday with none is 0). [unlocks]: per hour, the mean over all
- * [coveredDays]. [coveredDays]: days of the range with a usable UsageDetail; [rangeDays]: days of the range up to the
- * viewer's today (a future day cannot have data).
- *
- * [firstDayOfWeek]: the weekday of row 0, from the same WeekFields the rows were built with, so the screen names the
- * rows by the data rather than by its own locale.
- */
-class Heatmap(
-    val cells: Array<LongArray>,
-    val unlocks: IntArray,
-    val coveredDays: Int,
-    val rangeDays: Int,
-    val firstDayOfWeek: DayOfWeek = DayOfWeek.MONDAY,
-) {
-    /** By content, so an identical heatmap does not redraw the screen. */
-    override fun equals(other: Any?): Boolean = other is Heatmap && coveredDays == other.coveredDays && rangeDays == other.rangeDays &&
-        firstDayOfWeek == other.firstDayOfWeek && cells.contentDeepEquals(other.cells) && unlocks.contentEquals(other.unlocks)
-
-    override fun hashCode(): Int =
-        (((cells.contentDeepHashCode() * 31 + unlocks.contentHashCode()) * 31 + coveredDays) * 31 + rangeDays) * 31 + firstDayOfWeek.hashCode()
-
-    override fun toString(): String = "Heatmap(covered=$coveredDays/$rangeDays, first=$firstDayOfWeek)"
-}
-
 /** A child's sharing as the group sees it, from its own signed events. */
 sealed interface Sharing {
     data object On : Sharing
@@ -140,9 +113,15 @@ data class EventView(
     val shiftMs: Long,
     /** The author's first SHARING_* event, and a resume: sharing began here (consent), it was not resumed. */
     val firstSharing: Boolean = false,
+    /** ZONE_ENTER / ZONE_EXIT: the zone's hex id and its name (null when unknown here). */
+    val zoneId: String? = null,
+    val zoneName: String? = null,
 ) {
     /** When it happened, the same for the event list and the alert: an interval's start, else the signing time. */
     val atMs: Long get() = if (fromMs > 0) fromMs else createdMs
+
+    /** A zone's name is the family's word for a place: shown, never logged (Y4 parked minor). */
+    override fun toString(): String = "EventView(${author.hex.take(8)}#$seq, $kind, $fromMs..$toMs, zone=${zoneId?.take(8)})"
 }
 
 /** A dashboard card: today, the last 7 days (oldest first), the mean of the 7 days before today. */
@@ -155,13 +134,22 @@ data class DeviceUsage(
     val updatedMs: Long?,
     /** Sharing is on but the child's phone does not collect (UsageReadModel.collectionOff, U1). */
     val collectionOff: Boolean = false,
-    /** Sharing is on but the child hid Kinsight's notification, so its phone holds the time back (S-M3, M-1). */
+    /** Sharing is on but the child hid Kinsight's notification (M-1; the parents see it, spec §10). */
     val notificationHidden: Boolean = false,
     /** What today's figure is compared with (U2); null: no honest comparison yet. */
     val comparison: TodayComparison? = null,
     /** The zone_id of the child's latest summary (untrusted, may not parse): its own clock next to «Данные на …» (U3). */
     val childZoneId: String? = null,
+    /** On a parent's card: where the child is (spec §8), null without location data. */
+    val place: PlaceStatus? = null,
+    /** Today's three largest apps (the `~other` remainder left out), each with the category a limit counts it in. */
+    val topApps: List<TopApp> = emptyList(),
+    /** On a parent's card: location problems the child's phone has open now (SetupWarnings, UI refresh §3). */
+    val setupWarnings: Set<SetupWarning> = emptySet(),
 )
+
+/** One of today's top apps on a card; [category] as the limits count it (Categories.of with the family overrides). */
+data class TopApp(val app: AppUsage, val category: AppCategory)
 
 /** What a dashboard card compares today with (U2, audit 2026-10-11): never a part day against whole days. */
 sealed interface TodayComparison {
@@ -194,8 +182,6 @@ data class DeviceDetail(
     val dayCategories: List<Map<AppCategory, Long>> = emptyList(),
     /** Level 4 of a DAY: 24 clock hours; null when the date has no usable UsageDetail (none, or not newer than its summary). */
     val hours: List<HourTotal>? = null,
-    /** Level 4 of a WEEK or MONTH: weekday × hour averages; null when no day of the range has a usable UsageDetail. */
-    val heatmap: Heatmap? = null,
     /**
      * The child's today, the bound of forward navigation: the viewer's date, or the next one when the child's zone is
      * already there (UsageReadModel.childToday); null when not given (screen tests), the screen then uses the viewer's.
@@ -205,15 +191,26 @@ data class DeviceDetail(
     val updatedMs: Long? = null,
     /** The zone_id of the child's latest summary (untrusted, may not parse): its own clock next to «Данные на …» (U3). */
     val childZoneId: String? = null,
+    /** Block 1 of a DAY (UI refresh §4): what the day is compared with; null for a WEEK, a MONTH or a day without data. */
+    val dayComparison: TodayComparison? = null,
+    /** The category each app of [apps] counts in for a limit (Categories.of with the family overrides): the «лимит» mark. */
+    val appCategories: Map<String, AppCategory> = emptyMap(),
 ) : RangedView {
     val period: Period get() = range.period
 }
 
 /**
  * Every app of a child over [range], largest first (the «All apps» screen): what [DeviceDetail.apps] holds for the same
- * range, without the detail's UsageDetail query, categories or heatmap. [today]: the child's today, as in the detail.
+ * range, without the detail's UsageDetail query, or categories. [today]: the child's today, as in the detail.
  */
-data class AppList(val member: MemberView, val range: DetailRange, val apps: List<AppUsage>, val today: LocalDate?)
+data class AppList(
+    val member: MemberView,
+    val range: DetailRange,
+    val apps: List<AppUsage>,
+    val today: LocalDate?,
+    /** The range's time per category, largest first (the list the report gave up for its strip, UI refresh §4). */
+    val categories: List<CategoryTotal> = emptyList(),
+)
 
 /**
  * What a screen with period navigation reads to move its range: [days] of [range] (a day is known when it has a

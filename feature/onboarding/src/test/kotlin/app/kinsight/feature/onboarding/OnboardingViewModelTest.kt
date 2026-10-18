@@ -203,7 +203,31 @@ class OnboardingViewModelTest {
     }
 
     private val granted = Env(nearbyGranted = true, notificationsGranted = false, usageAccessGranted = false, cameraGranted = true)
-    private val all = Env(nearbyGranted = true, notificationsGranted = true, usageAccessGranted = true, cameraGranted = true)
+    /** Review Focus 4: a refused precise request goes on and never offers «all the time». */
+    @Test
+    fun aLocationAnswerGoesOnWhateverItWas() = runBlocking<Unit> {
+        val group = FakeGroup(ready(member("Kid", Role.CHILD, self = true), member("Mom", Role.PARENT, isAdmin = true)), consent = true)
+        val vm = vm(group)
+        val noLocation = all.copy(usageAccessGranted = false, locationPrecise = false, locationAlways = false)
+        vm.onResumed(noLocation)
+        assertEquals(Step.USAGE_ACCESS, vm.state.value.step)
+        vm.next()
+        assertEquals(Step.LOCATION, vm.state.value.step)
+        vm.onLocationResult(noLocation)
+        assertEquals(Step.BATTERY, vm.state.value.step, "no background step without precise; notifications granted")
+    }
+
+    @Test
+    fun aBatteryGrantInSettingsAdvancesOnResume() = runBlocking<Unit> {
+        val group = FakeGroup(ready(member("Kid", Role.CHILD, self = true), member("Mom", Role.PARENT, isAdmin = true)), consent = true)
+        val vm = vm(group)
+        vm.onResumed(all)
+        assertEquals(Step.BATTERY, vm.state.value.step)
+        vm.onResumed(all.copy(batteryUnrestricted = true))
+        assertEquals(Step.DONE, vm.state.value.step)
+    }
+
+    private val all = Env(nearbyGranted = true, notificationsGranted = true, usageAccessGranted = true, cameraGranted = true, locationPrecise = true, locationAlways = true)
 
     @Test
     fun theCameraStepGoesOnWhateverTheAnswer() = runBlocking<Unit> {

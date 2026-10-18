@@ -83,8 +83,5 @@ internal fun hourLabel(hour: Int, locale: Locale, is24Hour: Boolean): String =
 internal fun hourTime(hour: Int, locale: Locale, is24Hour: Boolean): String =
     skeleton(if (is24Hour) "Hm" else "ha", locale, hour * 3_600_000L)
 
-/** The heatmap's hour ticks 0, 6, 12 and 18 by [hourLabel]. */
-internal fun hourLabels(locale: Locale, is24Hour: Boolean): List<String> = (0 until 24 step 6).map { hourLabel(it, locale, is24Hour) }
-
 @Composable
 private fun currentLocale(): Locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]

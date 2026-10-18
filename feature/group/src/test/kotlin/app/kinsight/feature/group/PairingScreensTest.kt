@@ -50,11 +50,11 @@ class PairingScreensTest {
         onClose: () -> Unit = {},
         confirming: Boolean = false,
     ) = rule.setContent {
-        KinsightTheme(dynamicColor = false) { InviteScreen(state, role, now, onConfirm, onDecline, onRetry, onClose, confirming = confirming) }
+        KinsightTheme() { InviteScreen(state, role, now, onConfirm, onDecline, onRetry, onClose, confirming = confirming) }
     }
 
     private fun join(state: JoinState, onRetry: () -> Unit = {}, onBack: () -> Unit = {}, onResetAndRetry: () -> Unit = {}) =
-        rule.setContent { KinsightTheme(dynamicColor = false) { JoinScreen(state, "Mom", onRetry, onResetAndRetry, onBack) } }
+        rule.setContent { KinsightTheme() { JoinScreen(state, "Mom", onRetry, onResetAndRetry, onBack) } }
 
     @Test
     fun theWindowIsSecureOnlyWhileTheInviteIsComposed() {
@@ -81,7 +81,7 @@ class PairingScreensTest {
     @Test
     fun theCountdownIsAnnouncedOnlyAtMinuteBoundariesAndTheLastHalfMinute() {
         var left by mutableStateOf(125_000L)
-        rule.setContent { KinsightTheme(dynamicColor = false) { InviteScreen(InviteState.Showing(uri, now + left), Role.CHILD, now, {}, {}, {}, {}) } }
+        rule.setContent { KinsightTheme() { InviteScreen(InviteState.Showing(uri, now + left), Role.CHILD, now, {}, {}, {}, {}) } }
         val countdown = rule.onNodeWithTag("inv_countdown")
         countdown.assertContentDescriptionEquals("Expires within 3 minutes")
         left = 121_000L
@@ -321,5 +321,46 @@ class PairingScreensTest {
         join(JoinState.Waiting("Mom", code = ""))
         rule.onNodeWithTag("join_code").assertDoesNotExist()
         rule.onNodeWithText("same code", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun aTransferInviteSaysWhatHappensAndThatTheOldPhoneLeavesByItself() {
+        var state by mutableStateOf<InviteState>(InviteState.Showing(uri, now + 60_000))
+        rule.setContent {
+            KinsightTheme() { InviteScreen(state, Role.PARENT, now, {}, {}, {}, {}, transfer = true) }
+        }
+        rule.onNodeWithText("becomes the owner of the family's storage", substring = true).assertExists()
+        state = InviteState.Added("Pixel", ownerTransferred = true)
+        rule.waitForIdle()
+        rule.onNodeWithText("“Pixel” now holds the family's storage", substring = true).assertExists()
+        rule.onNodeWithText("leaves the group by itself", substring = true).assertExists()
+        rule.onNodeWithText("Leave the group", substring = true).assertDoesNotExist() // nothing to tap (spec §7.3)
+    }
+
+    @Test
+    fun theConfirmDialogOfATransferSaysTheStorageGoesWithIt() {
+        var transfer by mutableStateOf(true)
+        rule.setContent {
+            KinsightTheme() {
+                InviteScreen(InviteState.Confirm(uri, now + 60_000, "Pixel", Role.PARENT), Role.PARENT, now, {}, {}, {}, {}, transfer = transfer)
+            }
+        }
+        rule.onNodeWithText("hands it the family's storage", substring = true).assertExists()
+        transfer = false
+        rule.waitForIdle()
+        rule.onNodeWithText("family's storage", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun aTransferTheNewPhoneDidNotTakeShowsAPlainAdd() {
+        invite(InviteState.Added("Pixel", ownerTransferred = false), role = Role.PARENT)
+        rule.onNodeWithText("“Pixel” is in the group", substring = true).assertExists()
+        rule.onNodeWithText("family's storage", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun aPlainInviteHasNoTransferHint() {
+        invite(InviteState.Showing(uri, now + 60_000), role = Role.PARENT)
+        rule.onNodeWithText("family's storage", substring = true).assertDoesNotExist()
     }
 }

@@ -75,3 +75,65 @@ val MIGRATION_2_3: Migration = object : Migration(2, 3) {
         for (sql in V3_ENTRIES_INDICES) connection.execSQL(sql.replace("\${TABLE_NAME}", "entries"))
     }
 }
+
+private class Fix(val author: String, val seq: Long, val kind: Int, val key: String?, val eventKind: Int?, val eventToMs: Long?)
+
+/**
+ * Version 4 (protocol 3): no table changes. A 0.8.x build stored what it could not decode as UNKNOWN with no supersede
+ * key, and a StateEvent of a kind it did not know with event_kind 0. Each such row is decoded once and gets its kind
+ * code, supersede key and event columns (EntryKinds: adding a code needs this pass). Several rows of one author may
+ * now share a key: only the highest seq stays, the others are deleted as the store does on supersede.
+ */
+val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+    override fun migrate(connection: SQLiteConnection) {
+        val fixes = mutableListOf<Fix>()
+        connection.prepare(
+            "SELECT author, seq, kind, bytes FROM entries WHERE kind = ${EntryKinds.UNKNOWN} OR " +
+                "(kind = ${EntryKinds.STATE_EVENT} AND (event_kind IS NULL OR event_kind = 0))",
+        ).use { rows ->
+            while (rows.step()) {
+                val entry = runCatching { DecodedEntry.decode(rows.getBlob(3)) }.getOrNull() ?: continue
+                val c = EntryColumns.of(entry)
+                val unknown = rows.getLong(2).toInt() == EntryKinds.UNKNOWN
+                if (unknown && c.kind == EntryKinds.UNKNOWN) continue
+                fixes += Fix(rows.getText(0), rows.getLong(1), c.kind, if (unknown) entry.supersedeKey else null, c.eventKind, c.eventToMs)
+            }
+        }
+        val newest = fixes.filter { it.key != null }.groupBy { it.key }.mapValues { (_, v) -> v.maxOf { it.seq } }
+        connection.prepare("DELETE FROM entries WHERE author = ? AND seq = ?").use { del ->
+            for (f in fixes) if (f.key != null && newest[f.key] != f.seq) {
+                del.bindText(1, f.author)
+                del.bindLong(2, f.seq)
+                del.step()
+                del.reset()
+            }
+        }
+        connection.prepare(
+            "UPDATE entries SET kind = ?, supersede_key = COALESCE(?, supersede_key), event_kind = ?, event_to_ms = ? " +
+                "WHERE author = ? AND seq = ?",
+        ).use { st ->
+            for (f in fixes) {
+                if (f.key != null && newest[f.key] != f.seq) continue
+                st.bindLong(1, f.kind.toLong())
+                f.key?.let { st.bindText(2, it) } ?: st.bindNull(2)
+                f.eventKind?.let { st.bindLong(3, it.toLong()) } ?: st.bindNull(3)
+                f.eventToMs?.let { st.bindLong(4, it) } ?: st.bindNull(4)
+                st.bindText(5, f.author)
+                st.bindLong(6, f.seq)
+                st.step()
+                st.reset()
+            }
+        }
+    }
+}
+
+/** Room's createSql for schema 5's cloud cursor (pinned against 5.json by KinsightMigrationTest). */
+internal const val V5_CLOUD_CURSOR_TABLE =
+    "CREATE TABLE IF NOT EXISTS `\${TABLE_NAME}` (`id` INTEGER NOT NULL, `state` BLOB NOT NULL, PRIMARY KEY(`id`))"
+
+/** Version 5 (cloud Y2): the cloud cursor table, nothing else changes. */
+val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+    override fun migrate(connection: SQLiteConnection) {
+        connection.execSQL(V5_CLOUD_CURSOR_TABLE.replace("\${TABLE_NAME}", "cloud_cursor"))
+    }
+}

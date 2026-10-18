@@ -17,11 +17,12 @@
     <string name="grp_grant_title">¿Hacer administrador a %1$s?</string>
     <string name="grp_grant_body">Los administradores pueden invitar y eliminar teléfonos. No se puede deshacer sin volver a emparejar ese teléfono.</string>
     <string name="grp_remove_title">¿Eliminar «%1$s» del grupo?</string>
-    <string name="grp_remove_body">El teléfono deja de sincronizarse con el grupo. Para volver, hay que desconectarlo en sus propios ajustes («Desconectar este teléfono y volver a emparejarlo») e invitarlo de nuevo. Hasta una próxima actualización de Kinsight, todavía podrá reconocer por Bluetooth los teléfonos de tu familia que estén cerca.</string>
+    <string name="grp_remove_body">El teléfono deja de sincronizarse con el grupo. Para volver, hay que desconectarlo en Más → Sincronización en ese teléfono («Desconectar este teléfono y volver a emparejarlo») e invitarlo de nuevo. Hasta una próxima actualización de Kinsight, todavía podrá reconocer por Bluetooth los teléfonos de tu familia que estén cerca.</string>
     <string name="grp_leave">Salir del grupo</string>
     <string name="grp_leave_title">¿Salir del grupo familiar?</string>
     <string name="grp_leave_body">Se avisará a todos los miembros del grupo de que este teléfono ha salido. Se borrarán los datos del grupo en este teléfono. Los datos que ya están en sus teléfonos se conservan hasta que termine su periodo de conservación. Para volver hace falta una invitación nueva.</string>
     <string name="grp_leave_sole_admin">Eres el único administrador. Primero haz administrador a otro adulto o elimina los demás teléfonos.</string>
+    <string name="grp_leave_child">Un adulto de la familia puede quitar este teléfono del grupo desde su teléfono, o desconectarlo aquí en Más → Sincronización con el PIN de los adultos.</string>
     <string name="grp_leaving">Saliendo: avisando a tu familia…</string>
     <string name="grp_confirm_remove">Eliminar</string>
     <string name="grp_confirm_leave">Salir</string>
@@ -84,11 +85,19 @@
     <string name="pair_fail_invalid">La invitación o la respuesta no eran válidas. Si alguno de los teléfonos tiene una versión antigua de Kinsight, actualiza la aplicación y vuelve a intentarlo.</string>
     <string name="pair_fail_not_admin">Solo un administrador puede invitar.</string>
     <string name="pair_fail_already_in_group">Este teléfono ya está en un grupo. Sal de él primero.</string>
-    <string name="pair_fail_identity">Las claves de este teléfono están dañadas. Usa «Desconectar este teléfono y volver a emparejarlo» en Ajustes.</string>
+    <string name="pair_fail_identity">Las claves de este teléfono están dañadas. Usa «Desconectar este teléfono y volver a emparejarlo» en Más → Sincronización.</string>
     <string name="inv_adding">Añadiendo…</string>
     <string name="inv_expires_soon_spoken">Caduca en menos de 30 segundos</string>
     <plurals name="inv_expires_spoken">
         <item quantity="one">Caduca en %d minuto o menos</item>
+        <item quantity="many">Caduca en %d minutos o menos</item>
         <item quantity="other">Caduca en %d minutos o menos</item>
     </plurals>
+    <string name="grp_err_leave_owner_handover">No se ha permitido la salida: el almacenamiento de la familia está en tu Yandex Disk. Primero pásalo a otro adulto en Más → Sincronización y luego sal.</string>
+    <string name="grp_err_leave_cloud_switching">El almacenamiento se está mudando a otro Disk. Podrás salir cuando todos los teléfonos se hayan cambiado a él. Si un teléfono ya no se sincroniza, elimínalo del grupo.</string>
+    <string name="grp_leave_cloud_off">La sincronización con Yandex Disk se desactivará. Los datos se quedan en los teléfonos y Bluetooth sigue funcionando.</string>
+    <string name="inv_transfer_hint">Escanea este código con tu teléfono nuevo. Será el propietario del almacenamiento de la familia, sin volver a iniciar sesión.</string>
+    <string name="inv_confirm_transfer">Al añadirlo, le pasas el almacenamiento de la familia: será el propietario y este teléfono saldrá después del grupo por sí solo.</string>
+    <string name="inv_added_transfer">«%1$s» tiene ahora el almacenamiento de la familia. Este teléfono sale del grupo por sí solo, no tienes que tocar nada.</string>
+    <string name="grp_back">Atrás</string>
 </resources>

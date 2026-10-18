@@ -167,4 +167,54 @@ class LeaveFlowTest {
         assertFailsWith<IllegalStateException> { mom.group.leave() }
         assertTrue(mom.sync.calls.isEmpty())
     }
+
+    @Test
+    fun theOwnerCannotLeaveBeforeHandingTheStorageOver() = runBlocking<Unit> {
+        val dad = TestDevice()
+        try {
+            mom.group.createGroup("Mom")
+            dad.joinAsAdminOf(mom)
+            mom.ownStorage()
+            withTimeout(5_000) { mom.group.leaveAndForget().join() }
+            assertEquals(LeaveError.OWNER_HANDOVER, mom.group.leaveError.value)
+            assertEquals(0, mom.leftCount())
+            assertTrue(mom.groups.exists())
+        } finally {
+            dad.close()
+        }
+    }
+
+    @Test
+    fun thePreviousOwnerLeavesOnceEveryPhoneSwitched() = runBlocking<Unit> {
+        val dad = TestDevice()
+        val kid = TestDevice()
+        try {
+            mom.group.createGroup("Mom")
+            dad.joinAsAdminOf(mom)
+            kid.joinGroupOf(mom)
+            mom.ownStorage()
+            dad.store().storeMembership(mom.store().membershipEntries())
+            val g = dad.groups.read()!!
+            // Dad took the storage to his Disk (Task 8 does this through the sign-in).
+            checkNotNull(OwnerRecords.claim(dad.appendOwn, dad.store(), dad.keys, dad.cloudSecrets.ring(g), ByteArray(16) { 2 }, 2, "DAD1", dad.now + 1))
+            mom.store().storeMembership(dad.store().membershipEntries())
+            // The settings reset waits for the same window (CloudStatus.cloudSwitching).
+            assertTrue(CloudViews.status(mom.snapshots.load(emptyMap()), CloudState(), available = true).cloudSwitching)
+            withTimeout(5_000) { mom.group.leaveAndForget().join() }
+            assertEquals(LeaveError.CLOUD_SWITCHING, mom.group.leaveError.value)
+            mom.group.dismissLeaveError()
+            mom.store().applyBatch(listOf(dad.beat(2), kid.beat(2)))
+            assertFalse(CloudViews.status(mom.snapshots.load(emptyMap()), CloudState(), available = true).cloudSwitching)
+            mom.sessions.value = SessionProgress(finished = 1, syncing = false)
+            val job = mom.group.leaveAndForget()
+            mom.awaitBaseline()
+            mom.sessions.value = SessionProgress(finished = 2, syncing = false)
+            withTimeout(5_000) { job.join() }
+            assertNull(mom.group.leaveError.value)
+            assertFalse(mom.groups.exists())
+        } finally {
+            dad.close()
+            kid.close()
+        }
+    }
 }

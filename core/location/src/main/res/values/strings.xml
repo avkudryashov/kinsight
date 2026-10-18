@@ -1,0 +1,5 @@
+<resources>
+    <string name="loc_channel">Location</string>
+    <string name="loc_notification_title">Sharing location</string>
+    <string name="loc_notification_body">Kinsight shares this phone\'s location with your family every 5 minutes while it is outside the safe zones.</string>
+</resources>

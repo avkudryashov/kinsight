@@ -64,9 +64,10 @@ $ADB -s "$P" shell am start -n $PKG/.MainActivity >/dev/null
 tap "$P" onb_create
 tap "$P" onb_continue # name: the phone model
 tap "$P" onb_continue # what a parent's phone does; Nearby and notifications are granted, so skipped
-tap "$P" onb_continue # battery
+tap "$P" onb_later 10 || true # battery: skipped once Kinsight is unrestricted
 tap "$P" onb_done
-tap "$P" nav_group 30
+tap "$P" nav_more 30
+tap "$P" more_family
 tap "$P" grp_invite_child
 URI=none
 for _ in $(seq 30); do
@@ -92,7 +93,8 @@ else
   echo "pairing codes: skipped (an older build shows no code)"
 fi
 tap "$P" inv_confirm 120
-tap "$C" onb_continue 120 # battery; usage access and notifications are granted
+tap "$C" onb_not_now 120 # precise location: later (nothing below needs it)
+tap "$C" onb_later 10 || true # battery: skipped once Kinsight is unrestricted
 tap "$C" onb_done
 tap "$P" inv_done 30
 echo "parent: $(dbg "$P" STATUS)"

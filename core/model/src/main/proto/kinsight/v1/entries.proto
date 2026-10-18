@@ -30,6 +30,11 @@ message EntryBody {
     Heartbeat heartbeat = 14;
     MembershipOp membership_op = 15;
     CategoryOverride category_override = 16;  // protocol 2 (spec §4.4, stage 5c)
+    CloudAccess cloud_access = 17;    // protocol 3: storage access for the members, sealed per device
+    Location location = 18;           // protocol 3: one fix of a child's position
+    SafeZone safe_zone = 19;          // protocol 3: a parent's safe zone
+    StorageHandover storage_handover = 20;  // protocol 3: the storage owner asks a parent to take the storage (spec §7.1)
+    ParentPin parent_pin = 21;              // protocol 3: the parents' PIN for a child's phone, as a slow hash (spec §10)
   }
 }
 
@@ -92,11 +97,16 @@ message StateEvent {
     NOTIFICATION_SHOWN = 11;   // it can be seen again: from = hidden since, to = now
     NEARBY_PERMISSION_OFF = 12;  // «Nearby devices» was revoked: from = noticed, to = granted again
     APP_FORCE_STOPPED = 13;      // the user force-stopped the app: from = the stop (system exit record), to = next start
+    LOCATION_PERMISSION_OFF = 14;  // location (or background location) was revoked: from = noticed, to = granted again
+    LOCATION_DISABLED = 15;        // location is off in the system settings: from = noticed, to = on again
+    ZONE_ENTER = 16;               // the child entered safe zone zone_id at from
+    ZONE_EXIT = 17;                // the child left safe zone zone_id at from
   }
   Kind kind = 1;
   int64 from_ms = 2;
   int64 to_ms = 3;
   int64 clock_shift_ms = 4;
+  bytes zone_id = 5;  // ZONE_ENTER / ZONE_EXIT: SafeZone.zone_id
 }
 
 // Superseded by the author's next Heartbeat. The live set (audit A-2) is the author's signed statement: of its own seqs
@@ -108,6 +118,9 @@ message Heartbeat {
   uint64 live_upto = 3;
   uint64 live_floor = 4;
   repeated uint64 live_deltas = 5;  // ascending seqs: the first as a delta from live_floor, then from the previous
+  // The storage generation (StorageOwner.generation) of this device's last successful cloud sync, 0 without the cloud.
+  // The phone that replaced a token revokes the old one once every active member reports a higher one (spec §7).
+  uint64 storage_generation = 6;
 }
 
 message CreateGroup {
@@ -123,6 +136,8 @@ message AddMember {
   bytes dh_public_key = 2;
   string display_name = 3;
   DeviceRole role = 4;
+  // The group key generation the adding admin handed the joiner at pairing (0 when absent: the key from pairing).
+  uint32 group_key_epoch = 5;
 }
 
 message RemoveMember {
@@ -154,5 +169,85 @@ message MembershipOp {
     RemoveMember remove = 3;
     SetAdmin set_admin = 4;
     RotateDiscoveryKey rotate = 5;
+    StorageOwner storage_owner = 6;  // protocol 3
   }
+}
+
+// The parent whose Yandex Disk holds the group's cloud storage (spec §4). Admin-only. The op with the highest generation
+// wins (replay order breaks a tie); the target must be an active admin that is not a child. An op with off set turns the
+// cloud off instead (see off).
+message StorageOwner {
+  bytes device_id = 1;
+  bytes storage_id = 2;  // 16 random bytes, also the content of app:/Kinsight/<groupId>/storage.id
+  uint64 generation = 3; // 1 for the first storage, +1 on every move to another Disk
+  // 16 random bytes, new on every fresh sign-in; copied unchanged when the same token goes on (spec §7.3 QR transfer).
+  // Empty in ops written before Y3: such an op counts as its own token.
+  bytes token_id = 4;
+  // Device ids of the departed members (RemoveMember or LEFT_GROUP) the signer knew of when the token was issued,
+  // at most 256; copied unchanged with the token. A departure missing here may know the token (spec §7.4).
+  repeated bytes departed = 5;
+  // The owner turned the cloud off for the whole family: no storage owner from this generation on (every cloud decision
+  // reads it as «облако выключено»). Only the owner in force may sign it, naming itself and its storage; device_id and
+  // storage_id stay those of the storage turned off, token_id and departed stay empty. A later StorageOwner (any admin
+  // parent's normal turn-on, generation + 1) turns the cloud on again. The family folder on the Disk stays.
+  bool off = 6;
+}
+
+// «Новый доступ» (spec §6, §7.4): the storage owner's access token for the members, one live entry per author
+// (supersede key <author>/access). Valid from any parent; only the current StorageOwner's entry for the current storage
+// generation is used. The token is a kinsight.v1.CloudGrant (cloud.proto) encrypted with the group key of key_epoch,
+// never in clear; the refresh token is never put here.
+message CloudAccess {
+  uint64 generation = 1;
+  bytes storage_id = 2;
+  uint32 key_epoch = 3;   // group key generation (0 = the key from pairing, then MembershipOp.rotate epochs)
+  bytes nonce = 4;        // 12 bytes
+  bytes ciphertext = 5;   // ChaCha20-Poly1305 under the access key of that generation
+}
+
+// Spec §7.1 «Владелец выбирает родителя»: the storage owner asks the parent [to_device_id] to take the storage of
+// [generation]. One live entry per author (supersede key <author>/handover). Only the current owner's entry for the
+// current generation naming an active admin parent counts; any other is ignored when reading.
+message StorageHandover {
+  bytes to_device_id = 1;
+  uint64 generation = 2;
+}
+
+// One fix of a child's position (spec §8). Inside a safe zone only zone_id is set (no coordinates leave the phone).
+message Location {
+  enum Provider {
+    PROVIDER_UNSPECIFIED = 0;
+    GPS = 1;
+    NETWORK = 2;
+    FUSED = 3;
+    PASSIVE = 4;
+  }
+  sint32 lat_e7 = 1;       // degrees x 10^7
+  sint32 lon_e7 = 2;
+  uint32 accuracy_m = 3;
+  int64 fix_time_ms = 4;   // android.location.Location.time; display only, never used for ordering
+  Provider provider = 5;
+  bytes zone_id = 6;       // set: "in zone zone_id", lat/lon/accuracy are 0
+}
+
+// A safe zone (spec §8.1), one live entry per author and zone (supersede key <author>/zone/<zone hex>). Parents only.
+message SafeZone {
+  bytes zone_id = 1;    // 16 random bytes
+  string name = 2;
+  sint32 lat_e7 = 3;
+  sint32 lon_e7 = 4;
+  uint32 radius_m = 5;
+  bool deleted = 6;
+  int64 rank = 7;       // as CategoryOverride.rank: orders an edit after the version it replaces
+}
+
+// Spec §10 «по PIN на телефоне ребёнка»: the PIN that opens a child's settings, set by an admin parent. Only its slow hash:
+// Argon2id (RFC 9106, version 0x13, 1 lane, 32 bytes) of the PIN's ASCII digits with [salt]; never the PIN. One live
+// entry per author (supersede key <author>/pin); the effective one is an admin parent's with the highest (rank, author).
+message ParentPin {
+  bytes salt = 1;          // 16 random bytes
+  bytes hash = 2;          // 32 bytes
+  uint32 memory_kib = 3;   // Argon2 memory cost
+  uint32 iterations = 4;   // Argon2 passes
+  int64 rank = 5;          // as CategoryOverride.rank: a new PIN outranks the one it replaces
 }

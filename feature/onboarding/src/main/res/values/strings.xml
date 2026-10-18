@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="onb_welcome_title">Kinsight</string>
-    <string name="onb_welcome_body">Screen time for your family. Phones share it directly with each other over Bluetooth: no accounts, no servers.</string>
+    <string name="onb_welcome_body">Screen time for your family, and the child\'s location when a parent turns on the sync through their Yandex Disk. Phones share it over Bluetooth or through that Disk; the developer stores nothing.</string>
     <string name="onb_create">Create a family group</string>
     <string name="onb_join">Join with a QR code</string>
     <string name="onb_create_hint">Create a group on a parent\'s phone.</string>
@@ -16,21 +16,21 @@
     <string name="onb_name_error">Use 1 to 64 characters, without invisible or control characters.</string>
     <string name="onb_parent_title">What this phone does</string>
     <string name="onb_parent_body">This phone shows the screen time of the children in your family group. It does not share its own screen time with anyone.</string>
-    <string name="onb_parent_privacy">Data moves only between your family\'s phones over Bluetooth. Nothing goes to the internet, to servers or to us.</string>
+    <string name="onb_parent_privacy">Data moves between your family\'s phones over Bluetooth. Kinsight goes online only to sync through your Yandex Disk, if you turn that on, and then also to download the street map from OpenFreeMap. The developer stores nothing.</string>
     <string name="onb_consent_title">What your family will see</string>
-    <string name="onb_consent_body">Kinsight counts how much time this phone spends in each app, how often it is unlocked and at what hours it is used. Kinsight sends this over Bluetooth to the phones of every parent in your family group (currently %1$s) and parents who join later. They will see this time for today and past days. Counting happens in the background, even when Kinsight is closed.</string>
-    <string name="onb_consent_body_group">Kinsight counts how much time this phone spends in each app, how often it is unlocked and at what hours it is used. Kinsight sends this over Bluetooth to the phones of every parent in your family group, including parents who join later. They will see this time for today and past days. Counting happens in the background, even when Kinsight is closed.</string>
+    <string name="onb_consent_body">Kinsight counts how much time this phone spends in each app, how often it is unlocked and at what hours it is used. Kinsight sends this over Bluetooth to the phones of every parent in your family group (currently %1$s) and parents who join later and, if a parent turned on the sync through their Yandex Disk, also encrypted through that Disk. They will see this time for today and past days. Counting happens in the background, even when Kinsight is closed. With that sync on, they also see where this phone is: its last place, its route today and when it leaves or enters a safe zone.</string>
+    <string name="onb_consent_body_group">Kinsight counts how much time this phone spends in each app, how often it is unlocked and at what hours it is used. Kinsight sends this over Bluetooth to the phones of every parent in your family group, including parents who join later and, if a parent turned on the sync through their Yandex Disk, also encrypted through that Disk. They will see this time for today and past days. Counting happens in the background, even when Kinsight is closed. With that sync on, they also see where this phone is: its last place, its route today and when it leaves or enters a safe zone.</string>
     <string name="onb_consent_backlog">When you agree, the first sending also includes up to the last 7 days of screen time that this phone has already recorded.</string>
-    <string name="onb_consent_privacy">Nothing goes to the internet, to servers or to us. A Kinsight notification is always shown on this phone. If you hide it, sharing pauses until you turn the notification back on: your family sees that it is hidden, and the time counted meanwhile is sent once it is shown again.</string>
+    <string name="onb_consent_privacy">Kinsight goes online only to sync through a parent\'s Yandex Disk, if a parent turned that on; the developer stores nothing. A Kinsight notification is always shown on this phone. If you hide it, your family sees that it is hidden.</string>
     <string name="onb_privacy_policy">Privacy policy</string>
-    <string name="onb_consent_pause">You can pause sharing in two taps. Your family will see the pause, and the time during the pause will be sent once you resume. Sharing cannot be hidden, only openly stopped.</string>
+    <string name="onb_consent_pause">Sharing cannot be paused or stopped on this phone: only a parent can change it, from their phone or with the parent PIN here. You can turn off usage access, location or Kinsight\'s notification in Android settings, but your family sees it.</string>
     <string name="onb_consent_protect">Google Play Protect may tell you that a parental control app is installed. This is expected.</string>
     <string name="onb_consent_not_now">If you choose Not now, this phone joins the group without sharing, and your family sees that it does not share.</string>
     <string name="onb_nearby_title">Nearby devices</string>
     <string name="onb_nearby_body">Kinsight finds your family\'s phones nearby over Bluetooth and exchanges screen time with them. Kinsight does not use Bluetooth to find out where you are.</string>
     <string name="onb_nearby_required">To join a group, Kinsight needs Nearby devices. Tap Agree and allow it, or allow it in the app\'s settings.</string>
     <string name="onb_scan_title">Scan the invitation</string>
-    <string name="onb_scan_body">On the admin\'s phone open Group, tap an invite button and scan the QR code shown there. You can also scan it with this phone\'s camera app.</string>
+    <string name="onb_scan_body">On the admin\'s phone open More → Family, tap an invite button and scan the QR code shown there. You can also scan it with this phone\'s camera app.</string>
     <string name="onb_scan_invalid">This is not a Kinsight invitation.</string>
     <string name="onb_scan_unsupported">This invitation is from another version of Kinsight. Update Kinsight on both phones.</string>
     <string name="onb_scan_unavailable">The camera could not be opened. Scan the code with this phone\'s camera app.</string>
@@ -42,10 +42,10 @@
     <string name="onb_usage_body">To count screen time, Kinsight needs usage access. Kinsight reads which apps were open and when, and sends the totals only to your family\'s phones. Android settings will open next: find Kinsight and turn on Usage access.</string>
     <string name="onb_usage_agree">Agree, open settings</string>
     <string name="onb_notifications_title">Notifications</string>
-    <string name="onb_notifications_body_child">While sharing is on, Kinsight always shows a notification saying who sees your screen time. Kinsight also tells you when a new parent joins. If you turn notifications off, your family will see that the notification is off on this phone. While notifications are off, sharing stays paused and your family sees it as paused; the paused time is sent once you allow them.</string>
-    <string name="onb_notifications_body_parent">Kinsight shows a notification while it syncs, tells you when a child pauses sharing or is out of contact, and sends a daily summary.</string>
+    <string name="onb_notifications_body_child">Kinsight always shows a notification saying that this phone is in a Kinsight family group and who sees your data. Kinsight also tells you when a new parent joins. If you turn notifications off, your family will see that the notification is off on this phone.</string>
+    <string name="onb_notifications_body_parent">Kinsight shows a notification while it syncs, tells you when something is turned off on a child\'s phone or it is out of contact, and sends a daily summary.</string>
     <string name="onb_battery_title">Keep Kinsight running</string>
-    <string name="onb_battery_body">Some phones stop apps in the background. Let Kinsight run without battery restrictions so your family\'s phones stay in sync.</string>
+    <string name="onb_battery_body">Some phones stop apps in the background. Let Kinsight run without battery restrictions so that the app is not stopped in the background.</string>
     <string name="onb_battery_open">Open battery settings</string>
     <string name="onb_battery_ok">Kinsight already runs without battery restrictions.</string>
     <string name="onb_battery_samsung">Settings → Battery → Background usage limits → Never sleeping apps → add Kinsight. Also: Settings → Apps → Kinsight → Battery → Unrestricted.</string>
@@ -57,17 +57,18 @@
     <string name="onb_battery_vivo">Settings → Battery → Background power consumption management → Kinsight → Allow.</string>
     <string name="onb_battery_other">Tap the button below, then: App info → App battery usage → Unrestricted. The exact path depends on the phone maker.</string>
     <string name="onb_done_title">All set</string>
-    <string name="onb_done_body_parent">Next: invite your child\'s phone from the Group tab.</string>
+    <string name="onb_done_body_parent">Next: invite your child\'s phone in More → Family.</string>
     <string name="onb_done_body_child">This phone is in your family group.</string>
     <string name="onb_done_open">Open Kinsight</string>
-    <string name="onb_create_failed">Could not create the group. Open Settings → Diagnostics on this phone.</string>
-    <string name="onb_consent_child">Your parents will see how much time you spend on your phone and in which apps.</string>
-    <string name="onb_consent_failed">Could not turn on sharing. Try again, or open Settings → Diagnostics on this phone.</string>
+    <string name="onb_create_failed">Could not create the group. Open More → Sync → Diagnostics on this phone.</string>
+    <string name="onb_consent_child">Your parents will see how much time you spend on your phone and in which apps, and where this phone is if a parent turns on the sync through their Yandex Disk.</string>
+    <string name="onb_consent_failed">Could not turn on sharing. Try again, or open More → Sync → Diagnostics on this phone.</string>
     <string name="onb_step">Step %1$d of %2$d</string>
     <string name="onb_consent_point_what">What is seen: how long you spend in each app, how often you unlock the phone and at what hours. Kinsight counts this in the background, and the first sending also includes up to the last 7 days.</string>
     <string name="onb_consent_point_who">Who sees it: every parent of your family group (now %1$s) and parents who join later.</string>
     <string name="onb_consent_point_who_group">Who sees it: every parent of your family group, including parents who join later.</string>
-    <string name="onb_consent_point_pause">How to stop: a pause takes two taps on Overview. Your family sees the pause, and while sharing is on a notification is always shown.</string>
+    <string name="onb_consent_point_where">Where: if a parent turns on the sync through their Yandex Disk, your parents see where this phone is, its route today, and when it leaves or enters a safe zone.</string>
+    <string name="onb_consent_point_pause">Who changes it: only a parent, from their phone or with the parent PIN on this phone. A Kinsight notification is always shown, and your family sees if anything is turned off in Android settings.</string>
     <string name="onb_consent_more">More details</string>
     <string name="onb_consent_less">Fewer details</string>
     <string name="onb_consent_expanded">Expanded</string>
@@ -75,4 +76,10 @@
     <string name="onb_open_settings">Open app settings</string>
     <string name="onb_nearby_blocked">Nearby devices is turned off for Kinsight and Android will not ask again. Open the app\'s settings, then Permissions → Nearby devices → Allow.</string>
     <string name="onb_done_body_joined_parent">This phone is in your family group. It shows your children\'s screen time once their phones sync.</string>
+    <string name="onb_later">Later</string>
+    <string name="onb_location_title">Where the phone is</string>
+    <string name="onb_location_body">So that your parents see where the phone is and hear when you leave a safe zone, Kinsight needs the precise location. Android will ask now: choose “Precise” and “While using the app”.</string>
+    <string name="onb_location_agree">Allow</string>
+    <string name="onb_background_title">Location in the background</string>
+    <string name="onb_background_body">The phone reports leaving a zone while Kinsight is closed only if location is allowed all the time. The settings open now: choose “Allow all the time”.</string>
 </resources>

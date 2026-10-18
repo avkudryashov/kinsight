@@ -9,7 +9,7 @@ import app.kinsight.core.model.proto.CategoryOverride
 import app.kinsight.core.sync.CategoryOverrideRules
 
 /** The single own-log entry point (UsagePipeline.appendOwn under the pipeline lock); false without a group. */
-typealias OwnAppend = suspend (build: (EntryAuthor) -> List<DecodedEntry>) -> Boolean
+typealias OwnAppend = suspend (build: suspend (EntryAuthor) -> List<DecodedEntry>) -> Boolean
 
 /** An app's effective shared category and the parent whose entry set it. */
 data class EffectiveCategory(val category: AppCategory, val author: DeviceId)

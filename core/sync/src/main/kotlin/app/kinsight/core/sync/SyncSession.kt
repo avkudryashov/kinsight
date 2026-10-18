@@ -7,6 +7,8 @@ import app.kinsight.core.model.Membership
 import app.kinsight.core.model.MembershipLimits
 import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.proto.BatchAck
+import app.kinsight.core.model.proto.CloudHandoff
+import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.Done
 import app.kinsight.core.model.proto.EntryBatch
 import app.kinsight.core.model.proto.Hello
@@ -33,8 +35,12 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
-/** 2: CategoryOverride entries (stage 5c). The highest version this build speaks. */
-const val PROTOCOL_VERSION = 2
+/**
+ * 2: CategoryOverride entries (stage 5c).
+ * 3: cloud storage, location and safe zones; one CloudHandoff each way after the vectors.
+ * The highest version this build speaks.
+ */
+const val PROTOCOL_VERSION = 3
 
 /**
  * The lowest version this build speaks (A-1). Raise it only when the oldest phones in the field no longer matter: a
@@ -42,16 +48,32 @@ const val PROTOCOL_VERSION = 2
  */
 const val MIN_PROTOCOL_VERSION = 2
 
+/**
+ * The first version whose builds carry the cloud (spec §6, §7). Only a joiner that speaks it is handed the refresh token
+ * (§7.3); a member on an older build never holds a token, so a token revoke does not wait for its Heartbeat.
+ */
+const val CLOUD_PROTOCOL_VERSION = 3
+
 sealed interface SessionResult {
     /** [protocolVersion]: the version both sides agreed on in Hello. */
     data class Completed(val peer: DeviceId, val received: Int, val sentBatches: Int, val protocolVersion: Int) : SessionResult {
         /**
-         * Both vectors (canonical bytes) as exchanged at the start of the session; the transport's «nothing new» rule
-         * keys on them. Outside equals on purpose (arrays); empty when not recorded.
+         * Both vectors (canonical bytes) as exchanged at the start of the session plus the authors' completions the
+         * session made (ours of the peer's log, the peer's of ours), so they are what the next session starts from when
+         * nothing else moved; the transport's «nothing new» rule keys on them. Outside equals on purpose (arrays);
+         * empty when not recorded.
          */
         var ourVector: ByteArray = ByteArray(0)
             internal set
         var peerVector: ByteArray = ByteArray(0)
+            internal set
+
+        /**
+         * Nothing we sent moved the peer's vector: no batch, or its final ack equals the vector it announced. Entries it
+         * stored above a gap do not move it either; they are delivered all the same. With [received] zero the session
+         * counts as empty for the transport's «nothing new» rule: running it again would change nothing.
+         */
+        var peerAckUnchanged: Boolean = sentBatches == 0
             internal set
     }
     /** [peerNewer] (PROTOCOL_VERSION only): true when the peer speaks only newer versions (update this phone), false when only older ones. */
@@ -76,6 +98,7 @@ class SyncSession internal constructor(
     private val lingerTimeout: Duration = LINGER,
     private val log: (String) -> Unit = {},
     private val legacyHello: Boolean,
+    private val handoff: SessionHandoff? = null,
 ) {
     constructor(
         store: EntryStore,
@@ -85,7 +108,8 @@ class SyncSession internal constructor(
         sessionTimeout: Duration = 5.minutes,
         lingerTimeout: Duration = LINGER,
         log: (String) -> Unit = {},
-    ) : this(store, policy, versions, idleTimeout, sessionTimeout, lingerTimeout, log, legacyHello = false)
+        handoff: SessionHandoff? = null,
+    ) : this(store, policy, versions, idleTimeout, sessionTimeout, lingerTimeout, log, legacyHello = false, handoff = handoff)
 
     suspend fun run(channel: SecureChannel): SessionResult = try {
         withTimeout(sessionTimeout) { exchange(channel) }
@@ -241,16 +265,46 @@ class SyncSession internal constructor(
             }
         }
 
+        // Spec §6 «Раздача» between paired devices (protocol 3): one CloudHandoff each way, empty when there is nothing.
+        // A protocol 2 peer never sees it. Who may hand what (only the storage owner) is the handoff's decision. A local
+        // fault in the handoff is contained (logged without the token); a peer breaking the order still fails the session.
+        if (agreed >= CLOUD_PROTOCOL_VERSION) {
+            val offer = handoff?.let { h -> contained("offer to ${peer.id.hex}") { h.offer(peer, membership) } }
+            send(
+                ch,
+                SyncMessage(
+                    cloud_handoff = CloudHandoff(
+                        storage_generation = offer?.storageGeneration ?: 0,
+                        storage_id = offer?.storageId?.toByteString() ?: ByteString.EMPTY,
+                        access_token = offer?.accessToken.orEmpty(),
+                        expires_at_ms = offer?.expiresAtMs ?: 0,
+                    ),
+                ),
+            )
+            val m = receive(ch)
+            m.reject?.let { return@coroutineScope SessionResult.Rejected(it.reason, byPeer = true) }
+            val got = m.cloud_handoff ?: throw ProtocolException("expected cloud handoff")
+            HandedAccess.of(got.storage_generation, got.storage_id.toByteArray(), got.access_token, got.expires_at_ms)
+                ?.let { access -> handoff?.let { h -> contained("receive from ${peer.id.hex}") { h.receive(peer, membership, access) } } }
+        }
+
         val validator = EntryValidator(store.groupId, membership, policy)
         val sentTotal = CompletableDeferred<Int>()
         // One permit per batch in flight: taken before a batch is sent, returned when the peer acks it.
         val window = Semaphore(SEND_WINDOW)
         val sender = launch {
             try {
-                // S-H1: the role decides, not the peer's flag. A CHILD takes only membership (spec §4.8), and that already
-                // went both ways in the offer exchange above, so a child gets no batch at all, whatever its Hello says.
+                // S-H1: the role decides, not the peer's flag. A CHILD takes membership (spec §4.8), which already went
+                // both ways in the offer exchange above, and, from protocol 3, the parents' FROM_PARENTS_TO_ALL entries
+                // (its PIN, safe zones and storage access, spec §10, §8.1), whatever its Hello says. A protocol 2 child
+                // gets no batch at all, as before.
                 val peerTakesForeign = hello.wants_foreign_entries && !peer.isChild
-                val n = sendData(ch, membership, peerVector, peerTakesForeign, peer.id, window)
+                val scope = when {
+                    peerTakesForeign -> SendScope.ALL
+                    agreed >= CLOUD_PROTOCOL_VERSION -> SendScope.FROM_PARENTS
+                    else -> SendScope.NONE
+                }
+                val n = sendData(ch, membership, peerVector, scope, peer.id, window)
                 send(ch, SyncMessage(done = Done()))
                 sentTotal.complete(n)
             } catch (e: IOException) {
@@ -283,6 +337,11 @@ class SyncSession internal constructor(
             var acks = 0
             var peerDone = false
             var sentBatches = -1 // -1 until our sender has finished
+            // The lowest seq of the peer's own log that we (showOthers off) dropped this session (Skipped or Unwanted): a
+            // share entry we cannot take yet ([holdsBack]). Completion stops below it.
+            var heldBack = Long.MAX_VALUE
+            var completedTo = 0L
+            var lastAck: VersionVector? = null // the peer's vector in its last ack of our batches
             while (!(peerDone && sentBatches >= 0 && acks >= sentBatches)) {
                 val msg = select<SyncMessage?> {
                     if (sentBatches < 0) sentTotal.onAwait { sentBatches = it; null }
@@ -319,12 +378,15 @@ class SyncSession internal constructor(
                                     inBatch += e.author to e.seq
                                 }
                                 Verdict.Duplicate -> noteLiveSet(e!!) // still useful while gaps remain below it
-                                Verdict.Unwanted -> Unit
+                                Verdict.Unwanted -> if (holdsBack(e!!, peer.id)) heldBack = minOf(heldBack, e.seq)
                                 is Verdict.Invalid -> {
                                     invalid++
                                     log("invalid entry from ${peer.id.hex}: ${verdict.reason}")
                                 }
-                                is Verdict.Skipped -> log("skipped ${e!!.author.hex.take(8)}#${e.seq} from ${peer.id.hex}: ${verdict.reason}")
+                                is Verdict.Skipped -> {
+                                    log("skipped ${e!!.author.hex.take(8)}#${e.seq} from ${peer.id.hex}: ${verdict.reason}")
+                                    if (holdsBack(e, peer.id)) heldBack = minOf(heldBack, e.seq)
+                                }
                             }
                         }
                         if (invalid > MAX_INVALID) {
@@ -338,6 +400,7 @@ class SyncSession internal constructor(
                     }
                     msg.ack != null -> {
                         acks++
+                        lastAck = VersionVector.fromProto(msg.ack!!.vector)
                         // A stray extra ack from a misbehaving peer must not break the window.
                         try {
                             window.release()
@@ -348,9 +411,18 @@ class SyncSession internal constructor(
                     msg.done != null -> {
                         peerDone = true
                         // Author completion: the peer has now sent every entry of its own log above our announced
-                        // contig (all its batches precede Done), so its own announced seq closes any gap we have.
-                        // Only when we asked for foreign entries; otherwise it was not obliged to send any.
-                        if (policy.showOthers) store.completeAuthor(peer.id, peerVector[peer.id])
+                        // contig that we take (all its batches precede Done), so its own announced seq closes any gap
+                        // we have. With showOthers on, that is its whole log. With it off (a child), from protocol 3 it
+                        // is every FROM_PARENTS_TO_ALL entry of a parent (SendScope.FROM_PARENTS), the only kinds we
+                        // keep of it, so the rest of its log is accounted for and our position follows its own (no
+                        // resend in the next session). A protocol 2 peer sends a child nothing: no completion then.
+                        // Only the author completes its own log: a relay never makes us skip a seq of another author.
+                        // A child never completes over a share entry it dropped in this session ([holdsBack]): a later
+                        // build that takes it (a wider FROM_PARENTS_TO_ALL, a relaxed rule) still receives it then.
+                        if (policy.showOthers || agreed >= CLOUD_PROTOCOL_VERSION) {
+                            completedTo = minOf(peerVector[peer.id], heldBack - 1)
+                            store.completeAuthor(peer.id, completedTo)
+                        }
                     }
                     msg.reject != null -> {
                         sender.cancel()
@@ -359,9 +431,27 @@ class SyncSession internal constructor(
                     else -> throw ProtocolException("unexpected message")
                 }
             }
+            // The vectors as the session left them, but only by the authors' completions: ours of the peer's log, and the
+            // peer's of ours (it completes ours whenever it asked for foreign entries or the session ran on protocol 3+).
+            // A session that only completed a log is then «nothing new» at once, while an entry written meanwhile still
+            // counts as new. Not the full end vectors: those would hide a publish made during the session.
+            val ourEnd = ourVector.with(peer.id, maxOf(ourVector[peer.id], completedTo))
+            // The peer's completion of ours is predictable only when we sent no batch: a child holding back an entry we sent
+            // completes only below it. After batches the announced vector is recorded; normal delivery then costs one more
+            // session, which sends nothing and records exactly.
+            val peerCompletes = agreed >= CLOUD_PROTOCOL_VERSION || hello.wants_foreign_entries
+            val peerEnd = if (peerCompletes && sentBatches == 0) {
+                peerVector.with(policy.self, maxOf(peerVector[policy.self], ourVector[policy.self]))
+            } else {
+                peerVector
+            }
             val completed = SessionResult.Completed(peer.id, received, sentBatches, agreed).also {
-                it.ourVector = ourVector.canonicalBytes()
-                it.peerVector = peerVector.canonicalBytes()
+                it.ourVector = ourEnd.canonicalBytes()
+                it.peerVector = peerEnd.canonicalBytes()
+                // Our batches moved nothing on the peer when its last ack still shows the vector it announced: e.g. an
+                // older child holding back a share entry it cannot take yet. Entries it stored above a gap leave its
+                // vector unchanged too; they are delivered, and sending them again would only repeat duplicates.
+                it.peerAckUnchanged = sentBatches == 0 || lastAck == peerVector
             }
             closingHandshake(ch, inbox)
             completed
@@ -395,15 +485,25 @@ class SyncSession internal constructor(
         }
     }
 
+    /** Runs a [SessionHandoff] call; a local exception is logged (type only, never the message: it might quote a token). */
+    private suspend fun <T> contained(what: String, call: suspend () -> T): T? = try {
+        call()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log("cloud handoff $what failed: ${e.javaClass.simpleName}")
+        null
+    }
+
     private suspend fun sendData(
         ch: SecureChannel,
         membership: MembershipState,
         peerVector: VersionVector,
-        peerWantsForeign: Boolean,
+        scope: SendScope,
         peerId: DeviceId,
         window: Semaphore,
     ): Int {
-        if (!peerWantsForeign) return 0
+        if (scope == SendScope.NONE) return 0
         var batches = 0
         val pending = mutableListOf<ByteString>()
         var size = 0
@@ -419,15 +519,26 @@ class SyncSession internal constructor(
 
         // Everything we hold above the peer's contiguous vector. Relaying above our own contig is safe: the peer
         // accounts for exactly the seqs it receives, so a gap stays a gap until someone (or the author) fills it.
+        // For a child (SendScope.FROM_PARENTS): only parents' entries of the share kinds (SyncPolicy.shareKinds), the
+        // ones its EntryValidator takes (the admin check is the reader's, as on every phone). Child authors are skipped
+        // before any read on purpose, so siblings' logs cost nothing; a parent's log is read through the kind index
+        // (EntryStore.entriesAfter with kinds), not page by page. Selected per kind, so the child accounts those seqs
+        // only; the parent's own completion (at its Done) then lifts the child's position past the rest of its log.
         for (author in (membership.active.keys + membership.departed.keys).sorted()) {
             if (author == peerId) continue
+            if (scope == SendScope.FROM_PARENTS && membership.roleOf(author) == DeviceRole.CHILD) continue
             var after = peerVector[author]
             while (true) {
-                val page = store.entriesAfter(author, after, PAGE)
+                val page = if (scope == SendScope.FROM_PARENTS) {
+                    store.entriesAfter(author, after, policy.shareKinds, PAGE)
+                } else {
+                    store.entriesAfter(author, after, PAGE)
+                }
                 if (page.isEmpty()) break
                 for (e in page) {
                     after = e.seq
                     if (!membership.acceptsEntryFrom(e.author, e.seq)) continue
+                    if (scope == SendScope.FROM_PARENTS && e.kind !in policy.shareKinds) continue
                     if (e.bytes.size > BATCH_BYTES) {
                         log("skipping oversized entry ${e.author.hex}#${e.seq}")
                         continue
@@ -465,6 +576,17 @@ class SyncSession internal constructor(
             send(ch, SyncMessage(membership = MembershipOffer(entries = entriesOfPage, more = i < pages.lastIndex)))
         }
     }
+
+    /**
+     * An entry of [peerId]'s own log that we (showOthers off) did not take, whatever its kind. A peer sends a child only
+     * its own share set (SendScope.FROM_PARENTS), so such an entry is by construction a share entry this build cannot
+     * take yet: a kind it does not know (UNKNOWN), a known kind outside its [SyncPolicy.shareKinds], or one its rules
+     * refuse. Completion must not account it.
+     */
+    private fun holdsBack(e: DecodedEntry, peerId: DeviceId): Boolean = !policy.showOthers && e.author == peerId
+
+    /** What [sendData] sends: everything, a child's share (parents' FROM_PARENTS_TO_ALL entries), or nothing. */
+    private enum class SendScope { ALL, FROM_PARENTS, NONE }
 
     private fun decodeOrNull(raw: ByteString): DecodedEntry? = try {
         DecodedEntry.decode(raw.toByteArray())

@@ -12,8 +12,6 @@ import app.kinsight.core.usage.LocalHours
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.temporal.WeekFields
-import java.util.Locale
 import kotlin.math.abs
 
 /**
@@ -37,6 +35,9 @@ object UsageReadModel {
     const val MAX_MS_PER_DAY = 86_400_000L
     const val MAX_UNLOCKS_PER_DAY = 10_000
     const val MAX_CLOCK_SKEW_MS = 5 * 60_000L
+
+    /** Apps a card and a report show before «Все приложения» (UI refresh §3, §4). */
+    const val TOP_APPS = 3
 
     /**
      * Sharing on and no summary for this long reads as «collection is off» on the parent's card (U1); the floor of
@@ -119,40 +120,6 @@ object UsageReadModel {
     }
 
     /**
-     * Weekday × hour means over the [dates] that have a usable detail (spec §9.3: average over days with hourly data);
-     * null when none has. Rows follow [weekFields]' first day of week.
-     */
-    fun heatmap(
-        summaries: Map<LocalDate, DecodedEntry>?,
-        details: Map<LocalDate, DecodedEntry>?,
-        dates: List<LocalDate>,
-        today: LocalDate,
-        catalog: Map<String, AppCatalog>,
-        overrides: Map<String, AppCategory>,
-        weekFields: WeekFields,
-    ): Heatmap? {
-        val past = dates.filter { !it.isAfter(today) }
-        val sums = Array(7) { LongArray(24) }
-        val perWeekday = IntArray(7)
-        val unlockSums = LongArray(24)
-        var covered = 0
-        for (date in past) {
-            val detail = detailOf(summaries, details, date) ?: continue
-            val row = (date.dayOfWeek.value - weekFields.firstDayOfWeek.value + 7) % 7
-            perWeekday[row]++
-            covered++
-            hours(detail, catalog, overrides).forEach {
-                sums[row][it.hour] += it.totalMs
-                unlockSums[it.hour] += it.unlocks.toLong()
-            }
-        }
-        if (covered == 0) return null
-        val cells = Array(7) { row -> LongArray(24) { h -> if (perWeekday[row] == 0) 0L else sums[row][h] / perWeekday[row] } }
-        val unlocks = IntArray(24) { h -> Math.round(unlockSums[h].toDouble() / covered).toInt() }
-        return Heatmap(cells, unlocks, covered, past.size, weekFields.firstDayOfWeek)
-    }
-
-    /**
      * The real length of each clock hour 0..23 of [detail]'s local date in its zone (LocalHours.lengthMs), within
      * [MAX_MS_PER_HOUR_SLOT]; every hour [MAX_MS_PER_HOUR_SLOT] when the date or the zone does not parse (untrusted peer).
      */
@@ -173,7 +140,7 @@ object UsageReadModel {
         largest.setValue(largest.value + total - cats.values.sum())
     }
 
-    fun events(entries: List<DecodedEntry>): List<EventView> {
+    fun events(entries: List<DecodedEntry>, zoneNames: Map<String, String> = emptyMap()): List<EventView> {
         val sharingKinds = WireConstants.SHARING_KINDS
         val firstSharing = entries.filter { it.body.state_event?.kind in sharingKinds }
             .groupBy { it.author }
@@ -181,7 +148,11 @@ object UsageReadModel {
         return entries.mapNotNull { e ->
             e.body.state_event?.let {
                 val first = it.kind == StateEvent.Kind.SHARING_RESUMED && firstSharing[e.author] == e.seq
-                EventView(e.author, e.seq, it.kind, it.from_ms, it.to_ms, e.body.created_at_ms, it.clock_shift_ms, first)
+                val zone = it.zone_id.takeIf { z -> z.size == 16 }?.hex()
+                EventView(
+                    e.author, e.seq, it.kind, it.from_ms, it.to_ms, e.body.created_at_ms, it.clock_shift_ms, first,
+                    zoneId = zone, zoneName = zone?.let(zoneNames::get),
+                )
             }
         }
     }
@@ -274,22 +245,20 @@ object UsageReadModel {
      * The child consented (sharing on) but its phone does not collect (U1, audit 2026-10-11): its last
      * USAGE_ACCESS_REVOKED is not followed by a USAGE_ACCESS_RESTORED, or nothing arrived for [staleMs] since its
      * latest summary ([updatedMs]) or, when it never sent one, since its consent (the first SHARING_RESUMED). [own]:
-     * the child's own events. A pause, no consent or a departed child is false: their own status says it. An open
-     * NOTIFICATION_HIDDEN is false too: the child's phone collects but holds the time back ([notificationHidden]).
+     * the child's own events. A pause, no consent or a departed child is false: their own status says it.
      */
     fun collectionOff(sharing: Sharing, own: List<EventView>, updatedMs: Long?, nowMs: Long, staleMs: Long = COLLECTION_STALE_MS): Boolean {
         if (sharing != Sharing.On) return false
         val access = own.filter { it.kind == StateEvent.Kind.USAGE_ACCESS_REVOKED || it.kind == StateEvent.Kind.USAGE_ACCESS_RESTORED }
             .maxByOrNull { it.seq }
         if (access?.kind == StateEvent.Kind.USAGE_ACCESS_REVOKED) return true
-        if (notificationHidden(sharing, own)) return false
         val since = updatedMs ?: own.firstOrNull { it.firstSharing }?.createdMs ?: return false
         return nowMs - since > staleMs
     }
 
     /**
-     * Sharing is on and the child's latest NOTIFICATION_HIDDEN has no later NOTIFICATION_SHOWN (S-M3): its phone pauses
-     * sending until the notification is back. [own]: the child's own events.
+     * Sharing is on and the child's latest NOTIFICATION_HIDDEN has no later NOTIFICATION_SHOWN: the notification cannot
+     * be seen on its phone (shown to the parents, spec §10). [own]: the child's own events.
      */
     fun notificationHidden(sharing: Sharing, own: List<EventView>): Boolean {
         if (sharing != Sharing.On) return false
@@ -361,6 +330,9 @@ object UsageReadModel {
         noContactMs: Long = 0,
         /** The child's UsageDetail per local date, for «usual by this time» (U2). */
         details: Map<LocalDate, DecodedEntry>? = null,
+        /** The child's catalog and the family overrides, for today's top apps and their categories (UI refresh §3). */
+        catalog: Map<String, AppCatalog> = emptyMap(),
+        overrides: Map<String, AppCategory> = emptyMap(),
     ): DeviceUsage {
         val own = surfaced(member, byDate)
         // The child's own day (spec §9.3), as on the detail screen: it can already be tomorrow for the viewer.
@@ -371,10 +343,16 @@ object UsageReadModel {
         val mine = events.filter { it.author == member.id }
         val sharing = sharing(mine, departed)
         val off = member.role == Role.CHILD && collectionOff(sharing, mine, updated, nowMs, maxOf(COLLECTION_STALE_MS, noContactMs))
+        val top = apps(own, listOf(today), catalog)
+            .filter { it.packageName != Categories.REMAINDER_PACKAGE }
+            .take(TOP_APPS)
+            .map { TopApp(it, Categories.of(it.packageName, catalog[it.packageName]?.category, overrides)) }
         return DeviceUsage(
             member, week.last(), week, average(own, today), sharing, updated,
             collectionOff = off, notificationHidden = member.role == Role.CHILD && notificationHidden(sharing, mine), comparison = comparison(own, surfaced(member, details), today),
             childZoneId = latestZoneId(own),
+            topApps = top,
+            setupWarnings = if (member.role == Role.CHILD) SetupWarnings.of(mine) else emptySet(),
         )
     }
 
@@ -389,7 +367,6 @@ object UsageReadModel {
         zone: ZoneId = ZoneId.systemDefault(),
         overrides: Map<String, AppCategory> = emptyMap(),
         details: Map<LocalDate, DecodedEntry>? = null,
-        weekFields: WeekFields = WeekFields.of(Locale.getDefault()),
         nowMs: Long? = null,
     ): DeviceDetail {
         val own = surfaced(member, byDate)
@@ -399,40 +376,38 @@ object UsageReadModel {
         val mine = events.filter { it.author == member.id }
         val days = days(own, range.dates(), today)
         val dayCategories = days.map { dayCategories(own, it, catalog, overrides) }
-        val categoryTotals = java.util.EnumMap<AppCategory, Long>(AppCategory::class.java)
-        dayCategories.forEach { d -> d.forEach { (c, ms) -> categoryTotals.merge(c, ms, Long::plus) } }
         val start = range.start.atStartOfDay(zone).toInstant().toEpochMilli()
         val end = range.end.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
         val cap = nowMs?.plus(MAX_CLOCK_SKEW_MS) ?: Long.MAX_VALUE
         val updated = own?.values?.maxOfOrNull { it.body.created_at_ms.coerceAtMost(cap) }
+        val apps = apps(own, days.filter { it.known }.map { it.date }, catalog)
         return DeviceDetail(
             member = member,
             range = range,
             days = days,
             totalMs = days.sumOf { it.totalMs },
             unlocks = days.sumOf { it.unlocks },
-            apps = apps(own, days.filter { it.known }.map { it.date }, catalog),
+            apps = apps,
             events = mine.filter { inWindow(it, start, end) }.sortedByDescending { it.seq },
             sharing = sharing(mine, departed),
             canGoBack = own?.keys?.any { it.isBefore(range.start) } == true,
             canGoForward = range.end.isBefore(today),
-            categories = categoryTotals.entries.filter { it.value > 0 }
-                .sortedWith(compareByDescending<Map.Entry<AppCategory, Long>> { it.value }.thenBy { it.key.ordinal })
-                .map { CategoryTotal(it.key, it.value) },
+            categories = categoryTotals(dayCategories),
             dayCategories = dayCategories,
             hours = if (range.period == Period.DAY) {
                 detailOf(own, ownDetails, range.start)?.takeUnless { range.start.isAfter(today) }?.let { hours(it, catalog, overrides) }
             } else {
                 null
             },
-            heatmap = if (range.period == Period.DAY) null else heatmap(own, ownDetails, range.dates(), today, catalog, overrides, weekFields),
             today = today,
             updatedMs = updated,
             childZoneId = latestZoneId(own),
+            dayComparison = dayComparison(own, ownDetails, range, today),
+            appCategories = apps.associate { it.packageName to Categories.of(it.packageName, catalog[it.packageName]?.category, overrides) },
         )
     }
 
-    /** [detail]'s app list alone (the «All apps» screen): the same days, bounds and apps, nothing else computed. */
+    /** [detail]'s app list alone (the «All apps» screen): the same days, bounds and apps, and the range's categories. */
     fun appList(
         member: MemberView,
         byDate: Map<LocalDate, DecodedEntry>?,
@@ -440,12 +415,41 @@ object UsageReadModel {
         range: DetailRange,
         today: LocalDate,
         nowMs: Long? = null,
+        overrides: Map<String, AppCategory> = emptyMap(),
     ): AppList {
         val own = surfaced(member, byDate)
         @Suppress("NAME_SHADOWING")
         val today = childToday(own, today, nowMs)
-        val known = days(own, range.dates(), today).filter { it.known }.map { it.date }
-        return AppList(member, range, apps(own, known, catalog), today)
+        val known = days(own, range.dates(), today).filter { it.known }
+        return AppList(
+            member, range, apps(own, known.map { it.date }, catalog), today,
+            categories = categoryTotals(known.map { dayCategories(own, it, catalog, overrides) }),
+        )
+    }
+
+    /** The totals of some days' category stacks, largest first (ties in AppCategory order), zero omitted. */
+    private fun categoryTotals(stacks: List<Map<AppCategory, Long>>): List<CategoryTotal> {
+        val totals = java.util.EnumMap<AppCategory, Long>(AppCategory::class.java)
+        stacks.forEach { d -> d.forEach { (c, ms) -> totals.merge(c, ms, Long::plus) } }
+        return totals.entries.filter { it.value > 0 }
+            .sortedWith(compareByDescending<Map.Entry<AppCategory, Long>> { it.value }.thenBy { it.key.ordinal })
+            .map { CategoryTotal(it.key, it.value) }
+    }
+
+    /**
+     * Block 1 of a DAY (UI refresh §4): the child's today against «usual by this time» ([comparison], never a part day
+     * against whole days), an earlier day with a summary against the mean of the 7 days before it; otherwise none.
+     */
+    private fun dayComparison(
+        own: Map<LocalDate, DecodedEntry>?,
+        ownDetails: Map<LocalDate, DecodedEntry>?,
+        range: DetailRange,
+        today: LocalDate,
+    ): TodayComparison? = when {
+        range.period != Period.DAY || range.start.isAfter(today) -> null
+        range.start == today -> comparison(own, ownDetails, today)
+        own?.containsKey(range.start) != true -> null
+        else -> average(own, range.start)?.let(TodayComparison::FullDay)
     }
 
     /**

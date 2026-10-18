@@ -2,9 +2,11 @@ package app.kinsight.core.crypto
 
 import org.bouncycastle.crypto.InvalidCipherTextException
 import org.bouncycastle.crypto.digests.SHA256Digest
+import org.bouncycastle.crypto.generators.Argon2BytesGenerator
 import org.bouncycastle.crypto.macs.HMac
 import org.bouncycastle.crypto.modes.ChaCha20Poly1305
 import org.bouncycastle.crypto.params.AEADParameters
+import org.bouncycastle.crypto.params.Argon2Parameters
 import org.bouncycastle.crypto.params.KeyParameter
 import java.security.SecureRandom
 
@@ -22,6 +24,24 @@ object Primitives {
         mac.init(KeyParameter(key))
         parts.forEach { mac.update(it, 0, it.size) }
         return ByteArray(32).also { mac.doFinal(it, 0) }
+    }
+
+    /**
+     * Argon2id (RFC 9106, version 0x13): a slow, memory-hard hash for a short secret such as the parent PIN (spec §10).
+     * [memoryKib] and [iterations] are the cost; the caller bounds them.
+     */
+    fun argon2id(password: ByteArray, salt: ByteArray, memoryKib: Int, iterations: Int, parallelism: Int = 1, outLen: Int = 32): ByteArray {
+        val generator = Argon2BytesGenerator()
+        generator.init(
+            Argon2Parameters.Builder(Argon2Parameters.ARGON2_id)
+                .withVersion(Argon2Parameters.ARGON2_VERSION_13)
+                .withSalt(salt)
+                .withMemoryAsKB(memoryKib)
+                .withIterations(iterations)
+                .withParallelism(parallelism)
+                .build(),
+        )
+        return ByteArray(outLen).also { generator.generateBytes(password, it) }
     }
 
     fun chachaSeal(key: ByteArray, nonce: ByteArray, aad: ByteArray, plaintext: ByteArray): ByteArray {

@@ -9,6 +9,7 @@
     <string name="ds_period_previous">Periodo anterior</string>
     <string name="ds_period_next">Periodo siguiente</string>
     <string name="ds_moment_with_child">%1$s (hora del menor: %2$s)</string>
-    <string name="ds_heat_less">Menos</string>
-    <string name="ds_heat_more">Más</string>
+    <string name="ds_limit_left">Quedan %1$s de %2$s</string>
+    <string name="ds_limit_over">%1$s por encima del límite</string>
+    <string name="ds_limit_reached">Límite alcanzado</string>
 </resources>

@@ -57,7 +57,7 @@ class ThresholdsScreenTest {
     /** Like the view model: a delete is pending until «Undo» or the end of its window. */
     private fun show(rules: List<ThresholdRule>, canEdit: Boolean = true, pendingAtStart: Set<String> = emptySet()) = rule.setContent {
         var pending by remember { mutableStateOf(pendingAtStart) }
-        KinsightTheme(dynamicColor = false) {
+        KinsightTheme() {
             ThresholdsScreen(
                 ThresholdsState("Kid", canEdit, rules, apps),
                 pending = pending,
@@ -227,7 +227,34 @@ class ThresholdsScreenTest {
         show(listOf(total), canEdit = false)
         rule.onNodeWithText("Only a parent can set limits.").assertExists()
         rule.onNodeWithTag("thr_add").assertDoesNotExist()
+        rule.onNodeWithTag("thr_total_set").assertDoesNotExist()
         rule.onNodeWithTag("thr_delete_${total.id}").assertDoesNotExist()
+    }
+
+    @Test
+    fun theDayTotalIsACardWithTodaysBar() {
+        rule.setContent {
+            KinsightTheme {
+                ThresholdsScreen(
+                    ThresholdsState("Kid", true, listOf(total, games), apps, todayMs = 2 * hour),
+                    pending = emptySet(), onSave = { t, ms -> saved += t to ms }, onDelete = {}, onUndo = {}, onCommitDelete = {}, onBack = {},
+                )
+            }
+        }
+        rule.onNodeWithTag("thr_total").assertExists()
+        rule.onNodeWithText("Today 2 h").assertExists()
+        rule.onNodeWithTag("limit_bar_text", useUnmergedTree = true).assertTextEquals("1 h left of 3 h")
+        rule.onNodeWithText("Separate limits").assertExists()
+        rule.onNodeWithTag("thr_subtitle").assertTextEquals("We notify you once a day when a limit is passed. Nothing is blocked.")
+    }
+
+    @Test
+    fun withoutADayTotalTheCardInvitesToSetOne() {
+        show(listOf(games))
+        rule.onNodeWithText("No limit for the whole day yet").assertExists()
+        rule.onNodeWithTag("thr_total_set").performClick()
+        rule.onNodeWithTag("thr_save").performClick()
+        assertEquals(listOf(ThresholdTarget.Total to ThresholdValues.DEFAULT_MS), saved)
     }
 
     @Test

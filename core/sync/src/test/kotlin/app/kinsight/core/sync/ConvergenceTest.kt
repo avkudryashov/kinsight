@@ -139,7 +139,12 @@ class ConvergenceTest {
             }
             assertTrue(overrides(kid).isEmpty(), "seed=$seed: the child got overrides")
             assertEquals(kidLive, kid.store.liveEntries().toSet(), "seed=$seed: the child's entries changed")
-            assertEquals(kidVector, kid.store.versionVector(), "seed=$seed: the child's vector changed")
+            assertEquals(kidVector[kid.keys.deviceId], kid.store.versionVector()[kid.keys.deviceId], "seed=$seed: the child's own position changed")
+            // Each parent completes its own log on the child (nothing of it the child takes is missing), so the child's
+            // position for it follows the parent's own: no resend of the same entries next session.
+            for (p in listOf(p0, p1)) {
+                assertEquals(p.store.versionVector()[p.keys.deviceId], kid.store.versionVector()[p.keys.deviceId], "seed=$seed: ${p.name}'s log on the child")
+            }
         }
     }
 }

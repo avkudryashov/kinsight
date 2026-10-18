@@ -1,10 +1,13 @@
 package app.kinsight.core.designsystem
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.isHeading
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.kinsight.core.designsystem.component.EmptyState
@@ -25,7 +28,7 @@ class StatesTest {
 
     @Test
     fun emptyStateTitleIsAHeadingAndNotLive() {
-        rule.setContent { KinsightTheme(dynamicColor = false) { EmptyState("Nothing yet", "Pair a phone first") } }
+        rule.setContent { KinsightTheme() { EmptyState("Nothing yet", "Pair a phone first") } }
         rule.onNode(isHeading()).assertExists()
         rule.onNodeWithText("Nothing yet").assertExists()
         rule.onNode(politeLiveRegion).assertDoesNotExist()
@@ -33,8 +36,22 @@ class StatesTest {
 
     @Test
     fun errorStateIsAnnouncedPolitely() {
-        rule.setContent { KinsightTheme(dynamicColor = false) { ErrorState("Failed", "Try again") } }
+        rule.setContent { KinsightTheme() { ErrorState("Failed", "Try again") } }
         rule.onNode(isHeading()).assertExists()
         rule.onNode(politeLiveRegion).assertExists()
+    }
+
+    /** UI refresh «Ошибки и пустые состояния»: an icon on a disc in the palette, never read by TalkBack. */
+    @Test
+    fun bothStatesCarryADecorativeIcon() {
+        rule.setContent {
+            KinsightTheme {
+                Column {
+                    EmptyState("Nothing yet", "Pair a phone first")
+                    ErrorState("Failed", "Try again")
+                }
+            }
+        }
+        rule.onAllNodesWithTag("state_icon", useUnmergedTree = true).assertCountEquals(2)
     }
 }

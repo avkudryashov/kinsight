@@ -4,6 +4,8 @@ import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
+import app.kinsight.core.model.Member
+import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.proto.AddMember
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.MembershipOp
@@ -85,16 +87,39 @@ suspend fun syncPair(
     versionsB: IntRange = ProtocolVersions.SUPPORTED,
     legacyA: Boolean = false,
     legacyB: Boolean = false,
+    handoffA: SessionHandoff? = null,
+    handoffB: SessionHandoff? = null,
 ): Pair<SessionResult, SessionResult> = coroutineScope {
     val (sa, sb) = MemoryPipe.pair(faults, capacity)
     val prologue = SecureChannel.prologue(a.store.groupId)
     val ra = async {
-        runCatching { SyncSession(a.store, a.policy, versions = versionsA, legacyHello = legacyA).run(SecureChannel.initiate(sa, a.keys.dh, prologue)) }
+        runCatching { SyncSession(a.store, a.policy, versions = versionsA, legacyHello = legacyA, handoff = handoffA).run(SecureChannel.initiate(sa, a.keys.dh, prologue)) }
             .getOrElse { SessionResult.Failed(it) }
     }
     val rb = async {
-        runCatching { SyncSession(b.store, b.policy, versions = versionsB, legacyHello = legacyB).run(SecureChannel.accept(sb, b.keys.dh, prologue)) }
+        runCatching { SyncSession(b.store, b.policy, versions = versionsB, legacyHello = legacyB, handoff = handoffB).run(SecureChannel.accept(sb, b.keys.dh, prologue)) }
             .getOrElse { SessionResult.Failed(it) }
     }
     ra.await() to rb.await()
+}
+
+/** Hands [give]; records what it receives. [failOffer] / [failReceive]: the call throws, like a broken vault. */
+internal class RecordingHandoff(
+    private val give: HandedAccess?,
+    private val failOffer: Boolean = false,
+    private val failReceive: Boolean = false,
+) : SessionHandoff {
+    val got = mutableListOf<HandedAccess>()
+    var calls = 0
+
+    override suspend fun offer(peer: Member, membership: MembershipState): HandedAccess? {
+        if (failOffer) throw IllegalStateException("vault unavailable")
+        return give
+    }
+
+    override suspend fun receive(peer: Member, membership: MembershipState, access: HandedAccess) {
+        calls++
+        if (failReceive) throw IllegalStateException("vault unavailable")
+        got += access
+    }
 }

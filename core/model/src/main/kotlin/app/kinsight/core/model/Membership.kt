@@ -4,6 +4,7 @@ import app.kinsight.core.crypto.Primitives
 import app.kinsight.core.crypto.toHex
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.RotateDiscoveryKey
+import app.kinsight.core.model.proto.StorageOwner
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
 
@@ -21,13 +22,48 @@ data class Member(
 
 data class Departed(val member: Member, val lastSeq: Long)
 
+/**
+ * The current cloud storage owner (spec §4): an active admin parent when set, but it may have left since. The fields
+ * are the StorageOwner op in force. [tokenId] is empty for ops written before Y3; [departed] are the departed members its
+ * signer listed (spec §7.4), capped at [MembershipLimits.MAX_OWNER_DEPARTED], malformed ids dropped. [off]: the owner
+ * [deviceId] turned the cloud off for the family with this op ([MembershipState.storageOff]).
+ */
+data class StorageOwnerState(
+    val deviceId: DeviceId,
+    val storageId: ByteString,
+    val generation: Long,
+    val tokenId: ByteString = ByteString.EMPTY,
+    val departed: Set<DeviceId> = emptySet(),
+    val off: Boolean = false,
+) {
+    companion object {
+        /** The state of [so], whose device id the caller decoded to [owner]. */
+        fun of(owner: DeviceId, so: StorageOwner): StorageOwnerState {
+            val departed = so.departed.take(MembershipLimits.MAX_OWNER_DEPARTED).filter { it.size == 16 }
+                .map { DeviceId.fromBytes(it.toByteArray()) }.toSet()
+            return StorageOwnerState(owner, so.storage_id, so.generation, so.token_id, departed, so.off)
+        }
+    }
+}
+
 data class MembershipState(
     val groupId: GroupId,
     val active: Map<DeviceId, Member>,
     val departed: Map<DeviceId, Departed>,
     val discoveryRotation: RotateDiscoveryKey?,
     val effectiveEntries: Set<DecodedEntry>,
+    /** The storage owner in force; null without the cloud, also once the owner turned it off ([storageOff]). */
+    val storageOwner: StorageOwnerState? = null,
+    /**
+     * The owner's «выключить» in force (StorageOwner.off): the cloud is off for the whole family, so [storageOwner] is
+     * null and every cloud decision reads «no storage owner». It keeps the generation and the storage id that was turned
+     * off: turning the cloud on again signs above [storageGeneration].
+     */
+    val storageOff: StorageOwnerState? = null,
 ) {
+    /** The generation of the StorageOwner op in force, turned off or not; 0 when the cloud was never on. */
+    val storageGeneration: Long get() = (storageOwner ?: storageOff)?.generation ?: 0L
+
     fun signKeyOf(id: DeviceId): ByteArray? =
         (active[id] ?: departed[id]?.member)?.signPublicKey?.toByteArray()
 
@@ -182,6 +218,7 @@ object Membership {
         val adminCut = mutableMapOf<DeviceId, Long>()
         val demoted = mutableSetOf<DeviceId>()
         var rotation: RotateDiscoveryKey? = null
+        var owner: StorageOwnerState? = null
         val effective = mutableSetOf(genesis)
 
         for (e in ordered) {
@@ -261,11 +298,31 @@ object Membership {
                         false
                     }
                 }
+                op.storage_owner != null -> {
+                    val so = op.storage_owner!!
+                    val id = idOrNull(so.device_id)
+                    val target = id?.let { active[it] }
+                    val current = owner
+                    // «Выключить»: only the owner in force, naming itself; nothing to turn off without the cloud on.
+                    val offRefused = so.off && (current == null || current.off || e.author != current.deviceId || id != e.author)
+                    if (target == null || !target.isAdmin || target.isChild || so.storage_id.size != 16 || so.generation < 1 ||
+                        (current != null && so.generation <= current.generation) || offRefused
+                    ) {
+                        false
+                    } else {
+                        owner = StorageOwnerState.of(id, so)
+                        true
+                    }
+                }
                 else -> false
             }
             if (applied) effective += e
         }
-        val state = MembershipState(groupId, active.toMap(), departed.toMap(), rotation, effective.toSet())
+        val state = MembershipState(
+            groupId, active.toMap(), departed.toMap(), rotation, effective.toSet(),
+            storageOwner = owner?.takeIf { !it.off },
+            storageOff = owner?.takeIf { it.off },
+        )
         return Pass(state, Cutoffs(memberCut.toMap(), adminCut.toMap()))
     }
 }

@@ -76,7 +76,8 @@ done
 
 echo "== first parent invites a parent's phone"
 home "$P"
-tap "$P" nav_group 30
+tap "$P" nav_more 30
+tap "$P" more_family
 tap "$P" grp_invite_parent
 URI=none
 for _ in $(seq 30); do
@@ -92,7 +93,7 @@ confirmed=0
 for _ in $(seq 120); do
   if [ $confirmed = 0 ] && has "$P" 'resource-id="inv_confirm"'; then tap "$P" inv_confirm; confirmed=1; continue; fi
   if has "$Q" 'resource-id="nav_overview"'; then break; fi
-  for t in onb_done onb_agree onb_continue; do
+  for t in onb_done onb_agree onb_continue onb_later; do
     if has "$Q" "resource-id=\"$t\""; then tap "$Q" $t 2; break; fi
   done
   sleep 1

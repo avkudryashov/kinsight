@@ -2,14 +2,19 @@ package app.kinsight.core.database
 
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
+import app.kinsight.core.model.EntryKind
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.addMember
+import app.kinsight.core.model.locationEntry
+import app.kinsight.core.model.safeZoneEntry
+import app.kinsight.core.model.proto.Location
 import app.kinsight.core.model.proto.DeviceRole
-import app.kinsight.core.model.removeMemberEntry
 import app.kinsight.core.model.proto.AppCatalog
 import app.kinsight.core.model.proto.AppTotal
 import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.model.proto.UsageSummary
+import app.kinsight.core.model.removeMemberEntry
+import app.kinsight.core.model.storageHandoverEntry
 import app.kinsight.core.sync.SyncPolicy
 import app.kinsight.core.sync.categoryOverride
 import app.kinsight.core.sync.detail
@@ -43,6 +48,22 @@ class RoomEntryStoreTest {
     fun cleanUp() {
         opened.forEach { it.close() }
         dir.deleteRecursively()
+    }
+
+    @Test
+    fun entriesOfKindsAfterReadOnlyThoseKindsInSeqOrder() = runTest {
+        val store = open()
+        store.applyBatch(listOf(genesis.entry))
+        val usage = author.summary("2026-10-08", 1)
+        val zone = author.safeZoneEntry(ByteArray(16) { 7 }, "Home", 404_168_000, -37_038_000, 150, rank = 1)
+        val point = author.locationEntry(404_168_000, -37_038_000, 20, 1_760_000_000_000L, Location.Provider.GPS)
+        val zone2 = author.safeZoneEntry(ByteArray(16) { 8 }, "School", 404_168_000, -37_038_000, 150, rank = 1)
+        store.applyBatch(listOf(usage, zone, point, zone2))
+        val share = setOf(EntryKind.SAFE_ZONE, EntryKind.PARENT_PIN)
+        assertEquals(listOf(zone, zone2), store.entriesAfter(keys.deviceId, 0, share, 10))
+        assertEquals(listOf(zone2), store.entriesAfter(keys.deviceId, zone.seq, share, 10))
+        assertEquals(listOf(zone), store.entriesAfter(keys.deviceId, 0, share, 1))
+        assertEquals(emptyList(), store.entriesAfter(keys.deviceId, 0, emptySet(), 10))
     }
 
     @Test
@@ -229,5 +250,34 @@ class RoomEntryStoreTest {
         store.pruneHistory(summaryRetentionDays = 30, nowMs = now, self = keys.deviceId, zone = ZoneOffset.UTC)
 
         assertEquals(listOf(otherChat), store.catalog())
+    }
+
+    @Test
+    fun storageHandoversAreReadByKindAndTheNewestReplacesTheOlder() = runTest {
+        val store = open()
+        val dad = DeviceKeys.generate().deviceId
+        val first = author.storageHandoverEntry(dad, 1)
+        store.applyBatch(listOf(first))
+        assertEquals(listOf(first), store.storageHandovers())
+        val second = author.storageHandoverEntry(dad, 2)
+        store.applyBatch(listOf(second))
+        assertEquals(listOf(second), store.storageHandovers())
+        assertEquals(11, EntryKinds.code(EntryKind.STORAGE_HANDOVER))
+    }
+
+    @Test
+    fun locationsAndSafeZonesAreReadByKindAndAZoneEditReplacesItsVersion() = runTest {
+        val store = open()
+        val zoneId = ByteArray(16) { 3 }
+        val first = author.safeZoneEntry(zoneId, "Home", 1, 2, 100, rank = 1)
+        val point = author.locationEntry(1, 2, 10, 1_000, Location.Provider.GPS)
+        store.applyBatch(listOf(first, point))
+        assertEquals(listOf(first), store.safeZones())
+        assertEquals(listOf(point), store.locations())
+        val edit = author.safeZoneEntry(zoneId, "Home", 1, 2, 200, rank = 2)
+        store.applyBatch(listOf(edit))
+        assertEquals(listOf(edit), store.safeZones())
+        assertEquals(9, EntryKinds.code(EntryKind.LOCATION))
+        assertEquals(10, EntryKinds.code(EntryKind.SAFE_ZONE))
     }
 }

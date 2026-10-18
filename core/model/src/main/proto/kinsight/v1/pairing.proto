@@ -4,12 +4,17 @@ package kinsight.v1;
 
 option java_package = "app.kinsight.core.model.proto";
 
+import "kinsight/v1/options.proto";
+
 // Pairing over its own Noise XX channel (spec §6.4). Guest -> admin.
 message PairRequest {
   bytes token = 1;            // 16 bytes from the QR code
   bytes sign_public_key = 2;  // the guest's Ed25519 key; its X25519 key is the Noise static key
   string display_name = 3;
   bytes proof = 4;            // Ed25519 over "kinsight-pair-v1" || token || guest X25519 public key
+  // The guest's highest sync protocol version; 0 from a guest older than Y3. Spec §7.3: the admin hands the owner role
+  // (the refresh token) only to a guest that can take it (protocol 3 or later).
+  uint32 protocol_version = 5;
 }
 
 // Admin -> guest: the token is good, the admin is deciding.
@@ -20,6 +25,23 @@ message PairWelcome {
   bytes discovery_key = 1;
   repeated bytes entries = 2;  // SignedEntry bytes: the group's effective membership entries
   bool more = 3;
+  // Spec §6 «Раздача», first page only; a 0.8.x guest ignores them. key_epoch / group_key: the newest group key generation
+  // the admin holds (group_key empty: generation 0, the discovery key above). The access fields: the storage access for
+  // the storage of the membership's StorageOwner, set only when the admin is that owner (only the owner hands the token);
+  // empty when the cloud is off or the admin is not the owner. The guest drops access from anyone else.
+  uint32 key_epoch = 4;
+  bytes group_key = 5 [(kinsight.v1.redacted) = true];
+  uint64 storage_generation = 6;
+  bytes storage_id = 7;
+  string access_token = 8 [(kinsight.v1.redacted) = true];
+  int64 access_expires_at_ms = 9;
+  // Spec §6, §7.3: the owner's refresh token, only in the owner's transfer invite to its new phone (with the access above);
+  // empty otherwise. The guest keeps it only together with the owner's access, and only when this welcome made it an admin.
+  string refresh_token = 10 [(kinsight.v1.redacted) = true];
+  // Spec §7.1, §7.4: with the refresh token only, the old owner's access tokens still waiting for their revoke (each one
+  // until every phone reports a storage generation above retired_generations[i]); the new owner revokes them in its place.
+  repeated string retired_tokens = 11 [(kinsight.v1.redacted) = true];
+  repeated uint64 retired_generations = 12;  // one per retired_tokens entry, the same order
 }
 
 message PairReject {
@@ -35,11 +57,18 @@ message PairReject {
   Reason reason = 1;
 }
 
+// Guest -> admin, after a welcome that carried a refresh token (spec §7.3), once the guest stored the welcome:
+// owner_role_taken is true when it signed the StorageOwner and keeps the owner's tokens.
+message PairAck {
+  bool owner_role_taken = 1;
+}
+
 message PairMessage {
   oneof msg {
     PairRequest request = 1;
     PairPending pending = 2;
     PairWelcome welcome = 3;
     PairReject reject = 4;
+    PairAck ack = 5;
   }
 }

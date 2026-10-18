@@ -10,6 +10,7 @@ import app.kinsight.core.sync.EntryStore
 import app.kinsight.core.sync.ProtocolVersions
 import app.kinsight.core.sync.SecureChannel
 import app.kinsight.core.sync.SessionResult
+import app.kinsight.core.sync.SessionHandoff
 import app.kinsight.core.sync.SyncPolicy
 import app.kinsight.core.sync.SyncSession
 import kotlinx.coroutines.CoroutineScope
@@ -39,6 +40,8 @@ class SyncContext(
     val keys: DeviceKeys,
     val store: EntryStore,
     val policy: SyncPolicy,
+    /** Spec §6 «Раздача»: the cloud hand-off of this device's sessions; null hands nothing. */
+    val handoff: SessionHandoff? = null,
 )
 
 /** The radio side of a session: Android opens GATT, reads the PSM and connects the L2CAP channel. */
@@ -300,7 +303,7 @@ class SyncEngine(
                     channel.close()
                     SessionResult.Rejected(Reject.Reason.TOO_MANY_INVALID, byPeer = false)
                 } else {
-                    SyncSession(ctx.store, ctx.policy, versions = protocolVersions(), log = log).run(channel)
+                    SyncSession(ctx.store, ctx.policy, versions = protocolVersions(), log = log, handoff = ctx.handoff).run(channel)
                 }
             }
         } catch (e: TimeoutCancellationException) {
@@ -336,7 +339,9 @@ class SyncEngine(
         val secondary = initiatedTo?.takeIf { it != primary }
         val problem = when (result) {
             is SessionResult.Completed -> {
-                val empty = result.received == 0 && result.sentBatches == 0
+                // Empty: nothing came in and nothing we sent moved the peer (an older child holding back a share entry
+                // acks an unchanged vector), so the same session again would change nothing.
+                val empty = result.received == 0 && result.peerAckUnchanged
                 listOfNotNull(primary, secondary).forEach {
                     if (it == primary) {
                         policy.onCompleted(it, now, empty, result.ourVector, result.peerVector)
