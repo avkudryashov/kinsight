@@ -67,14 +67,19 @@ object MapWork {
 
     /**
      * Spec §7: any network but roaming (Android's Data Saver still keeps background mobile data closed), with retry.
-     * KEEP: a pending run reads the ledger when it starts and fetches every missing block.
+     * A running download is kept (it reads the ledger and fetches every missing block); a waiting one is replaced, so a
+     * long WorkManager backoff left by an old failure never holds new blocks back for hours (device check 2026-10-18).
+     * Called off the main thread (MapCheckWorker).
      */
     fun syncSoon(context: Context): Operation {
+        val wm = WorkManager.getInstance(context)
+        val running = runCatching { wm.getWorkInfosForUniqueWork(SYNC).get() }.getOrDefault(emptyList())
+            .any { it.state == WorkInfo.State.RUNNING }
         val request = OneTimeWorkRequestBuilder<MapSyncWorker>()
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.NOT_ROAMING).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
             .build()
-        return WorkManager.getInstance(context).enqueueUniqueWork(SYNC, ExistingWorkPolicy.KEEP, request)
+        return wm.enqueueUniqueWork(SYNC, if (running) ExistingWorkPolicy.KEEP else ExistingWorkPolicy.REPLACE, request)
     }
 
     fun cancel(context: Context) {

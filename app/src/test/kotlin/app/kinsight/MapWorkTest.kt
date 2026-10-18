@@ -29,7 +29,10 @@ class MapWorkTest {
         assertEquals(NetworkType.NOT_ROAMING, first.constraints.requiredNetworkType)
         assertEquals(WorkInfo.State.ENQUEUED, first.state)
         MapWork.syncSoon(app).result.get()
-        assertEquals("a second ask keeps the queued run", first.id, wm.getWorkInfosForUniqueWork(MapWork.SYNC).get().single().id)
+        // A waiting run (maybe in a long backoff from an old failure) is replaced, so new blocks do not wait for hours.
+        val now = wm.getWorkInfosForUniqueWork(MapWork.SYNC).get().filter { it.state == WorkInfo.State.ENQUEUED }
+        assertEquals("a second ask replaces the waiting run", 1, now.size)
+        assertTrue("with a fresh run", now.single().id != first.id)
         MapWork.cancel(app)
         assertTrue(wm.getWorkInfosForUniqueWork(MapWork.SYNC).get().all { it.state == WorkInfo.State.CANCELLED })
     }
