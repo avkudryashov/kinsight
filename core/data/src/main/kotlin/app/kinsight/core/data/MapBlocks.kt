@@ -6,6 +6,7 @@ import app.kinsight.core.maps.MapSync
 import app.kinsight.core.maps.StreetMaps
 import app.kinsight.core.maps.SyncRun
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
@@ -13,6 +14,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -28,7 +30,7 @@ import java.util.concurrent.atomic.AtomicLong
  *
  * [cloudOn] is «the cloud is on and this phone is a parent» (CloudRunner.isOnAsParent). [check], [run] and [forget]
  * take one [lock], so the ledger writes, the run's sweep of partial files and the eviction never overlap. A leave bumps
- * [epoch] before it waits for the lock: a running download stops at its next read, and the run asks nothing more.
+ * [epoch] before it waits for the lock: a running download stops at its next tile request, and the run asks nothing more.
  */
 class MapBlocks(
     private val sync: MapSync,
@@ -64,12 +66,17 @@ class MapBlocks(
         needed
     }
 
-    /** Asks [cloudOn] again before every request: the cloud may go off, or the phone leave, while blocks download. */
+    /**
+     * Asks [cloudOn] again before every cell: the cloud may go off, or the phone leave, while blocks download. A stop of
+     * the caller (WorkManager cancels the worker when the phone starts roaming, spec §7) ends the blocking download at
+     * its next tile request too: cancellation alone never reaches it.
+     */
     suspend fun run(): SyncRun {
+        val job = currentCoroutineContext().job
         val run = withContext(Dispatchers.IO) {
             lock.withLock {
                 val start = epoch.get()
-                val current = { epoch.get() == start }
+                val current = { epoch.get() == start && job.isActive }
                 if (current() && cloudOn()) {
                     sync.sync(proceed = { current() && runBlocking { cloudOn() } }, aborted = { !current() })
                 } else {

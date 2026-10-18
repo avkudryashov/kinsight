@@ -91,6 +91,7 @@ class BlockStoreTest {
             capped = mapOf(Cell(511, 389) to 7L),
             source = "https://tiles.openfreemap.org/planet/20261011_080001_pt/{z}/{x}/{y}.pbf",
             sourceFetchedMs = 8L,
+            failed = mapOf(Cell(509, 389) to CellFailure(2, 9L)),
         )
         store.updateLedger { l }
         assertEquals(l, BlockStore(dir).ledger())

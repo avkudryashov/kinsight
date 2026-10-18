@@ -19,10 +19,12 @@ class HttpMapNet(
     private val readTimeoutMs: Int = 60_000,
     private val policy: UrlPolicy = UrlPolicy.Production,
 ) : MapNet {
-    override fun tileJson(): String = body(tileJsonUrl, IDENTITY, MAX_TILEJSON_BYTES)?.first?.decodeToString() ?: throw IOException("HTTP 204")
+    override fun tileJson(): String =
+        body(tileJsonUrl, IDENTITY, MAX_TILEJSON_BYTES) { IOException("TileJSON over the cap") }?.first?.decodeToString()
+            ?: throw IOException("HTTP 204")
 
     override fun tile(url: String): Tile? {
-        val (bytes, encoding) = body(url, GZIP, MAX_TILE_BYTES) ?: return null
+        val (bytes, encoding) = body(url, GZIP, MAX_TILE_BYTES, ::TileTooBig) ?: return null
         return when (encoding?.lowercase(Locale.ROOT)) {
             // Without the header the bytes say it: a gzip member starts 1f 8b, a vector tile never does.
             null -> Tile(bytes, gzip = PmTiles.isGzip(bytes))
@@ -33,11 +35,11 @@ class HttpMapNet(
     }
 
     /** The body (at most [cap] bytes) and its Content-Encoding; null for 204. */
-    private fun body(url: String, acceptEncoding: String, cap: Int): Pair<ByteArray, String?>? {
+    private fun body(url: String, acceptEncoding: String, cap: Int, over: () -> IOException): Pair<ByteArray, String?>? {
         val c = connect(url, acceptEncoding)
         try {
             if (c.responseCode == HttpURLConnection.HTTP_NO_CONTENT) return null
-            val bytes = c.inputStream.use { readCapped(it, cap) }
+            val bytes = c.inputStream.use { readCapped(it, cap, over) }
             return bytes to c.getHeaderField("Content-Encoding")
         } finally {
             c.disconnect()
@@ -80,13 +82,13 @@ class HttpMapNet(
         throw IOException("bad address")
     }
 
-    private fun readCapped(input: InputStream, cap: Int): ByteArray {
+    private fun readCapped(input: InputStream, cap: Int, over: () -> IOException): ByteArray {
         val out = ByteArrayOutputStream()
         val buf = ByteArray(8192)
         while (true) {
             val n = input.read(buf)
             if (n < 0) break
-            if (out.size() + n > cap) throw IOException("body over $cap bytes")
+            if (out.size() + n > cap) throw over()
             out.write(buf, 0, n)
         }
         return out.toByteArray()

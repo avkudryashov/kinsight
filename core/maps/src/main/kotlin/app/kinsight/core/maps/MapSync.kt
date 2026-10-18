@@ -6,6 +6,9 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 /** The map's network (offline map spec §7): OpenFreeMap's TileJSON and its tiles, nothing else. Both throw IOException. */
 interface MapNet {
@@ -43,10 +46,12 @@ class MapSync(
     fun check(points: List<MapPoint>, lastPoints: List<MapPoint>): Boolean {
         val now = clock()
         val ledger = store.updateLedger {
+            val usage = MapPlanner.touch(it.usage, points, now)
             it.copy(
-                usage = MapPlanner.touch(it.usage, points, now),
+                usage = usage,
                 centres = MapPlanner.touchCentres(it.centres, points, now),
                 capped = it.capped.filterValues { t -> now - t < MapPlanner.KEEP_MS },
+                failed = it.failed.filterKeys(usage::containsKey), // a cell no longer wanted forgets its failures
             )
         }
         val evicted = MapPlanner.evictions(store.present(), ledger.usage, MapPlanner.current(lastPoints), now)
@@ -59,38 +64,49 @@ class MapSync(
 
     /**
      * One download (spec §7): the TileJSON when the cached one is missing or a day old, then the planned cells one by
-     * one, each from at most [PARALLEL] requests at once, within [MapPlanner.MAX_TILES] tiles and
-     * [MapPlanner.MAX_BYTES] bytes. [proceed] is asked before the TileJSON and before every cell (the family's cloud
-     * may have gone off, or the phone left); [aborted] before every tile request (cheap), so a leave stops a cell at
-     * once. Either one ends the run with DONE and the partial deleted.
+     * one, each from at most [PARALLEL] requests at once. The run's [MapPlanner.MAX_TILES] requests (retries included)
+     * and [MapPlanner.MAX_BYTES] bytes are counted per tile as it goes, so the run stops at the tile that crosses either.
+     * [proceed] is asked before the TileJSON and before every cell (the family's cloud may have gone off, the phone
+     * left, or the worker been stopped); [aborted] before every tile request (cheap), so a leave or a stop (roaming)
+     * ends a cell at once. Either one ends the run with DONE and the partial deleted.
+     *
+     * Fix round 1: a cell that fails (a tile still failing after [TILE_TRIES] tries, a tile over the size cap) ends the
+     * run with RETRY and waits out [MapPlanner.failureWait]; a success clears its failures. While some wanted cell
+     * waits so, the run answers RETRY, so WorkManager comes back for it.
      */
     fun sync(proceed: () -> Boolean = { true }, aborted: () -> Boolean = { false }): SyncRun {
         store.sweepPartials()
         val now = clock()
-        if (plan(store.ledger(), now).isEmpty() || !MapPlanner.hasRoom(store.freeBytes())) return SyncRun.DONE
+        if (!MapPlanner.hasRoom(store.freeBytes())) return SyncRun.DONE
+        if (plan(store.ledger(), now).isEmpty()) return waiting(now)
         val ledger = store.ledger()
-        val cached = ledger.source?.let(TileSource::of)?.takeUnless { MapPlanner.sourceDue(ledger.sourceFetchedMs, now) }
-        val source = cached ?: run {
+        val due = MapPlanner.sourceDue(ledger.sourceFetchedMs, now)
+        val source = ledger.source?.let(TileSource::of)?.takeUnless { due } ?: run {
+            // A refused TileJSON is stamped too: not asked for again before a day has passed.
+            if (!due) return SyncRun.RETRY
             if (!proceed()) return SyncRun.DONE
-            val fetched = try {
-                TileJson.parse(net.tileJson())
+            val text = try {
+                net.tileJson()
             } catch (e: IOException) {
-                null
-            } ?: return SyncRun.RETRY
-            store.updateLedger { it.copy(source = fetched.template, sourceFetchedMs = now) }
-            fetched
+                return SyncRun.RETRY
+            }
+            val fetched = TileJson.parse(text)
+            store.updateLedger { it.copy(source = fetched?.template, sourceFetchedMs = now) }
+            fetched ?: return SyncRun.RETRY
         }
         // Planned again: the fresh TileJSON may show that an old block's build is still the newest.
         val fetches = plan(store.ledger(), now)
-        if (fetches.isEmpty()) return SyncRun.DONE
-        val budget = Budget(MapPlanner.MAX_BYTES)
+        if (fetches.isEmpty()) return waiting(now)
+        val budget = Budget()
         val pool = Executors.newFixedThreadPool(PARALLEL) { r -> Thread(r, "kinsight-map").apply { isDaemon = true } }
         try {
-            var failed = false
             for (f in fetches) {
                 if (!proceed()) return SyncRun.DONE
                 when (fetchBlock(f, source, budget, pool, aborted)) {
-                    Fetched.OK -> store.updateLedger { it.copy(installed = it.installed + (f.cell to BlockVersion(source.build, f.maxZoom).encode())) }
+                    Fetched.OK -> store.updateLedger {
+                        it.copy(installed = it.installed + (f.cell to BlockVersion(source.build, f.maxZoom).encode()), failed = it.failed - f.cell)
+                    }
+                    Fetched.EMPTY -> store.updateLedger { it.copy(capped = it.capped + (f.cell to now), failed = it.failed - f.cell) }
                     Fetched.CAPPED -> {
                         store.updateLedger { it.copy(capped = it.capped + (f.cell to now)) }
                         return SyncRun.DONE
@@ -99,11 +115,15 @@ class MapSync(
                         store.updateLedger { it.copy(sourceFetchedMs = null) }
                         return SyncRun.RETRY
                     }
-                    Fetched.FAILED -> failed = true
+                    Fetched.FAILED -> {
+                        store.updateLedger { l -> l.copy(failed = l.failed + (f.cell to CellFailure((l.failed[f.cell]?.count ?: 0) + 1, clock()))) }
+                        return SyncRun.RETRY
+                    }
+                    Fetched.LIMIT -> return SyncRun.RETRY
                     Fetched.ABORTED -> return SyncRun.DONE
                 }
             }
-            return if (failed) SyncRun.RETRY else SyncRun.DONE
+            return waiting(now)
         } finally {
             pool.shutdownNow()
         }
@@ -120,35 +140,57 @@ class MapSync(
     private fun plan(l: BlockLedger, now: Long): List<BlockFetch> =
         MapPlanner.batch(MapPlanner.downloads(MapPlanner.wanted(l.usage, now), l, store.present(), now))
 
-    private enum class Fetched { OK, CAPPED, GONE, FAILED, ABORTED }
+    /** Nothing more to fetch now: RETRY while a wanted cell waits out a failure, else DONE. */
+    private fun waiting(now: Long): SyncRun {
+        val l = store.ledger()
+        val backingOff = MapPlanner.backingOff(l.failed, now) intersect MapPlanner.wanted(l.usage, now)
+        return if (backingOff.isEmpty()) SyncRun.DONE else SyncRun.RETRY
+    }
+
+    private enum class Fetched { OK, EMPTY, CAPPED, GONE, FAILED, LIMIT, ABORTED }
 
     private class Aborted : IOException("aborted")
 
     private class Capped : IOException("over the download cap")
 
-    /** The bytes of one download as received; used only by the run's own thread. */
-    private class Budget(private val max: Long) {
-        private var used = 0L
+    private class Limit : IOException("over the request cap")
 
-        fun take(bytes: Long): Boolean {
-            used += bytes
-            return used <= max
-        }
+    private class Empty : IOException("no tile in the cell")
+
+    /** Another request of the same chunk ended the cell; its cause is in the chunk's stop. */
+    private class Halted : IOException("halted")
+
+    /** One run's requests and received bytes, counted by the pool threads as each tile goes and comes. */
+    private class Budget {
+        private val requests = AtomicInteger()
+        private val bytes = AtomicLong()
+
+        fun request(): Boolean = requests.incrementAndGet() <= MapPlanner.MAX_TILES
+
+        fun take(n: Int): Boolean = bytes.addAndGet(n.toLong()) <= MapPlanner.MAX_BYTES
     }
 
-    /** One cell: its tiles in chunks of [CHUNK], written into a partial PMTiles file that is renamed when complete. */
+    /**
+     * One cell: its tiles in chunks of [CHUNK], written into a partial PMTiles file that is renamed when complete. The
+     * first request of a chunk that ends the cell (a failure, the cap, a gone build, an abort) sets the chunk's stop,
+     * and every other request of the chunk ends before it asks the network.
+     */
     private fun fetchBlock(f: BlockFetch, source: TileSource, budget: Budget, pool: ExecutorService, aborted: () -> Boolean): Fetched = try {
         store.install(f.cell) { part, scratch ->
             PmTilesWriter(scratch).use { w ->
+                var added = 0
                 for (chunk in TileGrid.tiles(f.cell, f.maxZoom).chunked(CHUNK)) {
                     if (aborted()) throw Aborted()
-                    val results = pool.invokeAll(chunk.map { t -> Callable { fetchTile(source.url(t), aborted) } })
+                    val stop = AtomicReference<IOException>()
+                    val results = pool.invokeAll(chunk.map { t -> Callable { fetchTile(source.url(t), budget, stop, aborted) } })
+                    stop.get()?.let { throw it }
                     for ((t, result) in chunk.zip(results)) {
                         val tile = unwrap(result) ?: continue
-                        if (!budget.take(tile.bytes.size.toLong())) throw Capped()
-                        w.add(t.z, t.x, t.y, if (tile.gzip) tile.bytes else PmTiles.gzip(tile.bytes))
+                        w.add(t.z, t.x, t.y, tile.bytes)
+                        added++
                     }
                 }
+                if (added == 0) throw Empty()
                 w.finish(part, TileGrid.bounds(f.cell), METADATA)
             }
         }
@@ -157,6 +199,10 @@ class MapSync(
         Fetched.ABORTED
     } catch (e: Capped) {
         Fetched.CAPPED
+    } catch (e: Limit) {
+        Fetched.LIMIT
+    } catch (e: Empty) {
+        Fetched.EMPTY
     } catch (e: SourceGone) {
         if (aborted()) Fetched.ABORTED else Fetched.GONE
     } catch (e: IOException) {
@@ -165,20 +211,31 @@ class MapSync(
         Fetched.FAILED // a tile that claimed gzip and was not
     }
 
-    /** [TILE_TRIES] tries with growing pauses; a removed build is not tried again. */
-    private fun fetchTile(url: String, aborted: () -> Boolean): Tile? {
+    /**
+     * [TILE_TRIES] tries with growing pauses; a removed build or a tile over the size cap is not tried again. Each
+     * request counts against the run's [Budget] before it goes, each tile's bytes as it comes. The tile comes back gzip.
+     */
+    private fun fetchTile(url: String, budget: Budget, stop: AtomicReference<IOException>, aborted: () -> Boolean): Tile? {
+        fun end(e: IOException): IOException = e.also { stop.compareAndSet(null, it) }
         var attempt = 1
         while (true) {
-            if (aborted()) throw Aborted()
-            try {
-                return net.tile(url)
+            if (stop.get() != null) throw Halted()
+            if (aborted()) throw end(Aborted())
+            if (!budget.request()) throw end(Limit())
+            val tile = try {
+                net.tile(url)
             } catch (e: SourceGone) {
-                throw e
+                throw end(e)
+            } catch (e: TileTooBig) {
+                throw end(e)
             } catch (e: IOException) {
-                if (attempt >= TILE_TRIES) throw e
+                if (attempt >= TILE_TRIES) throw end(e)
                 pause(RETRY_PAUSE_MS * attempt)
                 attempt++
-            }
+                continue
+            } ?: return null
+            if (!budget.take(tile.bytes.size)) throw end(Capped())
+            return if (tile.gzip) tile else Tile(PmTiles.gzip(tile.bytes), gzip = true)
         }
     }
 

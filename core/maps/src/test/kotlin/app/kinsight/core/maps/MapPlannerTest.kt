@@ -142,6 +142,17 @@ class MapPlannerTest {
         assertTrue(MapPlanner.sourceDue(now + 60_000, now))
     }
 
+    /** Fix round 1: a failed cell waits 5, 10, 20, 40, then 60 minutes; a clock that went back does not hold it. */
+    @Test
+    fun aFailedCellWaitsFiveMinutesDoublingToAnHour() {
+        assertEquals(listOf(5L, 10, 20, 40, 60, 60).map { it * 60_000 }, (1..6).map(MapPlanner::failureWait))
+        val l = ledger(installed = (around(valencia) - valencia).associateWith { "$build/13" })
+        assertEquals(emptyList(), fetches(l.copy(failed = mapOf(valencia to CellFailure(2, now - 9 * 60_000)))))
+        assertEquals(listOf(BlockFetch(valencia, 14)), fetches(l.copy(failed = mapOf(valencia to CellFailure(2, now - 10 * 60_000)))))
+        assertEquals(listOf(BlockFetch(valencia, 14)), fetches(l.copy(failed = mapOf(valencia to CellFailure(2, now + 60_000)))))
+        assertEquals(setOf(valencia), MapPlanner.backingOff(mapOf(valencia to CellFailure(1, now - 1)), now))
+    }
+
     @Test
     fun aFetchIsNeverLogged() = assertEquals("BlockFetch", BlockFetch(valencia, 14).toString())
 }

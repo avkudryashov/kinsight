@@ -22,6 +22,7 @@ import java.io.IOException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -103,6 +104,7 @@ class MapBlocksTest {
         val held = CountDownLatch(1)
         val release = CountDownLatch(1)
         private val first = AtomicBoolean(true)
+        val tiles = AtomicInteger()
 
         private fun hold() {
             held.countDown()
@@ -115,6 +117,7 @@ class MapBlocksTest {
         }
 
         override fun tile(url: String): Tile? {
+            tiles.incrementAndGet()
             if (!holdTileJson && first.getAndSet(false)) hold()
             return Tile(PmTiles.gzip(url.encodeToByteArray()), gzip = true)
         }
@@ -180,6 +183,26 @@ class MapBlocksTest {
         assertTrue(store.file(cell).isFile)
         assertEquals("20261011_080001_pt/14", store.ledger().installed[cell])
         assertTrue(cell in store.ledger().usage)
+    }
+
+    /**
+     * Fix round 1: WorkManager cancels the worker when the phone starts roaming. The blocking download must notice: no
+     * tile is asked for after the cancel beyond the requests already in flight, and the partial cell is deleted.
+     */
+    @Test
+    fun aCancelledRunAsksForNoMoreTiles() = runBlocking {
+        val (maps, gate) = gated(holdTileJson = false)
+        assertTrue(maps.check())
+        val run = async(Dispatchers.IO) { maps.run() }
+        assertTrue(gate.held.await(10, TimeUnit.SECONDS))
+        run.cancel()
+        val atCancel = gate.tiles.get()
+        gate.release.countDown()
+        run.join()
+        assertTrue(gate.tiles.get() <= atCancel + 3, "${gate.tiles.get() - atCancel} tiles after the cancel")
+        assertFalse(store.file(cell).exists())
+        assertTrue(store.dir.listFiles().orEmpty().none { it.name.endsWith(BlockStore.PART) })
+        assertTrue(store.ledger().installed.isEmpty())
     }
 
     /** Review Focus 2: leaving while a download runs leaves no block, no TileJSON cache and no ledger. */

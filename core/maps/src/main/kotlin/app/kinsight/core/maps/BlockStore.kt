@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
@@ -17,7 +18,8 @@ import java.nio.file.StandardCopyOption
  * What the store keeps next to the files (offline map spec §3, §7): [usage] the newest point time per cell of a
  * point's neighbourhood, [centres] the newest point time per point's own cell (those come to z14), [installed]
  * [BlockVersion.encode] of each file, [capped] the cells whose download passed the size cap and when, [source] the
- * cached TileJSON's tile address ([TileSource.template]) and [sourceFetchedMs] when it was asked for.
+ * cached TileJSON's tile address ([TileSource.template]) and [sourceFetchedMs] when it was asked for (or refused),
+ * [failed] the cells whose last download failed, for their backoff ([MapPlanner.failureWait]).
  */
 data class BlockLedger(
     val usage: Map<Cell, Long> = emptyMap(),
@@ -26,7 +28,11 @@ data class BlockLedger(
     val capped: Map<Cell, Long> = emptyMap(),
     val source: String? = null,
     val sourceFetchedMs: Long? = null,
+    val failed: Map<Cell, CellFailure> = emptyMap(),
 )
+
+/** A cell's failed downloads in a row ([count] ≥ 1) and when the last one ended. */
+data class CellFailure(val count: Int, val atMs: Long)
 
 /**
  * The block files under [dir] (`filesDir/maps`): `z10-<x>-<y>.pmtiles` and `ledger.json`. Only a finished file ever
@@ -99,6 +105,14 @@ class BlockStore(val dir: File, private val free: (File) -> Long = { it.usableSp
         putJsonObject("capped") { l.capped.forEach { (c, t) -> put(key(c), t) } }
         l.source?.let { put("source", it) }
         l.sourceFetchedMs?.let { put("sourceFetchedMs", it) }
+        putJsonObject("failed") {
+            l.failed.forEach { (c, f) ->
+                putJsonObject(key(c)) {
+                    put("count", f.count)
+                    put("atMs", f.atMs)
+                }
+            }
+        }
     }.toString()
 
     private fun decode(text: String): BlockLedger {
@@ -115,6 +129,12 @@ class BlockStore(val dir: File, private val free: (File) -> Long = { it.usableSp
             capped = cells(o["capped"], long),
             source = (o["source"] as? JsonPrimitive)?.takeIf { it.isString }?.content,
             sourceFetchedMs = (o["sourceFetchedMs"] as? JsonPrimitive)?.longOrNull,
+            failed = cells(o["failed"]) { e ->
+                val f = e as? JsonObject
+                val count = (f?.get("count") as? JsonPrimitive)?.intOrNull?.takeIf { it >= 1 }
+                val at = (f?.get("atMs") as? JsonPrimitive)?.longOrNull
+                if (count != null && at != null) CellFailure(count, at) else null
+            },
         )
     }
 

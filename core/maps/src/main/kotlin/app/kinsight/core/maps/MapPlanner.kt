@@ -31,6 +31,10 @@ object MapPlanner {
     /** Spec §3: room for a download plus this much. */
     const val SPARE_BYTES = 100L shl 20
 
+    /** Fix round 1: a failed cell waits this long, doubling per failure in a row up to [FAIL_MAX_MS]. */
+    const val FAIL_FIRST_MS = 5 * 60_000L
+    const val FAIL_MAX_MS = 60 * 60_000L
+
     /** Spec §7: the point's own cell to z14, its neighbours to z13. */
     const val CENTRE_ZOOM = 14
     const val NEIGHBOUR_ZOOM = 13
@@ -74,13 +78,20 @@ object MapPlanner {
     /** Spec resolution 4: the cells that passed the 50 MB cap less than [KEEP_MS] ago. */
     fun capped(capped: Map<Cell, Long>, nowMs: Long): Set<Cell> = capped.filterValues { nowMs - it < KEEP_MS }.keys
 
+    /** 5, 10, 20, 40, then 60 minutes after the [count]th failure in a row. */
+    fun failureWait(count: Int): Long = minOf(FAIL_FIRST_MS shl (count - 1).coerceIn(0, 4), FAIL_MAX_MS)
+
+    /** The cells still waiting out a failure; a clock that went back since does not hold a cell. */
+    fun backingOff(failed: Map<Cell, CellFailure>, nowMs: Long): Set<Cell> =
+        failed.filterValues { nowMs >= it.atMs && nowMs - it.atMs < failureWait(it.count) }.keys
+
     /**
      * Every wanted cell whose file is missing ([present] says what is on the phone), not described by the ledger,
      * shallower than [depth], or [REFRESH_MS] old while a newer build may be out (the cached TileJSON names another
-     * build, or it is due); capped cells wait. Centres first, then the newest mark.
+     * build, or it is due); capped cells and cells backing off a failure wait. Centres first, then the newest mark.
      */
     fun downloads(wanted: Set<Cell>, ledger: BlockLedger, present: Set<Cell>, nowMs: Long): List<BlockFetch> {
-        val skip = capped(ledger.capped, nowMs)
+        val skip = capped(ledger.capped, nowMs) + backingOff(ledger.failed, nowMs)
         val latest = ledger.source?.let(TileSource::of)?.build
         val due = sourceDue(ledger.sourceFetchedMs, nowMs)
         return wanted.filter { it !in skip }.mapNotNull { c ->

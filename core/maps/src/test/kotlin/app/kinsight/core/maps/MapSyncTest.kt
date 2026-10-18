@@ -16,10 +16,18 @@ class MapSyncTest {
     private class FakeNet : MapNet {
         @Volatile var tileJsonText: String? = tileJson(BUILD)
         @Volatile var failTileJson = false
+
+        /** Every tile answers 503 (OpenFreeMap down). */
+        @Volatile var down = false
         val tileJsonCalls = AtomicInteger()
         val calls = ConcurrentHashMap<String, AtomicInteger>()
         val failing = ConcurrentHashMap<String, Int>()
         val gone: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+        val tooBig: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+        /** True: 204, no tile here. */
+        @Volatile var empty: (String) -> Boolean = { false }
 
         /** Serve this many plain (not gzip) bytes for a URL, or null for a small gzip tile. */
         @Volatile var rawSize: (String) -> Int? = { null }
@@ -38,6 +46,9 @@ class MapSyncTest {
             try {
                 Thread.sleep(1)
                 if (url in gone) throw SourceGone()
+                if (down) throw IOException("HTTP 503")
+                if (url in tooBig) throw TileTooBig()
+                if (empty(url)) return null
                 val left = failing[url]
                 if (left != null && left > 0) {
                     failing[url] = left - 1
@@ -59,6 +70,12 @@ class MapSyncTest {
         fun tileJson(build: String) = """{"tilejson":"3.0.0","tiles":["https://tiles.openfreemap.org/planet/$build/{z}/{x}/{y}.pbf"],"maxzoom":14}"""
 
         fun url(t: TileKey) = "https://tiles.openfreemap.org/planet/$BUILD/${t.z}/${t.x}/${t.y}.pbf"
+
+        /** The z10 cell a tile address belongs to. */
+        fun cellOf(url: String): Cell {
+            val (z, x, y) = url.substringAfter("$BUILD/").removeSuffix(".pbf").split('/').map(String::toInt)
+            return Cell(x shr (z - 10), y shr (z - 10))
+        }
     }
 
     private val day = 24 * 3_600_000L
@@ -226,8 +243,108 @@ class MapSyncTest {
         assertEquals(3, net.calls.getValue(first).get())
         assertEquals(listOf(1_000L, 2_000L), pauses.toList())
         assertFalse(store.file(valencia).exists())
-        assertEquals(around - valencia, store.present(), "the other blocks still come")
+        assertTrue(store.present().isEmpty(), "the run ends at the failed cell")
+        assertEquals(CellFailure(1, now), store.ledger().failed[valencia])
         assertTrue(leftovers().isEmpty())
+        assertEquals(SyncRun.RETRY, sync.sync(), "the failed cell still waits")
+        assertEquals(3, net.calls.getValue(first).get(), "not asked again within its backoff")
+        assertEquals(around - valencia, store.present(), "the other blocks come")
+        now += MapPlanner.failureWait(1)
+        net.failing.clear()
+        assertEquals(SyncRun.DONE, sync.sync())
+        assertEquals(around, store.present())
+        assertTrue(store.ledger().failed.isEmpty(), "a success clears the backoff")
+    }
+
+    /** Fix round 1: with OpenFreeMap down, one run tries one cell; the next waits out its backoff, which grows. */
+    @Test
+    fun aDownServerCostsOneCellPerRunAndBacksOff() {
+        net.down = true
+        sync.check(listOf(point()), listOf(point()))
+        assertEquals(SyncRun.RETRY, sync.sync())
+        assertEquals(setOf(valencia), net.calls.keys.map(::cellOf).toSet(), "one cell attempted")
+        assertTrue(net.tiles() <= 3 * 4 + 3, "${net.tiles()} requests: the failing chunk stops the others")
+        assertEquals(1, store.ledger().failed.getValue(valencia).count)
+        // Every cell fails once, one per run; then nothing is asked until the first backoff ends.
+        repeat(8) { assertEquals(SyncRun.RETRY, sync.sync()) }
+        assertEquals(around, net.calls.keys.map(::cellOf).toSet())
+        val asked = net.tiles()
+        assertEquals(SyncRun.RETRY, sync.sync())
+        assertEquals(asked, net.tiles(), "every cell waits")
+        now += MapPlanner.failureWait(1)
+        assertEquals(SyncRun.RETRY, sync.sync())
+        assertEquals(2, store.ledger().failed.getValue(valencia).count)
+        assertEquals(10 * 60_000L, MapPlanner.failureWait(2))
+        now += MapPlanner.failureWait(1)
+        val before = net.calls.getValue(url(TileKey(10, 510, 389))).get()
+        repeat(8) { sync.sync() }
+        assertEquals(before, net.calls.getValue(url(TileKey(10, 510, 389))).get(), "the centre waits ten minutes now")
+        net.down = false
+        now += MapPlanner.failureWait(2)
+        assertEquals(SyncRun.DONE, sync.sync())
+        assertEquals(around, store.present())
+        assertTrue(store.ledger().failed.isEmpty())
+    }
+
+    /** Fix round 1: a tile over the size cap fails its cell at once, without three tries. */
+    @Test
+    fun aTileOverTheSizeCapFailsItsCellAtOnce() {
+        val first = url(TileKey(10, 510, 389))
+        net.tooBig += first
+        sync.check(listOf(point()), listOf(point()))
+        assertEquals(SyncRun.RETRY, sync.sync())
+        assertEquals(1, net.calls.getValue(first).get())
+        assertEquals(1, store.ledger().failed.getValue(valencia).count)
+    }
+
+    /** Fix round 1: the 50 MB cap is counted per tile; at most the other in-flight requests pass the crossing tile. */
+    @Test
+    fun theFiftyMegabyteCapStopsAtTheCrossingTile() {
+        net.rawSize = { 1_000_000 }
+        assertTrue(sync.check(listOf(point()), listOf(point())))
+        assertEquals(SyncRun.DONE, sync.sync())
+        assertTrue(net.tiles() in 51..54, "${net.tiles()} tiles of 1 MB")
+        assertTrue(valencia in store.ledger().capped)
+        assertTrue(store.present().isEmpty())
+    }
+
+    /** Fix round 1: retries count too; one run never sends more than 3 000 tile requests. */
+    @Test
+    fun retriesNeverTakeARunPastThreeThousandRequests() {
+        TileGrid.tiles(valencia, 14).take(12).forEach { net.failing[url(it)] = 2 }
+        val places = listOf(point(), MapPoint(404_168_000, -37_038_000, now), MapPoint(-338_688_000, 1_512_093_000, now))
+        assertTrue(sync.check(places, places))
+        assertEquals(SyncRun.RETRY, sync.sync())
+        assertEquals(MapPlanner.MAX_TILES, net.tiles())
+        assertTrue(leftovers().isEmpty())
+        assertTrue(store.ledger().failed.isEmpty(), "the limit is no cell's failure")
+        assertTrue(sync.check(places, places))
+        assertEquals(SyncRun.DONE, sync.sync())
+        assertEquals(27, store.present().size)
+    }
+
+    /** Review Minor 2: a refused TileJSON is not asked for again within the day. */
+    @Test
+    fun aRefusedTileJsonWaitsADay() {
+        net.tileJsonText = """{"tiles":["https://evil.example/planet/$BUILD/{z}/{x}/{y}.pbf"],"maxzoom":14}"""
+        sync.check(listOf(point()), listOf(point()))
+        assertEquals(SyncRun.RETRY, sync.sync())
+        assertEquals(SyncRun.RETRY, sync.sync())
+        assertEquals(1, net.tileJsonCalls.get())
+        net.tileJsonText = tileJson(BUILD)
+        now += MapPlanner.SOURCE_EVERY_MS
+        assertEquals(SyncRun.DONE, sync.sync())
+        assertEquals(2, net.tileJsonCalls.get())
+    }
+
+    /** Review Minor 1: a cell with no tile at all (every answer 204) waits a week like a capped one; the run goes on. */
+    @Test
+    fun aCellWithoutTilesWaitsAWeek() {
+        net.empty = { cellOf(it) == valencia }
+        sync.check(listOf(point()), listOf(point()))
+        assertEquals(SyncRun.DONE, sync.sync())
+        assertEquals(around - valencia, store.present())
+        assertTrue(valencia in store.ledger().capped)
     }
 
     @Test

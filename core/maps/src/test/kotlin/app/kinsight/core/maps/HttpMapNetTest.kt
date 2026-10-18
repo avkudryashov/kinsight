@@ -160,7 +160,7 @@ class HttpMapNetTest {
     @Test
     fun answersOverTheCapAreRefused() {
         assertFailsWith<IOException> { net("/big").tileJson() }
-        assertFailsWith<IOException> { net().tile("$base/bigtile") }
+        assertFailsWith<TileTooBig> { net().tile("$base/bigtile") }
     }
 
     @Test

@@ -17,6 +17,9 @@ class Tile(val bytes: ByteArray, val gzip: Boolean)
 /** HTTP 404 from OpenFreeMap: the build of the cached TileJSON is gone, a fresh one is needed (spec §7). */
 class SourceGone : IOException("HTTP 404")
 
+/** A tile over [HttpMapNet.MAX_TILE_BYTES]: not tried again, its cell fails (offline map spec §7, fix round 1). */
+class TileTooBig : IOException("tile over the size cap")
+
 /**
  * The tiles of one OpenFreeMap planet build (spec §7): [build] like `20261011_080001_pt`, [template] its `tiles` URL.
  * Only [of] builds one, so every instance is an address the map may fetch.
