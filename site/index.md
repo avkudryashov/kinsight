@@ -27,4 +27,8 @@
 
 Android 12 или новее. Установите из [RuStore](https://www.rustore.ru/catalog/app/app.kinsight) или возьмите APK `arm64-v8a` в [Releases](https://github.com/avkudryashov/kinsight/releases/latest) (`armeabi-v7a` для старых телефонов); обновление ставится поверх и сохраняет данные. На Xiaomi включите для Kinsight **Автозапуск** и режим батареи **Нет ограничений**.
 
-Код открыт: [github.com/avkudryashov/kinsight](https://github.com/avkudryashov/kinsight).
+## Бесплатно и с открытым кодом
+
+Kinsight бесплатный и распространяется двумя путями: через [RuStore](https://www.rustore.ru/catalog/app/app.kinsight) и через [GitHub](https://github.com/avkudryashov/kinsight/releases/latest). Код открыт под лицензией Apache 2.0: [github.com/avkudryashov/kinsight](https://github.com/avkudryashov/kinsight).
+
+Проект открыт для контрибьюторов. Сообщайте об ошибках и предлагайте идеи в [Issues](https://github.com/avkudryashov/kinsight/issues), присылайте исправления и новые функции через pull request. Как собрать проект, описано в [README](https://github.com/avkudryashov/kinsight#build).
