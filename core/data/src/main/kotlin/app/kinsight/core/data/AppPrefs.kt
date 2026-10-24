@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.io.File
+import java.time.LocalDate
 
 enum class SummaryMode { OFF, DAILY, WEEKLY }
 
@@ -145,6 +146,21 @@ class AppPrefs(private val store: DataStore<Preferences>) {
         }
     }
 
+    /**
+     * «Unblocked by PIN until the end of the day» (spec §5.1 step 3), package to the local date it was opened on. Device-local,
+     * never synced. The caller reads today's packages from it for `BlockDecision.decide`; [prunePinOverrides] drops the old ones.
+     */
+    val pinOverrides: Flow<Map<String, LocalDate>> = store.data.map { decodePinOverrides(it[PIN_OVERRIDES]) }.distinctUntilChanged()
+
+    suspend fun addPinOverride(packageName: String, date: LocalDate) {
+        store.edit { it[PIN_OVERRIDES] = encodePinOverrides(decodePinOverrides(it[PIN_OVERRIDES]) + (packageName to date)) }
+    }
+
+    /** Drops the overrides whose date is before [today]. */
+    suspend fun prunePinOverrides(today: LocalDate) {
+        store.edit { p -> p[PIN_OVERRIDES] = encodePinOverrides(decodePinOverrides(p[PIN_OVERRIDES]).filterValues { !it.isBefore(today) }) }
+    }
+
     /** A wiped group: back to the first run; the device name the user typed stays. */
     suspend fun resetForNewGroup() {
         store.edit {
@@ -171,6 +187,7 @@ class AppPrefs(private val store: DataStore<Preferences>) {
         private val CATEGORY_OVERRIDES = stringPreferencesKey("category_overrides")
         private val THRESHOLDS = stringPreferencesKey("threshold_rules")
         private val ACK_PARENTS = stringPreferencesKey("acknowledged_parents")
+        private val PIN_OVERRIDES = stringPreferencesKey("pin_overrides")
         private val PIN_FAILURES = intPreferencesKey("pin_failures")
         private val PIN_WAIT_UNTIL = longPreferencesKey("pin_wait_until_ms")
         private val PIN_WAIT_ELAPSED = longPreferencesKey("pin_wait_elapsed_ms")
@@ -204,6 +221,16 @@ class AppPrefs(private val store: DataStore<Preferences>) {
 
         private fun encodeOverrides(m: Map<String, AppCategory>): String =
             m.entries.sortedBy { it.key }.joinToString("\n") { "${it.key}=${it.value.name}" }
+
+        /** One `package|yyyy-MM-dd` per line; a malformed line is skipped, a later line of the same package wins. */
+        private fun decodePinOverrides(raw: String?): Map<String, LocalDate> = raw.orEmpty().lineSequence().mapNotNull { line ->
+            val pkg = line.substringBefore('|', "")
+            val date = runCatching { LocalDate.parse(line.substringAfter('|', "")) }.getOrNull()
+            if (pkg.isEmpty() || date == null) null else pkg to date
+        }.toMap()
+
+        private fun encodePinOverrides(m: Map<String, LocalDate>): String =
+            m.entries.sortedBy { it.key }.joinToString("\n") { "${it.key}|${it.value}" }
 
         /** [file] must end with ".preferences_pb"; a corrupt file starts over (only hints and markers live here). */
         fun create(file: File, scope: CoroutineScope): AppPrefs = AppPrefs(

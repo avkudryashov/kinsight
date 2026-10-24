@@ -14,6 +14,7 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.nio.file.Files
+import java.time.LocalDate
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -202,5 +203,20 @@ class AppPrefsTest {
         prefs.setAcknowledgedParents(setOf(mom))
         prefs.addAcknowledgedParents(setOf(dad))
         assertEquals(setOf(mom, dad), prefs.acknowledgedParents.first())
+    }
+
+    @Test
+    fun pinOverridesSurviveAndPrune() = runBlocking<Unit> {
+        val today = LocalDate.of(2026, 10, 24)
+        assertEquals(emptyMap(), prefs.pinOverrides.first())
+        prefs.addPinOverride("com.game", today.minusDays(1))
+        prefs.addPinOverride("com.chat", today)
+        prefs.addPinOverride("com.game", today)
+        assertEquals(mapOf("com.game" to today, "com.chat" to today), prefs.pinOverrides.first(), "one date per package, the later add wins")
+        prefs.addPinOverride("com.old", today.minusDays(3))
+        prefs.prunePinOverrides(today)
+        assertEquals(mapOf("com.game" to today, "com.chat" to today), prefs.pinOverrides.first())
+        prefs.prunePinOverrides(today.plusDays(1))
+        assertEquals(emptyMap(), prefs.pinOverrides.first())
     }
 }
