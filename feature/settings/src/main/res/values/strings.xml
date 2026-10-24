@@ -183,8 +183,8 @@
     <string name="more_title">More</string>
     <string name="more_family">Family</string>
     <string name="more_family_body">Parents and children of your group</string>
-    <string name="more_limits">Limits and notifications</string>
-    <string name="more_limits_body">Daily limits, summaries, no contact</string>
+    <string name="more_limits">Rules and notifications</string>
+    <string name="more_limits_body">Limits and blocks, summaries, no contact</string>
     <string name="more_sync">Sync</string>
     <string name="more_sync_ok">All good</string>
     <string name="more_pin">Parent PIN</string>

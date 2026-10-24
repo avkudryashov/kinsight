@@ -1,10 +1,10 @@
 # Privacy Policy
 
-**Kinsight: Family Screen Time** (Android package `app.kinsight`)
+**Kinsight: Family Digital Wellbeing** (Android package `app.kinsight`)
 
 Effective date: 2026-10-24
 
-This Privacy Policy explains what information the Kinsight app reads, where it goes, how it is protected, how long it is kept and how it can be deleted. Kinsight is a parental control app: on a child's phone it counts screen time and shares it with the parents in the family group. It is published on Google Play under the developer name shown on the app's store page.
+This Privacy Policy explains what information the Kinsight app reads, where it goes, how it is protected, how long it is kept and how it can be deleted. Kinsight is a parental control app: on a child's phone it counts screen time, applies the parents' rules (limits and blocks), and, if turned on, shares its location, all with the parents in the family group. It is published on Google Play under the developer name shown on the app's store page.
 
 ## 1. Who is responsible and how to contact us
 
@@ -23,7 +23,7 @@ Contact for any privacy question or request: kav2k13@gmail.com
 
 ## 3. What information the app reads
 
-Kinsight reads only what it needs to count screen time and to exchange it inside the family group.
+Kinsight reads only what it needs to count screen time, apply the parents' rules and exchange it inside the family group.
 
 **On a child's phone (after consent):**
 - App usage events provided by Android (which app was in the foreground and when, when the screen turned on and off, when the phone was unlocked). From these Kinsight calculates screen time per day, per app and per hour, and the number of unlocks. Kinsight does not read what is shown inside apps.

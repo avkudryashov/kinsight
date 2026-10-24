@@ -1,10 +1,10 @@
 # Política de privacidad
 
-**Kinsight: tiempo de pantalla** (paquete de Android `app.kinsight`)
+**Kinsight: bienestar digital familiar** (paquete de Android `app.kinsight`)
 
 Fecha de entrada en vigor: 2026-10-24
 
-Esta Política de privacidad explica qué información lee la aplicación Kinsight, adónde va, cómo se protege, cuánto tiempo se conserva y cómo se puede borrar. Kinsight es una aplicación de control parental: en el teléfono de un menor cuenta el tiempo de pantalla y lo comparte con los adultos del grupo familiar (padres, madres o tutores). Se publica en Google Play con el nombre de desarrollador que aparece en la ficha de la aplicación.
+Esta Política de privacidad explica qué información lee la aplicación Kinsight, adónde va, cómo se protege, cuánto tiempo se conserva y cómo se puede borrar. Kinsight es una aplicación de control parental: en el teléfono de un menor cuenta el tiempo de pantalla, aplica las reglas de los adultos (límites y bloqueos) y, si se activa, comparte la ubicación, todo con los adultos del grupo familiar (padres, madres o tutores). Se publica en Google Play con el nombre de desarrollador que aparece en la ficha de la aplicación.
 
 ## 1. Responsable y contacto
 
@@ -23,7 +23,7 @@ Contacto para cualquier pregunta o solicitud sobre privacidad: kav2k13@gmail.com
 
 ## 3. Qué información lee la aplicación
 
-Kinsight solo lee lo que necesita para contar el tiempo de pantalla e intercambiarlo dentro del grupo familiar.
+Kinsight solo lee lo que necesita para contar el tiempo de pantalla, aplicar las reglas de los adultos e intercambiarlo dentro del grupo familiar.
 
 **En el teléfono de un menor (tras su consentimiento):**
 - Los eventos de uso de aplicaciones que proporciona Android (qué aplicación estaba en primer plano y cuándo, cuándo se encendió y apagó la pantalla, cuándo se desbloqueó el teléfono). A partir de ellos, Kinsight calcula el tiempo de pantalla por día, por aplicación y por hora, y el número de desbloqueos. Kinsight no lee lo que se muestra dentro de las aplicaciones.

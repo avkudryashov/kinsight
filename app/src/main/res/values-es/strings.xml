@@ -30,7 +30,7 @@
     <string name="alert_new_parent_body">Un nuevo adulto se ha unido a tu grupo familiar. En Más → Quién ve mis datos aparecen todos.</string>
     <string name="alert_summary_daily">Tiempo de pantalla hoy</string>
     <string name="alert_summary_weekly">Tiempo de pantalla esta semana</string>
-    <string name="channel_thresholds">Límites</string>
+    <string name="channel_thresholds">Reglas</string>
     <string name="channel_thresholds_description">Un menor ha superado un límite diario que has fijado</string>
     <string name="alert_public_threshold">Límite diario superado</string>
     <string name="alert_threshold_total">%1$s: %2$s hoy (límite %3$s)</string>

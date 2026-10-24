@@ -30,7 +30,7 @@
     <string name="alert_new_parent_body">В вашу семейную группу вступил новый родитель. Все, кто видит данные, перечислены в разделе Ещё → Кто видит мои данные.</string>
     <string name="alert_summary_daily">Экранное время за сегодня</string>
     <string name="alert_summary_weekly">Экранное время за неделю</string>
-    <string name="channel_thresholds">Лимиты</string>
+    <string name="channel_thresholds">Правила</string>
     <string name="channel_thresholds_description">Ребёнок превысил заданный вами лимит за день</string>
     <string name="alert_public_threshold">Лимит превышен</string>
     <string name="alert_threshold_total">%1$s: сегодня %2$s (лимит %3$s)</string>

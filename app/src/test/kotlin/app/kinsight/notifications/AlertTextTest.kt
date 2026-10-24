@@ -154,7 +154,7 @@ class AlertTextTest {
         val games = AlertText.of(context, Alert.Threshold(kidId, "Kid", ThresholdTarget.Category(AppCategory.GAMES), null, 65 * min, 60 * min))
         assertEquals("Kid: Игры сегодня 1 ч 5 мин (лимит 1 ч)", games.title)
         AlertChannels.ensure(context, Role.PARENT)
-        assertEquals("Лимиты", context.getSystemService(NotificationManager::class.java).getNotificationChannel(AlertChannels.THRESHOLDS).name.toString())
+        assertEquals("Правила", context.getSystemService(NotificationManager::class.java).getNotificationChannel(AlertChannels.THRESHOLDS).name.toString())
     }
 
     @Test
@@ -162,7 +162,7 @@ class AlertTextTest {
         AlertChannels.ensure(context, Role.PARENT)
         val channel = context.getSystemService(NotificationManager::class.java).getNotificationChannel(AlertChannels.THRESHOLDS)
         assertNotNull(channel)
-        assertEquals("Limits", channel.name.toString())
+        assertEquals("Rules", channel.name.toString())
         assertEquals(NotificationManager.IMPORTANCE_DEFAULT, channel.importance)
         assertTrue(channel.description.orEmpty().isNotBlank())
     }

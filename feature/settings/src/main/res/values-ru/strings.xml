@@ -187,8 +187,8 @@
     <string name="more_title">Ещё</string>
     <string name="more_family">Семья</string>
     <string name="more_family_body">Родители и дети вашей группы</string>
-    <string name="more_limits">Лимиты и уведомления</string>
-    <string name="more_limits_body">Лимиты, сводки и «нет связи»</string>
+    <string name="more_limits">Правила и уведомления</string>
+    <string name="more_limits_body">Лимиты и блокировки, сводки и «нет связи»</string>
     <string name="more_sync">Синхронизация</string>
     <string name="more_sync_ok">В порядке</string>
     <string name="more_pin">PIN родителей</string>

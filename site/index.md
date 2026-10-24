@@ -1,6 +1,6 @@
 # Kinsight
 
-Экранное время и где ребёнок. **Бесплатно, без серверов: только ваш Яндекс Диск.**
+Цифровое благополучие семьи: экранное время, лимиты и блокировки, где ребёнок. **Бесплатно, без серверов: только ваш Яндекс Диск.**
 
 [Скачать для Android](https://github.com/avkudryashov/kinsight/releases/latest) · [RuStore](https://www.rustore.ru/catalog/app/app.kinsight)
 
@@ -9,7 +9,7 @@
 <img src="img/02-overview.webp" width="200" alt="Экранное время за сегодня">
 <img src="img/03-week.webp" width="200" alt="Отчёт за неделю и месяц">
 <img src="img/04-map.webp" width="200" alt="Где ребёнок: путь за день и безопасные зоны">
-<img src="img/05-limits.webp" width="200" alt="Лимиты на день с уведомлением">
+<img src="img/05-limits.webp" width="200" alt="Лимиты, блокировки и белый список">
 <img src="img/06-child.webp" width="200" alt="Ребёнок видит, кто получает его данные">
 </p>
 

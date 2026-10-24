@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="onb_welcome_title">Kinsight</string>
-    <string name="onb_welcome_body">Tiempo de pantalla para tu familia y, si un adulto activa la sincronización con su Yandex Disk, también la ubicación del menor. Los teléfonos lo comparten por Bluetooth o a través de ese Disk; el desarrollador no guarda nada.</string>
+    <string name="onb_welcome_body">Bienestar digital para tu familia: tiempo de pantalla, límites y bloqueo de apps y, si un adulto activa la sincronización con su Yandex Disk, también la ubicación del menor. Los teléfonos lo comparten por Bluetooth o a través de ese Disk; el desarrollador no guarda nada.</string>
     <string name="onb_create">Crear un grupo familiar</string>
     <string name="onb_join">Unirse con un código QR</string>
     <string name="onb_create_hint">Crea el grupo en el teléfono de un adulto.</string>
@@ -15,7 +15,7 @@
     <string name="onb_name_label">Nombre del teléfono</string>
     <string name="onb_name_error">Usa entre 1 y 64 caracteres, sin caracteres invisibles ni de control.</string>
     <string name="onb_parent_title">Qué hace este teléfono</string>
-    <string name="onb_parent_body">Este teléfono muestra el tiempo de pantalla de los menores de tu grupo familiar. No comparte su propio tiempo de pantalla con nadie.</string>
+    <string name="onb_parent_body">Este teléfono muestra el tiempo de pantalla de los menores de tu grupo familiar y fija sus límites y bloqueos. No comparte su propio tiempo de pantalla con nadie.</string>
     <string name="onb_parent_privacy">Los datos circulan entre los teléfonos de tu familia por Bluetooth. Kinsight solo se conecta a internet para la sincronización a través de tu Yandex Disk, si la activas, y entonces también para descargar el mapa de calles desde OpenFreeMap. El desarrollador no guarda nada.</string>
     <string name="onb_consent_title">Qué verá tu familia</string>
     <string name="onb_consent_body">Kinsight cuenta cuánto tiempo se usa cada aplicación en este teléfono, cuántas veces se desbloquea y a qué horas se usa. Kinsight lo envía por Bluetooth a los teléfonos de todos los adultos de tu grupo familiar (ahora %1$s) y de los adultos que se unan más adelante y, si un adulto activó la sincronización con su Yandex Disk, también cifrado a través de ese Disk. Verán este tiempo de hoy y de días anteriores. El recuento se hace en segundo plano, incluso con Kinsight cerrado. Con esa sincronización también ven dónde está este teléfono: su último lugar, su recorrido de hoy y cuándo sale de una zona segura o entra en ella. Los adultos también pueden limitar el tiempo y bloquear aplicaciones en este teléfono: para ello Kinsight pide activar un servicio de accesibilidad, que solo ve qué aplicación está en pantalla.</string>
@@ -79,7 +79,7 @@
     <string name="onb_consent_collapsed">Contraído</string>
     <string name="onb_open_settings">Abrir los ajustes de la aplicación</string>
     <string name="onb_nearby_blocked">El permiso «Dispositivos cercanos» está desactivado para Kinsight y Android no volverá a preguntar. Abre los ajustes de la aplicación y luego Permisos → Dispositivos cercanos → Permitir.</string>
-    <string name="onb_done_body_joined_parent">Este teléfono está en tu grupo familiar. Mostrará el tiempo de pantalla de los menores en cuanto sus teléfonos se sincronicen.</string>
+    <string name="onb_done_body_joined_parent">Este teléfono está en tu grupo familiar. Mostrará el tiempo de pantalla de los menores y aplicará tus reglas en cuanto sus teléfonos se sincronicen.</string>
     <string name="onb_later">Más tarde</string>
     <string name="onb_location_title">Dónde está el teléfono</string>
     <string name="onb_location_body">Para que los adultos de tu familia vean dónde está el teléfono y sepan cuándo sales de una zona segura, Kinsight necesita la ubicación precisa. Android te lo preguntará ahora: elige «Precisa» y «Mientras se usa la app».</string>

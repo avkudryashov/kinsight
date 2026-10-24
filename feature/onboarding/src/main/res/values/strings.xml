@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="onb_welcome_title">Kinsight</string>
-    <string name="onb_welcome_body">Screen time for your family, and the child\'s location when a parent turns on the sync through their Yandex Disk. Phones share it over Bluetooth or through that Disk; the developer stores nothing.</string>
+    <string name="onb_welcome_body">Digital wellbeing for your family: screen time, limits and app blocking, and the child\'s location when a parent turns on the sync through their Yandex Disk. Phones share it over Bluetooth or through that Disk; the developer stores nothing.</string>
     <string name="onb_create">Create a family group</string>
     <string name="onb_join">Join with a QR code</string>
     <string name="onb_create_hint">Create a group on a parent\'s phone.</string>
@@ -15,7 +15,7 @@
     <string name="onb_name_label">Phone name</string>
     <string name="onb_name_error">Use 1 to 64 characters, without invisible or control characters.</string>
     <string name="onb_parent_title">What this phone does</string>
-    <string name="onb_parent_body">This phone shows the screen time of the children in your family group. It does not share its own screen time with anyone.</string>
+    <string name="onb_parent_body">This phone shows the children\'s screen time in your family group, and sets their limits and blocks. It does not share its own screen time with anyone.</string>
     <string name="onb_parent_privacy">Data moves between your family\'s phones over Bluetooth. Kinsight goes online only to sync through your Yandex Disk, if you turn that on, and then also to download the street map from OpenFreeMap. The developer stores nothing.</string>
     <string name="onb_consent_title">What your family will see</string>
     <string name="onb_consent_body">Kinsight counts how much time this phone spends in each app, how often it is unlocked and at what hours it is used. Kinsight sends this over Bluetooth to the phones of every parent in your family group (currently %1$s) and parents who join later and, if a parent turned on the sync through their Yandex Disk, also encrypted through that Disk. They will see this time for today and past days. Counting happens in the background, even when Kinsight is closed. With that sync on, they also see where this phone is: its last place, its route today and when it leaves or enters a safe zone. Parents can also limit time and block apps on this phone: for that Kinsight asks to turn on an accessibility service, which sees only which app is on screen.</string>
@@ -79,7 +79,7 @@
     <string name="onb_consent_collapsed">Collapsed</string>
     <string name="onb_open_settings">Open app settings</string>
     <string name="onb_nearby_blocked">Nearby devices is turned off for Kinsight and Android will not ask again. Open the app\'s settings, then Permissions → Nearby devices → Allow.</string>
-    <string name="onb_done_body_joined_parent">This phone is in your family group. It shows your children\'s screen time once their phones sync.</string>
+    <string name="onb_done_body_joined_parent">This phone is in your family group. It shows your children\'s screen time and applies your rules once their phones sync.</string>
     <string name="onb_later">Later</string>
     <string name="onb_location_title">Where the phone is</string>
     <string name="onb_location_body">So that your parents see where the phone is and hear when you leave a safe zone, Kinsight needs the precise location. Android will ask now: choose “Precise” and “While using the app”.</string>
