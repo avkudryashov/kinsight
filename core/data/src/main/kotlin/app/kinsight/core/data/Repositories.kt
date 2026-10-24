@@ -448,11 +448,15 @@ class UsageRepository(
 
     /**
      * Review C2, once per phone at protocol 4: re-signs this parent's own live CategoryOverride winners (same category,
-     * cleared ones included, rank [CategoryOverrides.nextRank] over themselves) in one append. Before protocol 4 a parent
+     * cleared ones included, and the winner's OWN rank) in one append. Before protocol 4 a parent
      * never sent CATEGORY_OVERRIDE to a child, and the child completed the parent's log over those entries at Done, so
      * an updated child would never take them: the new seqs sit above its position and reach it over Bluetooth and the
      * Disk alike (an older child holds them back until its own update). The effective map does not change: each
-     * re-signed entry supersedes its author's own winner. The flag is set after the append committed, or at once on a
+     * re-signed entry supersedes its author's own winner (same supersede key, rank and category). The rank is kept, not
+     * raised with nextRank: this write is nobody's choice, so it must never outrank one. Another parent may already have
+     * changed the package at rank + 1 out of contact; a raised rank would tie with that newer choice and the author hex
+     * could undo it family-wide, while the kept rank leaves it winning. The child holds neither entry, so nothing needs
+     * superseding there. The flag is set after the append committed, or at once on a
      * child's phone or without a group (nothing of its own to send); a failed append or a storage error retries at the
      * next start. Overrides of another parent are that parent's to re-sign when it updates.
      */
@@ -467,7 +471,7 @@ class UsageRepository(
         if (own.isNotEmpty()) {
             val ok = appendOwn { a ->
                 own.entries.sortedBy { it.key }.map { (pkg, winner) ->
-                    a.categoryOverrideEntry(pkg, winner.body.category_override!!.category, CategoryOverrides.nextRank(winner))
+                    winner.body.category_override!!.let { o -> a.categoryOverrideEntry(pkg, o.category, o.rank) }
                 }
             }
             if (!ok) return@withLock

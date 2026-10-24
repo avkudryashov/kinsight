@@ -106,6 +106,34 @@ class CategoryOverrideResignTest {
         assertTrue(kid.prefs.categoryOverridesResigned(), "a child has nothing to re-sign: done for good")
     }
 
+    /** Re-review: the re-sign keeps the winner's own rank, so another parent's newer choice made out of contact still wins. */
+    @Test
+    fun theResignKeepsItsRankSoANewerChoiceOfAnotherParentStillWins() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        dad.joinGroupOf(mom, DeviceRole.PARENT, "Dad")
+        kid.joinGroupOf(mom)
+        dad.store().storeMembership(mom.store().membershipEntries())
+        mom.usage.setCategory("com.example.chat", AppCategory.GAMES)
+        val momsRank = mom.store().categoryOverrides().single().body.category_override!!.rank
+        // Dad (updated, out of contact) changes the package over mom's winner: rank R + 1.
+        dad.store().applyBatch(mom.store().categoryOverrides())
+        dad.usage.setCategory("com.example.chat", AppCategory.SOCIAL)
+        val dads = dad.store().categoryOverrides().single { it.author == dad.keys.deviceId }
+        assertEquals(momsRank + 1, dads.body.category_override!!.rank)
+
+        // Mom updates before she hears of it: her one-shot re-signs her winner at its own rank R.
+        mom.usage.resignCategoryOverrides()
+        val resigned = mom.store().categoryOverrides().single { it.author == mom.keys.deviceId }
+        assertEquals(momsRank, resigned.body.category_override!!.rank)
+        assertEquals(CategoryOverrides.wire(AppCategory.GAMES), resigned.body.category_override!!.category)
+
+        // Both parents meet: dad's deliberate newer choice wins on both phones.
+        mom.store().applyBatch(listOf(dads))
+        dad.store().applyBatch(listOf(resigned))
+        assertEquals(mapOf("com.example.chat" to AppCategory.SOCIAL), mom.effective())
+        assertEquals(mapOf("com.example.chat" to AppCategory.SOCIAL), dad.effective())
+    }
+
     private companion object {
         /** FROM_PARENTS_TO_ALL of the protocol 3 builds. */
         val OLD_SHARE = setOf(EntryKind.CLOUD_ACCESS, EntryKind.SAFE_ZONE, EntryKind.PARENT_PIN)
