@@ -32,6 +32,9 @@ Kinsight reads only what it needs to count screen time, apply the parents' rules
 - Only if a parent turned on the sync through Yandex Disk: the phone's location points, from the phone's system location service (Kinsight does not use the Google Play services libraries; on some phones that system service is itself provided by the phone maker's or Google's system services): outside the family's safe zones a point with its accuracy about every 5 minutes; inside a safe zone only which zone it is in, without coordinates, about every 30 to 60 minutes. Location points older than 48 hours are deleted on every phone; leaving or entering a safe zone is kept as an event about the state of sharing (above).
 - The time zone of the phone, so that time is counted on the right local date.
 
+**On a parent's phone, only if the parent turns on "Show my screen time" (off by default):**
+- The same app usage events from Android, and the list of apps with their names, icons and Android categories, are read to show the parent's own screen time on that phone only. This time is never sent to anyone: not over Bluetooth, not through Yandex Disk, not to the other parents or to the children. Kinsight records no events about it, and the other phones do not see that it is turned on. Turning it off stops the reading and deletes what was collected for it on that phone.
+
 **On every phone in the group (child and parent):**
 - The name of the phone or person, entered by the user (for example "Anna's phone"), and its role in the group (parent or child).
 - Identifiers and cryptographic keys created by the app on that phone: a random device identifier, a group identifier and public keys. These are not linked to your Google account, phone number, IMEI, advertising ID or any other hardware identifier.
@@ -86,7 +89,7 @@ The service is turned on by the child in Android settings and works only after t
 
 | Permission | Why |
 |---|---|
-| Usage access (`PACKAGE_USAGE_STATS`) | On a child's phone, to count how long each app is used and how often the phone is unlocked. You turn it on yourself in Android settings, and you can turn it off at any time; the parents then see that usage access was turned off. Not used for anything else |
+| Usage access (`PACKAGE_USAGE_STATS`) | On a child's phone, to count how long each app is used and how often the phone is unlocked. On a parent's phone it is optional: only if the parent turns on "Show my screen time", the same events are read to show the parent's own time on that phone only (never sent). You turn it on yourself in Android settings, and you can turn it off at any time; the parents then see that usage access was turned off. Not used for anything else |
 | Nearby devices (`BLUETOOTH_SCAN`, `BLUETOOTH_ADVERTISE`, `BLUETOOTH_CONNECT`) | To find the family's phones nearby and exchange data with them. Kinsight declares that it does not use Bluetooth to determine location. |
 | Accessibility service (`BIND_ACCESSIBILITY_SERVICE`) | On the child's phone, to close apps a parent blocked. It sees only which app is on screen (the package name) and reads nothing inside apps. The child can turn it off in Android settings; the parents then see it in Kinsight |
 | Notifications (`POST_NOTIFICATIONS`) | To show the permanent notification (on a child's phone, that the phone is in a Kinsight family group and who receives the data; on a parent's phone also a button to stop sync), and to notify parents about pauses, turned-off permissions, lost contact, leaving a safe zone, summaries and limits. If notifications are turned off on a child's phone, the parents see that |
