@@ -51,6 +51,9 @@
     <string name="det_ev_location_off_open">Доступ к местоположению выключен</string>
     <string name="det_ev_location_disabled">Местоположение на телефоне было выключено на %1$s</string>
     <string name="det_ev_location_disabled_open">На телефоне выключено местоположение</string>
+    <string name="det_ev_blocking_off">Блокировка на телефоне не работает (выключена служба специальных возможностей)</string>
+    <string name="det_ev_blocking_on">Блокировка снова работает</string>
+    <string name="det_ev_block_overridden">%1$s разблокировано по PIN-коду до конца дня</string>
     <string name="det_today">Сегодня</string>
     <string name="det_yesterday">Вчера</string>
     <string name="det_no_data_day">Нет данных за этот день</string>

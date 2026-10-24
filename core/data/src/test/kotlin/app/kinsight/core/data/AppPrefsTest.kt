@@ -22,7 +22,13 @@ import kotlin.test.assertFailsWith
 class AppPrefsTest {
     private val dir = Files.createTempDirectory("kinsight-prefs").toFile()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private val prefs = AppPrefs.create(File(dir, "app.preferences_pb"), scope)
+    private val store = PreferenceDataStoreFactory.create(scope = scope, produceFile = { File(dir, "app.preferences_pb") })
+    private val prefs = AppPrefs(store)
+
+    /** The app no longer writes limits: a stored line stands for one an older version left behind. */
+    private suspend fun storeLimit(r: ThresholdRule) {
+        store.edit { it[stringPreferencesKey("threshold_rules")] = it[stringPreferencesKey("threshold_rules")].orEmpty().let { old -> (if (old.isEmpty()) "" else "$old\n") + "${r.child.hex}|${ThresholdRule.keyOf(r.target)}|${r.limitMs}" } }
+    }
 
     @AfterTest
     fun cleanUp() {
@@ -119,49 +125,34 @@ class AppPrefsTest {
     private val hour = 3_600_000L
 
     @Test
-    fun thresholdsRoundTripOnePerChildAndTarget() = runBlocking<Unit> {
+    fun storedLimitsReadBackSurviveReopeningAndClear() = runBlocking<Unit> {
         assertEquals(emptyList(), prefs.thresholds.first())
         val total = ThresholdRule.of(kidA, ThresholdTarget.Total, 3 * hour)!!
         val games = ThresholdRule.of(kidA, ThresholdTarget.Category(AppCategory.GAMES), hour)!!
         val app = ThresholdRule.of(kidB, ThresholdTarget.App("com.example.game"), hour / 2)!!
-        prefs.setThreshold(total)
-        prefs.setThreshold(games)
-        prefs.setThreshold(app)
+        storeLimit(total)
+        storeLimit(games)
+        storeLimit(app)
         assertEquals(setOf(total, games, app), prefs.thresholds.first().toSet())
-        // Same (child, target): replaced, not added.
-        val raised = ThresholdRule.of(kidA, ThresholdTarget.Total, 4 * hour)!!
-        prefs.setThreshold(raised)
-        assertEquals(setOf(raised, games, app), prefs.thresholds.first().toSet())
-        prefs.removeThreshold(games.id)
-        prefs.removeThreshold("no-such-id")
-        assertEquals(setOf(raised, app), prefs.thresholds.first().toSet())
         // Survives reopening the file.
         scope.coroutineContext.job.cancelAndJoin()
         val scope2 = CoroutineScope(Dispatchers.IO + SupervisorJob())
         try {
             val again = AppPrefs.create(File(dir, "app.preferences_pb"), scope2)
-            assertEquals(setOf(raised, app), again.thresholds.first().toSet())
+            assertEquals(setOf(total, games, app), again.thresholds.first().toSet())
+            again.clearThresholds()
+            assertEquals(emptyList(), again.thresholds.first())
         } finally {
             scope2.coroutineContext.job.cancelAndJoin()
         }
     }
 
     @Test
-    fun anInvalidThresholdIsRefused() = runBlocking<Unit> {
-        // Built around ThresholdRule.of: an off-step limit or an id not derived from child and target.
-        assertFailsWith<IllegalArgumentException> { prefs.setThreshold(ThresholdRule("x", kidA, ThresholdTarget.Total, limitMs = hour)) }
-        assertFailsWith<IllegalArgumentException> {
-            prefs.setThreshold(ThresholdRule(ThresholdRule.idOf(kidA, ThresholdTarget.Total), kidA, ThresholdTarget.Total, limitMs = hour + 1))
-        }
-        assertEquals(emptyList(), prefs.thresholds.first())
-    }
-
-    @Test
     fun thresholdsAreWipedByBothResets() = runBlocking<Unit> {
-        prefs.setThreshold(ThresholdRule.of(kidA, ThresholdTarget.Total, hour)!!)
+        storeLimit(ThresholdRule.of(kidA, ThresholdTarget.Total, hour)!!)
         prefs.resetForNewGroup()
         assertEquals(emptyList(), prefs.thresholds.first())
-        prefs.setThreshold(ThresholdRule.of(kidA, ThresholdTarget.Total, hour)!!)
+        storeLimit(ThresholdRule.of(kidA, ThresholdTarget.Total, hour)!!)
         prefs.reset()
         assertEquals(emptyList(), prefs.thresholds.first())
     }

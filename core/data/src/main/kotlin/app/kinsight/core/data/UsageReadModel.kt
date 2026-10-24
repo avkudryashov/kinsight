@@ -152,6 +152,7 @@ object UsageReadModel {
                 EventView(
                     e.author, e.seq, it.kind, it.from_ms, it.to_ms, e.body.created_at_ms, it.clock_shift_ms, first,
                     zoneId = zone, zoneName = zone?.let(zoneNames::get),
+                    packageName = it.package_name.takeIf { p -> p.isNotEmpty() },
                 )
             }
         }

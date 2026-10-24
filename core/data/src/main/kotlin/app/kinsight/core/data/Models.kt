@@ -116,6 +116,8 @@ data class EventView(
     /** ZONE_ENTER / ZONE_EXIT: the zone's hex id and its name (null when unknown here). */
     val zoneId: String? = null,
     val zoneName: String? = null,
+    /** BLOCK_OVERRIDDEN: the package unblocked by PIN (null for other kinds). */
+    val packageName: String? = null,
 ) {
     /** When it happened, the same for the event list and the alert: an interval's start, else the signing time. */
     val atMs: Long get() = if (fromMs > 0) fromMs else createdMs

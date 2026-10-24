@@ -283,6 +283,22 @@ class AlertPlannerTest {
     private fun byId(alerts: List<Alert.Threshold>) = alerts.sortedBy { ThresholdRule.idOf(it.child, it.target) }
 
     @Test
+    fun blockAndAllowRulesNeverNotify() {
+        val rules = listOf(
+            ThresholdRule.block(kid.id, ThresholdTarget.App("com.game"))!!,
+            ThresholdRule.allow(kid.id, "com.chat")!!,
+            ThresholdRule.block(kid.id, ThresholdTarget.Category(AppCategory.GAMES))!!,
+        )
+        for (usedMs in listOf(0L, h, 12 * h)) {
+            val plan = AlertPlanner.plan(
+                input(thresholds = rules, todays = mapOf(kid.id to day(usedMs, games = usedMs, apps = mapOf("com.game" to usedMs, "com.chat" to usedMs)))),
+            )
+            assertTrue(thresholdAlerts(plan).isEmpty(), "no Threshold alert at ${usedMs}ms")
+            assertTrue(plan.markers.thresholdNotified.isEmpty())
+        }
+    }
+
+    @Test
     fun thresholdFiresWhenReachedAndOncePerDay() {
         val total = rule(ThresholdTarget.Total, 3 * h)
         assertTrue(thresholdAlerts(AlertPlanner.plan(input(thresholds = listOf(total), todays = mapOf(kid.id to day(3 * h - min))))).isEmpty())

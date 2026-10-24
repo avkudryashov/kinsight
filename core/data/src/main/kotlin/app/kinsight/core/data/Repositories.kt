@@ -11,6 +11,7 @@ import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
 import app.kinsight.core.model.Membership
+import app.kinsight.core.model.appRuleEntry
 import app.kinsight.core.model.grantAdminEntry
 import app.kinsight.core.model.leaveGroupEntry
 import app.kinsight.core.model.removeMemberEntry
@@ -58,6 +59,7 @@ import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import okio.ByteString
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
@@ -451,12 +453,13 @@ class UsageRepository(
     }
 
     /**
-     * The parent's daily limits (spec §9.7, stage 5b) of devices that are children of the current group; rules of a
-     * device that left, was removed or is not a child are kept in [AppPrefs] but not listed. Empty without a group.
+     * The family's app rules (spec §4, §9.7) of devices that are children of the current group, from the shared
+     * `AppRule` entries ([AppRules.effective]); rules of a device that left, was removed or is not a child are not
+     * listed. Empty without a group.
      */
-    val thresholds: Flow<List<ThresholdRule>> = combine(snapshots.snapshots, prefs.thresholds) { s, rules ->
-        val ready = (s as? GroupSnapshot.Ready)?.takeUnless { it.removed } ?: return@combine emptyList()
-        rules.filter { ready.membership.active[it.child]?.isChild == true }
+    val thresholds: Flow<List<ThresholdRule>> = snapshots.snapshots.map { s ->
+        val ready = (s as? GroupSnapshot.Ready)?.takeUnless { it.removed } ?: return@map emptyList()
+        AppRules.effective(ready).filter { ready.membership.active[it.child]?.isChild == true }
     }.distinctUntilChanged()
 
     /** Whether this phone is a parent of the current group: only a parent sets thresholds (hidden on a child's phone). */
@@ -468,10 +471,110 @@ class UsageRepository(
     /** Whether the group is readable (a Ready snapshot): a null view then means «no such device», otherwise it is not an answer yet. */
     val groupReady: Flow<Boolean> = snapshots.snapshots.map { it is GroupSnapshot.Ready }.distinctUntilChanged()
 
-    /** Adds or replaces the rule of [rule]'s (child, target); build it with [ThresholdRule.of]. */
-    suspend fun setThreshold(rule: ThresholdRule) = prefs.setThreshold(rule)
+    /** Serialises [setThreshold], [removeThreshold] and [migrateLocalThresholds]; taken before the pipeline lock in [appendOwn]. */
+    private val ruleLock = Mutex()
 
-    suspend fun removeThreshold(id: String) = prefs.removeThreshold(id)
+    /**
+     * Signs an AppRule entry in the own log for [rule]'s (child, target) (spec §4); build the rule with
+     * [ThresholdRule.of], [ThresholdRule.block] or [ThresholdRule.allow]. Refused (logged, nothing signed) for an
+     * invalid rule, without a group, on a child's phone and for a device that is not a child of the group. A rule the
+     * live winner already states (same wire fields) signs nothing. Runs the local-limits migration first, so an old
+     * local limit can never undo a newer shared rule.
+     */
+    suspend fun setThreshold(rule: ThresholdRule): Unit = ruleLock.withLock {
+        migrateRulesLocked()
+        if (!rule.isValid) {
+            Log.w(TAG, "app rule refused: invalid rule")
+            return@withLock
+        }
+        val ready = parentSnapshot() ?: run {
+            Log.w(TAG, "app rule refused: not a parent of a group")
+            return@withLock
+        }
+        if (ready.membership.active[rule.child]?.isChild != true) {
+            Log.w(TAG, "app rule refused: not a child of the group")
+            return@withLock
+        }
+        val winner = AppRules.winners(ready.appRules, ready.membership)[rule.id]
+        val wire = AppRules.wire(rule)
+        if (winner != null && winner.body.app_rule!!.let { !it.deleted && it.copy(rank = 0, deleted = false, unknownFields = ByteString.EMPTY) == wire }) return@withLock
+        val rank = AppRules.nextRank(winner)
+        val ok = appendOwn { a ->
+            listOf(
+                a.appRuleEntry(
+                    childId = wire.child_id.toByteArray(), target = wire.target, packageName = wire.package_name, category = wire.category,
+                    mode = wire.mode, limitMs = wire.limit_ms, blockOnLimit = wire.block_on_limit, rank = rank,
+                ),
+            )
+        }
+        if (!ok) Log.w(TAG, "app rule: no group to sign in")
+    }
+
+    /**
+     * Signs a deleted version of rule [id] over the live winner (a tombstone hides every older version, spec §4);
+     * signs nothing without a live winner, without a group or on a child's phone.
+     */
+    suspend fun removeThreshold(id: String): Unit = ruleLock.withLock {
+        migrateRulesLocked()
+        val ready = parentSnapshot() ?: return@withLock
+        val winner = AppRules.winners(ready.appRules, ready.membership)[id] ?: return@withLock
+        val w = winner.body.app_rule!!
+        if (w.deleted) return@withLock
+        val rank = AppRules.nextRank(winner)
+        val ok = appendOwn { a ->
+            listOf(
+                a.appRuleEntry(
+                    childId = w.child_id.toByteArray(), target = w.target, packageName = w.package_name, category = w.category,
+                    mode = w.mode, limitMs = w.limit_ms, blockOnLimit = w.block_on_limit, rank = rank, deleted = true,
+                ),
+            )
+        }
+        if (!ok) Log.w(TAG, "app rule removal: no group to sign in")
+    }
+
+    /**
+     * The name of the other parent whose entry sets rule [id]; null for the viewer's own rule or no live rule. Only
+     * active parents' entries take effect, so the author is an active member. A blank name comes back as "".
+     */
+    fun ruleChangedBy(id: String): Flow<String?> = snapshots.snapshots.map { s ->
+        (s as? GroupSnapshot.Ready)?.takeUnless { it.removed }?.let {
+            val winner = AppRules.winners(it.appRules, it.membership)[id]?.takeUnless { e -> e.body.app_rule!!.deleted }
+            winner?.author?.takeIf { a -> a != it.self }?.let { a -> it.membership.active[a]?.displayName?.takeUnless(String::isBlank) ?: "" }
+        }
+    }.distinctUntilChanged()
+
+    /**
+     * One-time move of the stage 5b local limits into the shared log (spec §4 «Переход»), run at app start on a
+     * parent's phone. A local limit is published only for a (child, target) no active parent has an entry for: a
+     * shared rule, a deletion included, is never overridden by an old local one. Limits of devices that are not
+     * children of the group are dropped. Valid ones are signed in one append, then the prefs are cleared. Crash-safe:
+     * prefs are cleared only after the append committed; a rerun finds the own entries as winners and just clears.
+     * Without a group, on a child's phone or when the append fails, nothing is cleared.
+     */
+    suspend fun migrateLocalThresholds(): Unit = ruleLock.withLock { migrateRulesLocked() }
+
+    private suspend fun migrateRulesLocked() {
+        val local = prefs.thresholds.first()
+        if (local.isEmpty()) return
+        val ready = parentSnapshot() ?: return
+        val winners = AppRules.winners(ready.appRules, ready.membership)
+        val publish = local.filter { it.isValid && ready.membership.active[it.child]?.isChild == true && winners[it.id] == null }
+        if (publish.isNotEmpty()) {
+            val rank = AppRules.nextRank(null)
+            val ok = appendOwn { a ->
+                publish.sortedBy { it.id }.map { r ->
+                    val w = AppRules.wire(r)
+                    a.appRuleEntry(
+                        childId = w.child_id.toByteArray(), target = w.target, packageName = w.package_name, category = w.category,
+                        mode = w.mode, limitMs = w.limit_ms, blockOnLimit = w.block_on_limit, rank = rank,
+                    )
+                }
+            }
+            if (!ok) return
+            Log.i(TAG, "published ${publish.size} local limits")
+        }
+        prefs.clearThresholds()
+    }
 
     /**
      * [range] of device [id], reloaded on every log change (an equal state is not re-emitted). A DAY also reads the

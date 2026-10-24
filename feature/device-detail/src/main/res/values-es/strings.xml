@@ -50,6 +50,9 @@
     <string name="det_ev_location_off_open">Acceso a la ubicación desactivado</string>
     <string name="det_ev_location_disabled">Ubicación desactivada en el teléfono durante %1$s</string>
     <string name="det_ev_location_disabled_open">Ubicación desactivada en el teléfono</string>
+    <string name="det_ev_blocking_off">El bloqueo está desactivado en el teléfono (servicio de accesibilidad desactivado)</string>
+    <string name="det_ev_blocking_on">El bloqueo vuelve a funcionar</string>
+    <string name="det_ev_block_overridden">%1$s desbloqueada con el PIN hasta el final del día</string>
     <string name="det_today">Hoy</string>
     <string name="det_yesterday">Ayer</string>
     <string name="det_no_data_day">No hay datos de este día</string>

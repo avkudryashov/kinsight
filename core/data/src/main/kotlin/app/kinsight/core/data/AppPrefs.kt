@@ -93,28 +93,15 @@ class AppPrefs(private val store: DataStore<Preferences>) {
     }
 
     /**
-     * The parent's daily limits (spec §9.7, stage 5b): local, never in the log, not synced; one per (child, target),
-     * ordered by id. Every stored rule is listed, a child's rules outlive the child's leaving: readers ignore rules of
-     * devices that are not children of the group (UsageRepository.thresholds).
+     * The parent's local daily limits of stage 5b: only the migration source since the shared AppRule entries
+     * (UsageRepository.migrateLocalThresholds), which read them, publish what nobody set and then [clearThresholds].
+     * Ordered by id; the app no longer writes here.
      */
     val thresholds: Flow<List<ThresholdRule>> = store.data.map { decodeThresholds(it[THRESHOLDS]).values.toList() }.distinctUntilChanged()
 
-    /** Adds [rule] or replaces the rule of its (child, target); [rule] must be one [ThresholdRule.of] builds. */
-    suspend fun setThreshold(rule: ThresholdRule) {
-        require(rule.isValid) { "invalid threshold rule" }
-        store.edit {
-            val m = decodeThresholds(it[THRESHOLDS]).toMutableMap()
-            m[rule.id] = rule
-            it[THRESHOLDS] = encodeThresholds(m)
-        }
-    }
-
-    suspend fun removeThreshold(id: String) {
-        store.edit {
-            val m = decodeThresholds(it[THRESHOLDS]).toMutableMap()
-            if (m.remove(id) == null) return@edit
-            if (m.isEmpty()) it.remove(THRESHOLDS) else it[THRESHOLDS] = encodeThresholds(m)
-        }
+    /** After the migration has published them. */
+    suspend fun clearThresholds() {
+        store.edit { it.remove(THRESHOLDS) }
     }
 
     suspend fun alertMarkers(): AlertMarkers = AlertMarkers.decode(store.data.first()[MARKERS])
@@ -207,9 +194,6 @@ class AppPrefs(private val store: DataStore<Preferences>) {
             val limit = parts[2].toLongOrNull()
             if (child == null || target == null || limit == null) null else ThresholdRule.of(child, target, limit)
         }.associateBy { it.id }.toSortedMap()
-
-        private fun encodeThresholds(m: Map<String, ThresholdRule>): String =
-            m.values.sortedBy { it.id }.joinToString("\n") { "${it.child.hex}|${ThresholdRule.keyOf(it.target)}|${it.limitMs}" }
 
         /** One `package=CATEGORY` per line; a malformed line or an unknown category is skipped. */
         private fun decodeOverrides(raw: String?): Map<String, AppCategory> = raw.orEmpty().lineSequence().mapNotNull { line ->

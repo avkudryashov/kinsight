@@ -92,6 +92,13 @@ class UsageReadModelTest {
     }
 
     @Test
+    fun anOverrideEventCarriesItsPackage() {
+        val overridden = kid.create { it.copy(state_event = StateEvent(kind = StateEvent.Kind.BLOCK_OVERRIDDEN, package_name = "com.game")) }
+        assertEquals(listOf("com.game"), UsageReadModel.events(listOf(overridden)).map { it.packageName })
+        assertEquals(listOf(null), UsageReadModel.events(listOf(event(StateEvent.Kind.SHARING_PAUSED))).map { it.packageName })
+    }
+
+    @Test
     fun sharingFollowsTheLastSignedEvent() {
         assertEquals(Sharing.Never, UsageReadModel.sharing(emptyList(), departed = false))
         val resumed = event(StateEvent.Kind.SHARING_RESUMED)

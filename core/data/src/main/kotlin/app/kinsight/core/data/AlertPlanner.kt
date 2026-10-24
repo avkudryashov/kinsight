@@ -316,15 +316,17 @@ object AlertPlanner {
     }
 
     /**
-     * Daily limits (stage 5b, §9.7): active children only, on the child's own today. A rule fires once per (rule,
-     * limit, child's date), also on the first run (a rule is a promise about today, not history). Markers of a
-     * deleted rule go (re-adding it notifies again); the rest keep the last [THRESHOLD_MARKER_DATES] dates.
+     * Daily limits (stage 5b, §9.7; LIMIT rules only, a block or allow never notifies): active children only, on the
+     * child's own today. A rule fires once per (rule, limit, child's date), also on the first run
+     * (a rule is a promise about today, not history). Markers of a deleted rule go (re-adding it notifies again); the
+     * rest keep the last [THRESHOLD_MARKER_DATES] dates.
      */
     private fun thresholds(i: AlertInput, alerts: MutableList<Alert>): Set<String> {
         val children = i.members.filter { it.role == Role.CHILD && !it.isSelf }.associateBy { it.id }
         val ruleIds = i.thresholds.map { it.id }.toSet()
         val marks = i.markers.thresholdNotified.filterTo(mutableSetOf()) { AlertMarkers.parseThresholdKey(it)?.first in ruleIds }
         for (rule in i.thresholds.sortedBy { it.id }) {
+            if (rule.mode != RuleMode.LIMIT) continue
             val child = children[rule.child] ?: continue
             val day = i.todays[child.id] ?: continue
             val usage = day.usage ?: continue

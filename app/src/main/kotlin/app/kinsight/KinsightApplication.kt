@@ -108,6 +108,8 @@ open class KinsightApplication : Application() {
             attempt("nearby permission") { SyncGraph.onNearbyPermission(app, BlePermissions.missing(app).isEmpty()) }
             // Stage 5c: a parent's local category choices of 5a become shared entries, once (idempotent, crash-safe).
             attempt("category migration") { AppGraph.get(app).usage.migrateLocalCategories() }
+            // Spec §4: a parent's local daily limits of 5b become shared AppRule entries, once (same guarantees).
+            attempt("limits migration") { AppGraph.get(app).usage.migrateLocalThresholds() }
         }
     }
 

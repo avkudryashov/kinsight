@@ -2,6 +2,9 @@ package app.kinsight.core.data
 
 import android.content.Context
 import android.content.ContextWrapper
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
 import app.kinsight.core.database.KinsightDatabaseFactory
 import app.kinsight.core.database.RoomEntryStore
 import app.kinsight.core.database.RoomUsageQueue
@@ -92,7 +95,17 @@ class TestDevice(
     val groups = GroupStore(File(dir, GroupStore.FILE_NAME))
     val transport = TransportStateStore.create(File(dir, "t.preferences_pb"), scope)
     val settings = SettingsStore.create(File(dir, "u.preferences_pb"), scope)
-    val prefs = AppPrefs.create(File(dir, "a.preferences_pb"), scope)
+    private val prefsStore = PreferenceDataStoreFactory.create(scope = scope, produceFile = { File(dir, "a.preferences_pb") })
+    val prefs = AppPrefs(prefsStore)
+
+    /** Leaves [rule] in the old local limits (what a stage 5b app stored; the app itself no longer writes them). */
+    suspend fun storeLocalLimit(rule: ThresholdRule) {
+        val key = stringPreferencesKey("threshold_rules")
+        prefsStore.edit { p ->
+            val old = p[key].orEmpty()
+            p[key] = (if (old.isEmpty()) "" else "$old\n") + "${rule.child.hex}|${ThresholdRule.keyOf(rule.target)}|${rule.limitMs}"
+        }
+    }
     val sync = FakeSyncControl()
     val sessions = MutableStateFlow(SessionProgress(finished = 0, syncing = false))
     var identityBroken: Exception? = null
