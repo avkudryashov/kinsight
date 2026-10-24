@@ -197,6 +197,30 @@ class ChildDeliveryTest {
         assertEquals(mom.store.versionVector()[mom.keys.deviceId], kid.store.versionVector()[mom.keys.deviceId])
     }
 
+    /**
+     * Spec §8: a protocol 3 child (its three share kinds) drops a parent's APP_RULE and CATEGORY_OVERRIDE as Unwanted;
+     * [SyncSession] holds the parent's log open below the first of them, so both arrive after the child's update.
+     */
+    @Test
+    fun anOlderChildHoldsBackRulesAndOverridesUntilItsUpdate() = runBlocking<Unit> {
+        val (mom, _, kid) = family()
+        kid.policy = kid.policy.copy(shareKinds = setOf(EntryKind.CLOUD_ACCESS, EntryKind.SAFE_ZONE, EntryKind.PARENT_PIN))
+        val rule = mom.author.appRuleEntry(kid.keys.deviceId.bytes(), AppRule.Target.APP, "com.example.game", mode = AppRule.Mode.BLOCK, rank = 1)
+        val override = mom.author.categoryOverride("com.example.chat", 1)
+        val pin = mom.author.pin()
+        mom.publish(rule, override, pin, mom.author.summary(TODAY.toString(), 1))
+        val (_, rk) = syncPair(mom, kid, versionsB = 2..3)
+        assertEquals(3, assertIs<SessionResult.Completed>(rk).protocolVersion)
+        assertTrue(kid.holds(pin), "the kinds it knows still arrive")
+        assertTrue(!kid.holds(rule) && !kid.holds(override))
+        assertEquals(rule.seq - 1, kid.store.versionVector()[mom.keys.deviceId], "completed up to the rule, not over it")
+        assertTrue(!kid.store.isAccounted(mom.keys.deviceId, rule.seq) && !kid.store.isAccounted(mom.keys.deviceId, override.seq))
+        kid.policy = kid.policy.copy(shareKinds = SyncPolicy.FROM_PARENTS_TO_ALL)
+        syncPair(mom, kid)
+        assertTrue(kid.holds(rule) && kid.holds(override))
+        assertEquals(mom.store.versionVector()[mom.keys.deviceId], kid.store.versionVector()[mom.keys.deviceId])
+    }
+
     /** A future share kind the child's build already knows (HEARTBEAT plays it): the older child must not complete over it. */
     @Test
     fun aKnownKindAnOlderChildDropsStaysOpenAndTheResendIsNothingNew() = runBlocking<Unit> {

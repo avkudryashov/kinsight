@@ -8,8 +8,8 @@ import app.kinsight.core.usage.UsageSettings
 object SyncPolicies {
     /**
      * A CHILD takes no foreign entries (spec §4.8: its data goes to the parents); it receives membership and, from
-     * protocol 3, the parents' share (SyncPolicy.FROM_PARENTS_TO_ALL: PIN, safe zones, storage access). Everyone else
-     * takes all. Unknown membership keeps the 3c default (show others). Retention from the settings.
+     * protocol 3, the parents' share (SyncPolicy.FROM_PARENTS_TO_ALL: storage access, safe zones, PIN, and from protocol
+     * 4 the app rules and category overrides). Everyone else takes all. Unknown membership keeps the 3c default (show others). Retention from the settings.
      */
     fun forDevice(membership: MembershipState?, self: DeviceId, settings: UsageSettings): SyncPolicy = SyncPolicy(
         self = self,

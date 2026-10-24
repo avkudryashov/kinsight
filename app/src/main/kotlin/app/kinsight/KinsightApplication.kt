@@ -112,6 +112,8 @@ open class KinsightApplication : Application() {
             attempt("nearby permission") { SyncGraph.onNearbyPermission(app, BlePermissions.missing(app).isEmpty()) }
             // Stage 5c: a parent's local category choices of 5a become shared entries, once (idempotent, crash-safe).
             attempt("category migration") { AppGraph.get(app).usage.migrateLocalCategories() }
+            // Protocol 4 (review C2): older children completed over a parent's category overrides; re-sign them once.
+            attempt("category re-sign") { AppGraph.get(app).usage.resignCategoryOverrides() }
             // Spec §4: a parent's local daily limits of 5b become shared AppRule entries, once (same guarantees).
             attempt("limits migration") { AppGraph.get(app).usage.migrateLocalThresholds() }
         }

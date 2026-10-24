@@ -297,8 +297,10 @@ class SyncSession internal constructor(
             try {
                 // S-H1: the role decides, not the peer's flag. A CHILD takes membership (spec §4.8), which already went
                 // both ways in the offer exchange above, and, from protocol 3, the parents' FROM_PARENTS_TO_ALL entries
-                // (its PIN, safe zones and storage access, spec §10, §8.1), whatever its Hello says. A protocol 2 child
-                // gets no batch at all, as before.
+                // (its PIN, safe zones and storage access, spec §10, §8.1; from protocol 4 also the app rules and the
+                // category overrides, app blocking spec §4, §5.1), whatever its Hello says. The set is the sender's
+                // policy.shareKinds: an older child drops the kinds it does not take and holds the log open below them.
+                // A protocol 2 child gets no batch at all, as before.
                 val peerTakesForeign = hello.wants_foreign_entries && !peer.isChild
                 val scope = when {
                     peerTakesForeign -> SendScope.ALL
@@ -414,12 +416,15 @@ class SyncSession internal constructor(
                         // Author completion: the peer has now sent every entry of its own log above our announced
                         // contig that we take (all its batches precede Done), so its own announced seq closes any gap
                         // we have. With showOthers on, that is its whole log. With it off (a child), from protocol 3 it
-                        // is every FROM_PARENTS_TO_ALL entry of a parent (SendScope.FROM_PARENTS), the only kinds we
-                        // keep of it, so the rest of its log is accounted for and our position follows its own (no
-                        // resend in the next session). A protocol 2 peer sends a child nothing: no completion then.
+                        // is every entry of the sender's share set (SendScope.FROM_PARENTS, the peer's FROM_PARENTS_TO_ALL;
+                        // protocol 4 added APP_RULE and CATEGORY_OVERRIDE) of a parent, the only kinds we keep of it,
+                        // so the rest of its log is accounted for and our position follows its own (no resend in the
+                        // next session). A protocol 2 peer sends a child nothing: no completion then.
                         // Only the author completes its own log: a relay never makes us skip a seq of another author.
                         // A child never completes over a share entry it dropped in this session ([holdsBack]): a later
                         // build that takes it (a wider FROM_PARENTS_TO_ALL, a relaxed rule) still receives it then.
+                        // An entry the sender's own older set left out is completed over, though: a kind added to the set
+                        // later needs its author to re-sign (core/data UsageRepository.resignCategoryOverrides, protocol 4).
                         if (policy.showOthers || agreed >= CLOUD_PROTOCOL_VERSION) {
                             completedTo = minOf(peerVector[peer.id], heldBack - 1)
                             store.completeAuthor(peer.id, completedTo)

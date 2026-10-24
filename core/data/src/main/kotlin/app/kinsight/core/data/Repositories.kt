@@ -446,6 +446,36 @@ class UsageRepository(
         prefs.clearCategoryOverrides()
     }
 
+    /**
+     * Review C2, once per phone at protocol 4: re-signs this parent's own live CategoryOverride winners (same category,
+     * cleared ones included, rank [CategoryOverrides.nextRank] over themselves) in one append. Before protocol 4 a parent
+     * never sent CATEGORY_OVERRIDE to a child, and the child completed the parent's log over those entries at Done, so
+     * an updated child would never take them: the new seqs sit above its position and reach it over Bluetooth and the
+     * Disk alike (an older child holds them back until its own update). The effective map does not change: each
+     * re-signed entry supersedes its author's own winner. The flag is set after the append committed, or at once on a
+     * child's phone or without a group (nothing of its own to send); a failed append or a storage error retries at the
+     * next start. Overrides of another parent are that parent's to re-sign when it updates.
+     */
+    suspend fun resignCategoryOverrides(): Unit = categoryLock.withLock {
+        if (prefs.categoryOverridesResigned()) return@withLock
+        val s = snapshots.load(emptyMap())
+        if (s is GroupSnapshot.NoGroup) return@withLock prefs.setCategoryOverridesResigned()
+        val ready = s as? GroupSnapshot.Ready ?: return@withLock
+        val me = ready.membership.active[ready.self]
+        if (me == null || me.isChild) return@withLock prefs.setCategoryOverridesResigned()
+        val own = CategoryOverrides.winners(ready.categoryOverrides, ready.membership).filterValues { it.author == ready.self }
+        if (own.isNotEmpty()) {
+            val ok = appendOwn { a ->
+                own.entries.sortedBy { it.key }.map { (pkg, winner) ->
+                    a.categoryOverrideEntry(pkg, winner.body.category_override!!.category, CategoryOverrides.nextRank(winner))
+                }
+            }
+            if (!ok) return@withLock
+            Log.i(TAG, "re-signed ${own.size} category overrides for children")
+        }
+        prefs.setCategoryOverridesResigned()
+    }
+
     /** A fresh read (not the shared flow, which may lag a just-committed append) when this phone is an active parent. */
     private suspend fun parentSnapshot(): GroupSnapshot.Ready? {
         val ready = snapshots.load(emptyMap()) as? GroupSnapshot.Ready ?: return null

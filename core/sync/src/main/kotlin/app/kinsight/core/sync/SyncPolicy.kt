@@ -55,6 +55,9 @@ data class SyncPolicy(
          * its set, or Skipped), and SyncSession keeps the author's log open below any entry of the author's own log it
          * dropped (SyncSession.holdsBack), instead of completing over it, so the child takes it after its update. This
          * holds only because a session sends a child nothing but the sender's share set: never send a child other kinds.
+         * It does not cover entries a parent wrote while its own older set left the kind out: that parent never sent them,
+         * so the child completed over them; their authors re-sign them once (CATEGORY_OVERRIDE at protocol 4:
+         * core/data UsageRepository.resignCategoryOverrides; APP_RULE is new in protocol 4, nothing older exists).
          */
         val FROM_PARENTS_TO_ALL: Set<EntryKind> = setOf(
             EntryKind.CLOUD_ACCESS, EntryKind.SAFE_ZONE, EntryKind.PARENT_PIN, EntryKind.APP_RULE, EntryKind.CATEGORY_OVERRIDE,

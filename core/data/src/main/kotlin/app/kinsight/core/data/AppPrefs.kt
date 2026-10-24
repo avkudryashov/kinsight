@@ -94,6 +94,16 @@ class AppPrefs(private val store: DataStore<Preferences>) {
     }
 
     /**
+     * Review C2: this phone has re-signed its own live CategoryOverride winners once at protocol 4
+     * (UsageRepository.resignCategoryOverrides), so children that completed over the older ones receive them.
+     */
+    suspend fun categoryOverridesResigned(): Boolean = store.data.first()[CATEGORY_OVERRIDES_RESIGNED] ?: false
+
+    suspend fun setCategoryOverridesResigned() {
+        store.edit { it[CATEGORY_OVERRIDES_RESIGNED] = true }
+    }
+
+    /**
      * The parent's local daily limits of stage 5b: only the migration source since the shared AppRule entries
      * (UsageRepository.migrateLocalThresholds), which read them, publish what nobody set and then [clearThresholds].
      * Ordered by id; the app no longer writes here.
@@ -196,6 +206,7 @@ class AppPrefs(private val store: DataStore<Preferences>) {
         private val MARKERS = stringPreferencesKey("alert_markers")
         private val CATEGORY_OVERRIDES = stringPreferencesKey("category_overrides")
         private val THRESHOLDS = stringPreferencesKey("threshold_rules")
+        private val CATEGORY_OVERRIDES_RESIGNED = booleanPreferencesKey("category_overrides_resigned")
         private val ACK_PARENTS = stringPreferencesKey("acknowledged_parents")
         private val PIN_OVERRIDES = stringPreferencesKey("pin_overrides")
         private val PIN_FAILURES = intPreferencesKey("pin_failures")
