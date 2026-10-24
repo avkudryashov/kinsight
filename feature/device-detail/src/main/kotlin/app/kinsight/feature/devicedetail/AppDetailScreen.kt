@@ -50,6 +50,7 @@ import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.Categories
 import app.kinsight.core.data.DetailRange
 import app.kinsight.core.data.Period
+import app.kinsight.core.data.RuleMode
 import app.kinsight.core.data.ThresholdRule
 import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.designsystem.component.AppIcon
@@ -208,13 +209,14 @@ fun AppDetailScreen(
     if (limiting && canLimit) {
         ThresholdDialog(
             title = stringResource(R.string.app_threshold_title, appLabel(app.packageName, app.label)),
+            child = app.member.id,
             fixedTarget = ThresholdTarget.App(app.packageName),
             existing = listOfNotNull(threshold),
             apps = emptyList(),
             onDismiss = { limiting = false },
-            onSave = { _, ms ->
+            onSave = {
                 limiting = false
-                onThreshold(ms)
+                onThreshold(it.limitMs)
             },
             onDelete = threshold?.let {
                 {
@@ -223,6 +225,7 @@ fun AppDetailScreen(
                 }
             },
             deleteId = threshold?.id,
+            fixedMode = RuleMode.LIMIT, // the app screen only sets the limit; the rules screen has the blocks
         )
     }
     if (choosing) {

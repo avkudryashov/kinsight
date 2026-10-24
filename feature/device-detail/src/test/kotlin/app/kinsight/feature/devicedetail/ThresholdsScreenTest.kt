@@ -48,7 +48,7 @@ class ThresholdsScreenTest {
     private val game = ThresholdRule.of(kid, ThresholdTarget.App("com.example.game"), 90 * 60_000L)!!
     private val apps = listOf(AppUsage("com.example.video", "Video", null, 5 * hour), AppUsage("com.example.game", "Game", null, 2 * hour))
 
-    private val saved = mutableListOf<Pair<ThresholdTarget, Long>>()
+    private val saved = mutableListOf<ThresholdRule>()
     private val deleted = mutableListOf<ThresholdRule>()
     private val undone = mutableListOf<String>()
     private val committed = mutableListOf<String>()
@@ -59,9 +59,9 @@ class ThresholdsScreenTest {
         var pending by remember { mutableStateOf(pendingAtStart) }
         KinsightTheme() {
             ThresholdsScreen(
-                ThresholdsState("Kid", canEdit, rules, apps),
+                ThresholdsState("Kid", canEdit, rules, apps, child = kid),
                 pending = pending,
-                onSave = { t, ms -> saved += t to ms },
+                onSave = { saved += it },
                 onDelete = { deleted += it; pending = pending + it.id },
                 onUndo = { undone += it; pending = pending - it },
                 onCommitDelete = { committed += it; pending = pending - it },
@@ -141,7 +141,7 @@ class ThresholdsScreenTest {
         rule.onNodeWithText("No limits yet").assertExists()
         rule.onNodeWithTag("thr_add").performClick()
         rule.onNodeWithTag("thr_save").assertIsNotEnabled() // nothing picked yet
-        rule.onNodeWithTag("thr_kind_category").performClick()
+        pickKind("thr_kind_category")
         rule.onNodeWithTag("thr_dialog_list").performScrollToNode(hasTestTag("thr_category_GAMES"))
         rule.onNodeWithTag("thr_category_GAMES").performClick()
         rule.onNodeWithTag("thr_dialog_list").performScrollToNode(hasTestTag("thr_value"))
@@ -151,7 +151,7 @@ class ThresholdsScreenTest {
         rule.onNodeWithTag("thr_dialog_list").performScrollToNode(hasTestTag("thr_value"))
         rule.onNodeWithTag("thr_value").assertTextEquals("1 h 15 min")
         rule.onNodeWithTag("thr_save").assertIsEnabled().performClick()
-        assertEquals(listOf(ThresholdTarget.Category(AppCategory.GAMES) to hour + q), saved)
+        assertEquals(listOf(ThresholdRule.of(kid, ThresholdTarget.Category(AppCategory.GAMES), hour + q)!!), saved)
         rule.onNodeWithTag("thr_save").assertDoesNotExist()
     }
 
@@ -159,17 +159,17 @@ class ThresholdsScreenTest {
     fun addsATotalLimit() {
         show(emptyList())
         rule.onNodeWithTag("thr_add").performClick()
-        rule.onNodeWithTag("thr_kind_total").performClick()
+        pickKind("thr_kind_total")
         rule.onNodeWithTag("thr_minus").performScrollTo().performClick()
         rule.onNodeWithTag("thr_save").performClick()
-        assertEquals(listOf(ThresholdTarget.Total to hour - q), saved)
+        assertEquals(listOf(ThresholdRule.of(kid, ThresholdTarget.Total, hour - q)!!), saved)
     }
 
     @Test
     fun picksAnAppOfTheLast30DaysBySearch() {
         show(emptyList())
         rule.onNodeWithTag("thr_add").performClick()
-        rule.onNodeWithTag("thr_kind_app").performClick()
+        pickKind("thr_kind_app")
         rule.onNodeWithTag("thr_dialog_list").performScrollToNode(hasTestTag("thr_app_com.example.video"))
         rule.onNodeWithTag("thr_app_com.example.video").assertExists()
         rule.onNodeWithTag("thr_search").performTextInput("gam")
@@ -177,14 +177,14 @@ class ThresholdsScreenTest {
         rule.onNodeWithTag("thr_dialog_list").performScrollToNode(hasTestTag("thr_app_com.example.game"))
         rule.onNodeWithTag("thr_app_com.example.game").performClick()
         rule.onNodeWithTag("thr_save").performClick()
-        assertEquals(listOf(ThresholdTarget.App("com.example.game") to hour), saved)
+        assertEquals(listOf(ThresholdRule.of(kid, ThresholdTarget.App("com.example.game"), hour)!!), saved)
     }
 
     @Test
     fun anExistingTargetStartsFromItsLimitAnotherFromTheDefault() {
         show(listOf(ThresholdRule.of(kid, ThresholdTarget.Category(AppCategory.GAMES), 90 * 60_000L)!!))
         rule.onNodeWithTag("thr_add").performClick()
-        rule.onNodeWithTag("thr_kind_category").performClick()
+        pickKind("thr_kind_category")
         rule.onNodeWithTag("thr_dialog_list").performScrollToNode(hasTestTag("thr_category_GAMES"))
         rule.onNodeWithTag("thr_category_GAMES").performClick()
         rule.onNodeWithTag("thr_dialog_list").performScrollToNode(hasTestTag("thr_value"))
@@ -203,7 +203,7 @@ class ThresholdsScreenTest {
         rule.onNodeWithTag("thr_value").assertTextEquals("3 h")
         rule.onNodeWithTag("thr_minus").performScrollTo().performClick()
         rule.onNodeWithTag("thr_save").performClick()
-        assertEquals(listOf(ThresholdTarget.Total to 3 * hour - q), saved)
+        assertEquals(listOf(ThresholdRule.of(kid, ThresholdTarget.Total, 3 * hour - q)!!), saved)
     }
 
     @Test
@@ -236,16 +236,17 @@ class ThresholdsScreenTest {
         rule.setContent {
             KinsightTheme {
                 ThresholdsScreen(
-                    ThresholdsState("Kid", true, listOf(total, games), apps, todayMs = 2 * hour),
-                    pending = emptySet(), onSave = { t, ms -> saved += t to ms }, onDelete = {}, onUndo = {}, onCommitDelete = {}, onBack = {},
+                    ThresholdsState("Kid", true, listOf(total, games), apps, todayMs = 2 * hour, child = kid),
+                    pending = emptySet(), onSave = { saved += it }, onDelete = {}, onUndo = {}, onCommitDelete = {}, onBack = {},
                 )
             }
         }
         rule.onNodeWithTag("thr_total").assertExists()
         rule.onNodeWithText("Today 2 h").assertExists()
         rule.onNodeWithTag("limit_bar_text", useUnmergedTree = true).assertTextEquals("1 h left of 3 h")
-        rule.onNodeWithText("Separate limits").assertExists()
-        rule.onNodeWithTag("thr_subtitle").assertTextEquals("We notify you once a day when a limit is passed. Nothing is blocked.")
+        rule.onNodeWithTag("thr_list").performScrollToNode(hasTestTag("thr_section_limits"))
+        rule.onNodeWithTag("thr_section_limits").assertExists()
+        rule.onNodeWithTag("thr_subtitle").assertTextEquals("Limits notify once a day. Blocks work on the child's phone while Kinsight's accessibility service is on there.")
     }
 
     @Test
@@ -254,7 +255,7 @@ class ThresholdsScreenTest {
         rule.onNodeWithText("No limit for the whole day yet").assertExists()
         rule.onNodeWithTag("thr_total_set").performClick()
         rule.onNodeWithTag("thr_save").performClick()
-        assertEquals(listOf(ThresholdTarget.Total to ThresholdValues.DEFAULT_MS), saved)
+        assertEquals(listOf(ThresholdRule.of(kid, ThresholdTarget.Total, ThresholdValues.DEFAULT_MS)!!), saved)
     }
 
     @Test
@@ -265,18 +266,18 @@ class ThresholdsScreenTest {
         rule.onNodeWithTag("thr_dialog").assertWidthIsEqualTo(360.dp)
         rule.onNodeWithTag("thr_cancel").performClick()
         rule.onNodeWithTag("thr_dialog").assertDoesNotExist()
-        assertEquals(emptyList<Pair<ThresholdTarget, Long>>(), saved)
+        assertEquals(emptyList<ThresholdRule>(), saved)
     }
 
     @Test
     fun aPresetSetsTheLimitInOneTap() {
         show(emptyList())
         rule.onNodeWithTag("thr_add").performClick()
-        rule.onNodeWithTag("thr_kind_total").performScrollTo().performClick()
+        pickKind("thr_kind_total")
         rule.onNodeWithTag("thr_preset_120").performScrollTo().performClick()
         rule.onNodeWithTag("thr_value").assertTextEquals("2 h")
         rule.onNodeWithTag("thr_save").performClick()
-        assertEquals(listOf(ThresholdTarget.Total to 2 * hour), saved)
+        assertEquals(listOf(ThresholdRule.of(kid, ThresholdTarget.Total, 2 * hour)!!), saved)
     }
 
     @Test
@@ -300,5 +301,151 @@ class ThresholdsScreenTest {
         rule.onNodeWithTag("thr_rule_${total.id}").performClick()
         rule.onNodeWithTag("thr_minus").performClick()
         rule.onNodeWithTag("thr_value").assertTextEquals("2 h 45 min")
+    }
+
+    /** The target choices follow the mode step and the value picker in the dialog's list: scroll to one first. */
+    private fun pickKind(tag: String) {
+        rule.onNodeWithTag("thr_dialog_list").performScrollToNode(hasTestTag(tag))
+        rule.onNodeWithTag(tag).performClick()
+    }
+
+    private val blocked = ThresholdRule.block(kid, ThresholdTarget.App("com.example.video"))!!
+    private val allowed = ThresholdRule.allow(kid, "com.example.game")!!
+
+    private fun top(tag: String) = rule.onNodeWithTag(tag).fetchSemanticsNode().positionInRoot.y
+
+    @Test
+    @Config(qualifiers = "w360dp-h1200dp")
+    fun listsRulesInTheirSections() {
+        show(listOf(total, games, blocked, allowed))
+        val order = listOf("thr_section_blocked", "thr_rule_${blocked.id}", "thr_section_limits", "thr_rule_${games.id}", "thr_section_allowed", "thr_rule_${allowed.id}")
+        val ys = order.map(::top)
+        assertEquals(ys.sorted(), ys)
+        rule.onNodeWithText("Blocked").assertExists()
+        rule.onNodeWithText("Always allowed").assertExists()
+        rule.onNodeWithTag("thr_pill_blocked", useUnmergedTree = true).assertTextEquals("blocked")
+        rule.onNodeWithTag("thr_pill_allowed", useUnmergedTree = true).assertTextEquals("always")
+    }
+
+    @Test
+    @Config(qualifiers = "w360dp-h1200dp")
+    fun anEmptySectionIsNotDrawn() {
+        show(listOf(total, games))
+        rule.onNodeWithTag("thr_section_limits").assertExists()
+        rule.onNodeWithTag("thr_section_blocked").assertDoesNotExist()
+        rule.onNodeWithTag("thr_section_allowed").assertDoesNotExist()
+        rule.onNodeWithText("No limits yet").assertDoesNotExist()
+    }
+
+    @Test
+    @Config(qualifiers = "w360dp-h1200dp")
+    fun aLimitThatBlocksAlsoShowsTheBlockPill() {
+        val strict = ThresholdRule.of(kid, ThresholdTarget.Category(AppCategory.GAMES), hour, blockOnLimit = true)!!
+        show(listOf(strict))
+        rule.onNodeWithText("1 h").assertExists()
+        rule.onNodeWithText("block").assertExists()
+    }
+
+    @Test
+    fun addRuleAsksTheModeFirst() {
+        show(emptyList())
+        rule.onNodeWithTag("thr_add").performClick()
+        rule.onNodeWithTag("thr_mode_limit").assertExists()
+        rule.onNodeWithTag("thr_mode_block").assertExists()
+        rule.onNodeWithTag("thr_mode_allow").assertExists()
+        rule.onNodeWithTag("thr_mode_allow").performClick()
+        rule.onNodeWithTag("thr_kind_total").assertDoesNotExist()
+        rule.onNodeWithTag("thr_kind_category").assertDoesNotExist()
+        rule.onNodeWithText("An always-allowed app opens even when its category or the day is blocked.").assertExists()
+    }
+
+    @Test
+    fun blockingAnAppSavesABlockRule() {
+        show(listOf(games))
+        rule.onNodeWithTag("thr_add").performClick()
+        rule.onNodeWithTag("thr_mode_block").performClick()
+        rule.onNodeWithTag("thr_kind_total").assertDoesNotExist() // the day total is only limited
+        rule.onNodeWithTag("thr_value").assertDoesNotExist()
+        pickKind("thr_kind_app")
+        rule.onNodeWithTag("thr_dialog_list").performScrollToNode(hasTestTag("thr_app_com.example.video"))
+        rule.onNodeWithTag("thr_app_com.example.video").performClick()
+        rule.onNodeWithTag("thr_save").performClick()
+        assertEquals(listOf(blocked), saved)
+    }
+
+    @Test
+    fun allowingAnAppSavesAnAllowRule() {
+        show(emptyList())
+        rule.onNodeWithTag("thr_add").performClick()
+        rule.onNodeWithTag("thr_mode_allow").performClick()
+        rule.onNodeWithTag("thr_save").assertIsNotEnabled()
+        rule.onNodeWithTag("thr_dialog_list").performScrollToNode(hasTestTag("thr_app_com.example.game"))
+        rule.onNodeWithTag("thr_app_com.example.game").performClick()
+        rule.onNodeWithTag("thr_save").performClick()
+        assertEquals(listOf(allowed), saved)
+    }
+
+    @Test
+    fun theCheckboxMakesACategoryLimitBlock() {
+        show(emptyList())
+        rule.onNodeWithTag("thr_add").performClick()
+        pickKind("thr_kind_category")
+        rule.onNodeWithTag("thr_dialog_list").performScrollToNode(hasTestTag("thr_category_GAMES"))
+        rule.onNodeWithTag("thr_category_GAMES").performClick()
+        rule.onNodeWithTag("thr_dialog_list").performScrollToNode(hasTestTag("thr_block_on_limit"))
+        rule.onNodeWithTag("thr_block_on_limit").performClick()
+        rule.onNodeWithTag("thr_save").performClick()
+        assertEquals(listOf(ThresholdRule.of(kid, ThresholdTarget.Category(AppCategory.GAMES), hour, blockOnLimit = true)!!), saved)
+    }
+
+    @Test
+    fun editingABlockStartsOnItsModeAndCanTurnItIntoALimit() {
+        show(listOf(blocked))
+        rule.onNodeWithTag("thr_rule_${blocked.id}").performClick()
+        rule.onNodeWithTag("thr_value").assertDoesNotExist()
+        rule.onNodeWithTag("thr_mode_limit").performClick()
+        rule.onNodeWithTag("thr_save").performClick()
+        assertEquals(listOf(ThresholdRule.of(kid, blocked.target, hour)!!), saved) // one rule per target: same id, a default limit
+    }
+
+    @Test
+    fun theTotalCardSwitchSavesTheRuleWithBlockOnLimit() {
+        show(listOf(total))
+        rule.onNodeWithTag("thr_total_block_on_limit").performClick()
+        assertEquals(listOf(total.copy(blockOnLimit = true)), saved)
+    }
+
+    @Test
+    fun editingTheTotalKeepsItsBlockOnLimit() {
+        val strict = total.copy(blockOnLimit = true)
+        show(listOf(strict))
+        rule.onNodeWithTag("thr_rule_${strict.id}").performClick()
+        rule.onNodeWithTag("thr_block_on_limit").assertDoesNotExist() // the total has its own switch
+        rule.onNodeWithTag("thr_minus").performScrollTo().performClick()
+        rule.onNodeWithTag("thr_save").performClick()
+        assertEquals(listOf(strict.copy(limitMs = 3 * hour - q)), saved)
+    }
+
+    private fun showFlags(off: Boolean, consent: Boolean) = rule.setContent {
+        KinsightTheme {
+            ThresholdsScreen(
+                ThresholdsState("Kid", true, listOf(total), apps, child = kid, blockingOff = off, awaitingConsent = consent),
+                pending = emptySet(), onSave = {}, onDelete = {}, onUndo = {}, onCommitDelete = {}, onBack = {},
+            )
+        }
+    }
+
+    @Test
+    fun blockingOffShowsTheWarning() {
+        showFlags(off = true, consent = false)
+        rule.onNodeWithText("Blocks are not enforced: the accessibility service is off on the child's phone.").assertExists()
+        rule.onNodeWithTag("thr_awaiting_consent").assertDoesNotExist()
+    }
+
+    @Test
+    fun awaitingConsentShowsItsNote() {
+        showFlags(off = false, consent = true)
+        rule.onNodeWithText("Blocks start once the child agrees to the updated consent on their phone.").assertExists()
+        rule.onNodeWithTag("thr_blocking_off").assertDoesNotExist()
     }
 }

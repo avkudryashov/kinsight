@@ -207,8 +207,8 @@ internal fun Screen(title: String, onBack: () -> Unit, content: @Composable (Pad
 )
 
 @Composable
-internal fun SectionTitle(text: String) =
-    Text(text, style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
+internal fun SectionTitle(text: String, modifier: Modifier = Modifier) =
+    Text(text, style = MaterialTheme.typography.titleMedium, modifier = modifier.semantics { heading() })
 
 /**
  * UI refresh §4: «Сегодня · Неделя · Месяц», arrows and swipe, then on every tab: 1) the figure, unlocks and the comparison,

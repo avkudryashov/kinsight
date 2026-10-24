@@ -84,8 +84,8 @@ internal fun AllAppsPreview() = PreviewTheme { AllAppsScreen(AppList(KID, WEEK, 
 @Composable
 internal fun ThresholdsPreview() = PreviewTheme {
     ThresholdsScreen(
-        ThresholdsState("Masha", canEdit = true, rules = listOf(TOTAL_LIMIT), apps = APPS),
-        pending = emptySet(), onSave = { _, _ -> }, onDelete = {}, onUndo = {}, onCommitDelete = {}, onBack = {},
+        ThresholdsState("Masha", canEdit = true, rules = listOf(TOTAL_LIMIT), apps = APPS, child = KID.id),
+        pending = emptySet(), onSave = {}, onDelete = {}, onUndo = {}, onCommitDelete = {}, onBack = {},
     )
 }
 

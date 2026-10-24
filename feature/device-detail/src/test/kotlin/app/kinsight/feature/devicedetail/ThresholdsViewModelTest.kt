@@ -8,6 +8,7 @@ import app.kinsight.core.data.DetailRange
 import app.kinsight.core.data.MemberView
 import app.kinsight.core.data.Period
 import app.kinsight.core.data.Role
+import app.kinsight.core.data.RuleMode
 import app.kinsight.core.data.ThresholdRule
 import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.model.DeviceId
@@ -75,6 +76,13 @@ class ThresholdsViewModelTest {
 
         override fun todayMs(): Flow<Long?> = today
 
+        val off = MutableStateFlow(false)
+        val consent = MutableStateFlow(false)
+
+        override fun blockingOff(): Flow<Boolean> = off
+
+        override fun awaitingConsent(): Flow<Boolean> = consent
+
         val writes = java.util.concurrent.atomic.AtomicInteger()
 
         /** A slow storage remove (blocking), to show the order of writes. */
@@ -105,6 +113,35 @@ class ThresholdsViewModelTest {
     }
 
     private fun rule(target: ThresholdTarget, ms: Long, child: DeviceId = kid.id) = ThresholdRule.of(child, target, ms)!!
+
+    /** A rule the builders would refuse: the view model must not write it. */
+    private fun raw(target: ThresholdTarget, ms: Long) = ThresholdRule(ThresholdRule.idOf(kid.id, target), kid.id, target, limitMs = ms)
+
+    @Test
+    fun saveBlockReplacesALimitOfTheSameTarget() = runTest(dispatcher) {
+        val source = FakeSource()
+        val game = ThresholdTarget.App("com.example.game")
+        source.rules.value = listOf(rule(game, hour))
+        val vm = vm(source)
+        assertTrue(vm.save(ThresholdRule.block(kid.id, game)!!))
+        assertEquals(listOf(RuleMode.BLOCK), source.rules.value.map { it.mode })
+        val state = vm.state.value!!
+        assertEquals(emptyList(), state.limits.filter { it.target == game })
+        assertEquals(listOf(game), state.blocked.map { it.target })
+        assertEquals(emptyList(), state.allowed)
+    }
+
+    @Test
+    fun theBlockingFlagsComeWithTheState() = runTest(dispatcher) {
+        val source = FakeSource()
+        val vm = vm(source)
+        assertFalse(vm.state.value!!.blockingOff)
+        assertFalse(vm.state.value!!.awaitingConsent)
+        source.off.value = true
+        source.consent.value = true
+        assertTrue(vm.state.value!!.blockingOff)
+        assertTrue(vm.state.value!!.awaitingConsent)
+    }
 
     @Test
     fun todaysTotalComesWithTheState() = runTest(dispatcher) {
@@ -148,11 +185,11 @@ class ThresholdsViewModelTest {
     fun savingAddsARuleAndSavingTheSameTargetEditsIt() = runTest(dispatcher) {
         val source = FakeSource()
         val vm = vm(source)
-        assertTrue(vm.save(ThresholdTarget.Category(AppCategory.GAMES), hour))
+        assertTrue(vm.save(rule(ThresholdTarget.Category(AppCategory.GAMES), hour)))
         assertEquals(listOf(rule(ThresholdTarget.Category(AppCategory.GAMES), hour)), vm.state.value!!.rules)
-        assertTrue(vm.save(ThresholdTarget.Category(AppCategory.GAMES), 2 * hour))
+        assertTrue(vm.save(rule(ThresholdTarget.Category(AppCategory.GAMES), 2 * hour)))
         assertEquals(listOf(rule(ThresholdTarget.Category(AppCategory.GAMES), 2 * hour)), vm.state.value!!.rules)
-        assertTrue(vm.save(ThresholdTarget.App("com.example.game"), 15 * 60_000L))
+        assertTrue(vm.save(rule(ThresholdTarget.App("com.example.game"), 15 * 60_000L)))
         assertEquals(2, vm.state.value!!.rules.size)
     }
 
@@ -160,11 +197,12 @@ class ThresholdsViewModelTest {
     fun savingRefusesALimitOffTheStepOrOutOfRangeAndTheRemainder() = runTest(dispatcher) {
         val source = FakeSource()
         val vm = vm(source)
-        assertFalse(vm.save(ThresholdTarget.Total, 10 * 60_000L))
-        assertFalse(vm.save(ThresholdTarget.Total, 12 * hour + 15 * 60_000L))
-        assertFalse(vm.save(ThresholdTarget.Total, 0))
-        assertFalse(vm.save(ThresholdTarget.App(Categories.REMAINDER_PACKAGE), hour))
-        assertTrue(vm.save(ThresholdTarget.Total, 12 * hour))
+        assertFalse(vm.save(raw(ThresholdTarget.Total, 10 * 60_000L)))
+        assertFalse(vm.save(raw(ThresholdTarget.Total, 12 * hour + 15 * 60_000L)))
+        assertFalse(vm.save(raw(ThresholdTarget.Total, 0)))
+        assertFalse(vm.save(raw(ThresholdTarget.App(Categories.REMAINDER_PACKAGE), hour)))
+        assertFalse(vm.save(ThresholdRule.of(other, ThresholdTarget.Total, hour)!!)) // another child's rule
+        assertTrue(vm.save(rule(ThresholdTarget.Total, 12 * hour)))
         assertEquals(listOf(rule(ThresholdTarget.Total, 12 * hour)), source.rules.value)
     }
 
@@ -202,7 +240,7 @@ class ThresholdsViewModelTest {
         source.rules.value = listOf(r)
         val vm = vm(source)
         vm.delete(r)
-        assertTrue(vm.save(ThresholdTarget.Total, 2 * hour))
+        assertTrue(vm.save(rule(ThresholdTarget.Total, 2 * hour)))
         vm.commitDelete(r) // the snackbar times out afterwards
         val again = rule(ThresholdTarget.Total, 2 * hour)
         assertEquals(listOf(again), source.rules.value)
@@ -300,7 +338,7 @@ class ThresholdsViewModelTest {
             withTimeout(5_000) { while (vm.state.value?.canEdit != true) delay(5) }
             vm.delete(r)
             vm.commitDelete(r)
-            assertTrue(vm.save(ThresholdTarget.Total, 2 * hour))
+            assertTrue(vm.save(rule(ThresholdTarget.Total, 2 * hour)))
             withTimeout(5_000) { while (source.writes.get() < 2) delay(5) }
             assertEquals(listOf(rule(ThresholdTarget.Total, 2 * hour)), source.rules.value)
         } finally {
@@ -316,7 +354,7 @@ class ThresholdsViewModelTest {
         source.rules.value = listOf(r)
         val vm = vm(source)
         assertFalse(vm.state.value!!.canEdit)
-        assertFalse(vm.save(ThresholdTarget.Total, hour))
+        assertFalse(vm.save(rule(ThresholdTarget.Total, hour)))
         vm.delete(r)
         vm.commitDelete(r)
         vm.undo(rule(ThresholdTarget.Category(AppCategory.GAMES), hour))

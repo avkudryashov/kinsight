@@ -8,6 +8,7 @@ import app.kinsight.core.data.AppUsage
 import app.kinsight.core.data.Categories
 import app.kinsight.core.data.DetailRange
 import app.kinsight.core.data.Period
+import app.kinsight.core.data.RuleMode
 import app.kinsight.core.data.ThresholdRule
 import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.data.UsageRepository
@@ -43,6 +44,12 @@ internal interface ThresholdSource {
     /** The child's time today for the «Всего за день» bar (UI refresh §7); null without a summary of today. */
     fun todayMs(): Flow<Long?> = flowOf(null)
 
+    /** The child's accessibility service is off, so blocks are not enforced there (fed from Task 9; false until then). */
+    fun blockingOff(): Flow<Boolean> = flowOf(false)
+
+    /** Blocks wait for the child to agree to the updated consent (fed from Task 10; false until then). */
+    fun awaitingConsent(): Flow<Boolean> = flowOf(false)
+
     suspend fun set(rule: ThresholdRule)
 
     suspend fun remove(id: String)
@@ -68,17 +75,31 @@ private class RepositoryThresholdSource(private val usage: UsageRepository, priv
 }
 
 /**
- * The thresholds screen of one child: [rules] total first, then categories (AppCategory order), then apps by label;
- * [apps] the child's apps of the last 30 days a rule may name (not the `~other` remainder); [canEdit] only on a parent.
+ * The rules screen of one child ([child]): [rules] total first, then categories (AppCategory order), then apps by
+ * label; [apps] the child's apps of the last 30 days a rule may name (not the `~other` remainder); [canEdit] only on a
+ * parent. [blockingOff] and [awaitingConsent] explain why blocks do not act yet.
  */
-data class ThresholdsState(val childName: String, val canEdit: Boolean, val rules: List<ThresholdRule>, val apps: List<AppUsage>, val todayMs: Long? = null) {
+data class ThresholdsState(
+    val childName: String,
+    val canEdit: Boolean,
+    val rules: List<ThresholdRule>,
+    val apps: List<AppUsage>,
+    val todayMs: Long? = null,
+    val blockingOff: Boolean = false,
+    val awaitingConsent: Boolean = false,
+    val child: DeviceId,
+) {
+    val blocked get() = rules.filter { it.mode == RuleMode.BLOCK }
+    val limits get() = rules.filter { it.mode == RuleMode.LIMIT }
+    val allowed get() = rules.filter { it.mode == RuleMode.ALLOW }
+
     /** An app rule's label: the app's own when it is in [apps], else its package. */
     fun appLabel(packageName: String): String = apps.firstOrNull { it.packageName == packageName }?.label ?: packageName
 }
 
 /**
- * The parent's daily limits for child [child] (spec §9.7, stage 5b): local, only notify. Writes are refused on a
- * child's phone ([ThresholdsState.canEdit]) and for anything [ThresholdRule.of] refuses.
+ * The parent's rules for child [child] (spec §4, §9.7): limits, blocks and allows. Writes are refused on a child's
+ * phone ([ThresholdsState.canEdit]) and for any rule the builders of [ThresholdRule] would refuse.
  *
  * A delete is only hidden ([delete]) while its «Undo» snackbar is up and written by [commitDelete] when it goes
  * without «Undo», or when the view model is cleared first (on [commitScope], which outlives it): the alert planner
@@ -118,23 +139,27 @@ class ThresholdsViewModel internal constructor(
     val pendingDeletes: StateFlow<Set<String>> =
         pending.map { it.keys }.stateIn(viewModelScope, SharingStarted.Eagerly, pending.value.keys)
 
+    private val flags = combine(source.blockingOff(), source.awaitingConsent(), ::Pair)
+
     val state: StateFlow<ThresholdsState?> =
-        combine(source.rules(), source.viewerIsParent(), source.apps(), pending, combine(committing, source.todayMs(), ::Pair)) { all, parent, list, open, (queued, today) ->
+        combine(source.rules(), source.viewerIsParent(), source.apps(), pending, combine(committing, source.todayMs(), flags, ::Triple)) { all, parent, list, open, (queued, today, flag) ->
             val rules = all.filter { it.id !in open && it.id !in queued }
             val apps = list?.apps.orEmpty().filter { it.packageName != Categories.REMAINDER_PACKAGE }
             val labels = apps.associate { it.packageName to it.label }
             val mine = rules.filter { it.child == child }.sortedWith(
                 compareBy<ThresholdRule>({ order(it.target) }, { (it.target as? ThresholdTarget.App)?.let { t -> labels[t.packageName] ?: t.packageName } }),
             )
-            ThresholdsState(list?.member?.name.orEmpty(), parent, mine, apps, today)
+            ThresholdsState(list?.member?.name.orEmpty(), parent, mine, apps, today, flag.first, flag.second, child)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val canEdit get() = state.value?.canEdit == true
 
-    /** Adds the rule of [target] or changes its limit; false when refused (not a parent, or not a valid rule). */
-    fun save(target: ThresholdTarget, limitMs: Long): Boolean {
-        if (!canEdit) return false
-        val rule = ThresholdRule.of(child, target, limitMs) ?: return false
+    /**
+     * Adds [rule] or replaces the rule of its target (one rule per target: its id is the same whatever the mode); false
+     * when refused (not a parent, another child's rule, or not a valid rule).
+     */
+    fun save(rule: ThresholdRule): Boolean {
+        if (!canEdit || rule.child != child || !rule.isValid) return false
         // A rule of the same target saved inside its delete's «Undo» window: the delete is off ([commitDelete] returns).
         setPending { it - rule.id }
         // On [commitScope]: leaving the screen right away must not cancel the write; after any queued remove.

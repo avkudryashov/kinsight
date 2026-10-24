@@ -1,50 +1,35 @@
 package app.kinsight.feature.devicedetail
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilledTonalIconButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -57,38 +42,22 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import app.kinsight.core.data.AppCategory
 import app.kinsight.core.data.AppGraph
-import app.kinsight.core.data.AppUsage
+import app.kinsight.core.data.RuleMode
 import app.kinsight.core.data.ThresholdRule
 import app.kinsight.core.data.ThresholdTarget
-import app.kinsight.core.designsystem.component.AppIcon
 import app.kinsight.core.designsystem.component.LimitBar
 import app.kinsight.core.designsystem.component.Pill
-import app.kinsight.core.designsystem.component.dialogTestTags
 import app.kinsight.core.designsystem.component.durationText
 import app.kinsight.core.model.DeviceId
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -103,7 +72,7 @@ fun ThresholdsRoute(id: DeviceId, onBack: () -> Unit) {
         ThresholdsScreen(
             it,
             pending = pending,
-            onSave = { t, ms -> vm.save(t, ms) },
+            onSave = { vm.save(it) },
             onDelete = vm::delete,
             onUndo = { r -> vm.undo(r) },
             onCommitDelete = { r -> vm.commitDelete(r) },
@@ -114,9 +83,10 @@ fun ThresholdsRoute(id: DeviceId, onBack: () -> Unit) {
 }
 
 /**
- * The child's rules (target and limit; tap to change the limit, delete with «Undo» in a snackbar) and «Add limit»: the
- * day total, a category or one of the child's apps of the last 30 days (searchable), then the limit in 15-minute steps
- * (−/+ buttons, the value read aloud as it changes). [onDelete] only hides a rule; each id in [pending] (deleted, not
+ * The child's rules: the day total on its card, then «Blocked», «Limits» and «Always allowed» (a section without rules is
+ * not drawn); tap a rule to change it, delete with «Undo» in a snackbar. «Add rule» asks what to do first (limit, block,
+ * always allow), then the day total, a category or one of the child's apps of the last 30 days (searchable), and for a
+ * limit the time in 15-minute steps (−/+ buttons, the value read aloud as it changes). [onDelete] only hides a rule; each id in [pending] (deleted, not
  * yet committed) has its snackbar, also after a recreation: [onCommitDelete] follows when it goes without «Undo»
  * ([onUndo]). A child's phone only reads them ([ThresholdsState.canEdit]).
  */
@@ -125,7 +95,7 @@ fun ThresholdsRoute(id: DeviceId, onBack: () -> Unit) {
 fun ThresholdsScreen(
     state: ThresholdsState,
     pending: Set<String>,
-    onSave: (ThresholdTarget, Long) -> Unit,
+    onSave: (ThresholdRule) -> Unit,
     onDelete: (ThresholdRule) -> Unit,
     onUndo: (String) -> Unit,
     onCommitDelete: (String) -> Unit,
@@ -180,6 +150,12 @@ fun ThresholdsScreen(
                     modifier = Modifier.testTag("thr_subtitle"),
                 )
             }
+            if (state.blockingOff) {
+                item(key = "blocking_off") { Warning(stringResource(R.string.thr_blocking_off), "thr_blocking_off") }
+            }
+            if (state.awaitingConsent) {
+                item(key = "awaiting_consent") { Warning(stringResource(R.string.thr_awaiting_consent), "thr_awaiting_consent") }
+            }
             item(key = "total") {
                 TotalCard(
                     rule = state.rules.firstOrNull { it.target == ThresholdTarget.Total },
@@ -187,37 +163,19 @@ fun ThresholdsScreen(
                     canEdit = state.canEdit,
                     onEdit = { editing = it },
                     onSet = { addingTotal = true },
+                    onSave = onSave,
                     onDelete = onDelete,
                 )
             }
-            item(key = "separate_title") { SectionTitle(stringResource(R.string.thr_separate)) }
             val separate = state.rules.filter { it.target != ThresholdTarget.Total }
             if (separate.isEmpty()) {
                 item(key = "empty") { Text(stringResource(R.string.thr_empty), color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
-            items(separate, key = { it.id }) { r ->
-                val name = targetName(r.target, state::appLabel)
-                ListItem(
-                    headlineContent = { Text(name) },
-                    trailingContent = {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Pill(
-                                durationText(r.limitMs),
-                                container = MaterialTheme.colorScheme.primaryContainer,
-                                content = MaterialTheme.colorScheme.onPrimaryContainer,
-                            )
-                            if (state.canEdit) {
-                                IconButton(
-                                    onClick = { onDelete(r) },
-                                    modifier = Modifier.size(48.dp).testTag("thr_delete_${r.id}"),
-                                ) { Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.thr_delete, name)) }
-                            }
-                        }
-                    },
-                    modifier = Modifier.testTag("thr_rule_${r.id}").then(
-                        if (state.canEdit) Modifier.clickable(onClickLabel = stringResource(R.string.thr_edit)) { editing = r.id } else Modifier,
-                    ),
-                )
+            for ((mode, title, tag) in SECTIONS) {
+                val inSection = separate.filter { it.mode == mode }
+                if (inSection.isEmpty()) continue
+                item(key = "section_${mode.name}") { SectionTitle(stringResource(title), Modifier.testTag(tag)) }
+                items(inSection, key = { it.id }) { r -> RuleRow(r, state, onEdit = { editing = r.id }, onDelete = onDelete) }
             }
             if (state.canEdit) {
                 item(key = "add") {
@@ -234,6 +192,7 @@ fun ThresholdsScreen(
         val fixed = edited?.target ?: ThresholdTarget.Total.takeIf { addingTotal }
         ThresholdDialog(
             title = if (fixed != null) targetName(fixed, state::appLabel) else stringResource(R.string.thr_new),
+            child = state.child,
             fixedTarget = fixed,
             existing = state.rules,
             apps = state.apps,
@@ -242,19 +201,78 @@ fun ThresholdsScreen(
                 addingTotal = false
                 editing = null
             },
-            onSave = { t, ms ->
+            onSave = {
                 adding = false
                 addingTotal = false
                 editing = null
-                onSave(t, ms)
+                onSave(it)
             },
         )
     }
 }
 
+/** The sections below the day total, in this order, each with the title of its mode. */
+private val SECTIONS = listOf(
+    Triple(RuleMode.BLOCK, R.string.thr_section_blocked, "thr_section_blocked"),
+    Triple(RuleMode.LIMIT, R.string.thr_section_limits, "thr_section_limits"),
+    Triple(RuleMode.ALLOW, R.string.thr_section_allowed, "thr_section_allowed"),
+)
+
+/** A line the parent should read before the rules: why blocks do not act yet. */
+@Composable
+private fun Warning(text: String, tag: String) {
+    Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag(tag))
+}
+
+/** One rule: its target and a pill by mode (the limit, «block» when it blocks at the limit, «blocked», «always»); tap to change, bin to delete. */
+@Composable
+private fun RuleRow(r: ThresholdRule, state: ThresholdsState, onEdit: () -> Unit, onDelete: (ThresholdRule) -> Unit) {
+    val name = targetName(r.target, state::appLabel)
+    ListItem(
+        headlineContent = { Text(name) },
+        trailingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                when (r.mode) {
+                    RuleMode.LIMIT -> {
+                        Pill(
+                            durationText(r.limitMs),
+                            container = MaterialTheme.colorScheme.primaryContainer,
+                            content = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                        if (r.blockOnLimit) {
+                            Pill(
+                                stringResource(R.string.thr_pill_block),
+                                container = MaterialTheme.colorScheme.errorContainer,
+                                content = MaterialTheme.colorScheme.onErrorContainer,
+                            )
+                        }
+                    }
+                    RuleMode.BLOCK -> Pill(
+                        stringResource(R.string.thr_pill_blocked),
+                        Modifier.testTag("thr_pill_blocked"),
+                        container = MaterialTheme.colorScheme.errorContainer,
+                        content = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                    RuleMode.ALLOW -> Pill(stringResource(R.string.thr_pill_allowed), Modifier.testTag("thr_pill_allowed"))
+                }
+                if (state.canEdit) {
+                    IconButton(
+                        onClick = { onDelete(r) },
+                        modifier = Modifier.size(48.dp).testTag("thr_delete_${r.id}"),
+                    ) { Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.thr_delete, name)) }
+                }
+            }
+        },
+        modifier = Modifier.testTag("thr_rule_${r.id}").then(
+            if (state.canEdit) Modifier.clickable(onClickLabel = stringResource(R.string.thr_edit), onClick = onEdit) else Modifier,
+        ),
+    )
+}
+
 /**
  * UI refresh §7: «Всего за день» large on its own card, with today's bar when the child has time today; without a rule
- * an invitation to set one (a parent's phone only). Tapping the figure edits it.
+ * an invitation to set one (a parent's phone only). Tapping the figure edits it; the switch saves it as one that blocks
+ * everything after the limit (or not), through [onSave].
  */
 @Composable
 private fun TotalCard(
@@ -263,6 +281,7 @@ private fun TotalCard(
     canEdit: Boolean,
     onEdit: (String) -> Unit,
     onSet: () -> Unit,
+    onSave: (ThresholdRule) -> Unit,
     onDelete: (ThresholdRule) -> Unit,
 ) {
     val name = stringResource(R.string.thr_target_total)
@@ -296,6 +315,15 @@ private fun TotalCard(
                 Text(stringResource(R.string.thr_total_today, durationText(todayMs)), style = MaterialTheme.typography.bodyMedium)
                 LimitBar(todayMs, rule.limitMs)
             }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.thr_total_block_on_limit), Modifier.weight(1f))
+                Switch(
+                    checked = rule.blockOnLimit,
+                    onCheckedChange = { onSave(rule.copy(blockOnLimit = it)) },
+                    enabled = canEdit,
+                    modifier = Modifier.testTag("thr_total_block_on_limit"),
+                )
+            }
         }
     }
 }
@@ -306,219 +334,4 @@ internal fun targetName(t: ThresholdTarget, appLabel: (String) -> String): Strin
     ThresholdTarget.Total -> stringResource(R.string.thr_target_total)
     is ThresholdTarget.Category -> categoryName(t.category)
     is ThresholdTarget.App -> appLabel(t.packageName)
-}
-
-private const val KIND_TOTAL = "total"
-private const val KIND_CATEGORY = "category"
-private const val KIND_APP = "app"
-
-/**
- * Adds a rule (pick the target, then the limit) or, with [fixedTarget], changes one target's limit, as a full-screen
- * dialog (U15, Material: a form this size is not an alert): close, title and «Save» in the top bar, then one list
- * with the limit first and the target below it. A target that already has a rule in [existing] starts from its limit;
- * a new one from [ThresholdValues.DEFAULT_MS]. [onDelete] (with [deleteId] for its tag) adds a «Delete» button.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun ThresholdDialog(
-    title: String,
-    fixedTarget: ThresholdTarget?,
-    existing: List<ThresholdRule>,
-    apps: List<AppUsage>,
-    onDismiss: () -> Unit,
-    onSave: (ThresholdTarget, Long) -> Unit,
-    onDelete: (() -> Unit)? = null,
-    deleteId: String? = null,
-) {
-    fun limitOf(t: ThresholdTarget?) = existing.firstOrNull { it.target == t }?.limitMs
-    var kind by rememberSaveable { mutableStateOf<String?>(null) }
-    var category by rememberSaveable { mutableStateOf<String?>(null) }
-    var pkg by rememberSaveable { mutableStateOf<String?>(null) }
-    var query by rememberSaveable { mutableStateOf("") }
-    var value by rememberSaveable { mutableStateOf(ThresholdValues.clamp(limitOf(fixedTarget) ?: ThresholdValues.DEFAULT_MS)) }
-    val target: ThresholdTarget? = fixedTarget ?: when (kind) {
-        KIND_TOTAL -> ThresholdTarget.Total
-        KIND_CATEGORY -> AppCategory.entries.firstOrNull { it.name == category }?.let(ThresholdTarget::Category)
-        KIND_APP -> pkg?.let(ThresholdTarget::App)
-        else -> null
-    }
-    // Picking a target starts from its rule's limit, or the default for a target without one.
-    fun picked(t: ThresholdTarget?) {
-        value = limitOf(t) ?: ThresholdValues.DEFAULT_MS
-    }
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Scaffold(
-            modifier = Modifier.fillMaxSize().dialogTestTags().testTag("thr_dialog"), // its own window: the root flag does not reach it
-            topBar = {
-                TopAppBar(
-                    title = { Text(title) },
-                    navigationIcon = {
-                        IconButton(onDismiss, Modifier.testTag("thr_cancel")) { Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.thr_cancel)) }
-                    },
-                    actions = {
-                        TextButton({ target?.let { onSave(it, value) } }, enabled = target != null, modifier = Modifier.testTag("thr_save")) {
-                            Text(stringResource(R.string.thr_save))
-                        }
-                    },
-                )
-            },
-        ) { padding ->
-            val q = query.trim()
-            val shown = apps.filter { q.isEmpty() || it.label.contains(q, ignoreCase = true) || it.packageName.contains(q, ignoreCase = true) }
-            LazyColumn(
-                Modifier.fillMaxSize().padding(padding).testTag("thr_dialog_list"),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                item(key = "value") { ValuePicker(value, onChange = { value = it }) }
-                if (fixedTarget == null) {
-                    item(key = "kinds") {
-                        Column(Modifier.selectableGroup()) {
-                            Choice(stringResource(R.string.thr_kind_total), kind == KIND_TOTAL, "thr_kind_total") {
-                                kind = KIND_TOTAL
-                                picked(ThresholdTarget.Total)
-                            }
-                            Choice(stringResource(R.string.thr_kind_category), kind == KIND_CATEGORY, "thr_kind_category") { kind = KIND_CATEGORY }
-                            Choice(stringResource(R.string.thr_kind_app), kind == KIND_APP, "thr_kind_app") { kind = KIND_APP }
-                        }
-                    }
-                    when (kind) {
-                        KIND_CATEGORY -> items(AppCategory.entries, key = { "cat:${it.name}" }) { c ->
-                            Box(Modifier.padding(start = 16.dp)) {
-                                Choice(categoryName(c), category == c.name, "thr_category_${c.name}") {
-                                    category = c.name
-                                    picked(ThresholdTarget.Category(c))
-                                }
-                            }
-                        }
-                        KIND_APP -> {
-                            item(key = "search") {
-                                OutlinedTextField(
-                                    value = query,
-                                    onValueChange = { query = it },
-                                    label = { Text(stringResource(R.string.thr_search)) },
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp).testTag("thr_search"),
-                                )
-                            }
-                            if (shown.isEmpty()) item(key = "no_apps") { Text(stringResource(R.string.thr_no_apps), style = MaterialTheme.typography.bodySmall) }
-                            // One list, no scroll inside a scroll (U15).
-                            items(shown, key = { "app:${it.packageName}" }) { a ->
-                                Row(
-                                    Modifier.fillMaxWidth().padding(start = 16.dp).heightIn(min = 48.dp)
-                                        .selectable(a.packageName == pkg, onClick = {
-                                            pkg = a.packageName
-                                            picked(ThresholdTarget.App(a.packageName))
-                                        }, role = Role.RadioButton)
-                                        .testTag("thr_app_${a.packageName}"),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    RadioButton(selected = a.packageName == pkg, onClick = null)
-                                    Spacer(Modifier.width(8.dp))
-                                    AppIcon(a.icon) // its own 40 dp, no padding inside it
-                                    Text(a.label, Modifier.padding(start = 8.dp))
-                                }
-                            }
-                        }
-                    }
-                }
-                if (onDelete != null) {
-                    item(key = "delete") {
-                        TextButton(onDelete, Modifier.testTag("thr_delete_${deleteId.orEmpty()}")) { Text(stringResource(R.string.thr_remove)) }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** Holding a step button repeats its step (U15): the first repeat after [HOLD_DELAY_MS], then every [HOLD_REPEAT_MS]. */
-internal const val HOLD_DELAY_MS = 400L
-internal const val HOLD_REPEAT_MS = 100L
-
-/** Calls [onDown] on every press and [onRepeat] while the press is held; a plain tap is left to the button's onClick. */
-@Composable
-private fun Modifier.repeatWhileHeld(enabled: Boolean, onDown: () -> Unit, onRepeat: () -> Unit): Modifier {
-    val down by rememberUpdatedState(onDown)
-    val repeat by rememberUpdatedState(onRepeat)
-    return pointerInput(enabled) {
-        if (!enabled) return@pointerInput
-        coroutineScope {
-            awaitEachGesture {
-                awaitFirstDown(requireUnconsumed = false)
-                down()
-                val job = this@coroutineScope.launch {
-                    delay(HOLD_DELAY_MS)
-                    while (isActive) {
-                        repeat()
-                        delay(HOLD_REPEAT_MS)
-                    }
-                }
-                waitForUpOrCancellation()
-                job.cancel()
-            }
-        }
-    }
-}
-
-/**
- * «Notify above»: −/+ (15 minutes each, 48 dp, disabled at the bounds, repeating while held) around the value, read
- * aloud when it changes, and the quick choices of [ThresholdValues.PRESETS_MS]. A release after a hold adds nothing.
- */
-@Composable
-private fun ValuePicker(value: Long, onChange: (Long) -> Unit) = Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-    val current by rememberUpdatedState(value)
-    var held by remember { mutableStateOf(false) }
-    Text(stringResource(R.string.thr_value_label), style = MaterialTheme.typography.labelLarge)
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        val less = stringResource(R.string.thr_less)
-        val more = stringResource(R.string.thr_more)
-        FilledTonalIconButton(
-            onClick = { if (held) held = false else onChange(ThresholdValues.down(current)) },
-            enabled = ThresholdValues.canDown(value),
-            modifier = Modifier.size(48.dp)
-                .repeatWhileHeld(ThresholdValues.canDown(value), onDown = { held = false }) {
-                    held = true
-                    onChange(ThresholdValues.down(current))
-                }
-                .semantics { contentDescription = less }.testTag("thr_minus"),
-        ) { Text("−", style = MaterialTheme.typography.titleLarge, modifier = Modifier.clearAndSetSemantics {}) }
-        Text(
-            durationText(value),
-            style = MaterialTheme.typography.headlineSmall,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.widthIn(min = 96.dp).semantics { liveRegion = LiveRegionMode.Polite }.testTag("thr_value"),
-        )
-        FilledTonalIconButton(
-            onClick = { if (held) held = false else onChange(ThresholdValues.up(current)) },
-            enabled = ThresholdValues.canUp(value),
-            modifier = Modifier.size(48.dp)
-                .repeatWhileHeld(ThresholdValues.canUp(value), onDown = { held = false }) {
-                    held = true
-                    onChange(ThresholdValues.up(current))
-                }
-                .semantics { contentDescription = more }.testTag("thr_plus"),
-        ) { Text("+", style = MaterialTheme.typography.titleLarge, modifier = Modifier.clearAndSetSemantics {}) }
-    }
-    Text(stringResource(R.string.thr_presets), style = MaterialTheme.typography.labelLarge)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ThresholdValues.PRESETS_MS.forEach { ms ->
-            FilterChip(
-                selected = value == ms,
-                onClick = { onChange(ms) },
-                label = { Text(durationText(ms)) },
-                modifier = Modifier.heightIn(min = 48.dp).testTag("thr_preset_${ms / 60_000}"),
-            )
-        }
-    }
-    Text(stringResource(R.string.thr_value_range), style = MaterialTheme.typography.bodySmall)
-}
-
-@Composable
-private fun Choice(text: String, selected: Boolean, tag: String, onClick: () -> Unit) = Row(
-    Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(selected, onClick = onClick, role = Role.RadioButton).testTag(tag),
-    verticalAlignment = Alignment.CenterVertically,
-) {
-    RadioButton(selected = selected, onClick = null)
-    Text(text, Modifier.padding(start = 12.dp))
 }
