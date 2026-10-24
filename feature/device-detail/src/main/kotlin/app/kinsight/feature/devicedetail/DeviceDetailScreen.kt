@@ -237,7 +237,7 @@ fun DeviceDetailScreen(
     rules: List<ThresholdRule> = emptyList(),
     onRules: (() -> Unit)? = null,
     nowMs: Long = System.currentTimeMillis(),
-) = Screen(detail.member.name, onBack) { padding ->
+) = Screen(if (detail.member.ownLocal) stringResource(R.string.det_you) else detail.member.name, onBack) { padding ->
     val own = detail.member.ownLocal // a parent's own time, on this phone only: the child's report minus what is a child's
     val child = detail.member.role == Role.CHILD || own
     val totalLimit = thresholds?.firstOrNull { it.target == ThresholdTarget.Total }?.limitMs

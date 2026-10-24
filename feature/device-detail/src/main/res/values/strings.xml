@@ -224,5 +224,6 @@
     <string name="det_rules_title">Limits and blocks</string>
     <string name="det_rules_summary">Blocked: %1$d · Limits: %2$d · Always allowed: %3$d</string>
     <string name="det_rules_none">No rules yet</string>
+    <string name="det_you">You</string>
     <string name="det_own_local_note">Only on this phone. Kinsight never sends your own time anywhere.</string>
 </resources>

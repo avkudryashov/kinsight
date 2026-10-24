@@ -229,5 +229,6 @@
     <string name="det_rules_title">Лимиты и блокировки</string>
     <string name="det_rules_summary">Заблокировано: %1$d · Лимитов: %2$d · Всегда разрешено: %3$d</string>
     <string name="det_rules_none">Правил пока нет</string>
+    <string name="det_you">Вы</string>
     <string name="det_own_local_note">Только на этом телефоне. Kinsight никуда не отправляет ваше время.</string>
 </resources>
