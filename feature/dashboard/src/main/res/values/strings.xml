@@ -53,7 +53,7 @@
     <string name="dash_new_parent_ok">Got it</string>
     <string name="dash_searching">Looking for phones nearby…</string>
     <string name="dash_updating">Updating…</string>
-    <string name="dash_reconsent_body">Kinsight can now also send your screen time and where this phone is through a parent\'s Yandex Disk. See what changed and decide.</string>
+    <string name="dash_reconsent_body">Parents can now limit time and block apps on this phone. Kinsight\'s accessibility service closes a blocked app and sees only which app is on screen, nothing inside it. Kinsight can also send your screen time and where this phone is through a parent\'s Yandex Disk. See what changed and decide.</string>
     <string name="dash_reconsent_open">See what changed</string>
     <string name="dash_top_today">Most used today</string>
     <string name="dash_top_line">Most used: %1$s · %2$s</string>

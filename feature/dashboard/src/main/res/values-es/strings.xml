@@ -53,7 +53,7 @@
     <string name="dash_new_parent_ok">Entendido</string>
     <string name="dash_searching">Buscando teléfonos cercanos…</string>
     <string name="dash_updating">Actualizando…</string>
-    <string name="dash_reconsent_body">Ahora Kinsight también puede enviar tu tiempo de pantalla y dónde está este teléfono a través del Yandex Disk de un adulto de la familia. Mira qué ha cambiado y decide.</string>
+    <string name="dash_reconsent_body">Ahora los adultos pueden limitar el tiempo y bloquear aplicaciones en este teléfono. Las cierra el servicio de accesibilidad de Kinsight, que solo ve qué aplicación está en pantalla, nada dentro de ella. Además, Kinsight puede enviar tu tiempo de pantalla y dónde está este teléfono a través del Yandex Disk de un adulto de la familia. Mira qué ha cambiado y decide.</string>
     <string name="dash_reconsent_open">Ver qué cambia</string>
     <string name="dash_top_today">Lo más usado hoy</string>
     <string name="dash_top_line">Lo más usado: %1$s · %2$s</string>

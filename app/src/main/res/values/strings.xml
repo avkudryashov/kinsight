@@ -36,7 +36,7 @@
     <string name="alert_summary_daily">Screen time today</string>
     <string name="alert_summary_weekly">Screen time this week</string>
     <string name="channel_thresholds">Limits</string>
-    <string name="channel_thresholds_description">A child passed a daily limit you set (it only notifies, nothing is blocked)</string>
+    <string name="channel_thresholds_description">A child passed a daily limit you set</string>
     <string name="alert_public_threshold">Daily limit passed</string>
     <string name="alert_threshold_total">%1$s: %2$s today (limit %3$s)</string>
     <string name="alert_threshold_target">%1$s: %2$s %3$s today (limit %4$s)</string>

@@ -324,7 +324,10 @@ internal enum class SyncAttention {
     }
 }
 
-/** Roadmap Y5: a child that agreed to the Bluetooth-only text sees what changed before anything goes through the Disk. */
+/**
+ * A child whose consent is older than the current text (v1: Bluetooth only; v2: no blocking) sees what changed,
+ * the Disk sync and the parents' limits and blocks enforced by the accessibility service, before they take effect.
+ */
 @Composable
 private fun ReconsentCard(onOpen: () -> Unit) {
     Card(

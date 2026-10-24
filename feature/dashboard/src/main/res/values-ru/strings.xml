@@ -53,7 +53,7 @@
     <string name="dash_new_parent_ok">Понятно</string>
     <string name="dash_searching">Ищем телефоны поблизости…</string>
     <string name="dash_updating">Обновляем…</string>
-    <string name="dash_reconsent_body">Теперь Kinsight может передавать экранное время и место этого телефона и через Яндекс Диск родителя. Посмотрите, что изменилось, и решите.</string>
+    <string name="dash_reconsent_body">Теперь родители могут ограничивать время и блокировать приложения на этом телефоне. Закрывает их служба доступности Kinsight: она видит только, какое приложение на экране, и ничего внутри него. Ещё Kinsight может передавать экранное время и место этого телефона через Яндекс Диск родителя. Посмотрите, что изменилось, и решите.</string>
     <string name="dash_reconsent_open">Посмотреть</string>
     <string name="dash_top_today">Чаще всего сегодня</string>
     <string name="dash_top_line">Чаще всего: %1$s · %2$s</string>
