@@ -46,6 +46,9 @@
     <string name="onb_notifications_body_parent">Kinsight shows a notification while it syncs, tells you when something is turned off on a child\'s phone or it is out of contact, and sends a daily summary.</string>
     <string name="onb_battery_title">Keep Kinsight running</string>
     <string name="onb_battery_body">Some phones stop apps in the background. Let Kinsight run without battery restrictions so that the app is not stopped in the background.</string>
+    <string name="onb_accessibility_title">Let Kinsight close blocked apps</string>
+    <string name="onb_accessibility_body">Your parents can block apps or set limits on this phone. To close a blocked app, Kinsight needs the accessibility service turned on. It sees only which app is on screen and reads nothing inside it.</string>
+    <string name="onb_accessibility_allow">Open accessibility settings</string>
     <string name="onb_battery_open">Open battery settings</string>
     <string name="onb_battery_ok">Kinsight already runs without battery restrictions.</string>
     <string name="onb_battery_samsung">Settings → Battery → Background usage limits → Never sleeping apps → add Kinsight. Also: Settings → Apps → Kinsight → Battery → Unrestricted.</string>

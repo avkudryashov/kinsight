@@ -98,9 +98,9 @@ class MoreScreenTest {
 
     @Test
     fun aChildHasNoLimitsNorPinButItsUnfinishedSetupFirst() {
-        show(consentingChild, pending = listOf(SetupItem.LOCATION, SetupItem.BATTERY))
+        show(consentingChild, pending = listOf(SetupItem.LOCATION, SetupItem.BATTERY, SetupItem.ACCESSIBILITY))
         rule.onNodeWithText("Setup is not finished", useUnmergedTree = true).assertExists()
-        rule.onNodeWithText("Location, background work", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("Location, background work, app blocking", useUnmergedTree = true).assertExists()
         rule.onNodeWithTag("more_limits").assertDoesNotExist()
         rule.onNodeWithTag("more_pin").assertDoesNotExist()
         rule.onNodeWithTag("more_setup").performClick()

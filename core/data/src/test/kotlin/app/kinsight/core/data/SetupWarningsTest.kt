@@ -38,4 +38,12 @@ class SetupWarningsTest {
     fun otherEventsAreNoWarning() {
         assertEquals(emptySet(), SetupWarnings.of(listOf(ev(1, StateEvent.Kind.BLUETOOTH_OFF, 1_000, 1_000))))
     }
+
+    /** App blocking spec §5.4: the accessibility service off while rules need it. */
+    @Test
+    fun openBlockingOffIsAWarning() {
+        val open = ev(1, StateEvent.Kind.BLOCKING_OFF, 1_000, 1_000)
+        assertEquals(setOf(SetupWarning.BLOCKING_OFF), SetupWarnings.of(listOf(open)))
+        assertEquals(emptySet(), SetupWarnings.of(listOf(open, ev(2, StateEvent.Kind.BLOCKING_OFF, 1_000, 5_000))))
+    }
 }

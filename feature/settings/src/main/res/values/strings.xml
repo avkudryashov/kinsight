@@ -194,6 +194,7 @@
     <string name="more_setup_location">location</string>
     <string name="more_setup_background">location in the background</string>
     <string name="more_setup_battery">background work</string>
+    <string name="more_setup_accessibility">app blocking</string>
     <string name="lim_children">Limits</string>
     <string name="lim_no_children">No children yet</string>
 </resources>

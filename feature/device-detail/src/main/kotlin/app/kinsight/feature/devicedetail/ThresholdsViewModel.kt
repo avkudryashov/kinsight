@@ -9,6 +9,7 @@ import app.kinsight.core.data.Categories
 import app.kinsight.core.data.DetailRange
 import app.kinsight.core.data.Period
 import app.kinsight.core.data.RuleMode
+import app.kinsight.core.data.SetupWarning
 import app.kinsight.core.data.ThresholdRule
 import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.data.UsageRepository
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -44,7 +46,10 @@ internal interface ThresholdSource {
     /** The child's time today for the «Всего за день» bar (UI refresh §7); null without a summary of today. */
     fun todayMs(): Flow<Long?> = flowOf(null)
 
-    /** The child's accessibility service is off, so blocks are not enforced there (fed from Task 9; false until then). */
+    /**
+     * The child's accessibility service is off, so blocks are not enforced there: its open BLOCKING_OFF
+     * (SetupWarning.BLOCKING_OFF, app blocking spec §5.4).
+     */
     fun blockingOff(): Flow<Boolean> = flowOf(false)
 
     /** Blocks wait for the child to agree to the updated consent (fed from Task 10; false until then). */
@@ -68,6 +73,11 @@ private class RepositoryThresholdSource(private val usage: UsageRepository, priv
     override fun todayMs(): Flow<Long?> = usage.dashboard.map { d ->
         d?.children?.firstOrNull { it.member.id == id }?.today?.takeIf { it.known }?.totalMs
     }
+
+    /** The same SetupWarnings the dashboard card reads (UsageReadModel.usage), from the child's own events. */
+    override fun blockingOff(): Flow<Boolean> = usage.dashboard.map { d ->
+        d?.children?.firstOrNull { it.member.id == id }?.setupWarnings?.contains(SetupWarning.BLOCKING_OFF) == true
+    }.distinctUntilChanged()
 
     override suspend fun set(rule: ThresholdRule) = usage.setThreshold(rule)
 

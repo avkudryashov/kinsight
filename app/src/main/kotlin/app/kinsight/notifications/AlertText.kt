@@ -49,12 +49,14 @@ object AlertText {
         }
     }
 
-    /** A zone event names its zone (spec §8.1), the rest the kind's own title. */
+    /** A zone event names its zone (spec §8.1), a PIN unblock its app, the rest the kind's own title. */
     private fun title(context: Context, a: Alert.Integrity): String = when (a.kind) {
         StateEvent.Kind.ZONE_EXIT -> a.zoneName?.let { context.getString(R.string.alert_zone_exit, a.device, it) }
             ?: context.getString(R.string.alert_zone_exit_unnamed, a.device)
         StateEvent.Kind.ZONE_ENTER -> a.zoneName?.let { context.getString(R.string.alert_zone_enter, a.device, it) }
             ?: context.getString(R.string.alert_zone_enter_unnamed, a.device)
+        // App blocking spec §5.3: the package, as the event list names it.
+        StateEvent.Kind.BLOCK_OVERRIDDEN -> context.getString(R.string.alert_block_overridden, a.device, a.packageName.orEmpty())
         else -> context.getString(titleOf(a.kind), a.device)
     }
 
@@ -71,6 +73,7 @@ object AlertText {
         StateEvent.Kind.CLOCK_CHANGED -> R.string.alert_clock_changed
         StateEvent.Kind.LOCATION_PERMISSION_OFF -> R.string.alert_location_off
         StateEvent.Kind.LOCATION_DISABLED -> R.string.alert_location_disabled
+        StateEvent.Kind.BLOCKING_OFF -> R.string.alert_blocking_off
         else -> R.string.alert_event
     }
 
@@ -79,6 +82,7 @@ object AlertText {
         StateEvent.Kind.BLUETOOTH_OFF -> R.string.alert_bluetooth_off_for
         StateEvent.Kind.LOCATION_PERMISSION_OFF -> R.string.alert_location_off_for
         StateEvent.Kind.LOCATION_DISABLED -> R.string.alert_location_disabled_for
+        StateEvent.Kind.BLOCKING_OFF -> R.string.alert_blocking_off_for
         else -> null
     }
 
@@ -98,6 +102,8 @@ object AlertText {
         StateEvent.Kind.LOCATION_DISABLED -> R.string.alert_advice_location_disabled
         StateEvent.Kind.ZONE_EXIT -> R.string.alert_advice_zone_exit
         StateEvent.Kind.ZONE_ENTER -> R.string.alert_advice_zone_enter
+        StateEvent.Kind.BLOCKING_OFF -> R.string.alert_advice_blocking_off
+        StateEvent.Kind.BLOCK_OVERRIDDEN -> R.string.alert_advice_block_overridden
         else -> R.string.alert_advice_event
     }
 

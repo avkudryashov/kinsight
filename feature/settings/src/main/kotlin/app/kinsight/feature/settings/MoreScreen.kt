@@ -17,6 +17,7 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,6 +36,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.kinsight.core.blocking.BlockingState
 import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.ChildSetup
 import app.kinsight.core.data.GroupState
@@ -42,6 +44,8 @@ import app.kinsight.core.data.PinSave
 import app.kinsight.core.data.Role
 import app.kinsight.core.data.SetupItem
 import app.kinsight.core.data.UsageReadModel
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 /** The settings view model, one per destination of «Ещё» (each reads the same repositories). */
 @Composable
@@ -66,11 +70,17 @@ fun MoreRoute(
     val context = LocalContext.current
     val vm = settingsViewModel()
     val ui by vm.ui.collectAsStateWithLifecycle()
-    var pending by remember { mutableStateOf(ChildSetup.read(context)) }
+    // App blocking spec §5.4: the accessibility step counts only while a parent's rule needs it.
+    val enforcing by remember {
+        AppGraph.get(context).snapshots.snapshots.map(ChildSetup::enforcing).distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = false)
+    fun read() = ChildSetup.read(context, BlockingState.serviceEnabled(context), enforcing)
+    var pending by remember { mutableStateOf(read()) }
+    LaunchedEffect(enforcing) { pending = read() }
     // Back from Android's settings or from the wizard: the setup row follows at once.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         vm.refreshStatus()
-        pending = ChildSetup.read(context)
+        pending = read()
     }
     MoreScreen(ui, appVersion, pending, onFamily, onLimits, onSync, onTransparency, onAbout, onSetup, onSetPin = vm::setPin)
 }
@@ -184,5 +194,6 @@ private fun setupName(item: SetupItem): String = stringResource(
         SetupItem.LOCATION -> R.string.more_setup_location
         SetupItem.LOCATION_BACKGROUND -> R.string.more_setup_background
         SetupItem.BATTERY -> R.string.more_setup_battery
+        SetupItem.ACCESSIBILITY -> R.string.more_setup_accessibility
     },
 )

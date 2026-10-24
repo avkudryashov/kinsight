@@ -613,7 +613,10 @@ private fun LastSync(lastSeenMs: Long?, nowMs: Long) = Text(
     modifier = Modifier.testTag("dash_last_sync"),
 )
 
-/** An unfinished setup on the child's phone (UI refresh §6), on a darker chip so the white text keeps 4.5:1. */
+/**
+ * An unfinished setup on the child's phone (UI refresh §6) or blocking off there (app blocking spec §5.4), on a darker
+ * chip so the white text keeps 4.5:1.
+ */
 @Composable
 private fun SetupWarningLine(w: SetupWarning) = Row(
     Modifier.clip(MaterialTheme.shapes.small).background(Color.Black.copy(alpha = 0.18f))
@@ -627,6 +630,7 @@ private fun SetupWarningLine(w: SetupWarning) = Row(
             when (w) {
                 SetupWarning.LOCATION_PERMISSION_OFF -> R.string.dash_warn_location_off
                 SetupWarning.LOCATION_DISABLED -> R.string.dash_warn_location_disabled
+                SetupWarning.BLOCKING_OFF -> R.string.dash_warning_blocking_off
             },
         ),
         style = MaterialTheme.typography.labelLarge,

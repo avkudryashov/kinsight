@@ -51,6 +51,18 @@ class ChildSetupScreenTest {
         assertEquals(listOf("later"), calls)
     }
 
+    /** App blocking spec §5.4: says what the service sees and opens the accessibility settings. */
+    @Test
+    fun theAccessibilityStepSaysWhatTheServiceSees() {
+        val calls = mutableListOf<String>()
+        show(SetupItem.ACCESSIBILITY, calls)
+        rule.onNodeWithText("Let Kinsight close blocked apps").assertExists()
+        rule.onNodeWithText("It sees only which app is on screen and reads nothing inside it.", substring = true).assertExists()
+        rule.onNodeWithTag("onb_agree").assertTextEquals("Open accessibility settings").performClick()
+        rule.onNodeWithTag("onb_not_now").assertTextEquals("Later").performClick()
+        assertEquals(listOf("allow", "later"), calls)
+    }
+
     @Test
     @Config(qualifiers = "ru")
     fun russianLater() {

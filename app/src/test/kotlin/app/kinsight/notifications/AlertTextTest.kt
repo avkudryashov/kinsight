@@ -208,6 +208,21 @@ class AlertTextTest {
         assertEquals(2, open.body.lines().size)
     }
 
+    /** App blocking spec §5.4: blocking off is important and closes like location; a PIN unblock is quiet and names its app. */
+    @Test
+    fun blockingOffAndAPinUnblock() {
+        val open = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.BLOCKING_OFF, 1_000))
+        assertEquals(AlertChannels.IMPORTANT, open.channel)
+        assertEquals("Kid: app blocking turned off on the phone", open.title)
+        assertEquals(2, open.body.lines().size)
+        val closed = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.BLOCKING_OFF, 1_000, durationMs = 3 * min))
+        assertEquals("Kid: app blocking was off on the phone for 3 min", closed.title)
+        assertEquals(1, closed.body.lines().size)
+        val pin = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.BLOCK_OVERRIDDEN, 1_000, packageName = "com.game"))
+        assertEquals(AlertChannels.EVENTS, pin.channel)
+        assertEquals("Kid: com.game unblocked by PIN until the end of the day", pin.title)
+    }
+
     @Test
     @Config(qualifiers = "ru")
     fun aClosedIntervalSaysItsLengthInRussian() {

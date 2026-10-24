@@ -30,6 +30,14 @@ object UsageGraph {
     @Volatile
     var ownStateEventListener: (StateEvent.Kind) -> Unit = {}
 
+    /**
+     * Runs at the start of every UsageWorker run, before its publish (app blocking spec §5.4: the app's BlockingWatch
+     * checks the accessibility service there, so an event it queues is signed in the same run). A failure is logged and
+     * never fails the run.
+     */
+    @Volatile
+    var beforeRun: suspend (Context) -> Unit = {}
+
     @Volatile
     private var override: UsagePipeline? = null
 

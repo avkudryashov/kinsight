@@ -11,6 +11,13 @@ class UsageWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
     override suspend fun doWork(): Result {
         val force = inputData.getBoolean(UsageWork.KEY_FORCE, false)
         val rollover = inputData.getBoolean(UsageWork.KEY_ROLLOVER, false)
+        try {
+            UsageGraph.beforeRun(applicationContext)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "before-run check failed: ${e.javaClass.simpleName}")
+        }
         return try {
             val report = UsageGraph.pipeline(applicationContext).collectAndPublish(force)
             Log.i(TAG, "usage run force=$force rollover=$rollover: $report")

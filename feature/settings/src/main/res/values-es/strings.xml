@@ -196,6 +196,7 @@
     <string name="more_setup_location">ubicación</string>
     <string name="more_setup_background">ubicación en segundo plano</string>
     <string name="more_setup_battery">trabajo en segundo plano</string>
+    <string name="more_setup_accessibility">bloqueo de apps</string>
     <string name="lim_children">Límites</string>
     <string name="lim_no_children">Todavía no hay menores</string>
 </resources>

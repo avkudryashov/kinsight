@@ -592,6 +592,15 @@ class DashboardScreenTest {
         rule.onNodeWithTag("limit_bar", useUnmergedTree = true).assertDoesNotExist()
     }
 
+    /** App blocking spec §5.4: the accessibility service off on the child's phone, next to the location warnings. */
+    @Test
+    fun blockingOffIsAWarningOnTheCard() {
+        val u = usage(kid, 30, 30).copy(setupWarnings = setOf(SetupWarning.BLOCKING_OFF))
+        show(DashboardUi(DashboardState(mom, null, listOf(u), listOf(dad)), running, true))
+        rule.onNodeWithTag("dash_warning_BLOCKING_OFF", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("Blocking is off: Kinsight's accessibility service is disabled on the child's phone.", useUnmergedTree = true).assertExists()
+    }
+
     @Test
     fun anOpenLocationProblemIsAWarningOnTheCard() {
         val u = usage(kid, 30, 30).copy(setupWarnings = setOf(SetupWarning.LOCATION_DISABLED))

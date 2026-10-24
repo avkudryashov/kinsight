@@ -32,7 +32,8 @@ import kotlinx.coroutines.launch
  * collection, the integrity alerts, the cloud job while the cloud is on (spec §9), and the checks only a fresh process can make: the «share» switch reconciled with
  * the last signed SHARING_* (spec §7), an identity reset cut short (finished first), a join interrupted after the welcome finished, force stops since the last
  * start (with or without a group: the baseline), a revoked «Nearby devices», and the one-time move of a parent's local
- * category overrides into the shared log (stage 5c), and the child's location tracking (registered again at every start). Each check runs on its own, so one
+ * category overrides into the shared log (stage 5c), the child's location tracking (registered again at every start) and
+ * its accessibility service (BlockingWatch). Each check runs on its own, so one
  * failing does not skip the others. Open only so the JVM tests can start WorkManager first (TestKinsightApplication).
  */
 open class KinsightApplication : Application() {
@@ -85,6 +86,8 @@ open class KinsightApplication : Application() {
         SyncGraph.onboardingDone = { AppGraph.get(it).prefs.current().onboardingDone }
         UsageAccessWatcher.register(this)
         LocationStateWatcher.register(this)
+        // App blocking spec §5.4: the accessibility service off while the parents' rules need it is BLOCKING_OFF.
+        BlockingWatch.register(this)
         val app = this
         // A reset or leave wipes after MainActivity.onStop may have redrawn the widget: redraw once the wipe ends.
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
@@ -105,6 +108,7 @@ open class KinsightApplication : Application() {
             // Launched, not awaited: a first fix (up to 20 s) must not hold back the checks below (Y4 review Minor 3).
             attempt("location") { LocationGraph.refresh(app, rearm = true) }
             attempt("location state") { AppGraph.get(app).launchLocationCheck() } // launched too: it may collect usage
+            attempt("blocking state") { BlockingWatch.check(app) }
             attempt("nearby permission") { SyncGraph.onNearbyPermission(app, BlePermissions.missing(app).isEmpty()) }
             // Stage 5c: a parent's local category choices of 5a become shared entries, once (idempotent, crash-safe).
             attempt("category migration") { AppGraph.get(app).usage.migrateLocalCategories() }

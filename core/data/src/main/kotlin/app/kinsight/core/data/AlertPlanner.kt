@@ -14,6 +14,7 @@ sealed interface Alert {
      * [id]: the child's device, so tapping the alert can open its detail screen; null when unknown. [durationMs]: an
      * interval event's length (to_ms after from_ms), null when it has none; a short Bluetooth break is quiet (U4).
      * [zoneName]: ZONE_ENTER / ZONE_EXIT, the zone's name, null when unknown (shown, never logged: not in toString).
+     * [packageName]: BLOCK_OVERRIDDEN, the app unblocked by PIN (app blocking spec §5.3; not in toString either).
      */
     data class Integrity(
         val device: String,
@@ -22,13 +23,14 @@ sealed interface Alert {
         val id: DeviceId? = null,
         val durationMs: Long? = null,
         val zoneName: String? = null,
+        val packageName: String? = null,
     ) : Alert {
         override fun toString() = "Integrity($device, $kind, $atMs, $id, $durationMs)"
     }
 
     /**
      * The child undid an open problem ([kind] is the open kind: SHARING_PAUSED or NOTIFICATION_HIDDEN, see
-     * AlertPlanner.CLOSERS, or a self-closing location kind, see AlertPlanner.SELF_CLOSING): the app cancels that
+     * AlertPlanner.CLOSERS, or a self-closing kind, see AlertPlanner.SELF_CLOSING): the app cancels that
      * child's notification of [kind] instead of posting.
      */
     data class Resolved(val id: DeviceId, val kind: StateEvent.Kind, val device: String) : Alert
@@ -120,6 +122,7 @@ object AlertPlanner {
         StateEvent.Kind.CLOCK_CHANGED,
         StateEvent.Kind.LOCATION_PERMISSION_OFF,
         StateEvent.Kind.LOCATION_DISABLED,
+        StateEvent.Kind.BLOCKING_OFF,
     )
     /**
      * Open problems the child can undo, by their closing kind. Their notification stays up until the closing event
@@ -139,7 +142,7 @@ object AlertPlanner {
      * cancelling in one pass would hide it, against «любое отключение видно родителю») is announced with its length
      * instead, and that open one stays quiet.
      */
-    val SELF_CLOSING = setOf(StateEvent.Kind.LOCATION_PERMISSION_OFF, StateEvent.Kind.LOCATION_DISABLED)
+    val SELF_CLOSING = setOf(StateEvent.Kind.LOCATION_PERMISSION_OFF, StateEvent.Kind.LOCATION_DISABLED, StateEvent.Kind.BLOCKING_OFF)
 
     private fun isOpen(e: EventView) = e.toMs <= e.fromMs
 
@@ -148,9 +151,12 @@ object AlertPlanner {
 
     /**
      * Events that need nothing from a parent: «Прочие события», no sound (U4); an arrival in a zone needs nothing from
-     * a parent.
+     * a parent, nor a PIN unblock a parent typed in (app blocking spec §5.4: both parents hear of it, quietly).
      */
-    val MINOR_KINDS = setOf(StateEvent.Kind.CLOCK_CHANGED, StateEvent.Kind.DATA_GAP, StateEvent.Kind.ZONE_ENTER)
+    val MINOR_KINDS = setOf(StateEvent.Kind.CLOCK_CHANGED, StateEvent.Kind.DATA_GAP, StateEvent.Kind.ZONE_ENTER, StateEvent.Kind.BLOCK_OVERRIDDEN)
+
+    /** Every kind a parent is told about: integrity, zone news and the minor rest. */
+    private val ANNOUNCED = INTEGRITY_KINDS + ZONE_KINDS + MINOR_KINDS
 
     /** A Bluetooth break shorter than this is minor; one of unknown length is important. */
     const val SHORT_BLUETOOTH_MS = 30 * 60_000L
@@ -253,8 +259,8 @@ object AlertPlanner {
                         }
                     }
                 }
-                if (e.kind in INTEGRITY_KINDS || e.kind in ZONE_KINDS) {
-                    alerts += Alert.Integrity(child.name, e.kind, e.atMs, child.id, durationOf(e), e.zoneName)
+                if (e.kind in ANNOUNCED) {
+                    alerts += Alert.Integrity(child.name, e.kind, e.atMs, child.id, durationOf(e), e.zoneName, e.packageName)
                 }
                 val open = OPENERS[e.kind] ?: continue
                 // Resolved only when the pair's latest earlier event is the open one: a repeated resume says nothing.
@@ -353,7 +359,7 @@ object AlertPlanner {
     }
 
     /**
-     * Each current child's problems still open (a pause, a hidden notification or a location problem: the latest event
+     * Each current child's problems still open (a pause, a hidden notification, a location problem or blocking off: the latest event
      * of the pair, or of the self-closing kind, is the opening one) that were already announced (seq within the child's
      * marker: a newer one is the plan's to say, with sound), as alerts; for a re-post after their notifications were
      * lost, not for the markers.

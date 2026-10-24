@@ -62,6 +62,7 @@
     <string name="dash_pill_allowed">всегда</string>
     <string name="dash_warn_location_off">Доступ к геолокации выключен</string>
     <string name="dash_warn_location_disabled">Геолокация выключена</string>
+    <string name="dash_warning_blocking_off">Блокировка не работает: на телефоне ребёнка выключена спец. возможность Kinsight.</string>
     <string name="dash_last_sync">Последняя синхронизация %1$s</string>
     <string name="dash_never_synced">Синхронизации ещё не было</string>
 </resources>

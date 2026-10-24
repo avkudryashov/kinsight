@@ -165,7 +165,7 @@ class AlertPlannerTest {
     @Test
     fun everyNonRecoveryKindAlerts() {
         val back = listOf("_RESTORED", "_RESUMED", "_SHOWN")
-        // The location kinds (protocol 3) and the blocking kinds (protocol 4) have no alert behaviour yet.
+        // The location kinds (protocol 3) and the blocking kinds (protocol 4) have their own tests below.
         val locationKinds = setOf(
             StateEvent.Kind.LOCATION_PERMISSION_OFF, StateEvent.Kind.LOCATION_DISABLED,
             StateEvent.Kind.ZONE_ENTER, StateEvent.Kind.ZONE_EXIT,
@@ -447,7 +447,7 @@ class AlertPlannerTest {
         assertEquals(AlertLevel.TRANSPARENCY, AlertPlanner.level(Alert.NewParent("Dad", dad.id)))
         assertEquals(AlertLevel.SUMMARY, AlertPlanner.level(Alert.Summary(false, emptyList())))
         assertEquals(AlertLevel.THRESHOLD, AlertPlanner.level(Alert.Threshold(kid.id, "Kid", ThresholdTarget.Total, null, 2, 1)))
-        assertEquals(setOf(StateEvent.Kind.CLOCK_CHANGED, StateEvent.Kind.DATA_GAP, StateEvent.Kind.ZONE_ENTER), AlertPlanner.MINOR_KINDS)
+        assertEquals(setOf(StateEvent.Kind.CLOCK_CHANGED, StateEvent.Kind.DATA_GAP, StateEvent.Kind.ZONE_ENTER, StateEvent.Kind.BLOCK_OVERRIDDEN), AlertPlanner.MINOR_KINDS)
     }
 
     @Test
@@ -539,5 +539,28 @@ class AlertPlannerTest {
             AlertPlanner.plan(input(events = events, markers = fresh)).alerts,
         )
         assertEquals(listOf(Alert.Integrity("Kid", off, 70_000, kid.id)), AlertPlanner.openProblems(input(events = events, markers = second.markers)))
+    }
+
+    /** App blocking spec §5.4: BLOCKING_OFF is self-closing like LOCATION_DISABLED; a PIN unblock is minor news. */
+    @Test
+    fun blockingOffIsAnnouncedAndClosedLikeLocationDisabled() {
+        val off = StateEvent.Kind.BLOCKING_OFF
+        assertTrue(off in AlertPlanner.INTEGRITY_KINDS && off in AlertPlanner.SELF_CLOSING)
+        assertTrue(off in IntegrityFastSync.KINDS, "a parent in range hears it within seconds")
+        val first = AlertPlanner.plan(input(events = listOf(loc(1, off, 5_000, 5_000))))
+        assertEquals(listOf<Alert>(Alert.Integrity("Kid", off, 5_000, kid.id)), first.alerts)
+        assertEquals(AlertLevel.IMPORTANT, AlertPlanner.level(first.alerts.single()))
+        assertEquals(listOf(Alert.Integrity("Kid", off, 5_000, kid.id)), AlertPlanner.openProblems(input(events = listOf(loc(1, off, 5_000, 5_000)), markers = first.markers)))
+        val closed = listOf(loc(1, off, 5_000, 5_000), loc(2, off, 5_000, 65_000))
+        val second = AlertPlanner.plan(input(events = closed, markers = first.markers))
+        assertEquals(listOf<Alert>(Alert.Resolved(kid.id, off, "Kid")), second.alerts)
+        assertEquals(emptyList(), AlertPlanner.openProblems(input(events = closed, markers = second.markers)))
+
+        val overridden = EventView(kid.id, 3, StateEvent.Kind.BLOCK_OVERRIDDEN, 70_000, 70_000, 70_000, 0, packageName = "com.game")
+        val third = AlertPlanner.plan(input(events = closed + overridden, markers = second.markers))
+        val alert = third.alerts.single() as Alert.Integrity
+        assertEquals(Alert.Integrity("Kid", StateEvent.Kind.BLOCK_OVERRIDDEN, 70_000, kid.id, packageName = "com.game"), alert)
+        assertEquals(AlertLevel.MINOR, AlertPlanner.level(alert))
+        assertTrue(StateEvent.Kind.BLOCK_OVERRIDDEN !in AlertPlanner.INTEGRITY_KINDS, "a parent's own unblock needs no fast sync")
     }
 }

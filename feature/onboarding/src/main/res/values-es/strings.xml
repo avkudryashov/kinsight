@@ -46,6 +46,9 @@
     <string name="onb_notifications_body_parent">Kinsight muestra una notificación mientras sincroniza, te avisa cuando se desactiva algo en el teléfono del menor o se pierde el contacto con él, y envía un resumen diario.</string>
     <string name="onb_battery_title">Mantén Kinsight en funcionamiento</string>
     <string name="onb_battery_body">Algunos teléfonos detienen las aplicaciones en segundo plano. Deja que Kinsight funcione sin restricciones de batería para que la aplicación no se detenga en segundo plano.</string>
+    <string name="onb_accessibility_title">Deja que Kinsight cierre las apps bloqueadas</string>
+    <string name="onb_accessibility_body">Tus padres pueden bloquear apps o poner límites en este teléfono. Para cerrar una app bloqueada, Kinsight necesita el servicio de accesibilidad activado. Solo ve qué app está en pantalla y no lee nada de su contenido.</string>
+    <string name="onb_accessibility_allow">Abrir ajustes de accesibilidad</string>
     <string name="onb_battery_open">Abrir los ajustes de batería</string>
     <string name="onb_battery_ok">Kinsight ya funciona sin restricciones de batería.</string>
     <string name="onb_battery_samsung">Ajustes → Batería → Límites de uso en segundo plano → Aplicaciones que nunca entran en suspensión → añade Kinsight. Además: Ajustes → Aplicaciones → Kinsight → Batería → Sin restricciones.</string>

@@ -161,6 +161,16 @@ class AppPrefs(private val store: DataStore<Preferences>) {
         store.edit { p -> p[PIN_OVERRIDES] = encodePinOverrides(decodePinOverrides(p[PIN_OVERRIDES]).filterValues { !it.isBefore(today) }) }
     }
 
+    /**
+     * Since when the accessibility service is off while a rule needs it, once BLOCKING_OFF was queued (BlockingStateFollow,
+     * app blocking spec §5.4); null otherwise. Goes with the group.
+     */
+    suspend fun blockingOffSince(): Long? = store.data.first()[BLOCKING_OFF_SINCE]
+
+    suspend fun setBlockingOffSince(ms: Long?) {
+        store.edit { if (ms == null) it.remove(BLOCKING_OFF_SINCE) else it[BLOCKING_OFF_SINCE] = ms }
+    }
+
     /** A wiped group: back to the first run; the device name the user typed stays. */
     suspend fun resetForNewGroup() {
         store.edit {
@@ -192,6 +202,7 @@ class AppPrefs(private val store: DataStore<Preferences>) {
         private val PIN_WAIT_UNTIL = longPreferencesKey("pin_wait_until_ms")
         private val PIN_WAIT_ELAPSED = longPreferencesKey("pin_wait_elapsed_ms")
         private val PIN_WAIT_BOOT = intPreferencesKey("pin_wait_boot")
+        private val BLOCKING_OFF_SINCE = longPreferencesKey("blocking_off_since_ms")
 
         private fun encodeIds(ids: Set<DeviceId>): String = ids.map { d -> d.hex }.sorted().joinToString(",")
 

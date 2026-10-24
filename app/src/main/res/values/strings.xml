@@ -24,6 +24,9 @@
     <string name="alert_bluetooth_off_for">%1$s: Bluetooth was off for %2$s</string>
     <string name="alert_location_off_for">%1$s: location access was off for %2$s</string>
     <string name="alert_location_disabled_for">%1$s: location was off on the phone for %2$s</string>
+    <string name="alert_blocking_off">%1$s: app blocking turned off on the phone</string>
+    <string name="alert_blocking_off_for">%1$s: app blocking was off on the phone for %2$s</string>
+    <string name="alert_block_overridden">%1$s: %2$s unblocked by PIN until the end of the day</string>
     <string name="alert_event">%1$s: something changed</string>
     <string name="alert_at">When: %1$s</string>
     <string name="alert_no_contact">%1$s: no contact for %2$s</string>
@@ -67,6 +70,8 @@
     <string name="alert_advice_clock_changed">Nothing to do: Kinsight keeps the hours right after a clock change.</string>
     <string name="alert_advice_location_off">Without it Kinsight cannot tell where the phone is. Ask for “Allow all the time” in Kinsight\'s settings.</string>
     <string name="alert_advice_location_disabled">Without it Kinsight cannot tell where the phone is. Ask for location to be turned back on in the quick settings.</string>
+    <string name="alert_advice_blocking_off">Kinsight\'s accessibility service is disabled, so blocked apps open. Ask for it to be turned back on in Settings → Accessibility.</string>
+    <string name="alert_advice_block_overridden">A parent typed the PIN on the phone. The app is blocked again tomorrow.</string>
     <string name="alert_advice_event">Open Kinsight to see what changed.</string>
     <string name="alert_zone_exit">%1$s left “%2$s”</string>
     <string name="alert_zone_exit_unnamed">%1$s left a safe zone</string>

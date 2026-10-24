@@ -198,6 +198,7 @@
     <string name="more_setup_location">геолокация</string>
     <string name="more_setup_background">геолокация в фоне</string>
     <string name="more_setup_battery">работа в фоне</string>
+    <string name="more_setup_accessibility">блокировка приложений</string>
     <string name="lim_children">Лимиты</string>
     <string name="lim_no_children">Детей пока нет</string>
 </resources>

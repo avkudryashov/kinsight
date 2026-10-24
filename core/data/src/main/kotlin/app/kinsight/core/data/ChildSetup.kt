@@ -5,16 +5,30 @@ import android.os.PowerManager
 import app.kinsight.core.location.LocationPermissions
 import app.kinsight.core.usage.AppOpsUsageAccess
 
-/** A step of the child's phone setup (UI refresh §6), in the order the wizard asks. */
-enum class SetupItem { USAGE_ACCESS, LOCATION, LOCATION_BACKGROUND, BATTERY }
+/**
+ * A step of the child's phone setup (UI refresh §6), in the order the wizard asks. ACCESSIBILITY: the service that closes
+ * blocked apps (app blocking spec §5.4), last.
+ */
+enum class SetupItem { USAGE_ACCESS, LOCATION, LOCATION_BACKGROUND, BATTERY, ACCESSIBILITY }
 
 object ChildSetup {
-    /** What is still missing, in wizard order; nothing that is already granted (§6 «Шаги не повторяются»). */
-    fun pending(usageAccess: Boolean, location: LocationPermissions.State, batteryUnrestricted: Boolean): List<SetupItem> = buildList {
+    /**
+     * What is still missing, in wizard order; nothing that is already granted (§6 «Шаги не повторяются»). The
+     * [accessibility] service is asked for only while [enforcing] (a parent's BLOCK or block-on-limit rule for this
+     * child, BlockDecision.enforcing): otherwise the wizard would ask for more than it needs (app blocking spec §5.4).
+     */
+    fun pending(
+        usageAccess: Boolean,
+        location: LocationPermissions.State,
+        batteryUnrestricted: Boolean,
+        accessibility: Boolean,
+        enforcing: Boolean,
+    ): List<SetupItem> = buildList {
         if (!usageAccess) add(SetupItem.USAGE_ACCESS)
         if (location == LocationPermissions.State.NONE || location == LocationPermissions.State.COARSE_ONLY) add(SetupItem.LOCATION)
         if (location != LocationPermissions.State.ALWAYS) add(SetupItem.LOCATION_BACKGROUND)
         if (!batteryUnrestricted) add(SetupItem.BATTERY)
+        if (enforcing && !accessibility) add(SetupItem.ACCESSIBILITY)
     }
 
     /**
@@ -35,10 +49,20 @@ object ChildSetup {
     fun progress(passed: Int, pending: List<SetupItem>, skipped: Set<SetupItem>): Pair<Int, Int> =
         (passed + 1) to (passed + showable(pending, skipped).size.coerceAtLeast(1))
 
-    /** [pending] for this phone now. */
-    fun read(context: Context): List<SetupItem> = pending(
+    /**
+     * [pending] for this phone now. [accessibility] (core/blocking BlockingState.serviceEnabled) and [enforcing]
+     * ([enforcing] of the latest snapshot) come from the caller: core/data does not depend on core/blocking.
+     */
+    fun read(context: Context, accessibility: Boolean, enforcing: Boolean): List<SetupItem> = pending(
         usageAccess = AppOpsUsageAccess(context).granted(),
         location = LocationPermissions.state(context),
         batteryUnrestricted = context.getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(context.packageName) == true,
+        accessibility = accessibility,
+        enforcing = enforcing,
     )
+
+    /** Whether this phone's own effective rules need the enforcement service; false outside a group or once removed. */
+    fun enforcing(snapshot: GroupSnapshot): Boolean = (snapshot as? GroupSnapshot.Ready)?.let { r ->
+        BlockDecision.enforcing(AppRules.effective(r).filter { it.child == r.self })
+    } == true
 }
