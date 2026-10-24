@@ -91,6 +91,12 @@ import kotlin.time.Duration.Companion.seconds
  * adb shell am broadcast -n $R -a $A.MAP_STATUS
  * ```
  * A block no child point comes near is deleted after 7 days like any other.
+ *
+ * Fake family without pairing (emulators, app blocking; DemoFamily, scripts/device/README-emulator.md):
+ * DEMO_FAMILY_CHILD (this phone is the child of a fake admin "Mom" with PIN 1234 and her rules from `--es block`,
+ * `--es block_category`, `--es allow`, `--ei total_min`, `--es limit pkg=min,...`; consent and sharing on) and
+ * DEMO_FAMILY_PARENT (this phone is the admin "Mom" of a fake child "Kid" with 14 demo days and three rules;
+ * `--ez blocking_off true` adds an open BLOCKING_OFF). Both refuse when a group exists.
  */
 class DebugGroupReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -122,12 +128,7 @@ class DebugGroupReceiver : BroadcastReceiver() {
             UsageGraph.pipeline(c).setSharing(on)
             "sharing=$on"
         }
-        "$PREFIX.CONSENT" -> {
-            // «Принимаю» on the consent screen without the screen (a locked test phone): the same call the button makes.
-            val repo = AppGraph.get(c).settingsRepository
-            repo.agreeToConsent()
-            "consent=" + AppGraph.get(c).settings.current().let { "${it.consentAtMs} outdated=${it.consentOutdated} sharing=${it.sharing}" }
-        }
+        "$PREFIX.CONSENT" -> consent(c)
         "$PREFIX.BUMP" -> {
             // A fresh publish plus a new Heartbeat (it supersedes the last one): our vector moves for sure.
             val p = UsageGraph.pipeline(c)
@@ -144,6 +145,8 @@ class DebugGroupReceiver : BroadcastReceiver() {
             "name=${AppGraph.get(c).prefs.current().deviceName}"
         }
         "$PREFIX.DEMO_USAGE" -> demoUsage(c, intent.getIntExtra("days", 14), intent.getLongExtra("seed", 1L))
+        "$PREFIX.DEMO_FAMILY_CHILD" -> DemoFamily.child(c, intent) { consent(c) }
+        "$PREFIX.DEMO_FAMILY_PARENT" -> DemoFamily.parent(c, intent, ::demoIcon)
         "$PREFIX.SYNC_NOW" -> SyncService.instance?.syncNow() ?: "service not running"
         "$PREFIX.STATUS" -> status(c)
         "$PREFIX.CLOUD_SYNC_NOW" -> "cloud=" + AppGraph.get(c).cloud.run(CloudTrigger.NOW)
@@ -170,6 +173,12 @@ class DebugGroupReceiver : BroadcastReceiver() {
         }
         "$PREFIX.MAP_STATUS" -> DebugMaps.status(mapStore(c))
         else -> error("unknown action ${intent.action}")
+    }
+
+    /** «Принимаю» on the consent screen without the screen (a locked test phone): the same call the button makes. */
+    private suspend fun consent(c: Context): String {
+        AppGraph.get(c).settingsRepository.agreeToConsent()
+        return "consent=" + AppGraph.get(c).settings.current().let { "${it.consentAtMs} outdated=${it.consentOutdated} sharing=${it.sharing}" }
     }
 
     /**
