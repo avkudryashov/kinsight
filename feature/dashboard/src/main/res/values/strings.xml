@@ -58,6 +58,8 @@
     <string name="dash_top_today">Most used today</string>
     <string name="dash_top_line">Most used: %1$s · %2$s</string>
     <string name="dash_limit_pill">limit</string>
+    <string name="dash_pill_blocked">blocked</string>
+    <string name="dash_pill_allowed">always</string>
     <string name="dash_warn_location_off">Location access is off</string>
     <string name="dash_warn_location_disabled">Location is off</string>
     <string name="dash_last_sync">Last sync %1$s</string>

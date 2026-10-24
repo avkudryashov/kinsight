@@ -58,6 +58,8 @@
     <string name="dash_top_today">Чаще всего сегодня</string>
     <string name="dash_top_line">Чаще всего: %1$s · %2$s</string>
     <string name="dash_limit_pill">лимит</string>
+    <string name="dash_pill_blocked">заблокировано</string>
+    <string name="dash_pill_allowed">всегда</string>
     <string name="dash_warn_location_off">Доступ к геолокации выключен</string>
     <string name="dash_warn_location_disabled">Геолокация выключена</string>
     <string name="dash_last_sync">Последняя синхронизация %1$s</string>

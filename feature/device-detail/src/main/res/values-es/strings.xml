@@ -220,4 +220,10 @@
     <string name="thr_pill_allowed">siempre</string>
     <string name="thr_pill_block">bloqueo</string>
     <string name="thr_allow_note">Una app siempre permitida se abre aunque su categoría o el día estén bloqueados.</string>
+    <string name="app_block">Bloquear esta app</string>
+    <string name="app_allow">Permitir siempre</string>
+    <string name="app_rule_conflict">Bloquear elimina el límite de tiempo de esta app.</string>
+    <string name="det_rules_title">Límites y bloqueos</string>
+    <string name="det_rules_summary">Bloqueadas: %1$d · Límites: %2$d · Siempre permitidas: %3$d</string>
+    <string name="det_rules_none">Aún no hay reglas</string>
 </resources>

@@ -397,6 +397,47 @@ class DeviceDetailScreenTest {
     }
 
     @Test
+    fun rulesCardSummarisesAndOpens() {
+        val rules = listOf(
+            ThresholdRule.block(kid.id, ThresholdTarget.App("pkg.1"))!!,
+            ThresholdRule.of(kid.id, ThresholdTarget.Category(AppCategory.GAMES), 3_600_000L)!!,
+            ThresholdRule.allow(kid.id, "pkg.2")!!,
+        )
+        var opened = 0
+        rule.setContent { KinsightTheme { DeviceDetailScreen(detail, onPeriod = {}, onAllApps = {}, onBack = {}, rules = rules, onRules = { opened++ }) } }
+        list.performScrollToNode(hasTestTag("det_rules"))
+        rule.onNodeWithText("Limits and blocks").assertExists()
+        rule.onNodeWithText("Blocked: 1 · Limits: 1 · Always allowed: 1").assertExists()
+        rule.onNodeWithTag("det_rules").performClick()
+        assertEquals(1, opened)
+    }
+
+    @Test
+    fun rulesCardWithoutRulesSaysSo() {
+        rule.setContent { KinsightTheme { DeviceDetailScreen(detail, onPeriod = {}, onAllApps = {}, onBack = {}, onRules = {}) } }
+        list.performScrollToNode(hasTestTag("det_rules"))
+        rule.onNodeWithText("No rules yet").assertExists()
+    }
+
+    @Test
+    fun noRulesCardWithoutTheRulesScreen() {
+        show(detail)
+        rule.onNodeWithTag("det_rules").assertDoesNotExist()
+    }
+
+    @Test
+    fun appRowsCarryBlockedAndAllowedPills() {
+        val rules = listOf(ThresholdRule.block(kid.id, ThresholdTarget.App("pkg.1"))!!, ThresholdRule.allow(kid.id, "pkg.2")!!)
+        showWithLimits(detail, rules)
+        list.performScrollToNode(hasTestTag("det_app_pkg.3"))
+        fun pillIn(tag: String, pkg: String) = rule.onNode(hasTestTag(tag) and hasAnyAncestor(hasTestTag("det_app_$pkg")), useUnmergedTree = true)
+        pillIn("det_blocked_pill", "pkg.1").assertTextEquals("blocked")
+        pillIn("det_allowed_pill", "pkg.2").assertTextEquals("always")
+        pillIn("det_limit_pill", "pkg.1").assertDoesNotExist()
+        pillIn("det_blocked_pill", "pkg.3").assertDoesNotExist()
+    }
+
+    @Test
     fun aPastDaySaysHowItComparesWithTheWeekBeforeIt() {
         show(day(today.minusDays(2)).copy(dayComparison = TodayComparison.FullDay(20 * 60_000L)))
         rule.onNodeWithTag("det_versus").assertTextEquals("10 min more than the 7-day average")

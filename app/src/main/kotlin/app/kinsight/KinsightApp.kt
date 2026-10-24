@@ -273,6 +273,7 @@ private fun MainScaffold(appVersion: String, role: Role?, openDevice: StateFlow<
                         onAllApps = { range -> nav.navigate(AllAppsDest(r.id, range.period.name, range.start.toString(), range.end.toString())) },
                         onBack = { nav.popBackStack() },
                         onOpenApp = { pkg, range -> nav.navigate(appDest(r.id, pkg, range)) }, // the app opens on the same period
+                        onRules = { nav.navigate(ThresholdsDest(r.id)) }, // the rules card; read-only on a child's phone
                     )
                 }
                 composable<ThresholdsDest> { e -> ThresholdsRoute(DeviceId(e.toRoute<ThresholdsDest>().id), onBack = { nav.popBackStack() }) }

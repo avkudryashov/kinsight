@@ -70,6 +70,7 @@ import app.kinsight.core.data.DeviceDetail
 import app.kinsight.core.data.HourTotal
 import app.kinsight.core.data.Period
 import app.kinsight.core.data.Role
+import app.kinsight.core.data.RuleMark
 import app.kinsight.core.data.Sharing
 import app.kinsight.core.data.ThresholdEval
 import app.kinsight.core.data.ThresholdRule
@@ -104,7 +105,7 @@ private val SWIPE_THRESHOLD = 72.dp
 
 /**
  * [onAllApps] opens the full list of the range on screen; [onOpenApp] (a package name and the range on screen) opens
- * one app on the same period, its rows are clickable only when it is given.
+ * one app on the same period, its rows are clickable only when it is given; [onRules] opens the child's rules screen.
  */
 @Composable
 fun DeviceDetailRoute(
@@ -112,12 +113,14 @@ fun DeviceDetailRoute(
     onAllApps: (DetailRange) -> Unit,
     onBack: () -> Unit,
     onOpenApp: ((String, DetailRange) -> Unit)? = null,
+    onRules: (() -> Unit)? = null,
 ) {
     val graph = AppGraph.get(LocalContext.current)
     val vm: DeviceDetailViewModel = viewModel(key = "detail-${id.hex}") { DeviceDetailViewModel(graph.usage, id, createSavedStateHandle()) }
     val detail by vm.detail.collectAsStateWithLifecycle()
     val settings by graph.settingsRepository.usageSettings.collectAsStateWithLifecycle(initialValue = UsageSettings())
     val thresholds by vm.thresholds.collectAsStateWithLifecycle()
+    val rules by vm.rules.collectAsStateWithLifecycle()
     // «may be out of date» must appear on a screen left open, without new data (U3 review Q3).
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     // Ticks only while the screen is in front; a return refreshes «now» at once.
@@ -139,6 +142,8 @@ fun DeviceDetailRoute(
             onOpenApp = onOpenApp?.let { open -> { pkg: String -> open(pkg, d.range) } },
             detailRetentionDays = settings.detailRetentionDays,
             thresholds = thresholds,
+            rules = rules,
+            onRules = onRules,
             nowMs = now,
         )
         loaded -> MissingDevice(onBack)
@@ -214,7 +219,7 @@ internal fun SectionTitle(text: String, modifier: Modifier = Modifier) =
  * UI refresh §4: «Сегодня · Неделя · Месяц», arrows and swipe, then on every tab: 1) the figure, unlocks and the comparison,
  * 2) the chart (hours of a day, days of a week or month) in one colour, 3) one category strip, 4) the top three apps with
  * «лимит» marks and «Все приложения»; then the range's events. [thresholds] (a parent's phone only) draws the day limit
- * and the marks.
+ * and the marks; [rules] (every viewer) fill the rules card, shown when [onRules] is given.
  */
 @Composable
 fun DeviceDetailScreen(
@@ -228,6 +233,8 @@ fun DeviceDetailScreen(
     onOpenApp: ((String) -> Unit)? = null,
     detailRetentionDays: Int = UsageSettings().detailRetentionDays,
     thresholds: List<ThresholdRule>? = null,
+    rules: List<ThresholdRule> = emptyList(),
+    onRules: (() -> Unit)? = null,
     nowMs: Long = System.currentTimeMillis(),
 ) = Screen(detail.member.name, onBack) { padding ->
     val child = detail.member.role == Role.CHILD
@@ -274,12 +281,18 @@ fun DeviceDetailScreen(
             } else {
                 item(key = "no_data") { EmptyState(stringResource(R.string.det_no_data_title), stringResource(R.string.det_no_data_body)) }
             }
+            if (onRules != null) {
+                item(key = "rules_card") {
+                    val dayShown = detail.period == Period.DAY && !today.isBefore(detail.range.start) && !today.isAfter(detail.range.end)
+                    RulesCard(rules, detail.totalMs.takeIf { dayShown && known }, onRules)
+                }
+            }
             // Block 4: the top three apps and the way to every app (with the categories).
             item(key = "apps_title") { SectionTitle(stringResource(R.string.det_top_apps)) }
             if (detail.apps.isEmpty()) item(key = "no_apps") { Text(stringResource(R.string.det_no_apps)) }
             items(detail.apps.take(UsageReadModel.TOP_APPS), key = { "app:${it.packageName}" }) { app ->
                 val category = detail.appCategories[app.packageName] ?: AppCategory.OTHER
-                AppRow(app, onOpenApp, limited = thresholds?.let { ThresholdEval.limited(it, detail.member.id, app.packageName, category) } == true)
+                AppRow(app, onOpenApp, mark = thresholds?.let { ThresholdEval.markOf(it, detail.member.id, app.packageName, category) } ?: RuleMark.NONE)
             }
             if (detail.apps.isNotEmpty()) {
                 item(key = "all_apps") {
@@ -438,14 +451,19 @@ internal fun appLabel(packageName: String, label: String): String =
     if (packageName == Categories.REMAINDER_PACKAGE) stringResource(R.string.det_other_apps) else label
 
 @Composable
-private fun AppRow(app: AppUsage, onOpen: ((String) -> Unit)?, limited: Boolean = false) {
+private fun AppRow(app: AppUsage, onOpen: ((String) -> Unit)?, mark: RuleMark = RuleMark.NONE) {
     val openLabel = stringResource(R.string.det_open_app)
     ListItem(
         leadingContent = { AppIcon(app.icon) },
         headlineContent = { Text(appLabel(app.packageName, app.label)) },
         trailingContent = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (limited) Pill(stringResource(R.string.det_limit_pill), Modifier.testTag("det_limit_pill"))
+                when (mark) {
+                    RuleMark.LIMIT -> Pill(stringResource(R.string.det_limit_pill), Modifier.testTag("det_limit_pill"))
+                    RuleMark.BLOCKED -> Pill(stringResource(R.string.thr_pill_blocked), Modifier.testTag("det_blocked_pill"))
+                    RuleMark.ALLOWED -> Pill(stringResource(R.string.thr_pill_allowed), Modifier.testTag("det_allowed_pill"))
+                    RuleMark.NONE -> Unit
+                }
                 Text(durationText(app.totalMs))
             }
         },

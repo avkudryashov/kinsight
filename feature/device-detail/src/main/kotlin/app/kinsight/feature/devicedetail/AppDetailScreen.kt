@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -24,6 +25,7 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -76,7 +78,7 @@ fun AppDetailRoute(id: DeviceId, packageName: String, range: DetailRange, onBack
     }
     val app by vm.detail.collectAsStateWithLifecycle()
     val settings by graph.settingsRepository.usageSettings.collectAsStateWithLifecycle(initialValue = UsageSettings())
-    val threshold by vm.threshold.collectAsStateWithLifecycle()
+    val appRule by vm.rule.collectAsStateWithLifecycle()
     val changedBy by vm.categoryChangedBy.collectAsStateWithLifecycle()
     val loaded by vm.loaded.collectAsStateWithLifecycle()
     val a = app
@@ -86,7 +88,7 @@ fun AppDetailRoute(id: DeviceId, packageName: String, range: DetailRange, onBack
             onPrevious = vm::back, onNext = vm::forward, onOpenDay = vm::openDay, onCategory = vm::setCategory,
             detailRetentionDays = settings.detailRetentionDays,
             categoryChangedBy = changedBy,
-            threshold = threshold, onThreshold = vm::setThreshold, onRemoveThreshold = vm::removeThreshold,
+            rule = appRule, onRule = vm::setRule, onRemoveThreshold = vm::removeThreshold, onBlocked = vm::setBlocked, onAllowed = vm::setAllowed,
         )
         loaded -> MissingDevice(onBack)
         else -> Loading()
@@ -98,8 +100,9 @@ fun AppDetailRoute(id: DeviceId, packageName: String, range: DetailRange, onBack
  * and header like the detail screen, the time of the range with per-day bars (WEEK, MONTH: tap a bar to open that
  * day) or clock hours (DAY, or why there are none). «Change category» is offered only when
  * [AppDetail.canChangeCategory] (a parent, not the `~other` remainder); its dialog's «Default» passes null.
- * «Notify if more than…» (the same parent's phone, a child's app) sets, changes or deletes the app's daily limit
- * [threshold] (spec §9.7, stage 5b).
+ * «Notify if more than…» (the same parent's phone, a child's app) sets, changes or deletes the app's daily limit,
+ * «Block this app» and «Always allow» the other two modes of the app's shared [rule] (spec §9.7); one rule per app, so
+ * the two switches and the limit exclude each other (a block or an allow hides the limit entry).
  */
 @Composable
 fun AppDetailScreen(
@@ -111,9 +114,11 @@ fun AppDetailScreen(
     onOpenDay: (LocalDate) -> Unit = {},
     onCategory: (AppCategory?) -> Unit = {},
     detailRetentionDays: Int = UsageSettings().detailRetentionDays,
-    threshold: ThresholdRule? = null,
-    onThreshold: (Long) -> Unit = {},
+    rule: ThresholdRule? = null,
+    onRule: (ThresholdRule) -> Unit = {},
     onRemoveThreshold: () -> Unit = {},
+    onBlocked: (Boolean) -> Unit = {},
+    onAllowed: (Boolean) -> Unit = {},
     categoryChangedBy: String? = null,
 ) = Screen(appLabel(app.packageName, app.label), onBack) { padding ->
     val today = app.today ?: LocalDate.now()
@@ -121,6 +126,8 @@ fun AppDetailScreen(
     var choosing by rememberSaveable { mutableStateOf(false) }
     var limiting by rememberSaveable { mutableStateOf(false) }
     val canLimit = canSetThreshold(app)
+    val threshold = rule?.takeIf { it.mode == RuleMode.LIMIT }
+    val canEditLimit = canLimit && (rule == null || threshold != null) // a block or an allow replaces the limit
     LazyColumn(
         Modifier.fillMaxSize().padding(padding).testTag("app_list"),
         contentPadding = PaddingValues(16.dp),
@@ -135,6 +142,17 @@ fun AppDetailScreen(
             }
         }
         if (canLimit) {
+            item(key = "rule_switches") {
+                Column {
+                    RuleSwitch(stringResource(R.string.app_block), rule?.mode == RuleMode.BLOCK, "app_block", onBlocked)
+                    RuleSwitch(stringResource(R.string.app_allow), rule?.mode == RuleMode.ALLOW, "app_allow", onAllowed)
+                    if (threshold != null) {
+                        Text(stringResource(R.string.app_rule_conflict), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("app_rule_conflict"))
+                    }
+                }
+            }
+        }
+        if (canEditLimit) {
             item(key = "threshold") {
                 TextButton({ limiting = true }, Modifier.heightIn(min = 48.dp).testTag("app_threshold")) {
                     Text(
@@ -206,7 +224,7 @@ fun AppDetailScreen(
             }
         }
     }
-    if (limiting && canLimit) {
+    if (limiting && canEditLimit) {
         ThresholdDialog(
             title = stringResource(R.string.app_threshold_title, appLabel(app.packageName, app.label)),
             child = app.member.id,
@@ -216,7 +234,7 @@ fun AppDetailScreen(
             onDismiss = { limiting = false },
             onSave = {
                 limiting = false
-                onThreshold(it.limitMs)
+                onRule(it) // the dialog's whole rule: its block-after-limit flag stays
             },
             onDelete = threshold?.let {
                 {
@@ -225,7 +243,7 @@ fun AppDetailScreen(
                 }
             },
             deleteId = threshold?.id,
-            fixedMode = RuleMode.LIMIT, // the app screen only sets the limit; the rules screen has the blocks
+            fixedMode = RuleMode.LIMIT, // the switches above have the blocks
         )
     }
     if (choosing) {
@@ -240,6 +258,17 @@ fun AppDetailScreen(
             },
         )
     }
+}
+
+/** One mode of the app's rule as a labelled switch; the whole row toggles. */
+@Composable
+private fun RuleSwitch(text: String, checked: Boolean, tag: String, onChange: (Boolean) -> Unit) = Row(
+    Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(checked, role = Role.Switch, onValueChange = onChange).testTag(tag),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.SpaceBetween,
+) {
+    Text(text, Modifier.weight(1f))
+    Switch(checked, onCheckedChange = null)
 }
 
 /** Icon, label and the category chip (a parent's own choice says so). */

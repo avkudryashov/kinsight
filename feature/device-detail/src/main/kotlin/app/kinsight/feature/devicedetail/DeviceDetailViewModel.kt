@@ -83,6 +83,9 @@ class DeviceDetailViewModel internal constructor(
         rules.takeIf { parent }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** This child's rules for the rules card, whoever the viewer is (a child's own phone shows the card read-only). */
+    val rules: StateFlow<List<ThresholdRule>> = source.thresholds().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** Another period around the same anchor; going to DAY picks the range's last known day up to today. */
     fun select(p: Period) = nav.select(p)
 

@@ -79,6 +79,7 @@ import app.kinsight.core.data.DashboardState
 import app.kinsight.core.data.DeviceUsage
 import app.kinsight.core.data.MemberView
 import app.kinsight.core.data.Role as MemberRole
+import app.kinsight.core.data.RuleMark
 import app.kinsight.core.data.ServiceStatus
 import app.kinsight.core.data.SetupWarning
 import app.kinsight.core.data.Sharing
@@ -632,7 +633,7 @@ private fun SetupWarningLine(w: SetupWarning) = Row(
     )
 }
 
-/** Under the card: today's three largest apps with their time and a «лимит» mark when a limit counts them (§3). */
+/** Under the card: today's three largest apps with their time and a «лимит», «заблокировано» or «всегда» mark when a rule counts them (§3). */
 @Composable
 private fun TopApps(u: DeviceUsage, rules: List<ThresholdRule>) {
     if (u.topApps.isEmpty()) return
@@ -656,8 +657,11 @@ private fun TopApps(u: DeviceUsage, rules: List<ThresholdRule>) {
                 ) {
                     AppIcon(t.app.icon)
                     Text(t.app.label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (ThresholdEval.limited(rules, u.member.id, t.app.packageName, t.category)) {
-                        Pill(stringResource(R.string.dash_limit_pill), Modifier.testTag("dash_limit_pill"))
+                    when (ThresholdEval.markOf(rules, u.member.id, t.app.packageName, t.category)) {
+                        RuleMark.LIMIT -> Pill(stringResource(R.string.dash_limit_pill), Modifier.testTag("dash_limit_pill"))
+                        RuleMark.BLOCKED -> Pill(stringResource(R.string.dash_pill_blocked), Modifier.testTag("dash_blocked_pill"))
+                        RuleMark.ALLOWED -> Pill(stringResource(R.string.dash_pill_allowed), Modifier.testTag("dash_allowed_pill"))
+                        RuleMark.NONE -> Unit
                     }
                     Text(durationText(t.app.totalMs), style = MaterialTheme.typography.bodyMedium)
                 }

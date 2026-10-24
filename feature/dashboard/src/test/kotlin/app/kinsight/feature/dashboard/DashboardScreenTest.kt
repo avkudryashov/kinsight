@@ -619,6 +619,25 @@ class DashboardScreenTest {
         pillIn("com.example.chat").assertDoesNotExist()
     }
 
+    @Test
+    fun topAppsShowBlockedPill() {
+        val apps = listOf(
+            TopApp(AppUsage("com.example.game", "Game", null, 40 * 60_000L), AppCategory.GAMES),
+            TopApp(AppUsage("com.example.tube", "Tube", null, 30 * 60_000L), AppCategory.VIDEO),
+            TopApp(AppUsage("com.example.chat", "Chat", null, 10 * 60_000L), AppCategory.SOCIAL),
+        )
+        val rules = listOf(
+            ThresholdRule.block(kid.id, ThresholdTarget.App("com.example.game"))!!,
+            ThresholdRule.allow(kid.id, "com.example.tube")!!,
+        )
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 80, 60).copy(topApps = apps)), listOf(dad)), running, true, thresholds = rules))
+        fun pillIn(tag: String, pkg: String) = rule.onNode(hasTestTag(tag) and hasAnyAncestor(hasTestTag("dash_app_$pkg")), useUnmergedTree = true)
+        pillIn("dash_blocked_pill", "com.example.game").assertTextEquals("blocked")
+        pillIn("dash_allowed_pill", "com.example.tube").assertTextEquals("always")
+        pillIn("dash_limit_pill", "com.example.game").assertDoesNotExist()
+        pillIn("dash_blocked_pill", "com.example.chat").assertDoesNotExist()
+    }
+
     private val sis = kid.copy(id = DeviceId("dd".repeat(16)), name = "Test")
 
     private fun tops(vararg a: Pair<String, Long>) = a.map { (label, min) -> TopApp(AppUsage("com.example.${label.lowercase()}", label, null, min * 60_000L), AppCategory.GAMES) }

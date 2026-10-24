@@ -218,4 +218,10 @@
     <string name="thr_pill_allowed">always</string>
     <string name="thr_pill_block">block</string>
     <string name="thr_allow_note">An always-allowed app opens even when its category or the day is blocked.</string>
+    <string name="app_block">Block this app</string>
+    <string name="app_allow">Always allow</string>
+    <string name="app_rule_conflict">Blocking removes the time limit of this app.</string>
+    <string name="det_rules_title">Limits and blocks</string>
+    <string name="det_rules_summary">Blocked: %1$d · Limits: %2$d · Always allowed: %3$d</string>
+    <string name="det_rules_none">No rules yet</string>
 </resources>

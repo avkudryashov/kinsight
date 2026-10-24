@@ -1,7 +1,14 @@
 package app.kinsight.feature.devicedetail
 
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import app.kinsight.core.data.RuleMode
+import kotlin.test.assertNull
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
@@ -213,16 +220,68 @@ class AppDetailScreenTest {
         assertEquals("com.example.game", opened)
     }
 
-    private fun showLimit(a: AppDetail, threshold: ThresholdRule?, onSet: (Long) -> Unit = {}, onRemove: () -> Unit = {}) = rule.setContent {
+    private fun showLimit(a: AppDetail, threshold: ThresholdRule?, onSet: (ThresholdRule) -> Unit = {}, onRemove: () -> Unit = {}) = rule.setContent {
         KinsightTheme() {
-            AppDetailScreen(a, onPeriod = {}, onBack = {}, threshold = threshold, onThreshold = onSet, onRemoveThreshold = onRemove)
+            AppDetailScreen(a, onPeriod = {}, onBack = {}, rule = threshold, onRule = onSet, onRemoveThreshold = onRemove)
         }
+    }
+
+    private val gameTarget = ThresholdTarget.App("com.example.game")
+
+    @Test
+    fun blockToggleIsExclusiveWithAllow() {
+        var current by mutableStateOf<ThresholdRule?>(null)
+        rule.setContent {
+            KinsightTheme() {
+                AppDetailScreen(
+                    app(), onPeriod = {}, onBack = {}, rule = current,
+                    onBlocked = { current = if (it) ThresholdRule.block(kid.id, gameTarget) else null },
+                    onAllowed = { current = if (it) ThresholdRule.allow(kid.id, "com.example.game") else null },
+                )
+            }
+        }
+        rule.onNodeWithTag("app_block").assertIsOff()
+        rule.onNodeWithTag("app_allow").assertIsOff()
+        rule.onNodeWithTag("app_allow").performClick()
+        rule.onNodeWithTag("app_allow").assertIsOn()
+        rule.onNodeWithTag("app_block").assertIsOff()
+        rule.onNodeWithTag("app_block").performClick()
+        rule.onNodeWithTag("app_block").assertIsOn()
+        rule.onNodeWithTag("app_allow").assertIsOff()
+        assertEquals(RuleMode.BLOCK, current?.mode)
+        rule.onNodeWithTag("app_threshold").assertDoesNotExist() // the limit entry gives way to the block
+        rule.onNodeWithTag("app_block").performClick()
+        assertNull(current)
+        rule.onNodeWithTag("app_threshold").assertExists()
+    }
+
+    @Test
+    fun theLimitSaysBlockingRemovesIt() {
+        showLimit(app(), ThresholdRule.of(kid.id, gameTarget, 3_600_000L)!!)
+        rule.onNodeWithTag("app_rule_conflict").assertTextEquals("Blocking removes the time limit of this app.")
+    }
+
+    @Test
+    fun noBlockOrAllowSwitchOnAChildsPhone() {
+        showLimit(app(canChange = false), null)
+        rule.onNodeWithTag("app_block").assertDoesNotExist()
+        rule.onNodeWithTag("app_allow").assertDoesNotExist()
+    }
+
+    @Test
+    fun savingTheLimitKeepsBlockAfterTheLimit() {
+        val saved = mutableListOf<ThresholdRule>()
+        showLimit(app(), ThresholdRule.of(kid.id, gameTarget, 3_600_000L, blockOnLimit = true)!!, onSet = { saved += it })
+        rule.onNodeWithTag("app_threshold").performClick()
+        rule.onNodeWithTag("thr_plus").performClick()
+        rule.onNodeWithTag("thr_save").performClick()
+        assertEquals(listOf(ThresholdRule.of(kid.id, gameTarget, 3_600_000L + 15 * 60_000L, blockOnLimit = true)), saved)
     }
 
     @Test
     fun aParentSetsTheAppsLimitFromTheAppScreen() {
         val set = mutableListOf<Long>()
-        showLimit(app(), null, onSet = { set += it })
+        showLimit(app(), null, onSet = { set += it.limitMs })
         rule.onNodeWithTag("app_threshold").assertTextEquals("Notify if more than…").performClick()
         rule.onNodeWithTag("thr_value").assertTextEquals("1 h")
         rule.onNodeWithTag("thr_plus").performClick()

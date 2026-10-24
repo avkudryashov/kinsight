@@ -67,7 +67,7 @@ class AppDetailViewModelTest {
         var active = true
         val limit = MutableStateFlow<ThresholdRule?>(null)
 
-        override fun threshold(): Flow<ThresholdRule?> = limit
+        override fun rule(): Flow<ThresholdRule?> = limit
 
         val changedBy = MutableStateFlow<String?>(null)
 
@@ -233,16 +233,41 @@ class AppDetailViewModelTest {
     fun aParentSetsChangesAndRemovesTheAppsLimit() = runTest(dispatcher) {
         val source = FakeSource()
         val vm = vm(source, week(sat))
-        backgroundScope.launch { vm.threshold.collect {} }
+        backgroundScope.launch { vm.rule.collect {} }
         val hour = 3_600_000L
-        vm.setThreshold(hour)
-        assertEquals(ThresholdRule.of(kid.id, ThresholdTarget.App(pkg), hour), vm.threshold.value)
-        vm.setThreshold(2 * hour)
-        assertEquals(2 * hour, vm.threshold.value?.limitMs)
-        vm.setThreshold(10 * 60_000L) // off the 15-minute step
-        assertEquals(2 * hour, vm.threshold.value?.limitMs)
+        val target = ThresholdTarget.App(pkg)
+        vm.setRule(ThresholdRule.of(kid.id, target, hour)!!)
+        assertEquals(ThresholdRule.of(kid.id, target, hour), vm.rule.value)
+        vm.setRule(ThresholdRule.of(kid.id, target, 2 * hour)!!)
+        assertEquals(2 * hour, vm.rule.value?.limitMs)
         vm.removeThreshold()
-        assertNull(vm.threshold.value)
+        assertNull(vm.rule.value)
+    }
+
+    @Test
+    fun setRuleKeepsTheWholeRuleAndIgnoresAnotherTarget() = runTest(dispatcher) {
+        val source = FakeSource()
+        val vm = vm(source, week(sat))
+        val own = ThresholdRule.of(kid.id, ThresholdTarget.App(pkg), 3_600_000L, blockOnLimit = true)!!
+        vm.setRule(own)
+        assertEquals(own, source.limit.value) // the block-after-limit flag is not lost
+        vm.setRule(ThresholdRule.of(kid.id, ThresholdTarget.App("other.app"), 3_600_000L)!!)
+        assertEquals(own, source.limit.value)
+    }
+
+    @Test
+    fun setBlockedWritesABlockRule() = runTest(dispatcher) {
+        val source = FakeSource()
+        val vm = vm(source, week(sat))
+        vm.setRule(ThresholdRule.of(kid.id, ThresholdTarget.App(pkg), 3_600_000L)!!)
+        vm.setBlocked(true) // replaces the limit: one rule per target
+        assertEquals(ThresholdRule.block(kid.id, ThresholdTarget.App(pkg)), source.limit.value)
+        vm.setAllowed(true)
+        assertEquals(ThresholdRule.allow(kid.id, pkg), source.limit.value)
+        vm.setBlocked(false) // not a block any more: the allow stays
+        assertEquals(ThresholdRule.allow(kid.id, pkg), source.limit.value)
+        vm.setAllowed(false)
+        assertNull(source.limit.value)
     }
 
     /** Final fix item 6: a child that left or was removed gets no new limit (and «Notify if more than…» is hidden). */
@@ -251,7 +276,8 @@ class AppDetailViewModelTest {
         val source = FakeSource().apply { active = false }
         val vm = vm(source, week(sat))
         assertFalse(canSetThreshold(vm.detail.value!!))
-        vm.setThreshold(3_600_000L)
+        vm.setRule(ThresholdRule.of(kid.id, ThresholdTarget.App(pkg), 3_600_000L)!!)
+        vm.setBlocked(true)
         assertNull(source.limit.value)
     }
 
@@ -259,7 +285,9 @@ class AppDetailViewModelTest {
     fun noAppLimitWhereTheCategoryCannotChange() = runTest(dispatcher) {
         val source = FakeSource().apply { canChange = false } // a child's own phone
         val vm = vm(source, week(sat))
-        vm.setThreshold(3_600_000L)
+        vm.setRule(ThresholdRule.of(kid.id, ThresholdTarget.App(pkg), 3_600_000L)!!)
+        vm.setBlocked(true)
+        vm.setAllowed(true)
         assertNull(source.limit.value)
     }
 

@@ -223,4 +223,10 @@
     <string name="thr_pill_allowed">всегда</string>
     <string name="thr_pill_block">блок</string>
     <string name="thr_allow_note">Всегда разрешённое приложение открывается, даже если заблокированы его категория или день.</string>
+    <string name="app_block">Заблокировать приложение</string>
+    <string name="app_allow">Всегда разрешать</string>
+    <string name="app_rule_conflict">Блокировка отменяет лимит времени этого приложения.</string>
+    <string name="det_rules_title">Лимиты и блокировки</string>
+    <string name="det_rules_summary">Заблокировано: %1$d · Лимитов: %2$d · Всегда разрешено: %3$d</string>
+    <string name="det_rules_none">Правил пока нет</string>
 </resources>

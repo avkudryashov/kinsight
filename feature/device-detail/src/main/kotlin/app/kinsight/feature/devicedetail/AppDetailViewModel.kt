@@ -9,6 +9,7 @@ import app.kinsight.core.data.AppDetail
 import app.kinsight.core.data.DetailRange
 import app.kinsight.core.data.Period
 import app.kinsight.core.data.Role
+import app.kinsight.core.data.RuleMode
 import app.kinsight.core.data.ThresholdRule
 import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.data.UsageRepository
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -41,8 +43,8 @@ internal interface AppSource {
     /** null returns the app to its own category («По умолчанию»). */
     suspend fun setCategory(category: AppCategory?)
 
-    /** The parent's limit of this app (spec §9.7, stage 5b), null without one. */
-    fun threshold(): Flow<ThresholdRule?> = flowOf(null)
+    /** The shared rule of this app (a limit, a block or an always-allowed entry, spec §9.7), null without one. */
+    fun rule(): Flow<ThresholdRule?> = flowOf(null)
 
     /** The name of the other parent whose shared entry sets this app's category (spec §4.4, stage 5c); null otherwise. */
     fun categoryChangedBy(): Flow<String?> = flowOf(null)
@@ -65,7 +67,7 @@ private class RepositoryAppSource(private val usage: UsageRepository, private va
 
     override fun categoryChangedBy(): Flow<String?> = usage.categoryChangedBy(packageName)
 
-    override fun threshold(): Flow<ThresholdRule?> = usage.thresholds.map { rules -> rules.firstOrNull { it.id == ruleId } }
+    override fun rule(): Flow<ThresholdRule?> = usage.thresholds.map { rules -> rules.firstOrNull { it.id == ruleId } }
 
     override suspend fun setThreshold(rule: ThresholdRule) = usage.setThreshold(rule)
 
@@ -112,8 +114,8 @@ class AppDetailViewModel internal constructor(
     val loaded: StateFlow<Boolean> = combine(nav.loaded, source.groupReady()) { l, ready -> l && ready }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    /** This app's limit («Notify if more than…»). */
-    val threshold: StateFlow<ThresholdRule?> = source.threshold().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    /** This app's rule of any mode (limit, block, always allowed), null without one. */
+    val rule: StateFlow<ThresholdRule?> = source.rule().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** «Changed by <name>»: the other parent behind the effective category, null for the viewer's own or none. */
     val categoryChangedBy: StateFlow<String?> = source.categoryChangedBy().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -146,11 +148,30 @@ class AppDetailViewModel internal constructor(
         }
     }
 
-    /** Only where [canSetThreshold]; a limit [ThresholdRule.of] refuses is ignored. */
-    fun setThreshold(limitMs: Long) {
+    /** Only where [canSetThreshold] and for this app's own rule; the rule goes through whole, so its block-after-limit flag stays. */
+    fun setRule(rule: ThresholdRule) {
         val d = detail.value?.takeIf(::canSetThreshold) ?: return
-        val rule = ThresholdRule.of(d.member.id, ThresholdTarget.App(d.packageName), limitMs) ?: return
+        if (rule.child != d.member.id || rule.target != ThresholdTarget.App(d.packageName)) return
         writes.launch(lane) { source.setThreshold(rule) }
+    }
+
+    /** On writes a block rule; off removes the app's rule when it is a block (a limit stays). */
+    fun setBlocked(on: Boolean) = setMode(on, RuleMode.BLOCK) { child, pkg -> ThresholdRule.block(child, ThresholdTarget.App(pkg)) }
+
+    /** On writes an always-allowed rule; off removes the app's rule when it is that one. */
+    fun setAllowed(on: Boolean) = setMode(on, RuleMode.ALLOW) { child, pkg -> ThresholdRule.allow(child, pkg) }
+
+    private fun setMode(on: Boolean, mode: RuleMode, build: (DeviceId, String) -> ThresholdRule?) {
+        val d = detail.value?.takeIf(::canSetThreshold) ?: return
+        val id = d.member.id
+        if (on) {
+            build(id, d.packageName)?.let(::setRule)
+        } else {
+            writes.launch(lane) {
+                val current = source.rule().first()
+                if (current?.mode == mode) source.removeThreshold(current.id)
+            }
+        }
     }
 
     fun removeThreshold() {
