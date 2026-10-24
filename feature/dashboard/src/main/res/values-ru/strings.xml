@@ -68,4 +68,10 @@
     <string name="dash_never_synced">Синхронизации ещё не было</string>
     <string name="dash_own_title">Вы</string>
     <string name="dash_own_need_access">Разрешите доступ к истории использования, чтобы видеть своё время</string>
+    <string name="mood_happy">счастлив</string>
+    <string name="mood_content">доволен</string>
+    <string name="mood_calm">спокоен</string>
+    <string name="mood_worried">волнуется</string>
+    <string name="mood_upset">расстроен</string>
+    <string name="mood_unwell">ему плохо</string>
 </resources>

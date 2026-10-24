@@ -52,13 +52,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.kinsight.core.data.AppGraph
+import app.kinsight.core.model.Mood
 import app.kinsight.core.data.ChildLocation
 import app.kinsight.core.data.SetupWarning
-import app.kinsight.core.designsystem.component.Avatar
+import app.kinsight.core.designsystem.component.AnimalAvatar
 import app.kinsight.core.designsystem.component.EmptyState
 import app.kinsight.core.designsystem.component.relativeTime
 import app.kinsight.core.designsystem.theme.ChildColorKey
-import app.kinsight.core.designsystem.theme.OnChildCard
 import app.kinsight.core.designsystem.theme.childColor
 import kotlinx.coroutines.delay
 import java.util.Locale
@@ -200,7 +200,7 @@ private fun StatusCard(
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             // White on every palette colour keeps 4.5:1 (ChildColorsTest), in both themes.
             Box(Modifier.semantics { set(ChildColorKey, color) }.testTag("loc_avatar_${c.member.id.hex}")) {
-                Avatar(c.member.name, container = color.base, content = OnChildCard)
+                AnimalAvatar(c.member.animal, Mood.CONTENT)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(c.member.name, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

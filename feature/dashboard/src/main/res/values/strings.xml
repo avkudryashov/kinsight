@@ -68,4 +68,10 @@
     <string name="dash_never_synced">Not synced yet</string>
     <string name="dash_own_title">You</string>
     <string name="dash_own_need_access">Allow usage access to see your time</string>
+    <string name="mood_happy">happy</string>
+    <string name="mood_content">content</string>
+    <string name="mood_calm">calm</string>
+    <string name="mood_worried">worried</string>
+    <string name="mood_upset">upset</string>
+    <string name="mood_unwell">not feeling well</string>
 </resources>

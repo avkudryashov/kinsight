@@ -1,7 +1,6 @@
 package app.kinsight.core.designsystem
 
 import app.kinsight.core.designsystem.component.LimitState
-import app.kinsight.core.designsystem.component.avatarLetter
 import app.kinsight.core.designsystem.component.limitProgress
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -39,15 +38,5 @@ class ComponentMathTest {
     fun negativeUsageAndAZeroLimitDoNotBreakTheBar() {
         assertEquals(0f, limitProgress(-5, 120 * min).fraction)
         assertEquals(LimitState.REACHED, limitProgress(0, 0).state)
-    }
-
-    /** Review Focus 3. */
-    @Test
-    fun avatarLetterIsTheWholeFirstCharacter() {
-        assertEquals("K", avatarLetter("kid"))
-        assertEquals("Ё", avatarLetter("  ёжик"))
-        assertEquals("😀", avatarLetter("😀 test"))
-        assertEquals("?", avatarLetter("   "))
-        assertEquals("?", avatarLetter(""))
     }
 }

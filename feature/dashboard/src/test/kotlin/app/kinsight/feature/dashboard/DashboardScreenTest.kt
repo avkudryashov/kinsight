@@ -7,10 +7,12 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
@@ -454,6 +456,23 @@ class DashboardScreenTest {
     fun aFailedSharingChangeIsShown() {
         show(childUi(Sharing.On, failed = true))
         rule.onNodeWithText("Couldn't change sharing", substring = true).assertExists()
+    }
+
+    @Test
+    fun theChildCardNamesTheMoodWhenADayLimitIsExceeded() {
+        val rule1 = ThresholdRule("r1", kid.id, ThresholdTarget.Total, limitMs = 60 * 60_000L)
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 90, 60)), emptyList()), running, true, thresholds = listOf(rule1)))
+        rule.onNodeWithTag("dash_card").assert(SemanticsMatcher("mood in description") {
+            it.config.getOrNull(SemanticsProperties.ContentDescription)?.any { d -> d.contains("not feeling well") } == true
+        })
+    }
+
+    @Test
+    fun theChildCardHasNoMoodWithoutADayLimit() {
+        show(DashboardUi(DashboardState(mom, null, listOf(usage(kid, 90, 60)), emptyList()), running, true))
+        rule.onNodeWithTag("dash_card").assert(SemanticsMatcher("no mood") {
+            it.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty().none { d -> d.contains("feeling") || d.contains("happy") }
+        })
     }
 
     @Test

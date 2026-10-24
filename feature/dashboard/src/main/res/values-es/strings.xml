@@ -68,4 +68,10 @@
     <string name="dash_never_synced">Aún no se ha sincronizado</string>
     <string name="dash_own_title">Tú</string>
     <string name="dash_own_need_access">Permite el acceso a datos de uso para ver tu tiempo</string>
+    <string name="mood_happy">feliz</string>
+    <string name="mood_content">contento</string>
+    <string name="mood_calm">tranquilo</string>
+    <string name="mood_worried">preocupado</string>
+    <string name="mood_upset">triste</string>
+    <string name="mood_unwell">se siente mal</string>
 </resources>

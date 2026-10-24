@@ -10,7 +10,6 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import app.kinsight.core.designsystem.component.Avatar
 import app.kinsight.core.designsystem.component.CategoryStrip
 import app.kinsight.core.designsystem.component.LimitBar
 import app.kinsight.core.designsystem.component.Pill
@@ -44,12 +43,6 @@ class ComponentsTest {
     fun theLimitBarInRussian() {
         rule.setContent { KinsightTheme { LimitBar(90 * min, 120 * min) } }
         rule.onNodeWithTag("limit_bar_text", useUnmergedTree = true).assertTextEquals("Осталось 30 мин из 2 ч")
-    }
-
-    @Test
-    fun theAvatarIsDecorative() {
-        rule.setContent { KinsightTheme { Avatar("Kid") } }
-        rule.onNodeWithText("K").assertDoesNotExist()
     }
 
     @Test

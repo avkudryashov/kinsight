@@ -62,6 +62,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
@@ -80,6 +81,7 @@ import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.DashboardState
 import app.kinsight.core.data.DeviceUsage
 import app.kinsight.core.data.MemberView
+import app.kinsight.core.data.Mascots
 import app.kinsight.core.data.Role as MemberRole
 import app.kinsight.core.data.RuleMark
 import app.kinsight.core.data.ServiceStatus
@@ -91,7 +93,7 @@ import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.data.TodayComparison
 import app.kinsight.core.data.UsageReadModel
 import app.kinsight.core.designsystem.component.AppIcon
-import app.kinsight.core.designsystem.component.Avatar
+import app.kinsight.core.designsystem.component.AnimalAvatar
 import app.kinsight.core.designsystem.component.EmptyState
 import app.kinsight.core.designsystem.component.LimitBar
 import app.kinsight.core.designsystem.component.Pill
@@ -102,6 +104,7 @@ import app.kinsight.core.designsystem.theme.ChildColorKey
 import app.kinsight.core.designsystem.theme.OnChildCard
 import app.kinsight.core.designsystem.theme.childColor
 import app.kinsight.core.model.DeviceId
+import app.kinsight.core.model.Mood
 import app.kinsight.core.transport.ble.ServiceState
 import app.kinsight.core.transport.ble.SyncProblem
 import app.kinsight.core.transport.ble.SyncService
@@ -517,6 +520,23 @@ private fun ChildTransparencyRow(
 internal fun totalLimit(rules: List<ThresholdRule>, u: DeviceUsage): Long? =
     rules.firstOrNull { it.child == u.member.id && it.target == ThresholdTarget.Total }?.limitMs
 
+private fun moodLabel(mood: Mood): Int = when (mood) {
+    Mood.HAPPY -> R.string.mood_happy
+    Mood.CONTENT -> R.string.mood_content
+    Mood.CALM -> R.string.mood_calm
+    Mood.WORRIED -> R.string.mood_worried
+    Mood.UPSET -> R.string.mood_upset
+    Mood.UNWELL -> R.string.mood_unwell
+}
+
+/** TalkBack: the child's name followed by the mascot's mood, only when a day limit gives the mood a meaning. */
+@Composable
+private fun Modifier.moodDescription(name: String, hasLimit: Boolean, mood: Mood): Modifier {
+    if (!hasLimit) return this
+    val text = "$name, ${stringResource(moodLabel(mood))}"
+    return semantics { contentDescription = text }
+}
+
 /**
  * UI refresh §3: one bright card per child. Avatar and name, today's time large, the comparison, the day limit's bar
  * when one is set and the data time; without data today «Данных пока нет» and the last sync. Then what needs a parent:
@@ -524,14 +544,15 @@ internal fun totalLimit(rules: List<ThresholdRule>, u: DeviceUsage): Long? =
  */
 @Composable
 private fun ChildCard(u: DeviceUsage, childHexes: List<String>, nowMs: Long, noContactMs: Long, limitMs: Long?, onClick: () -> Unit) {
+    val mood = Mascots.moodOf(u.today.totalMs.takeIf { u.today.known }, limitMs)
     Column(
         Modifier.childCard(u, childHexes, "dash_card", onClick = onClick).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         CompositionLocalProvider(LocalContentColor provides OnChildCard) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Avatar(u.member.name)
-                Text(u.member.name, style = MaterialTheme.typography.titleLarge)
+                AnimalAvatar(u.member.animal, mood, size = 40.dp)
+                Text(u.member.name, Modifier.moodDescription(u.member.name, limitMs != null, mood), style = MaterialTheme.typography.titleLarge)
             }
             if (u.today.hasData) {
                 Text(durationText(u.today.totalMs), style = MaterialTheme.typography.displaySmall, modifier = Modifier.testTag("dash_today"))
@@ -578,7 +599,7 @@ private fun OwnCard(u: DeviceUsage, childHexes: List<String>, nowMs: Long, onCli
     ) {
         CompositionLocalProvider(LocalContentColor provides OnChildCard) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Avatar(u.member.name)
+                AnimalAvatar(u.member.animal, Mood.CONTENT, size = 40.dp)
                 Text(you, style = MaterialTheme.typography.titleLarge)
             }
             if (u.today.hasData) {
@@ -608,14 +629,15 @@ private fun OwnCard(u: DeviceUsage, childHexes: List<String>, nowMs: Long, onCli
  */
 @Composable
 private fun CompactChildCard(u: DeviceUsage, childHexes: List<String>, nowMs: Long, noContactMs: Long, limitMs: Long?, onClick: () -> Unit) {
+    val mood = Mascots.moodOf(u.today.totalMs.takeIf { u.today.known }, limitMs)
     Column(
         Modifier.childCard(u, childHexes, "dash_compact_card", onClick = onClick).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         CompositionLocalProvider(LocalContentColor provides OnChildCard) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Avatar(u.member.name, size = 32.dp)
-                Text(u.member.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                AnimalAvatar(u.member.animal, mood, size = 32.dp)
+                Text(u.member.name, Modifier.weight(1f).moodDescription(u.member.name, limitMs != null, mood), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             if (u.today.hasData) {
                 Text(
