@@ -1,7 +1,9 @@
 package app.kinsight.core.blocking
 
 import android.accessibilityservice.AccessibilityService
+import android.app.KeyguardManager
 import android.app.usage.UsageStatsManager
+import android.os.PowerManager
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import app.kinsight.core.data.AppGraph
@@ -31,7 +33,7 @@ import java.time.ZoneId
  * App blocking spec §5.2: on every window change asks [Enforcer]; on a Block goes Home and shows [BlockedActivity].
  * Wiring only. The rules, categories, PIN overrides and today's usage are cached in StateFlows on the service's own scope,
  * so [onAccessibilityEvent] never waits; today's usage is read off the main thread at most every
- * [Enforcer.USAGE_REFRESH_MS], and the minute tick re-checks the app on screen.
+ * [Enforcer.USAGE_REFRESH_MS], and the minute tick re-checks the app on screen while the phone is awake and unlocked.
  */
 class BlockingAccessibilityService : AccessibilityService() {
     private var scope: CoroutineScope? = null
@@ -60,35 +62,43 @@ class BlockingAccessibilityService : AccessibilityService() {
                 null
             }
         }
+        val allowList = AndroidSystemAllowList(this)
+        val e = Enforcer(
+            rules = { inputs.value.rules },
+            categoryOf = { inputs.value.categoryOf(it) },
+            today = { today.value },
+            pinAllowed = { LocalDate.now().let { d -> pins.value.filterValues { it == d }.keys } },
+            system = allowList,
+            isHome = allowList::isHome,
+            ownPackage = packageName,
+            enabled = { inputs.value.enabled },
+            clock = System::currentTimeMillis,
+        ).also { enforcer = it }
+        // Usage is read only when it can change a decision: a blocking LIMIT exists, an app that is not allow-listed is
+        // on screen (Enforcer.current) and the phone is awake.
+        fun wantsUsage() = inputs.value.needsUsage && e.current != null && awake()
         // Main thread only: a window change starts a read when the last one is older than USAGE_REFRESH_MS.
         var readAtMs = Long.MIN_VALUE
         var reading: Job? = null
         refresh = {
             val now = System.currentTimeMillis()
-            if (inputs.value.enabled && reading?.isActive != true && now - readAtMs >= Enforcer.USAGE_REFRESH_MS) {
+            if (wantsUsage() && reading?.isActive != true && now - readAtMs >= Enforcer.USAGE_REFRESH_MS) {
                 readAtMs = now
                 reading = s.launch { today.value = readToday(now) }
             }
         }
-        enforcer = Enforcer(
-            rules = { inputs.value.rules },
-            categoryOf = { inputs.value.categoryOf(it) },
-            today = { today.value },
-            pinAllowed = { LocalDate.now().let { d -> pins.value.filterValues { it == d }.keys } },
-            system = AndroidSystemAllowList(this),
-            enabled = { inputs.value.enabled },
-            clock = System::currentTimeMillis,
-        )
         // The tick reads today's usage first, so a limit closes the app on screen within a minute of running out.
+        // Never on a locked or dark phone: nothing is in front of the child then.
         s.launch {
             while (isActive) {
                 delay(Enforcer.TICK_MS)
-                if (inputs.value.enabled) {
+                if (!awake()) continue
+                if (wantsUsage()) {
                     val now = System.currentTimeMillis()
                     readAtMs = now
                     today.value = readToday(now)
                 }
-                enforcer?.let { act(it.onTick()) }
+                act(e.onTick())
             }
         }
         s.launch(Dispatchers.Default) { graph.prefs.prunePinOverrides(LocalDate.now()) }
@@ -97,10 +107,9 @@ class BlockingAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val pkg = event.packageName?.toString() ?: return
-        // Kinsight's own windows, the block screen included, never start a decision.
-        if (pkg == packageName || event.className?.toString() == BlockedActivity::class.java.name) return
-        refresh?.invoke()
+        // Kinsight's own windows, the block screen included, go through too: the Enforcer clears the app behind them.
         enforcer?.let { act(it.onForeground(pkg)) }
+        refresh?.invoke()
     }
 
     override fun onInterrupt() {}
@@ -112,6 +121,10 @@ class BlockingAccessibilityService : AccessibilityService() {
         refresh = null
         super.onDestroy()
     }
+
+    private fun awake(): Boolean =
+        getSystemService(PowerManager::class.java)?.isInteractive == true &&
+            getSystemService(KeyguardManager::class.java)?.isKeyguardLocked != true
 
     private fun act(action: Enforcer.Action) {
         if (action !is Enforcer.Action.Block) return
