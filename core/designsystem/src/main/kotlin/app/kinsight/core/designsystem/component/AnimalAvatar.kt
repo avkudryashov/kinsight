@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.kinsight.core.model.Animal
@@ -25,12 +26,30 @@ import app.kinsight.core.model.Mood
 
 /**
  * A family member's mascot (animal avatars spec, decisions 1, 2, 6): a flat animal face filling a circle on the
- * animal's own background, wearing the expression of [mood]. Drawn in code on a 100×100 grid scaled to [size], so it
- * reads the same at 32 dp and at 96 dp. [animal] null (not assigned yet) is a plain grey disc. Decorative: the name is
+ * animal's own background, wearing the expression of [mood]. Uses raster art when available, otherwise the vector
+ * face on a 100×100 grid scaled to [size]. [animal] null (not assigned yet) is a grey placeholder. Decorative: the name is
  * always written next to it, and the card that knows the mood says it in its own description.
  */
 @Composable
 fun AnimalAvatar(animal: Animal?, mood: Mood = Mood.CONTENT, modifier: Modifier = Modifier, size: Dp = 40.dp) {
+    val drawable = mascotDrawable(animal, mood)
+    if (animal != null && drawable != null) {
+        val painter = painterResource(drawable)
+        Canvas(modifier.size(size).clearAndSetSemantics {}) {
+            val side = this.size.minDimension
+            val disc = Path().apply { addOval(Rect(0f, 0f, side, side)) }
+            clipPath(disc) {
+                drawRect(backgroundOf(animal), size = Size(side, side))
+                with(painter) { draw(size = Size(side, side)) }
+            }
+        }
+    } else {
+        VectorAnimalAvatar(animal, mood, modifier, size)
+    }
+}
+
+@Composable
+internal fun VectorAnimalAvatar(animal: Animal?, mood: Mood, modifier: Modifier = Modifier, size: Dp = 40.dp) {
     Canvas(modifier.size(size).clearAndSetSemantics {}) {
         val k = this.size.minDimension / GRID
         val disc = Path().apply { addOval(Rect(0f, 0f, this@Canvas.size.minDimension, this@Canvas.size.minDimension)) }
