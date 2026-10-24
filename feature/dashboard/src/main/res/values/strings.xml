@@ -62,7 +62,8 @@
     <string name="dash_pill_allowed">always</string>
     <string name="dash_warn_location_off">Location access is off</string>
     <string name="dash_warn_location_disabled">Location is off</string>
-    <string name="dash_warning_blocking_off">Blocking is off: Kinsight\'s accessibility service is disabled on the child\'s phone.</string>
+    <string name="dash_warning_blocking_off">Blocking is off: Kinsight\'s accessibility service is off on the child\'s phone.</string>
+    <string name="dash_warning_blocking_off_self">Blocking is off: turn on Kinsight in Settings → Accessibility so your parents\' rules work.</string>
     <string name="dash_last_sync">Last sync %1$s</string>
     <string name="dash_never_synced">Not synced yet</string>
 </resources>

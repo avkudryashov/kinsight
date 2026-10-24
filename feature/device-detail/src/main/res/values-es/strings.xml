@@ -50,7 +50,7 @@
     <string name="det_ev_location_off_open">Acceso a la ubicación desactivado</string>
     <string name="det_ev_location_disabled">Ubicación desactivada en el teléfono durante %1$s</string>
     <string name="det_ev_location_disabled_open">Ubicación desactivada en el teléfono</string>
-    <string name="det_ev_blocking_off">El bloqueo está desactivado en el teléfono (servicio de accesibilidad desactivado)</string>
+    <string name="det_ev_blocking_off">El bloqueo está apagado en el teléfono (servicio de accesibilidad apagado)</string>
     <string name="det_ev_blocking_on">El bloqueo vuelve a funcionar</string>
     <string name="det_ev_block_overridden">%1$s desbloqueada con el PIN hasta el final del día</string>
     <string name="det_today">Hoy</string>
@@ -205,7 +205,7 @@
     <string name="thr_total_today">Hoy %1$s</string>
     <string name="thr_total_none">Todavía no hay límite para todo el día</string>
     <string name="thr_total_set">Fijar un límite</string>
-    <string name="thr_blocking_off">Los bloqueos no se aplican: el servicio de accesibilidad está desactivado en el teléfono del menor.</string>
+    <string name="thr_blocking_off">Los bloqueos no se aplican: el servicio de accesibilidad está apagado en el teléfono del menor.</string>
     <string name="thr_awaiting_consent">Los bloqueos empiezan cuando el menor acepte el consentimiento actualizado en su teléfono.</string>
     <string name="thr_section_blocked">Bloqueado</string>
     <string name="thr_section_limits">Límites</string>

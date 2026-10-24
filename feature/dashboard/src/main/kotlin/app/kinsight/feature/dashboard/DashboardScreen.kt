@@ -531,7 +531,7 @@ private fun ChildCard(u: DeviceUsage, childHexes: List<String>, nowMs: Long, noC
                 Text(stringResource(R.string.dash_card_no_data), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.testTag("dash_today"))
                 if (!u.member.isSelf) LastSync(u.member.lastSeenMs, nowMs)
             }
-            u.setupWarnings.sortedBy { it.ordinal }.forEach { SetupWarningLine(it) }
+            u.setupWarnings.sortedBy { it.ordinal }.forEach { SetupWarningLine(it, u.member.isSelf) }
             status(u, nowMs, noContactMs)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
         }
     }
@@ -588,7 +588,7 @@ private fun CompactChildCard(u: DeviceUsage, childHexes: List<String>, nowMs: Lo
                 Text(stringResource(R.string.dash_card_no_data), style = MaterialTheme.typography.titleLarge, modifier = Modifier.testTag("dash_today"))
                 if (!u.member.isSelf) LastSync(u.member.lastSeenMs, nowMs)
             }
-            u.setupWarnings.sortedBy { it.ordinal }.forEach { SetupWarningLine(it) }
+            u.setupWarnings.sortedBy { it.ordinal }.forEach { SetupWarningLine(it, u.member.isSelf) }
             status(u, nowMs, noContactMs)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
         }
     }
@@ -617,11 +617,12 @@ private fun LastSync(lastSeenMs: Long?, nowMs: Long) = Text(
 )
 
 /**
+ * On the child's own phone ([isSelf]) the blocking warning tells what to do there instead of describing it as someone else's.
  * An unfinished setup on the child's phone (UI refresh §6) or blocking off there (app blocking spec §5.4), on a darker
  * chip so the white text keeps 4.5:1.
  */
 @Composable
-private fun SetupWarningLine(w: SetupWarning) = Row(
+private fun SetupWarningLine(w: SetupWarning, isSelf: Boolean) = Row(
     Modifier.clip(MaterialTheme.shapes.small).background(Color.Black.copy(alpha = 0.18f))
         .padding(horizontal = 10.dp, vertical = 6.dp).testTag("dash_warning_${w.name}"),
     verticalAlignment = Alignment.CenterVertically,
@@ -633,7 +634,7 @@ private fun SetupWarningLine(w: SetupWarning) = Row(
             when (w) {
                 SetupWarning.LOCATION_PERMISSION_OFF -> R.string.dash_warn_location_off
                 SetupWarning.LOCATION_DISABLED -> R.string.dash_warn_location_disabled
-                SetupWarning.BLOCKING_OFF -> R.string.dash_warning_blocking_off
+                SetupWarning.BLOCKING_OFF -> if (isSelf) R.string.dash_warning_blocking_off_self else R.string.dash_warning_blocking_off
             },
         ),
         style = MaterialTheme.typography.labelLarge,
@@ -667,7 +668,10 @@ private fun TopApps(u: DeviceUsage, rules: List<ThresholdRule>) {
                     when (ThresholdEval.markOf(rules, u.member.id, t.app.packageName, t.category)) {
                         RuleMark.LIMIT -> Pill(stringResource(R.string.dash_limit_pill), Modifier.testTag("dash_limit_pill"))
                         RuleMark.BLOCKED -> Pill(stringResource(R.string.dash_pill_blocked), Modifier.testTag("dash_blocked_pill"))
-                        RuleMark.ALLOWED -> Pill(stringResource(R.string.dash_pill_allowed), Modifier.testTag("dash_allowed_pill"))
+                        RuleMark.ALLOWED -> Pill(
+                            stringResource(R.string.dash_pill_allowed), Modifier.testTag("dash_allowed_pill"),
+                            container = MaterialTheme.colorScheme.secondaryContainer, content = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
                         RuleMark.NONE -> Unit
                     }
                     Text(durationText(t.app.totalMs), style = MaterialTheme.typography.bodyMedium)

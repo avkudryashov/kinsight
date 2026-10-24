@@ -465,7 +465,10 @@ private fun AppRow(app: AppUsage, onOpen: ((String) -> Unit)?, mark: RuleMark = 
                 when (mark) {
                     RuleMark.LIMIT -> Pill(stringResource(R.string.det_limit_pill), Modifier.testTag("det_limit_pill"))
                     RuleMark.BLOCKED -> Pill(stringResource(R.string.thr_pill_blocked), Modifier.testTag("det_blocked_pill"))
-                    RuleMark.ALLOWED -> Pill(stringResource(R.string.thr_pill_allowed), Modifier.testTag("det_allowed_pill"))
+                    RuleMark.ALLOWED -> Pill(
+                        stringResource(R.string.thr_pill_allowed), Modifier.testTag("det_allowed_pill"),
+                        container = MaterialTheme.colorScheme.secondaryContainer, content = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
                     RuleMark.NONE -> Unit
                 }
                 Text(durationText(app.totalMs))

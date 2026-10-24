@@ -62,7 +62,8 @@
     <string name="dash_pill_allowed">siempre</string>
     <string name="dash_warn_location_off">Acceso a la ubicación desactivado</string>
     <string name="dash_warn_location_disabled">Ubicación desactivada</string>
-    <string name="dash_warning_blocking_off">El bloqueo no funciona: el servicio de accesibilidad de Kinsight está desactivado en el teléfono del niño.</string>
+    <string name="dash_warning_blocking_off">El bloqueo no funciona: el servicio de accesibilidad de Kinsight está apagado en el teléfono del niño.</string>
+    <string name="dash_warning_blocking_off_self">El bloqueo no funciona: activa Kinsight en Ajustes → Accesibilidad para que funcionen las reglas de los adultos.</string>
     <string name="dash_last_sync">Última sincronización %1$s</string>
     <string name="dash_never_synced">Aún no se ha sincronizado</string>
 </resources>

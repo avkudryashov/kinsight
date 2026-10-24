@@ -598,7 +598,16 @@ class DashboardScreenTest {
         val u = usage(kid, 30, 30).copy(setupWarnings = setOf(SetupWarning.BLOCKING_OFF))
         show(DashboardUi(DashboardState(mom, null, listOf(u), listOf(dad)), running, true))
         rule.onNodeWithTag("dash_warning_BLOCKING_OFF", useUnmergedTree = true).assertExists()
-        rule.onNodeWithText("Blocking is off: Kinsight's accessibility service is disabled on the child's phone.", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("Blocking is off: Kinsight's accessibility service is off on the child's phone.", useUnmergedTree = true).assertExists()
+    }
+
+    /** On the child's own phone the warning says what to do there. */
+    @Test
+    fun blockingOffOnTheChildsOwnPhoneSaysWhatToDo() {
+        val self = kid.copy(isSelf = true)
+        val u = usage(self, 30, 30).copy(setupWarnings = setOf(SetupWarning.BLOCKING_OFF))
+        show(DashboardUi(DashboardState(self, u, emptyList(), listOf(mom.copy(isSelf = false))), running, true))
+        rule.onNodeWithText("Blocking is off: turn on Kinsight in Settings → Accessibility so your parents' rules work.", useUnmergedTree = true).assertExists()
     }
 
     @Test

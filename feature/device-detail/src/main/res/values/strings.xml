@@ -49,7 +49,7 @@
     <string name="det_ev_location_off_open">Location access turned off</string>
     <string name="det_ev_location_disabled">Location was off on the phone for %1$s</string>
     <string name="det_ev_location_disabled_open">Location turned off on the phone</string>
-    <string name="det_ev_blocking_off">Blocking is off on the phone (accessibility service disabled)</string>
+    <string name="det_ev_blocking_off">Blocking is off on the phone (accessibility service is off)</string>
     <string name="det_ev_blocking_on">Blocking works again</string>
     <string name="det_ev_block_overridden">%1$s unblocked by PIN until the end of the day</string>
     <string name="det_today">Today</string>
