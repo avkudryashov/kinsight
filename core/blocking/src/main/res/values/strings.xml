@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="blk_service_label">Kinsight app blocking</string>
+    <string name="blk_service_description">Kinsight closes apps the parents blocked or limited. It sees only which app is on screen and reads nothing inside it.</string>
+    <string name="blk_title_blocked">Blocked by a parent</string>
+    <string name="blk_title_category">%1$s is blocked</string>
+    <string name="blk_title_limit">Limit for %1$s is used up</string>
+    <string name="blk_title_limit_total">Screen time for today is used up</string>
+    <string name="blk_home">Home</string>
+    <string name="blk_parent">Parent: enter PIN</string>
+    <string name="blk_until_tomorrow">Allowed until the end of the day</string>
+    <string name="blk_pin_title">Parent PIN</string>
+    <string name="blk_pin_ok">Open</string>
+    <string name="blk_cancel">Cancel</string>
+    <string name="blk_pin_wrong">Wrong PIN</string>
+    <string name="blk_pin_wait">Too many tries. Try again after %1$s.</string>
+    <string name="blk_pin_failed">Could not check the PIN. Try again.</string>
+    <string name="blk_cat_games">Games</string>
+    <string name="blk_cat_social">Social and messaging</string>
+    <string name="blk_cat_video">Video</string>
+    <string name="blk_cat_audio">Music and audio</string>
+    <string name="blk_cat_photos">Photos</string>
+    <string name="blk_cat_news">News</string>
+    <string name="blk_cat_maps">Maps and navigation</string>
+    <string name="blk_cat_productivity">Work and study</string>
+    <string name="blk_cat_other">Other</string>
+</resources>

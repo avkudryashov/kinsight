@@ -33,6 +33,7 @@ dependencies {
     implementation(project(":core:transport-ble"))
     implementation(project(":core:data"))
     implementation(project(":core:location"))
+    implementation(project(":core:blocking"))
     implementation(project(":core:designsystem"))
     implementation(project(":feature:onboarding"))
     implementation(project(":feature:group"))

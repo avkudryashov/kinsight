@@ -1,0 +1,125 @@
+package app.kinsight.core.blocking
+
+import android.accessibilityservice.AccessibilityService
+import android.app.usage.UsageStatsManager
+import android.util.Log
+import android.view.accessibility.AccessibilityEvent
+import app.kinsight.core.data.AppGraph
+import app.kinsight.core.data.TodayUsage
+import app.kinsight.core.usage.AppOpsUsageAccess
+import app.kinsight.core.usage.HomeLauncherSource
+import app.kinsight.core.usage.UsageStatsEventSource
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.time.LocalDate
+import java.time.ZoneId
+
+/**
+ * App blocking spec §5.2: on every window change asks [Enforcer]; on a Block goes Home and shows [BlockedActivity].
+ * Wiring only. The rules, categories, PIN overrides and today's usage are cached in StateFlows on the service's own scope,
+ * so [onAccessibilityEvent] never waits; today's usage is read off the main thread at most every
+ * [Enforcer.USAGE_REFRESH_MS], and the minute tick re-checks the app on screen.
+ */
+class BlockingAccessibilityService : AccessibilityService() {
+    private var scope: CoroutineScope? = null
+    private var enforcer: Enforcer? = null
+    private var refresh: (() -> Unit)? = null
+
+    override fun onServiceConnected() {
+        scope?.cancel() // a reconnect starts over
+        val graph = AppGraph.get(this)
+        val s = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).also { scope = it }
+        val inputs: StateFlow<EnforcerInputs> = combine(graph.snapshots.snapshots, graph.settings.settings, EnforcerInputs::of)
+            .stateIn(s, SharingStarted.Eagerly, EnforcerInputs.OFF)
+        val pins = graph.prefs.pinOverrides.stateIn(s, SharingStarted.Eagerly, emptyMap())
+        val today = MutableStateFlow<TodayUsage?>(null)
+        val reader = TodayUsageReader(
+            UsageStatsEventSource(getSystemService(UsageStatsManager::class.java)), AppOpsUsageAccess(this),
+            HomeLauncherSource(packageManager), ZoneId::systemDefault, categoryOf = { inputs.value.categoryOf(it) },
+        )
+        suspend fun readToday(nowMs: Long): TodayUsage? = withContext(Dispatchers.Default) {
+            try {
+                reader.read(nowMs)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "today's usage failed: ${e.javaClass.simpleName}")
+                null
+            }
+        }
+        // Main thread only: a window change starts a read when the last one is older than USAGE_REFRESH_MS.
+        var readAtMs = Long.MIN_VALUE
+        var reading: Job? = null
+        refresh = {
+            val now = System.currentTimeMillis()
+            if (inputs.value.enabled && reading?.isActive != true && now - readAtMs >= Enforcer.USAGE_REFRESH_MS) {
+                readAtMs = now
+                reading = s.launch { today.value = readToday(now) }
+            }
+        }
+        enforcer = Enforcer(
+            rules = { inputs.value.rules },
+            categoryOf = { inputs.value.categoryOf(it) },
+            today = { today.value },
+            pinAllowed = { LocalDate.now().let { d -> pins.value.filterValues { it == d }.keys } },
+            system = AndroidSystemAllowList(this),
+            enabled = { inputs.value.enabled },
+            clock = System::currentTimeMillis,
+        )
+        // The tick reads today's usage first, so a limit closes the app on screen within a minute of running out.
+        s.launch {
+            while (isActive) {
+                delay(Enforcer.TICK_MS)
+                if (inputs.value.enabled) {
+                    val now = System.currentTimeMillis()
+                    readAtMs = now
+                    today.value = readToday(now)
+                }
+                enforcer?.let { act(it.onTick()) }
+            }
+        }
+        s.launch(Dispatchers.Default) { graph.prefs.prunePinOverrides(LocalDate.now()) }
+    }
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        val pkg = event.packageName?.toString() ?: return
+        // Kinsight's own windows, the block screen included, never start a decision.
+        if (pkg == packageName || event.className?.toString() == BlockedActivity::class.java.name) return
+        refresh?.invoke()
+        enforcer?.let { act(it.onForeground(pkg)) }
+    }
+
+    override fun onInterrupt() {}
+
+    override fun onDestroy() {
+        scope?.cancel()
+        scope = null
+        enforcer = null
+        refresh = null
+        super.onDestroy()
+    }
+
+    private fun act(action: Enforcer.Action) {
+        if (action !is Enforcer.Action.Block) return
+        performGlobalAction(GLOBAL_ACTION_HOME)
+        startActivity(BlockedActivity.intent(this, action.packageName, action.reason))
+    }
+
+    private companion object {
+        const val TAG = "KinsightBlocking"
+    }
+}

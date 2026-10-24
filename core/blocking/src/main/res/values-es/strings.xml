@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="blk_service_label">Bloqueo de apps de Kinsight</string>
+    <string name="blk_service_description">Kinsight cierra las apps que los adultos han bloqueado o limitado. Solo ve qué app está en pantalla y no lee nada de lo que hay dentro.</string>
+    <string name="blk_title_blocked">Bloqueada por un adulto</string>
+    <string name="blk_title_category">Bloqueado: %1$s</string>
+    <string name="blk_title_limit">Se acabó el límite de %1$s</string>
+    <string name="blk_title_limit_total">Se acabó el tiempo de pantalla de hoy</string>
+    <string name="blk_home">Inicio</string>
+    <string name="blk_parent">Adulto: introducir PIN</string>
+    <string name="blk_until_tomorrow">Permitida hasta el final del día</string>
+    <string name="blk_pin_title">PIN de los adultos</string>
+    <string name="blk_pin_ok">Abrir</string>
+    <string name="blk_cancel">Cancelar</string>
+    <string name="blk_pin_wrong">PIN incorrecto</string>
+    <string name="blk_pin_wait">Demasiados intentos. Vuelve a intentarlo después de las %1$s.</string>
+    <string name="blk_pin_failed">No se pudo comprobar el PIN. Vuelve a intentarlo.</string>
+    <string name="blk_cat_games">Juegos</string>
+    <string name="blk_cat_social">Redes sociales y mensajería</string>
+    <string name="blk_cat_video">Vídeo</string>
+    <string name="blk_cat_audio">Música y audio</string>
+    <string name="blk_cat_photos">Fotos</string>
+    <string name="blk_cat_news">Noticias</string>
+    <string name="blk_cat_maps">Mapas y navegación</string>
+    <string name="blk_cat_productivity">Trabajo y estudios</string>
+    <string name="blk_cat_other">Otras</string>
+</resources>

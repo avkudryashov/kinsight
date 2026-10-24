@@ -41,6 +41,13 @@ class WireV3Test {
     }
 
     @Test
+    fun blockOverriddenNamesThePackageAtOneMoment() {
+        val e = author.blockOverriddenEntry("com.example.game", atMs = 42)
+        assertEquals(EntryKind.STATE_EVENT, e.kind)
+        assertEquals(StateEvent(kind = StateEvent.Kind.BLOCK_OVERRIDDEN, from_ms = 42, to_ms = 42, package_name = "com.example.game"), e.body.state_event)
+    }
+
+    @Test
     fun handedTokensAndKeysNeverShowInToString() {
         val token = "y0_SECRET_TOKEN"
         val key = ByteArray(32) { 0x5a }.toByteString()

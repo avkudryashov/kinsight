@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- App blocking spec §5.2: sees only which app's window comes up (no window content) and closes blocked apps.
+             Exported for the system, which alone holds BIND_ACCESSIBILITY_SERVICE. -->
+        <service
+            android:name=".BlockingAccessibilityService"
+            android:exported="true"
+            android:label="@string/blk_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/blocking_service" />
+        </service>
+
+        <!-- Spec §5.3: the block screen, started by the service only. -->
+        <activity
+            android:name=".BlockedActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:taskAffinity="" />
+    </application>
+</manifest>

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="blk_service_label">Блокировка приложений Kinsight</string>
+    <string name="blk_service_description">Kinsight закрывает приложения, которые родители заблокировали или ограничили. Он видит только, какое приложение на экране, и ничего не читает внутри него.</string>
+    <string name="blk_title_blocked">Заблокировано родителем</string>
+    <string name="blk_title_category">Заблокировано: %1$s</string>
+    <string name="blk_title_limit">Лимит на «%1$s» исчерпан</string>
+    <string name="blk_title_limit_total">Время за экраном на сегодня исчерпано</string>
+    <string name="blk_home">Домой</string>
+    <string name="blk_parent">Родитель: ввести PIN</string>
+    <string name="blk_until_tomorrow">Разрешено до конца дня</string>
+    <string name="blk_pin_title">PIN родителя</string>
+    <string name="blk_pin_ok">Открыть</string>
+    <string name="blk_cancel">Отмена</string>
+    <string name="blk_pin_wrong">Неверный PIN</string>
+    <string name="blk_pin_wait">Слишком много попыток. Попробуйте после %1$s.</string>
+    <string name="blk_pin_failed">Не удалось проверить PIN. Попробуйте ещё раз.</string>
+    <string name="blk_cat_games">Игры</string>
+    <string name="blk_cat_social">Соцсети и общение</string>
+    <string name="blk_cat_video">Видео</string>
+    <string name="blk_cat_audio">Музыка и аудио</string>
+    <string name="blk_cat_photos">Фото</string>
+    <string name="blk_cat_news">Новости</string>
+    <string name="blk_cat_maps">Карты и навигация</string>
+    <string name="blk_cat_productivity">Работа и учёба</string>
+    <string name="blk_cat_other">Другое</string>
+</resources>
