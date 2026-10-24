@@ -25,11 +25,11 @@ class EnforcerTest {
         rules: List<ThresholdRule>,
         today: () -> TodayUsage? = { null },
         enabled: () -> Boolean = { true },
-        system: SystemAllowList = SystemAllowList { it in setOf(OWN, HOME, SYSTEM_UI) },
+        system: SystemAllowList = SystemAllowList { it in setOf(OWN, HOME, SYSTEM_UI, KEYBOARD, DIALER) },
         ownPackage: String = OWN,
     ) = Enforcer(
         rules = { rules }, categoryOf = { AppCategory.GAMES }, today = today, pinAllowed = { emptySet() },
-        system = system, isHome = { it == HOME }, ownPackage = ownPackage, enabled = enabled, clock = { now },
+        system = system, isHome = { it == HOME }, isOverlay = { it == SYSTEM_UI || it == KEYBOARD }, ownPackage = ownPackage, enabled = enabled, clock = { now },
     )
 
     private fun limitedGame(): Pair<Enforcer, (Long) -> Unit> {
@@ -64,9 +64,31 @@ class EnforcerTest {
         val (e, setUsage) = limitedGame()
         e.onForeground(GAME)
         assertEquals(Enforcer.Action.None, e.onForeground(SYSTEM_UI))
+        assertEquals(Enforcer.Action.None, e.onForeground(KEYBOARD))
         assertEquals(GAME, e.current)
         setUsage(HOUR)
         assertEquals(limitPassed, e.onTick())
+    }
+
+    @Test
+    fun aFullAllowListedAppSuspendsTheAppBehindIt() {
+        val (e, setUsage) = limitedGame()
+        e.onForeground(GAME)
+        assertEquals(Enforcer.Action.None, e.onForeground(DIALER))
+        assertEquals(null, e.current)
+        setUsage(HOUR)
+        assertEquals(Enforcer.Action.None, e.onTick())
+    }
+
+    @Test
+    fun needsUsageOnlyWithABlockingLimit() {
+        val block = ThresholdRule.block(child, ThresholdTarget.App(GAME))!!
+        val notify = ThresholdRule.of(child, ThresholdTarget.Total, HOUR)!!
+        val blocking = ThresholdRule.of(child, ThresholdTarget.App(GAME), HOUR, blockOnLimit = true)!!
+        fun needs(enabled: Boolean, vararg rules: ThresholdRule) = EnforcerInputs(enabled, rules.toList()) { AppCategory.OTHER }.needsUsage
+        assertEquals(false, needs(true, block, notify))
+        assertEquals(true, needs(true, block, blocking))
+        assertEquals(false, needs(false, blocking))
     }
 
     @Test
@@ -120,7 +142,7 @@ class EnforcerTest {
         val own = app.packageName
         val e = enforcer(
             listOf(ThresholdRule.block(child, ThresholdTarget.App(own))!!, ThresholdRule.block(child, ThresholdTarget.Category(AppCategory.GAMES))!!),
-            system = AndroidSystemAllowList(app, defaults = { emptySet() }, homes = { emptySet() }),
+            system = AndroidSystemAllowList(app, defaults = { emptySet() }, homes = { emptySet() }, imes = { emptySet() }),
             ownPackage = own,
         )
         assertEquals(Enforcer.Action.None, e.onForeground(own))
@@ -133,5 +155,7 @@ class EnforcerTest {
         const val OWN = "app.kinsight"
         const val HOME = "com.example.home"
         const val SYSTEM_UI = "com.android.systemui"
+        const val KEYBOARD = "com.example.keyboard"
+        const val DIALER = "com.example.dialer"
     }
 }

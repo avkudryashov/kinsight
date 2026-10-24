@@ -19,9 +19,10 @@ import app.kinsight.core.usage.UsageSettings
  * minute tick for the app still on screen (a limit can run out while it is open). Runs [BlockDecision] on the inputs
  * the service caches; never blocks itself. Not thread-safe: the service calls it on the main thread only.
  *
- * [current] is the app the tick re-checks. Kinsight's own windows ([ownPackage]) and a launcher ([isHome]) clear it: the
- * app is no longer in front. Other allow-listed windows (keyboard, notification shade, volume panel) come up over the
- * app and leave it as is, or one pull of the shade would end its limit. One Block per package within [DEBOUNCE_MS]: the
+ * [current] is the app the tick re-checks. Overlays ([isOverlay]: keyboard, notification shade, volume panel) come up
+ * over the app and leave it as is, or one pull of the shade would end its limit. Every other allow-listed window is a
+ * full app in front (Kinsight itself, a launcher, the dialer during a call, Settings) and clears it: nothing behind a
+ * call is closed by the tick. One Block per package within [DEBOUNCE_MS]: the
  * burst of window events an app raises while it opens closes it once, and a late event of the closed app does not make
  * it [current] again.
  */
@@ -32,6 +33,7 @@ class Enforcer(
     private val pinAllowed: () -> Set<String>,
     private val system: SystemAllowList,
     private val isHome: (String) -> Boolean,
+    private val isOverlay: (String) -> Boolean,
     private val ownPackage: String,
     private val enabled: () -> Boolean,
     private val clock: () -> Long,
@@ -53,7 +55,11 @@ class Enforcer(
             current = null
             return Action.None
         }
-        if (system.contains(packageName)) return Action.None
+        if (isOverlay(packageName)) return Action.None
+        if (system.contains(packageName)) {
+            current = null
+            return Action.None
+        }
         if (debounced(packageName)) return Action.None
         current = packageName
         return decide(packageName)

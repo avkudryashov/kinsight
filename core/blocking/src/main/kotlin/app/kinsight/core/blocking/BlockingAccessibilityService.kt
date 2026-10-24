@@ -70,6 +70,7 @@ class BlockingAccessibilityService : AccessibilityService() {
             pinAllowed = { LocalDate.now().let { d -> pins.value.filterValues { it == d }.keys } },
             system = allowList,
             isHome = allowList::isHome,
+            isOverlay = allowList::isOverlay,
             ownPackage = packageName,
             enabled = { inputs.value.enabled },
             clock = System::currentTimeMillis,

@@ -19,12 +19,20 @@ class AndroidSystemAllowListTest {
     @Test
     fun defaultDialerAndSmsAreAllowed() {
         val app = ApplicationProvider.getApplicationContext<Application>()
-        val list = AndroidSystemAllowList(app, defaults = { setOf("com.vendor.dialer", "com.vendor.sms") }, homes = { emptySet() })
+        val list = AndroidSystemAllowList(
+            app, defaults = { setOf("com.vendor.dialer", "com.vendor.sms") }, homes = { emptySet() }, imes = { setOf("com.vendor.keyboard") },
+        )
         assertTrue(list.contains("com.vendor.dialer"))
         assertTrue(list.contains("com.vendor.sms"))
         assertTrue(list.contains("com.android.systemui"))
         assertTrue(list.contains(app.packageName))
         assertFalse(list.contains("com.example.game"))
+        // Overlays keep the app under them; a full app (the dialer) does not.
+        assertTrue(list.contains("com.vendor.keyboard"))
+        assertTrue(list.isOverlay("com.vendor.keyboard"))
+        assertTrue(list.isOverlay("com.android.systemui"))
+        assertFalse(list.isOverlay("com.vendor.dialer"))
+        assertFalse(list.isOverlay(app.packageName))
     }
 
     @Test
