@@ -14,6 +14,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -30,6 +31,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 object BlockingWatch {
     private val registered = AtomicBoolean(false)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    private var recheck: Job? = null
 
     @Volatile
     private var follow: BlockingStateFollow? = null
@@ -63,9 +66,28 @@ object BlockingWatch {
                 rules = { EnforcerInputs.of(graph.snapshots.snapshots.first(), graph.settings.current()).rules },
             ).also { follow = it }
         }
-        if (f.onState(BlockingState.serviceEnabled(app))) {
+        val enabledNow = BlockingState.serviceEnabled(app)
+        if (f.onState(enabledNow)) {
             graph.pipeline.collectAndPublish()
             CloudWork.uploadSoon(app)
+        }
+        if (f.offPending) scheduleRecheck(app)
+    }
+
+    /** A first «off» opens nothing until seen again after the grace: one pending re-check at a time. */
+    private fun scheduleRecheck(app: Context) {
+        synchronized(this) {
+            if (recheck?.isActive == true) return
+            recheck = scope.launch {
+                delay(BlockingStateFollow.OFF_GRACE_MS + 1_000)
+                try {
+                    check(app)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "blocking state re-check failed: ${e.javaClass.simpleName}")
+                }
+            }
         }
     }
 

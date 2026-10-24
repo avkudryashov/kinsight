@@ -24,7 +24,7 @@ class BlockingStateFollowTest {
     private suspend fun queued() = RoomUsageQueue(kid.db).pendingEvents().map { Triple(StateEvent.Kind.fromValue(it.kind), it.fromMs, it.toMs) }
 
     @Test
-    fun signsOffOnceAndOnOnce() = runBlocking<Unit> {
+    fun signsOffOnceAfterTheGraceAndOnOnce() = runBlocking<Unit> {
         mom.group.createGroup("Mom")
         kid.joinGroupOf(mom)
         val block = ThresholdRule.block(kid.keys.deviceId, ThresholdTarget.App("com.game"))!!
@@ -36,7 +36,10 @@ class BlockingStateFollowTest {
 
         rules = listOf(block)
         val off = kid.now
-        assertTrue(follow.onState(serviceEnabled = false))
+        assertFalse(follow.onState(serviceEnabled = false), "first off: only a candidate")
+        assertEquals(emptyList(), queued())
+        kid.now += BlockingStateFollow.OFF_GRACE_MS
+        assertTrue(follow.onState(serviceEnabled = false), "off again after the grace: opens, from the first observation")
         kid.now += 60_000
         assertFalse(follow.onState(serviceEnabled = false), "still off: nothing new")
         assertEquals(listOf(Triple(StateEvent.Kind.BLOCKING_OFF, off, off)), queued())
@@ -45,8 +48,27 @@ class BlockingStateFollowTest {
         assertTrue(follow.onState(serviceEnabled = true))
         assertFalse(follow.onState(serviceEnabled = true))
         val closing = queued().last()
-        assertEquals(Triple(StateEvent.Kind.BLOCKING_OFF, off, off + 60_000), closing)
+        assertEquals(Triple(StateEvent.Kind.BLOCKING_OFF, off, off + 2 * BlockingStateFollow.OFF_GRACE_MS), closing)
         assertTrue(closing.third > closing.second)
+        assertNull(kid.prefs.blockingOffSince())
+    }
+
+    /** The service list fills asynchronously at process start: off, then on within the grace signs nothing. */
+    @Test
+    fun aBriefOffWithinTheGraceSignsNothing() = runBlocking<Unit> {
+        mom.group.createGroup("Mom")
+        kid.joinGroupOf(mom)
+        val rules = listOf(ThresholdRule.block(kid.keys.deviceId, ThresholdTarget.App("com.game"))!!)
+        val follow = BlockingStateFollow(kid.prefs, kid.pipeline, rules = { rules }, clock = { kid.now })
+        assertFalse(follow.onState(serviceEnabled = false))
+        assertTrue(follow.offPending)
+        kid.now += 250
+        assertFalse(follow.onState(serviceEnabled = true))
+        assertFalse(follow.offPending)
+        // The cleared candidate: a later off starts a new grace instead of opening at once.
+        kid.now += BlockingStateFollow.OFF_GRACE_MS
+        assertFalse(follow.onState(serviceEnabled = false))
+        assertEquals(emptyList(), queued())
         assertNull(kid.prefs.blockingOffSince())
     }
 
@@ -57,6 +79,8 @@ class BlockingStateFollowTest {
         kid.joinGroupOf(mom)
         var rules = listOf(ThresholdRule.block(kid.keys.deviceId, ThresholdTarget.App("com.game"))!!)
         val follow = BlockingStateFollow(kid.prefs, kid.pipeline, rules = { rules }, clock = { kid.now })
+        assertFalse(follow.onState(serviceEnabled = false))
+        kid.now += BlockingStateFollow.OFF_GRACE_MS
         assertTrue(follow.onState(serviceEnabled = false))
         rules = emptyList()
         // Even a clock gone back closes it with an end after its start.
@@ -74,6 +98,8 @@ class BlockingStateFollowTest {
         mom.group.createGroup("Mom")
         kid.joinGroupOf(mom, consent = false)
         val follow = BlockingStateFollow(kid.prefs, kid.pipeline, rules = { listOf(ThresholdRule.block(kid.keys.deviceId, ThresholdTarget.App("com.game"))!!) }, clock = { kid.now })
+        assertFalse(follow.onState(serviceEnabled = false))
+        kid.now += BlockingStateFollow.OFF_GRACE_MS
         assertFalse(follow.onState(serviceEnabled = false))
         assertNull(kid.prefs.blockingOffSince())
     }
