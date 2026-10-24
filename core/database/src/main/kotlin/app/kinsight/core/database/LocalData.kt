@@ -32,3 +32,7 @@ suspend fun KinsightDatabase.wipeAll(): Unit = write {
 
 /** One value now, then one after every committed change of the entry log (Room invalidation). */
 fun KinsightDatabase.entriesChanged(): Flow<Unit> = invalidationTracker.createFlow("entries").map { }
+
+/** One value now, then one after every committed change of the local usage queue or the collector cursor. */
+fun KinsightDatabase.usageQueueChanged(): Flow<Unit> =
+    invalidationTracker.createFlow("pending_usage", "pending_hours", "pending_days", "collector_state").map { }

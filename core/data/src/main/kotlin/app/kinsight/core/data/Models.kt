@@ -21,6 +21,11 @@ data class MemberView(
     val isAdmin: Boolean,
     val isSelf: Boolean,
     val lastSeenMs: Long?,
+    /**
+     * This parent's own screen time, read from this phone's local queue only (own time spec 2026-10-24): the screens
+     * leave out what only a child has (rules, events, sharing pills) and say it is seen on this phone only.
+     */
+    val ownLocal: Boolean = false,
 )
 
 /**
@@ -150,6 +155,8 @@ data class DeviceUsage(
     val topApps: List<TopApp> = emptyList(),
     /** On a parent's card: location problems the child's phone has open now (SetupWarnings, UI refresh §3). */
     val setupWarnings: Set<SetupWarning> = emptySet(),
+    /** A parent's own card ([MemberView.ownLocal]) without usage access: the card asks for it instead of showing time. */
+    val ownAccessMissing: Boolean = false,
 )
 
 /** One of today's top apps on a card; [category] as the limits count it (Categories.of with the family overrides). */

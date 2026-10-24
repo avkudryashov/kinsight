@@ -326,7 +326,23 @@ class UsageRepository(
     private val appendOwn: OwnAppend,
     private val date: () -> LocalDate = LocalDate::now,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** A parent's own time on this phone (own time spec 2026-10-24); null: never shown. */
+    private val ownLocal: LocalOwnUsage? = null,
 ) {
+    /** Whether the own-time switch is on, again after every change of the local queue (LocalOwnUsage.changes). */
+    private val ownChanges: Flow<Boolean> = ownLocal?.changes ?: flowOf(false)
+
+    /**
+     * [s] with this parent's own time of [from]..[to] from the local queue when [on] and it applies ([LocalOwnUsage.load]:
+     * an active PARENT with the switch on); [s] itself otherwise. The result lives only in the view built from it.
+     */
+    private suspend fun withOwn(s: GroupSnapshot.Ready, on: Boolean, from: LocalDate, to: LocalDate): GroupSnapshot.Ready =
+        if (on) ownLocal?.load(s, from, to)?.let(s::withOwnUsage) ?: s else s
+
+    /** [id]'s UsageDetail entries of [from]..[to]: the local ones for this parent's own time, the log's otherwise. */
+    private suspend fun detailsOf(s: GroupSnapshot.Ready, id: DeviceId, from: LocalDate, to: LocalDate): List<DecodedEntry> =
+        s.ownLocal?.takeIf { id == s.self }?.details ?: snapshots.details(s.groupId, id, from, to)
+
     /** The «no contact» window, so a card says «collection off» only past it (U1); the default when unreadable. */
     private val noContactMs = prefs.prefs.map { it.noContactHours * 3_600_000L }
         .catch { emit(Prefs().noContactHours * 3_600_000L) }
@@ -338,15 +354,18 @@ class UsageRepository(
      * or, for a child already on its next day, tomorrow.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
-    val dashboard: Flow<DashboardState?> = combine(snapshots.snapshots, noContactMs, ::Pair).mapLatest { (s, noContact) ->
-        val ready = (s as? GroupSnapshot.Ready)?.takeUnless { it.removed } ?: return@mapLatest null
+    val dashboard: Flow<DashboardState?> = combine(snapshots.snapshots, noContactMs, ownChanges, ::Triple).mapLatest { (s, noContact, own) ->
+        val base = (s as? GroupSnapshot.Ready)?.takeUnless { it.removed } ?: return@mapLatest null
         val today = today()
-        val shown = if (ready.membership.active[ready.self]?.isChild == true) {
-            listOf(ready.self)
-        } else {
-            ready.membership.active.values.filter { it.isChild }.map { it.id }
+        // A day more on each side: the average reads the 7 days before today, and a zone ahead can already be tomorrow.
+        val ready = withOwn(base, own, today.minusDays(8), today.plusDays(1))
+        val children = ready.membership.active.values.filter { it.isChild }.map { it.id }
+        val shown = when {
+            ready.membership.active[ready.self]?.isChild == true -> listOf(ready.self)
+            ready.ownLocal != null -> listOf(ready.self) + children
+            else -> children
         }
-        val details = shown.associateWith { snapshots.details(ready.groupId, it, today.minusDays(7), today) }
+        val details = shown.associateWith { detailsOf(ready, it, today.minusDays(7), today) }
         SnapshotViews.dashboard(ready, today, clock(), noContact, details)
     }.distinctUntilChanged()
 
@@ -617,28 +636,35 @@ class UsageRepository(
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     fun detail(id: DeviceId, range: DetailRange): Flow<DeviceDetail?> =
-        snapshots.snapshots.mapLatest { s ->
-            (s as? GroupSnapshot.Ready)?.let {
+        combine(snapshots.snapshots, ownChanges, ::Pair).mapLatest { (s, own) ->
+            (s as? GroupSnapshot.Ready)?.let { base ->
+                val from = if (range.period == Period.DAY) range.start.minusDays(7) else range.start
+                val it = if (id == base.self) withOwn(base, own, from, range.end.plusDays(1)) else base
                 // Overrides from the same snapshot: never paired with another snapshot's map.
                 val o = CategoryOverrides.effective(it)
-                val details = if (range.period == Period.DAY) snapshots.details(it.groupId, id, range.start.minusDays(7), range.end) else emptyList()
+                val details = if (range.period == Period.DAY) detailsOf(it, id, range.start.minusDays(7), range.end) else emptyList()
                 SnapshotViews.detail(it, id, range, today(), clock(), overrides = o, details = details)
             }
         }.distinctUntilChanged()
 
     /** Every app of device [id] over [range] (the «All apps» screen), reloaded on every log change; no UsageDetail read. */
-    fun apps(id: DeviceId, range: DetailRange): Flow<AppList?> = snapshots.snapshots.map { s ->
-        (s as? GroupSnapshot.Ready)?.let { SnapshotViews.apps(it, id, range, today(), clock()) }
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun apps(id: DeviceId, range: DetailRange): Flow<AppList?> = combine(snapshots.snapshots, ownChanges, ::Pair).mapLatest { (s, own) ->
+        (s as? GroupSnapshot.Ready)?.let { base ->
+            val it = if (id == base.self) withOwn(base, own, range.start, range.end.plusDays(1)) else base
+            SnapshotViews.apps(it, id, range, today(), clock())
+        }
     }.distinctUntilChanged()
 
     /** App [packageName] of device [id] over [range], reloaded on every log or category change (the app screen); an equal state is not re-emitted. */
     @OptIn(ExperimentalCoroutinesApi::class)
     fun app(id: DeviceId, packageName: String, range: DetailRange): Flow<AppDetail?> =
-        snapshots.snapshots.mapLatest { s ->
-            (s as? GroupSnapshot.Ready)?.let {
+        combine(snapshots.snapshots, ownChanges, ::Pair).mapLatest { (s, own) ->
+            (s as? GroupSnapshot.Ready)?.let { base ->
+                val it = if (id == base.self) withOwn(base, own, range.start, range.end.plusDays(1)) else base
                 val o = CategoryOverrides.effective(it)
                 // Hours are drawn for a DAY only; a week or month needs no UsageDetail.
-                val details = if (range.period == Period.DAY) snapshots.details(it.groupId, id, range) else emptyList()
+                val details = if (range.period == Period.DAY) detailsOf(it, id, range.start, range.end) else emptyList()
                 SnapshotViews.app(it, id, packageName, range, today(), clock(), overrides = o, details = details)
             }
         }.distinctUntilChanged()
@@ -798,6 +824,16 @@ class SettingsRepository(
     suspend fun agreeToConsent() = if (settings.current().consentOutdated) upgradeConsent() else consentAndShare()
 
     suspend fun setSharing(on: Boolean) = pipeline.setSharing(on)
+
+    /**
+     * A parent's «show my screen time» (own time spec 2026-10-24), [UsageSettings.ownTimeLocal]: on collects at once
+     * into the local queue (nothing without usage access; the card then asks for it), off stops the collection and
+     * empties that queue. The time never leaves this phone. On a child's phone it changes nothing but the setting.
+     */
+    suspend fun setOwnTimeLocal(on: Boolean) {
+        pipeline.setOwnTimeLocal(on)
+        if (on) pipeline.collectLocal()
+    }
 
     suspend fun setRetention(detailDays: Int, summaryDays: Int) {
         settings.setRetention(detailDays, summaryDays)

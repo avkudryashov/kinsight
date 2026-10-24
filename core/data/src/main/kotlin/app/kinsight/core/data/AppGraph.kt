@@ -20,6 +20,7 @@ import app.kinsight.core.transport.ble.BlePermissions
 import app.kinsight.core.transport.ble.CloudSync
 import app.kinsight.core.transport.ble.SyncGraph
 import app.kinsight.core.usage.AppOpsUsageAccess
+import app.kinsight.core.usage.PackageAppInfoSource
 import app.kinsight.core.usage.UsageGraph
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -146,7 +147,9 @@ class Graph internal constructor(app: Context) {
         forget = { reset.resetIdentity(keepName = true) },
         runLock = cloudSecrets.runLock,
     )
-    val usage = UsageRepository(snapshots, prefs, appendOwn = { build -> pipeline.appendOwn(build = build) })
+    /** A parent's own screen time on this phone only (own time spec 2026-10-24), read from the local queue. */
+    val ownLocal = LocalOwnUsage(db, settings, PackageAppInfoSource(app.packageManager), access = { AppOpsUsageAccess(app).granted() })
+    val usage = UsageRepository(snapshots, prefs, appendOwn = { build -> pipeline.appendOwn(build = build) }, ownLocal = ownLocal)
     val location = LocationRepository(snapshots, ownAppend)
 
     /** Spec §10: the family PIN (parents) and the child's settings lock. */

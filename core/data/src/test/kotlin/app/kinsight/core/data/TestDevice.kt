@@ -28,6 +28,7 @@ import app.kinsight.core.usage.SettingsStore
 import app.kinsight.core.usage.UsageAccess
 import app.kinsight.core.usage.UsageEvent
 import app.kinsight.core.usage.UsagePipeline
+import app.kinsight.core.usage.ownTimeLocalAllowed
 import app.kinsight.core.usage.ownUsageAllowed
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -62,16 +63,21 @@ class FakeSyncControl : SyncControl {
     }
 }
 
-private object NoEvents : EventSource {
-    override fun read(fromMs: Long, untilMs: Long): List<UsageEvent> = emptyList()
+/** The system's usage events of a test phone: empty unless a test adds some. */
+class FakeEvents : EventSource {
+    val events: MutableList<UsageEvent> = Collections.synchronizedList(mutableListOf())
+    override fun read(fromMs: Long, untilMs: Long): List<UsageEvent> = synchronized(events) { events.filter { it.timeMs in fromMs until untilMs } }
 }
 
 private object NoLaunchers : LauncherSource {
     override fun launchers(): Set<String> = emptySet()
 }
 
-private object NoApps : AppInfoSource {
-    override fun info(packageName: String): AppInfo? = null
+/** Installed apps of a test phone: none unless a test adds some; [lookups] counts the calls. */
+class FakeAppInfo : AppInfoSource {
+    val known: MutableMap<String, AppInfo> = Collections.synchronizedMap(mutableMapOf())
+    @Volatile var lookups = 0
+    override fun info(packageName: String): AppInfo? = known[packageName].also { lookups++ }
 }
 
 private class FixedClock(private val ms: () -> Long) : DeviceClock {
@@ -113,19 +119,20 @@ class TestDevice(
 
     /** Usage access (AppOpsManager): a new child grants it only after pairing (UI refresh §6). */
     @Volatile var usageAccessGranted = true
+    val usageEvents = FakeEvents()
+    val appInfo = FakeAppInfo()
+    private suspend fun membership(t: PublishTarget) = Membership.compute(t.groupId, RoomEntryStore(db, t.groupId).membershipEntries())
     val pipeline = UsagePipeline(
         db = db,
-        collector = Collector(RoomUsageQueue(db), NoEvents, object : UsageAccess {
+        collector = Collector(RoomUsageQueue(db), usageEvents, object : UsageAccess {
             override fun granted() = usageAccessGranted
         }, FixedClock { now }, NoLaunchers),
         settings = settings,
-        apps = NoApps,
+        apps = appInfo,
         target = { groups.read()?.let { PublishTarget(it.groupId, keys) } },
         clock = { now },
-        ownUsage = { t ->
-            t != null &&
-                ownUsageAllowed(Membership.compute(t.groupId, RoomEntryStore(db, t.groupId).membershipEntries()), keys.deviceId, settings.current())
-        },
+        ownUsage = { t -> t != null && ownUsageAllowed(membership(t), keys.deviceId, settings.current()) },
+        ownTimeLocal = { t -> t != null && ownTimeLocalAllowed(membership(t), keys.deviceId) },
     )
     val snapshots = Snapshots(db, groups, keyProvider, transport, scope = scope)
     // A JVM AES key stands in for the Keystore wrap key; one wrap for all the files, like CloudFiles.wrap.
@@ -175,7 +182,10 @@ class TestDevice(
         leaveTimeoutMs = leaveTimeoutMs,
     )
     val appendOwn: OwnAppend = { build -> pipeline.appendOwn(build = build) }
+    /** The parent's own time on this phone (own time spec 2026-10-24), read from the local queue. */
+    val ownLocal = LocalOwnUsage(db, settings, appInfo, access = { usageAccessGranted }, clock = { now })
     val usage = UsageRepository(snapshots, prefs, appendOwn)
+    val settingsRepository = SettingsRepository(settings, prefs, pipeline, prune = {}, clock = { now })
 
     fun store() = RoomEntryStore(db, groups.read()!!.groupId)
 

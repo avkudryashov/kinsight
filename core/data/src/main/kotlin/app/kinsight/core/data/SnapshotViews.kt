@@ -32,7 +32,10 @@ sealed interface GroupState {
     data class Ready(val groupId: GroupId, val self: MemberView, val members: List<MemberView>, val selfOwnsStorage: Boolean = false) : GroupState
 }
 
-/** [selfUsage] for a child (its own card), [children] for a parent; [parents]: who sees this device's data. */
+/**
+ * [selfUsage] for a child (its own card) and for a parent that shows its own time on this phone
+ * ([MemberView.ownLocal]); [children] for a parent; [parents]: who sees this device's data.
+ */
 data class DashboardState(
     val self: MemberView,
     val selfUsage: DeviceUsage?,
@@ -90,7 +93,11 @@ object SnapshotViews {
         )
         return DashboardState(
             self = self,
-            selfUsage = if (self.role == Role.CHILD) usage(self) else null,
+            selfUsage = when {
+                self.role == Role.CHILD -> usage(self)
+                self.ownLocal -> usage(self).copy(ownAccessMissing = s.ownLocal?.accessMissing == true)
+                else -> null
+            },
             children = if (self.role == Role.PARENT) {
                 members.filter { it.role == Role.CHILD }.map { m ->
                     usage(m).copy(place = LocationReadModel.status(s.locations, s.events, m.id, names))
@@ -182,6 +189,7 @@ object SnapshotViews {
             .filter { it.author == m.id }
             .maxOfOrNull { it.body.created_at_ms.coerceAtMost(nowMs + UsageReadModel.MAX_CLOCK_SKEW_MS) }
         val seen = listOfNotNull(s.peerSeen[m.id], fresh).maxOrNull()
-        return MemberView(m.id, m.displayName, m.role.toRole(), m.isAdmin, isSelf, if (isSelf) null else seen)
+        val ownLocal = isSelf && s.ownLocal != null && m.role.toRole() == Role.PARENT
+        return MemberView(m.id, m.displayName, m.role.toRole(), m.isAdmin, isSelf, if (isSelf) null else seen, ownLocal = ownLocal)
     }
 }

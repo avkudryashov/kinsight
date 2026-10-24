@@ -66,8 +66,19 @@ sealed interface GroupSnapshot {
         val parentPins: List<DecodedEntry> = emptyList(),
         /** Live AppRule entries (spec §4), every author's latest per child and target. */
         val appRules: List<DecodedEntry> = emptyList(),
+        /** A parent's own time from this phone's local queue ([withOwnUsage]); never part of the log. */
+        val ownLocal: OwnLocal? = null,
     ) : GroupSnapshot {
         val removed: Boolean get() = self !in membership.active
+
+        /**
+         * This snapshot with [local]'s summaries and catalog added for [self] (own time spec 2026-10-24), so the views
+         * show a parent's own time like a child's. Details stay out: the repository hands [OwnLocal.details] to a view.
+         */
+        fun withOwnUsage(local: OwnLocal): Ready = Ready(
+            groupId, self, membership, summaries + local.summaries, catalog + local.catalog, events, heartbeats, peerSeen,
+            categoryOverrides, handovers, locations, safeZones, parentPins, appRules, ownLocal = local,
+        )
     }
 }
 

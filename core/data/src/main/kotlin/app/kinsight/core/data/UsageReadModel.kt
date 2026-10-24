@@ -592,7 +592,8 @@ object UsageReadModel {
         return e.fromMs < end && maxOf(e.toMs, e.fromMs) >= start
     }
 
-    private fun surfaced(member: MemberView, byDate: Map<LocalDate, DecodedEntry>?) = byDate.takeIf { member.role == Role.CHILD }
+    /** Only a child's usage is shown, and a parent's own time on its own phone ([MemberView.ownLocal]). */
+    private fun surfaced(member: MemberView, byDate: Map<LocalDate, DecodedEntry>?) = byDate.takeIf { member.role == Role.CHILD || member.ownLocal }
 
     private fun clampMs(ms: Long) = ms.coerceIn(0L, MAX_MS_PER_DAY)
 
