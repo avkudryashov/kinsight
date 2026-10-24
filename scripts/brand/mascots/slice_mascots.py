@@ -20,14 +20,17 @@ OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..",
                    "core", "designsystem", "src", "main", "res", "drawable-nodpi")
 
 
-def trimmed_square(cell: Image.Image) -> Image.Image | None:
-    """The cell's visible content, centred on a transparent square with PADDING; None for an empty cell."""
-    alpha = cell.getchannel("A").point(lambda a: 255 if a > ALPHA_MIN else 0)
-    box = alpha.getbbox()
-    if box is None:
-        return None
+def content_box(cell: Image.Image) -> tuple[int, int, int, int] | None:
+    """The bounding box of the cell's visible pixels; None for an empty cell."""
+    return cell.getchannel("A").point(lambda a: 255 if a > ALPHA_MIN else 0).getbbox()
+
+
+def framed_square(cell: Image.Image, box: tuple[int, int, int, int], side: int) -> Image.Image:
+    """The cell's content ([box]) centred on a transparent [side]-pixel square, then scaled to OUT_SIZE. One [side] for
+    all six moods of an animal keeps the head the same size in every mood (a per-cell side would shrink a mood with
+    narrower ears); centring on each cell's own content keeps it centred even when the sheet's rows sit at different
+    heights."""
     content = cell.crop(box)
-    side = int(max(content.size) / (1 - 2 * PADDING))
     square = Image.new("RGBA", (side, side), (0, 0, 0, 0))
     square.paste(content, ((side - content.width) // 2, (side - content.height) // 2), content)
     return square.resize((OUT_SIZE, OUT_SIZE), Image.LANCZOS)
@@ -38,13 +41,17 @@ def slice_sheet(path: str, animal: str) -> list[str]:
     if sheet.getchannel("A").getextrema()[0] == 255:
         return [f"{animal}: no transparency — ask ChatGPT for a transparent PNG background"]
     w, h = sheet.width // COLS, sheet.height // ROWS
-    cells = []
+    raw = []
     for i, mood in enumerate(MOODS):
         col, row = i % COLS, i // COLS
-        square = trimmed_square(sheet.crop((col * w, row * h, (col + 1) * w, (row + 1) * h)))
-        if square is None:
+        cell = sheet.crop((col * w, row * h, (col + 1) * w, (row + 1) * h))
+        box = content_box(cell)
+        if box is None:
             return [f"{animal}: cell {i + 1} ({mood}) is empty"]
-        cells.append((mood, square))
+        raw.append((mood, cell, box))
+    largest = max(max(b[2] - b[0], b[3] - b[1]) for _, _, b in raw)
+    side = int(largest / (1 - 2 * PADDING))
+    cells = [(mood, framed_square(cell, box, side)) for mood, cell, box in raw]
     os.makedirs(OUT, exist_ok=True)
     for mood, square in cells:
         square.save(os.path.join(OUT, f"mascot_{animal}_{mood}.webp"), "WEBP", quality=90, method=6)
