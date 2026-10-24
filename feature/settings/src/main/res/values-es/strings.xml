@@ -201,4 +201,6 @@
     <string name="more_setup_accessibility">bloqueo de apps</string>
     <string name="lim_children">Límites</string>
     <string name="lim_no_children">Todavía no hay menores</string>
+    <string name="set_own_time">Mostrar mi tiempo de pantalla</string>
+    <string name="set_own_time_body">Solo en este teléfono. No se envía a nadie.</string>
 </resources>

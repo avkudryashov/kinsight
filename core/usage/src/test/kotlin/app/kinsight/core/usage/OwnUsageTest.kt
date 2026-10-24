@@ -44,10 +44,10 @@ class OwnUsageTest {
     }
 
     @Test
-    fun onlyAnActiveParentMayKeepItsOwnTimeLocally() {
+    fun onlyAnActiveNonChildMayKeepItsOwnTimeLocally() {
         assertTrue(ownTimeLocalAllowed(active(DeviceRole.PARENT), self))
         assertFalse(ownTimeLocalAllowed(active(DeviceRole.CHILD), self))
-        assertFalse(ownTimeLocalAllowed(active(DeviceRole.DEVICE_ROLE_UNSPECIFIED), self))
+        assertTrue(ownTimeLocalAllowed(active(DeviceRole.DEVICE_ROLE_UNSPECIFIED), self))
         assertFalse(ownTimeLocalAllowed(null, self))
         assertFalse(ownTimeLocalAllowed(active(DeviceRole.PARENT), DeviceKeys.generate().deviceId))
         val departed = MembershipState(groupId, emptyMap(), mapOf(self to Departed(member(DeviceRole.PARENT), 5)), null, emptySet())

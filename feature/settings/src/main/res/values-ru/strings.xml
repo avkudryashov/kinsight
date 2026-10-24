@@ -203,4 +203,6 @@
     <string name="more_setup_accessibility">блокировка приложений</string>
     <string name="lim_children">Лимиты</string>
     <string name="lim_no_children">Детей пока нет</string>
+    <string name="set_own_time">Показывать моё экранное время</string>
+    <string name="set_own_time_body">Только на этом телефоне. Никуда не отправляется.</string>
 </resources>

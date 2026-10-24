@@ -238,7 +238,8 @@ fun DeviceDetailScreen(
     onRules: (() -> Unit)? = null,
     nowMs: Long = System.currentTimeMillis(),
 ) = Screen(detail.member.name, onBack) { padding ->
-    val child = detail.member.role == Role.CHILD
+    val own = detail.member.ownLocal // a parent's own time, on this phone only: the child's report minus what is a child's
+    val child = detail.member.role == Role.CHILD || own
     val totalLimit = thresholds?.firstOrNull { it.target == ThresholdTarget.Total }?.limitMs
     val today = detail.today ?: LocalDate.now()
     val known = detail.days.any { it.known }
@@ -271,7 +272,8 @@ fun DeviceDetailScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-            if (detail.sharing != Sharing.On) item(key = "sharing") { SharingNote(detail.sharing) }
+            if (own) item(key = "own_note") { Text(stringResource(R.string.det_own_local_note), Modifier.testTag("det_own_note")) }
+            else if (detail.sharing != Sharing.On) item(key = "sharing") { SharingNote(detail.sharing) }
             if (known) {
                 item(key = "total") { PeriodFigure(detail, today, nowMs, totalLimit) } // block 1
                 if (detail.period == Period.DAY) dayHours(detail, today, detailRetentionDays) // block 2
@@ -282,7 +284,7 @@ fun DeviceDetailScreen(
             } else {
                 item(key = "no_data") { EmptyState(stringResource(R.string.det_no_data_title), stringResource(R.string.det_no_data_body)) }
             }
-            if (onRules != null) {
+            if (onRules != null && !own) {
                 item(key = "rules_card") {
                     val dayShown = detail.period == Period.DAY && !today.isBefore(detail.range.start) && !today.isAfter(detail.range.end)
                     RulesCard(rules, detail.totalMs.takeIf { dayShown && known }, onRules)
@@ -293,7 +295,7 @@ fun DeviceDetailScreen(
             if (detail.apps.isEmpty()) item(key = "no_apps") { Text(stringResource(R.string.det_no_apps)) }
             items(detail.apps.take(UsageReadModel.TOP_APPS), key = { "app:${it.packageName}" }) { app ->
                 val category = detail.appCategories[app.packageName] ?: AppCategory.OTHER
-                AppRow(app, onOpenApp, mark = thresholds?.let { ThresholdEval.markOf(it, detail.member.id, app.packageName, category) } ?: RuleMark.NONE)
+                AppRow(app, onOpenApp, mark = thresholds?.takeIf { !own }?.let { ThresholdEval.markOf(it, detail.member.id, app.packageName, category) } ?: RuleMark.NONE)
             }
             if (detail.apps.isNotEmpty()) {
                 item(key = "all_apps") {
@@ -305,17 +307,19 @@ fun DeviceDetailScreen(
         } else {
             item(key = "not_shared") { Text(stringResource(R.string.det_parent_not_shared)) }
         }
-        item(key = "events_title") { SectionTitle(stringResource(R.string.det_events)) }
-        if (detail.events.isEmpty()) item(key = "no_events") { Text(stringResource(R.string.det_no_events)) }
-        items(detail.events.take(MAX_EVENTS), key = { "ev:${it.author.hex}-${it.seq}" }) { e ->
-            ListItem(
-                headlineContent = { Text(eventText(e)) },
-                supportingContent = { Text(dateTime(e.atMs)) }, // the alert's time too
-                modifier = Modifier.testTag("det_event_${e.seq}"),
-            )
-        }
-        if (detail.events.size > MAX_EVENTS) {
-            item(key = "events_more") { Text(stringResource(R.string.det_events_capped, MAX_EVENTS, detail.events.size)) }
+        if (!own) {
+            item(key = "events_title") { SectionTitle(stringResource(R.string.det_events)) }
+            if (detail.events.isEmpty()) item(key = "no_events") { Text(stringResource(R.string.det_no_events)) }
+            items(detail.events.take(MAX_EVENTS), key = { "ev:${it.author.hex}-${it.seq}" }) { e ->
+                ListItem(
+                    headlineContent = { Text(eventText(e)) },
+                    supportingContent = { Text(dateTime(e.atMs)) }, // the alert's time too
+                    modifier = Modifier.testTag("det_event_${e.seq}"),
+                )
+            }
+            if (detail.events.size > MAX_EVENTS) {
+                item(key = "events_more") { Text(stringResource(R.string.det_events_capped, MAX_EVENTS, detail.events.size)) }
+            }
         }
     }
 }

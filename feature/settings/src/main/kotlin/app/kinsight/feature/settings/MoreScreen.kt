@@ -1,5 +1,6 @@
 package app.kinsight.feature.settings
 
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,6 +16,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -30,6 +32,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.Role as SemRole
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -44,6 +47,7 @@ import app.kinsight.core.data.PinSave
 import app.kinsight.core.data.Role
 import app.kinsight.core.data.SetupItem
 import app.kinsight.core.data.UsageReadModel
+import app.kinsight.core.usage.UsageAccessSettings
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 
@@ -82,7 +86,19 @@ fun MoreRoute(
         vm.refreshStatus()
         pending = read()
     }
-    MoreScreen(ui, appVersion, pending, onFamily, onLimits, onSync, onTransparency, onAbout, onSetup, onSetPin = vm::setPin)
+    // «Show my screen time» (a parent's own time, on this phone only): turning it on without usage access opens Android's
+    // screen for it; back from there the collection runs again, so the Overview card fills without waiting an hour.
+    val parentHere = (ui.group as? GroupState.Ready)?.self?.role == Role.PARENT
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        if (parentHere && ui.usage.ownTimeLocal) vm.setOwnTimeLocal(true)
+    }
+    MoreScreen(
+        ui, appVersion, pending, onFamily, onLimits, onSync, onTransparency, onAbout, onSetup, onSetPin = vm::setPin,
+        onOwnTime = { on ->
+            vm.setOwnTimeLocal(on)
+            if (on && ui.service?.usageAccessGranted == false) UsageAccessSettings.open(context)
+        },
+    )
 }
 
 /**
@@ -103,6 +119,7 @@ fun MoreScreen(
     onAbout: () -> Unit,
     onSetup: () -> Unit,
     onSetPin: (String) -> Unit,
+    onOwnTime: (Boolean) -> Unit = {},
 ) {
     val role = (ui.group as? GroupState.Ready)?.self?.role
     val parent = role == Role.PARENT
@@ -147,6 +164,9 @@ fun MoreScreen(
                 }
             }
         }
+        if (parent) {
+            item { OwnTimeRow(ui.usage.ownTimeLocal, onOwnTime) }
+        }
         item { MoreRow(stringResource(R.string.set_transparency), stringResource(R.string.set_transparency_body), "more_transparency", onTransparency) }
         item { MoreRow(stringResource(R.string.more_about), stringResource(R.string.set_version, appVersion), "more_about", onAbout) }
     }
@@ -158,6 +178,23 @@ fun MoreScreen(
             },
             onDismiss = { setPin = false },
         )
+    }
+}
+
+/** A parent's «Show my screen time»: a switch row; the caption says it never leaves this phone. */
+@Composable
+private fun OwnTimeRow(on: Boolean, onChange: (Boolean) -> Unit) {
+    Card(Modifier.fillMaxWidth().testTag("more_own_time")) {
+        Row(
+            Modifier.testTag("more_own_time_switch").toggleable(value = on, role = SemRole.Switch, onValueChange = onChange).padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(stringResource(R.string.set_own_time), style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.set_own_time_body), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(checked = on, onCheckedChange = null)
+        }
     }
 }
 

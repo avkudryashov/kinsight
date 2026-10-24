@@ -126,5 +126,19 @@ class DashboardViewModel(
     fun syncNow() = service.syncNow()
 
     /** ON_RESUME: re-reads permissions and usage access at once (ServiceRepository.refresh). */
-    fun refreshStatus() = service.refresh()
+    fun refreshStatus() {
+        service.refresh()
+        // A parent's own card asked for usage access: back from Android's settings, collect at once so it fills now.
+        if (ui.value.dashboard?.selfUsage?.takeIf { it.member.ownLocal }?.ownAccessMissing == true) {
+            viewModelScope.launch {
+                try {
+                    settings.setOwnTimeLocal(true)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "setOwnTimeLocal(true) failed", e)
+                }
+            }
+        }
+    }
 }

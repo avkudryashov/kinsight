@@ -2,7 +2,6 @@ package app.kinsight.core.usage
 
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.MembershipState
-import app.kinsight.core.model.proto.DeviceRole
 
 /**
  * The one rule for reading and publishing this device's own usage (spec §4.8, Play stalkerware ruling): only an
@@ -13,9 +12,9 @@ fun ownUsageAllowed(membership: MembershipState?, self: DeviceId, settings: Usag
     membership?.active?.get(self)?.isChild == true && settings.consentAtMs != null
 
 /**
- * The parent's own screen time, kept on this phone only (own time spec 2026-10-24): an active PARENT member. A child,
- * a role-less (UNSPECIFIED) device, a departed member and a device without a group never do. It never publishes:
+ * The parent's own screen time, kept on this phone only (own time spec 2026-10-24): an active non-child member (PARENT or
+ * role-less UNSPECIFIED, which §4.8 treats as a parent). A child, a departed member and a device without a group never do. It never publishes:
  * [ownUsageAllowed] stays the only rule for that. The switch itself is [UsageSettings.ownTimeLocal].
  */
 fun ownTimeLocalAllowed(membership: MembershipState?, self: DeviceId): Boolean =
-    membership?.active?.get(self)?.role == DeviceRole.PARENT
+    membership?.active?.get(self)?.isChild == false

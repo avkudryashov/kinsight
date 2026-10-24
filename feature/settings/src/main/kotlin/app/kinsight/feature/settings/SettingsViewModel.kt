@@ -94,6 +94,9 @@ internal interface SettingsActions {
 
     suspend fun setSharing(on: Boolean)
 
+    /** A parent's «Show my screen time» (SettingsRepository.setOwnTimeLocal): on collects at once, off clears the local queue. */
+    suspend fun setOwnTimeLocal(on: Boolean) = Unit
+
     suspend fun setRetention(detailDays: Int, summaryDays: Int)
 
     suspend fun setSummaryMode(mode: SummaryMode)
@@ -163,6 +166,8 @@ private class RepositoryActions(
     override fun refreshStatus() = serviceRepo.refresh()
 
     override suspend fun setSharing(on: Boolean) = settings.setSharing(on)
+
+    override suspend fun setOwnTimeLocal(on: Boolean) = settings.setOwnTimeLocal(on)
 
     /** SettingsStore (DataStore, IO) then Pruner (Room, IO; the group file on Dispatchers.IO). */
     override suspend fun setRetention(detailDays: Int, summaryDays: Int) = settings.setRetention(detailDays, summaryDays)
@@ -268,6 +273,19 @@ class SettingsViewModel internal constructor(
 
     /** A consenting child only; the pipeline signs SHARING_PAUSED / SHARING_RESUMED first, so the family is told. */
     fun setSharing(on: Boolean) = attempt(SettingsError.SHARING, "setSharing($on)") { actions.setSharing(on) }
+
+    /** A parent's own screen time on this phone only; the pipeline refuses it on any other role. */
+    fun setOwnTimeLocal(on: Boolean) {
+        viewModelScope.launch {
+            try {
+                actions.setOwnTimeLocal(on)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "setOwnTimeLocal($on) failed", e) // the switch follows the stored setting, so it simply stays
+            }
+        }
+    }
 
     fun setRetention(detail: Int, summary: Int) = attempt(SettingsError.RETENTION, "setRetention($detail, $summary)") {
         actions.setRetention(detail, summary)

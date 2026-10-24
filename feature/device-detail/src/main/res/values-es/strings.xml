@@ -226,4 +226,5 @@
     <string name="det_rules_title">Límites y bloqueos</string>
     <string name="det_rules_summary">Bloqueadas: %1$d · Límites: %2$d · Siempre permitidas: %3$d</string>
     <string name="det_rules_none">Aún no hay reglas</string>
+    <string name="det_own_local_note">Solo en este teléfono. Kinsight nunca envía tu tiempo a ningún sitio.</string>
 </resources>

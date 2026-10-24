@@ -66,4 +66,6 @@
     <string name="dash_warning_blocking_off_self">Блокировка не работает: включите Kinsight в Настройках → Спец. возможности, чтобы работали правила родителей.</string>
     <string name="dash_last_sync">Последняя синхронизация %1$s</string>
     <string name="dash_never_synced">Синхронизации ещё не было</string>
+    <string name="dash_own_title">Вы</string>
+    <string name="dash_own_need_access">Разрешите доступ к истории использования, чтобы видеть своё время</string>
 </resources>

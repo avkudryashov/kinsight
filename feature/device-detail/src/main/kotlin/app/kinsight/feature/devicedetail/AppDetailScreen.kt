@@ -137,7 +137,7 @@ fun AppDetailScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item(key = "head") { Head(app, categoryChangedBy) }
-        if (app.canChangeCategory) {
+        if (canChangeCategory(app)) {
             item(key = "change") {
                 TextButton({ choosing = true }, Modifier.heightIn(min = 48.dp).testTag("app_category")) {
                     Text(stringResource(R.string.app_change_category))
@@ -302,7 +302,7 @@ private fun Head(app: AppDetail, changedBy: String?) = Row(verticalAlignment = A
         } else if (app.overridden) {
             Text(stringResource(R.string.app_category_yours), style = MaterialTheme.typography.bodySmall)
         }
-        if (app.canChangeCategory) {
+        if (canChangeCategory(app)) {
             Text(stringResource(R.string.app_category_shared), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("app_category_shared"))
         }
     }

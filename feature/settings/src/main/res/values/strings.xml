@@ -199,4 +199,6 @@
     <string name="more_setup_accessibility">app blocking</string>
     <string name="lim_children">Limits</string>
     <string name="lim_no_children">No children yet</string>
+    <string name="set_own_time">Show my screen time</string>
+    <string name="set_own_time_body">Only on this phone. It is never sent to anyone.</string>
 </resources>

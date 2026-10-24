@@ -128,6 +128,32 @@ class DeviceDetailScreenTest {
         list.performScrollToNode(hasText("Sync was stopped for 1 h"))
     }
 
+    private val mom = MemberView(DeviceId("aa".repeat(16)), "Mom", Role.PARENT, isAdmin = true, isSelf = true, lastSeenMs = null, ownLocal = true)
+
+    @Test
+    fun aParentsOwnViewHasNoRulesNoEventsAndSaysItStaysOnThePhone() {
+        val own = detail.copy(member = mom, events = listOf(event), sharing = Sharing.Never)
+        rule.setContent {
+            KinsightTheme() { DeviceDetailScreen(own, onPeriod = {}, onAllApps = {}, onBack = {}, onRules = {}, thresholds = emptyList()) }
+        }
+        rule.onNodeWithText("1 h 30 min").assertExists()
+        rule.onNodeWithText("Only on this phone. Kinsight never sends your own time anywhere.").assertExists()
+        rule.onNodeWithText("shares only children", substring = true).assertDoesNotExist()
+        rule.onNodeWithTag("det_list").performScrollToNode(hasTestTag("det_all_apps"))
+        rule.onNodeWithTag("det_rules").assertDoesNotExist()
+        rule.onNodeWithText("Events").assertDoesNotExist()
+        rule.onNodeWithText("Sync was stopped for 1 h").assertDoesNotExist()
+        rule.onNodeWithTag("det_event_5").assertDoesNotExist()
+    }
+
+    @Test
+    fun aChildsViewStillHasItsRulesAndEvents() {
+        rule.setContent { KinsightTheme() { DeviceDetailScreen(detail, onPeriod = {}, onAllApps = {}, onBack = {}, onRules = {}) } }
+        rule.onNodeWithText("Only on this phone.", substring = true).assertDoesNotExist()
+        rule.onNodeWithTag("det_list").performScrollToNode(hasTestTag("det_rules"))
+        rule.onNodeWithTag("det_list").performScrollToNode(hasText("Sync was stopped for 1 h"))
+    }
+
     @Test
     fun allAppsListsEveryApp() {
         rule.setContent { KinsightTheme() { AllAppsScreen(AppList(detail.member, detail.range, detail.apps, today), onBack = {}) } }

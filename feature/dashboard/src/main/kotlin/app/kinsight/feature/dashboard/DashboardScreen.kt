@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -35,6 +36,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
@@ -232,6 +234,15 @@ fun DashboardScreen(
                     item { ChildCard(u, childHexes, nowMs, noContactMs, totalLimit(ui.thresholds, u)) { onOpenDevice(u.member.id) } }
                     item { TopApps(u, ui.thresholds) }
                 }
+            } else {
+                // A parent that turned on «Show my screen time»: its own card first, on this phone only. Decided by the
+                // member's role and ownLocal, never by selfUsage alone (that is a child's own card too).
+                d.selfUsage?.takeIf { it.member.ownLocal }?.let { u ->
+                    item { OwnCard(u, childHexes, nowMs) { onOpenDevice(u.member.id) } }
+                }
+            }
+            if (child) {
+                // its own card is above
             } else if (d.children.isEmpty()) {
                 item {
                     EmptyState(stringResource(R.string.dash_empty_title), stringResource(R.string.dash_empty_body), icon = Icons.Filled.Person) {
@@ -514,7 +525,7 @@ internal fun totalLimit(rules: List<ThresholdRule>, u: DeviceUsage): Long? =
 @Composable
 private fun ChildCard(u: DeviceUsage, childHexes: List<String>, nowMs: Long, noContactMs: Long, limitMs: Long?, onClick: () -> Unit) {
     Column(
-        Modifier.childCard(u, childHexes, "dash_card", onClick).padding(20.dp),
+        Modifier.childCard(u, childHexes, "dash_card", onClick = onClick).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         CompositionLocalProvider(LocalContentColor provides OnChildCard) {
@@ -542,14 +553,52 @@ private fun ChildCard(u: DeviceUsage, childHexes: List<String>, nowMs: Long, noC
  * clickable to the report, tagged [tag]. White on every palette gradient keeps 4.5:1 (ChildColorsTest).
  */
 @Composable
-private fun Modifier.childCard(u: DeviceUsage, childHexes: List<String>, tag: String, onClick: () -> Unit): Modifier {
-    val label = stringResource(R.string.dash_open_details, u.member.name)
+private fun Modifier.childCard(u: DeviceUsage, childHexes: List<String>, tag: String, name: String = u.member.name, onClick: () -> Unit): Modifier {
+    val label = stringResource(R.string.dash_open_details, name)
     val color = childColor(u.member.id.hex, childHexes)
     return fillMaxWidth().clip(MaterialTheme.shapes.large)
         .background(Brush.linearGradient(color.gradient))
         .semantics { set(ChildColorKey, color) }
         .clickable(onClickLabel = label, role = Role.Button, onClick = onClick)
         .testTag(tag)
+}
+
+/**
+ * The parent's own card («Вы»), first on its Overview when it turned on «Show my screen time». The child card's look,
+ * without what only a child's phone has: no integrity warnings, no limit bar, no «who sees». Without usage access it
+ * invites the parent to grant it (never an error); it is never sent anywhere.
+ */
+@Composable
+private fun OwnCard(u: DeviceUsage, childHexes: List<String>, nowMs: Long, onClick: () -> Unit) {
+    val context = LocalContext.current
+    val you = stringResource(R.string.dash_own_title)
+    Column(
+        Modifier.childCard(u, childHexes, "dash_own_card", you, onClick).padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        CompositionLocalProvider(LocalContentColor provides OnChildCard) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Avatar(u.member.name)
+                Text(you, style = MaterialTheme.typography.titleLarge)
+            }
+            if (u.today.hasData) {
+                Text(durationText(u.today.totalMs), style = MaterialTheme.typography.displaySmall, modifier = Modifier.testTag("dash_today"))
+                comparison(u)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                u.updatedMs?.let { DataAt(it, nowMs, null) }
+            } else if (!u.ownAccessMissing) {
+                Text(stringResource(R.string.dash_card_no_data), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.testTag("dash_today"))
+            }
+            if (u.ownAccessMissing) {
+                Text(stringResource(R.string.dash_own_need_access), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.testTag("dash_own_need_access"))
+                OutlinedButton(
+                    { UsageAccessSettings.open(context) },
+                    Modifier.testTag("dash_own_open_access"),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = OnChildCard),
+                    border = BorderStroke(1.dp, OnChildCard),
+                ) { Text(stringResource(R.string.dash_open_usage_access)) }
+            }
+        }
+    }
 }
 
 /**
@@ -560,7 +609,7 @@ private fun Modifier.childCard(u: DeviceUsage, childHexes: List<String>, tag: St
 @Composable
 private fun CompactChildCard(u: DeviceUsage, childHexes: List<String>, nowMs: Long, noContactMs: Long, limitMs: Long?, onClick: () -> Unit) {
     Column(
-        Modifier.childCard(u, childHexes, "dash_compact_card", onClick).padding(16.dp),
+        Modifier.childCard(u, childHexes, "dash_compact_card", onClick = onClick).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         CompositionLocalProvider(LocalContentColor provides OnChildCard) {

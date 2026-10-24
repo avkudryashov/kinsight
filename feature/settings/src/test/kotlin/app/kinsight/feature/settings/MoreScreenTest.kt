@@ -3,6 +3,8 @@ package app.kinsight.feature.settings
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
@@ -52,13 +54,13 @@ class MoreScreenTest {
     private val stopped = ServiceStatus(ServiceState.STOPPED, true, null, emptyList(), false, null)
     private val calls = mutableListOf<String>()
 
-    private fun show(ui: SettingsUi, pending: List<SetupItem> = emptyList(), onSetPin: (String) -> Unit = {}) = rule.setContent {
+    private fun show(ui: SettingsUi, pending: List<SetupItem> = emptyList(), onSetPin: (String) -> Unit = {}, onOwnTime: (Boolean) -> Unit = {}) = rule.setContent {
         KinsightTheme {
             MoreScreen(
                 ui, "0.9.0", pending,
                 onFamily = { calls += "family" }, onLimits = { calls += "limits" }, onSync = { calls += "sync" },
                 onTransparency = { calls += "transparency" }, onAbout = { calls += "about" }, onSetup = { calls += "setup" },
-                onSetPin = onSetPin,
+                onSetPin = onSetPin, onOwnTime = onOwnTime,
             )
         }
     }
@@ -69,6 +71,32 @@ class MoreScreenTest {
     private val consentingChild = SettingsUi(
         GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(sharing = true, consentAtMs = 1), Prefs(), running, ownSharing = Sharing.On,
     )
+
+    @Test
+    fun aParentSeesTheOwnTimeSwitchAndItsCaptionAndChangesIt() {
+        val asked = mutableListOf<Boolean>()
+        show(parentUi(), onOwnTime = { asked += it })
+        rule.onNodeWithTag("more_list").performScrollToNode(hasTestTag("more_own_time"))
+        rule.onNodeWithText("Show my screen time").assertExists()
+        rule.onNodeWithText("Only on this phone. It is never sent to anyone.").assertExists()
+        rule.onNodeWithTag("more_own_time_switch").assertIsOff()
+        rule.onNodeWithTag("more_own_time_switch").performClick()
+        assertEquals(listOf(true), asked)
+    }
+
+    @Test
+    fun theOwnTimeSwitchShowsTheStoredSetting() {
+        show(parentUi().let { it.copy(usage = UsageSettings().let { u -> u.copy(ownTimeLocal = true) }) })
+        rule.onNodeWithTag("more_list").performScrollToNode(hasTestTag("more_own_time"))
+        rule.onNodeWithTag("more_own_time_switch").assertIsOn()
+    }
+
+    @Test
+    fun aChildDoesNotSeeTheOwnTimeSwitch() {
+        show(consentingChild)
+        rule.onNodeWithTag("more_own_time").assertDoesNotExist()
+        rule.onNodeWithText("Show my screen time").assertDoesNotExist()
+    }
 
     @Test
     fun aParentSeesEveryRow() {

@@ -143,7 +143,7 @@ class AppDetailViewModel internal constructor(
      * the signing.
      */
     fun setCategory(category: AppCategory?) {
-        if (detail.value?.canChangeCategory != true) return
+        if (detail.value?.let(::canChangeCategory) != true) return
         writes.launch(lane) {
             try {
                 source.setCategory(category)
@@ -197,3 +197,9 @@ class AppDetailViewModel internal constructor(
  * removed, no LEFT_GROUP): «Notify if more than…» is offered.
  */
 internal fun canSetThreshold(app: AppDetail): Boolean = app.canChangeCategory && app.member.role == Role.CHILD && app.active
+
+/**
+ * A category change is a family-shared signed entry; the parent's own time view is local-only («never sent anywhere»),
+ * so it offers none ([AppDetail.canChangeCategory] is true for any parent, the own view included).
+ */
+internal fun canChangeCategory(app: AppDetail): Boolean = app.canChangeCategory && !app.member.ownLocal

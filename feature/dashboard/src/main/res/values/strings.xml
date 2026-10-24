@@ -66,4 +66,6 @@
     <string name="dash_warning_blocking_off_self">Blocking is off: turn on Kinsight in Settings → Accessibility so your parents\' rules work.</string>
     <string name="dash_last_sync">Last sync %1$s</string>
     <string name="dash_never_synced">Not synced yet</string>
+    <string name="dash_own_title">You</string>
+    <string name="dash_own_need_access">Allow usage access to see your time</string>
 </resources>

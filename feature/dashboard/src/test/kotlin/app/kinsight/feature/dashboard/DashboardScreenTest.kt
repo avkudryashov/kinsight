@@ -11,6 +11,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasAnyDescendant
@@ -147,6 +148,57 @@ class DashboardScreenTest {
         rule.onNodeWithText("This phone").assertDoesNotExist()
         rule.onNodeWithTag("dash_sync_now").assertDoesNotExist()
         rule.onNodeWithTag("dash_banner").assertDoesNotExist()
+    }
+
+    private fun ownUsage(todayMin: Long, missing: Boolean = false): DeviceUsage {
+        val me = mom.copy(ownLocal = true)
+        return usage(me, todayMin, null, Sharing.Never).copy(ownAccessMissing = missing)
+    }
+
+    private fun parentWithOwn(own: DeviceUsage?, children: List<DeviceUsage> = listOf(usage(kid, 30, 30))) =
+        DashboardUi(DashboardState(mom, own, children, listOf(dad)), running, true)
+
+    @Test
+    fun aParentWithItsOwnTimeSeesTheYouCardFirstAboveTheChildren() {
+        var opened: DeviceId? = null
+        show(parentWithOwn(ownUsage(45)), onOpenDevice = { opened = it })
+        rule.onNodeWithTag("dash_own_card").assertExists()
+        rule.onNodeWithText("You").assertExists()
+        rule.onNodeWithText("45 min").assertExists()
+        val ownTop = rule.onNodeWithTag("dash_own_card").fetchSemanticsNode().boundsInRoot.top
+        val kidTop = rule.onNodeWithTag("dash_card").fetchSemanticsNode().boundsInRoot.top
+        assertTrue("the You card is above the child's", ownTop < kidTop)
+        // No integrity warnings, no limit, no «who sees» line on it.
+        rule.onNodeWithText("visible to", substring = true).assertDoesNotExist()
+        rule.onNodeWithTag("dash_own_need_access").assertDoesNotExist()
+        rule.onNodeWithTag("dash_own_card").performClick()
+        rule.waitForIdle()
+        assertEquals(mom.id, opened)
+    }
+
+    @Test
+    fun aParentWithoutItsOwnTimeSeesNoYouCard() {
+        show(parentWithOwn(null))
+        rule.onNodeWithTag("dash_own_card").assertDoesNotExist()
+        rule.onNodeWithText("Kid").assertExists()
+    }
+
+    @Test
+    fun aParentWithoutUsageAccessIsAskedForItWithAButton() {
+        show(parentWithOwn(ownUsage(0, missing = true).copy(today = DayTotal(today, 0, 0))))
+        rule.onNodeWithText("Allow usage access to see your time").assertExists()
+        rule.onNodeWithTag("dash_own_open_access").assertExists().assertHasClickAction()
+        rule.onNodeWithText("No data yet").assertDoesNotExist()
+        rule.onNodeWithText("Kid").assertExists()
+    }
+
+    @Test
+    fun aChildStillSeesItsOwnCardAsBeforeNotTheYouCard() {
+        show(childUi(Sharing.On))
+        rule.onNodeWithTag("dash_own_card").assertDoesNotExist()
+        rule.onNodeWithTag("dash_card").assertExists()
+        rule.onNodeWithText("Kid").assertExists()
+        rule.onNodeWithText("You").assertDoesNotExist()
     }
 
     private fun bannerFor(s: ServiceStatus, text: String, role: Role = Role.PARENT) {
