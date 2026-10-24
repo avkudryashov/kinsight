@@ -213,7 +213,7 @@ class AlertTextTest {
     fun blockingOffAndAPinUnblock() {
         val open = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.BLOCKING_OFF, 1_000))
         assertEquals(AlertChannels.IMPORTANT, open.channel)
-        assertEquals("Kid: app blocking turned off on the phone", open.title)
+        assertEquals("Kid: app blocking is off on the phone", open.title)
         assertEquals(2, open.body.lines().size)
         val closed = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.BLOCKING_OFF, 1_000, durationMs = 3 * min))
         assertEquals("Kid: app blocking was off on the phone for 3 min", closed.title)
@@ -221,6 +221,8 @@ class AlertTextTest {
         val pin = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.BLOCK_OVERRIDDEN, 1_000, packageName = "com.game"))
         assertEquals(AlertChannels.EVENTS, pin.channel)
         assertEquals("Kid: com.game unblocked by PIN until the end of the day", pin.title)
+        val named = AlertText.of(context, Alert.Integrity("Kid", StateEvent.Kind.BLOCK_OVERRIDDEN, 1_000, packageName = "com.game", appLabel = "Space Game"))
+        assertEquals("Kid: Space Game unblocked by PIN until the end of the day", named.title)
     }
 
     @Test

@@ -96,13 +96,13 @@
     <string name="det_limit_line">Limit %1$s</string>
     <string name="thr_title">Limits and blocks: %1$s</string>
     <string name="thr_parent_only">Only a parent can set limits.</string>
-    <string name="thr_empty">No limits yet</string>
+    <string name="thr_empty">No rules yet</string>
     <string name="thr_add">Add rule</string>
     <string name="thr_new">New rule</string>
-    <string name="thr_edit">Change limit</string>
+    <string name="thr_edit">Change rule</string>
     <string name="thr_target_total">Total per day</string>
-    <string name="thr_delete">Delete limit: %1$s</string>
-    <string name="thr_deleted">Limit removed</string>
+    <string name="thr_delete">Delete rule: %1$s</string>
+    <string name="thr_deleted">Rule removed</string>
     <string name="thr_undo">Undo</string>
     <string name="thr_kind_total">Total per day</string>
     <string name="thr_kind_category">A category</string>

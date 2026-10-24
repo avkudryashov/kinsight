@@ -82,7 +82,7 @@ class ThresholdsScreenTest {
         rule.onNodeWithText("Game").assertExists() // the app's label, not its package
         rule.onNodeWithText("1 h 30 min").assertExists()
         rule.onNodeWithTag("thr_delete_${total.id}").assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp)
-        rule.onNodeWithContentDescription("Delete limit: Total per day").assertExists()
+        rule.onNodeWithContentDescription("Delete rule: Total per day").assertExists()
     }
 
     @Test
@@ -90,7 +90,7 @@ class ThresholdsScreenTest {
         show(listOf(total, games))
         rule.onNodeWithTag("thr_delete_${games.id}").performClick()
         assertEquals(listOf(games), deleted)
-        rule.onNodeWithText("Limit removed").assertExists()
+        rule.onNodeWithText("Rule removed").assertExists()
         rule.onNodeWithText("Undo").performClick()
         rule.waitForIdle()
         assertEquals(listOf(games.id), undone)
@@ -101,11 +101,11 @@ class ThresholdsScreenTest {
     fun aDeleteIsCommittedWhenTheSnackbarTimesOut() {
         show(listOf(total, games))
         rule.onNodeWithTag("thr_delete_${games.id}").performClick()
-        rule.onNodeWithText("Limit removed").assertExists()
+        rule.onNodeWithText("Rule removed").assertExists()
         assertEquals(emptyList<String>(), committed)
         rule.mainClock.advanceTimeBy(15_000)
         rule.waitForIdle()
-        rule.onNodeWithText("Limit removed").assertDoesNotExist()
+        rule.onNodeWithText("Rule removed").assertDoesNotExist()
         assertEquals(listOf(games.id), committed)
         assertEquals(emptyList<String>(), undone)
     }
@@ -129,7 +129,7 @@ class ThresholdsScreenTest {
     @Test
     fun aPendingDeleteIsOfferedAgainAfterRecreation() {
         show(listOf(total), pendingAtStart = setOf(games.id))
-        rule.onNodeWithText("Limit removed").assertExists()
+        rule.onNodeWithText("Rule removed").assertExists()
         rule.mainClock.advanceTimeBy(15_000)
         rule.waitForIdle()
         assertEquals(listOf(games.id), committed)
@@ -138,7 +138,7 @@ class ThresholdsScreenTest {
     @Test
     fun addsACategoryLimitInSteps() {
         show(emptyList())
-        rule.onNodeWithText("No limits yet").assertExists()
+        rule.onNodeWithText("No rules yet").assertExists()
         rule.onNodeWithTag("thr_add").performClick()
         rule.onNodeWithTag("thr_save").assertIsNotEnabled() // nothing picked yet
         pickKind("thr_kind_category")
@@ -334,7 +334,7 @@ class ThresholdsScreenTest {
         rule.onNodeWithTag("thr_section_limits").assertExists()
         rule.onNodeWithTag("thr_section_blocked").assertDoesNotExist()
         rule.onNodeWithTag("thr_section_allowed").assertDoesNotExist()
-        rule.onNodeWithText("No limits yet").assertDoesNotExist()
+        rule.onNodeWithText("No rules yet").assertDoesNotExist()
     }
 
     @Test

@@ -19,7 +19,7 @@
     <string name="alert_bluetooth_off_for">%1$s: Bluetooth был выключен %2$s</string>
     <string name="alert_location_off_for">%1$s: доступ к местоположению был выключен %2$s</string>
     <string name="alert_location_disabled_for">%1$s: местоположение на телефоне было выключено %2$s</string>
-    <string name="alert_blocking_off">%1$s: на телефоне выключена блокировка приложений</string>
+    <string name="alert_blocking_off">%1$s: на телефоне не включена блокировка приложений</string>
     <string name="alert_blocking_off_for">%1$s: блокировка приложений на телефоне была выключена %2$s</string>
     <string name="alert_block_overridden">%1$s: %2$s разблокировано по PIN до конца дня</string>
     <string name="alert_event">%1$s: что-то изменилось</string>
@@ -65,7 +65,7 @@
     <string name="alert_advice_clock_changed">Ничего делать не нужно: Kinsight учитывает перевод часов.</string>
     <string name="alert_advice_location_off">Без него Kinsight не знает, где телефон. Попросите выбрать «Разрешать всегда» в настройках Kinsight.</string>
     <string name="alert_advice_location_disabled">Без него Kinsight не знает, где телефон. Попросите снова включить местоположение в быстрых настройках.</string>
-    <string name="alert_advice_blocking_off">Спец. возможность Kinsight выключена, поэтому заблокированные приложения открываются. Попросите снова включить её в Настройках → Спец. возможности.</string>
+    <string name="alert_advice_blocking_off">Спец. возможность Kinsight не включена, поэтому заблокированные приложения открываются. Попросите включить её в Настройках → Спец. возможности.</string>
     <string name="alert_advice_block_overridden">Родитель ввёл PIN на телефоне. Завтра приложение снова заблокировано.</string>
     <string name="alert_advice_event">Откройте Kinsight, чтобы посмотреть, что изменилось.</string>
     <string name="alert_zone_exit">%1$s: выход из зоны «%2$s»</string>

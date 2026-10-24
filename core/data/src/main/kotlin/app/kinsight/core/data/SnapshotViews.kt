@@ -81,7 +81,7 @@ object SnapshotViews {
         val self = members.first { it.isSelf }
         val byAuthor = UsageReadModel.summaries(s.summaries)
         val names = SafeZones.names(s.safeZones, s.membership)
-        val events = UsageReadModel.events(s.events, names).groupBy { it.author }
+        val events = UsageReadModel.events(s.events, names, s.catalog).groupBy { it.author }
         val overrides = CategoryOverrides.effective(s)
         fun usage(m: MemberView) = UsageReadModel.usage(
             m, byAuthor[m.id], events[m.id].orEmpty(), today, nowMs = nowMs, noContactMs = noContactMs,
@@ -119,7 +119,7 @@ object SnapshotViews {
             member = view(s, member, nowMs),
             byDate = UsageReadModel.summaries(s.summaries)[id],
             catalog = UsageReadModel.catalogOf(s.catalog, id),
-            events = UsageReadModel.events(s.events, SafeZones.names(s.safeZones, s.membership)).filter { it.author == id },
+            events = UsageReadModel.events(s.events, SafeZones.names(s.safeZones, s.membership), s.catalog).filter { it.author == id },
             range = range,
             today = today,
             departed = departed != null,

@@ -556,10 +556,10 @@ class AlertPlannerTest {
         assertEquals(listOf<Alert>(Alert.Resolved(kid.id, off, "Kid")), second.alerts)
         assertEquals(emptyList(), AlertPlanner.openProblems(input(events = closed, markers = second.markers)))
 
-        val overridden = EventView(kid.id, 3, StateEvent.Kind.BLOCK_OVERRIDDEN, 70_000, 70_000, 70_000, 0, packageName = "com.game")
+        val overridden = EventView(kid.id, 3, StateEvent.Kind.BLOCK_OVERRIDDEN, 70_000, 70_000, 70_000, 0, packageName = "com.game", appLabel = "Game")
         val third = AlertPlanner.plan(input(events = closed + overridden, markers = second.markers))
         val alert = third.alerts.single() as Alert.Integrity
-        assertEquals(Alert.Integrity("Kid", StateEvent.Kind.BLOCK_OVERRIDDEN, 70_000, kid.id, packageName = "com.game"), alert)
+        assertEquals(Alert.Integrity("Kid", StateEvent.Kind.BLOCK_OVERRIDDEN, 70_000, kid.id, packageName = "com.game", appLabel = "Game"), alert)
         assertEquals(AlertLevel.MINOR, AlertPlanner.level(alert))
         assertTrue(StateEvent.Kind.BLOCK_OVERRIDDEN !in AlertPlanner.INTEGRITY_KINDS, "a parent's own unblock needs no fast sync")
     }

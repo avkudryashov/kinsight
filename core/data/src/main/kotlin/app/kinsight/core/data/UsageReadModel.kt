@@ -140,7 +140,14 @@ object UsageReadModel {
         largest.setValue(largest.value + total - cats.values.sum())
     }
 
-    fun events(entries: List<DecodedEntry>, zoneNames: Map<String, String> = emptyMap()): List<EventView> {
+    /**
+     * The state events of [entries]. [catalog]: the AppCatalog entries a BLOCK_OVERRIDDEN takes its app's label from
+     * (its author's own description, [catalogOf]); without one the event shows the package.
+     */
+    fun events(entries: List<DecodedEntry>, zoneNames: Map<String, String> = emptyMap(), catalog: List<DecodedEntry> = emptyList()): List<EventView> {
+        val catalogs = HashMap<DeviceId, Map<String, AppCatalog>>()
+        fun labelOf(author: DeviceId, pkg: String): String? =
+            catalogs.getOrPut(author) { catalogOf(catalog, author) }[pkg]?.label?.takeUnless(String::isBlank)
         val sharingKinds = WireConstants.SHARING_KINDS
         val firstSharing = entries.filter { it.body.state_event?.kind in sharingKinds }
             .groupBy { it.author }
@@ -153,6 +160,8 @@ object UsageReadModel {
                     e.author, e.seq, it.kind, it.from_ms, it.to_ms, e.body.created_at_ms, it.clock_shift_ms, first,
                     zoneId = zone, zoneName = zone?.let(zoneNames::get),
                     packageName = it.package_name.takeIf { p -> p.isNotEmpty() },
+                    appLabel = it.package_name.takeIf { p -> p.isNotEmpty() && it.kind == StateEvent.Kind.BLOCK_OVERRIDDEN }
+                        ?.let { p -> labelOf(e.author, p) },
                 )
             }
         }

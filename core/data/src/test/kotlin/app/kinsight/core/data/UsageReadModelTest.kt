@@ -98,6 +98,21 @@ class UsageReadModelTest {
         assertEquals(listOf(null), UsageReadModel.events(listOf(event(StateEvent.Kind.SHARING_PAUSED))).map { it.packageName })
     }
 
+    /** Review I4: parents read the app's name from the child's own catalog, not the raw package. */
+    @Test
+    fun anOverrideEventNamesItsAppFromTheAuthorsCatalog() {
+        val overridden = kid.create { it.copy(state_event = StateEvent(kind = StateEvent.Kind.BLOCK_OVERRIDDEN, package_name = "com.game")) }
+        val other = EntryAuthor(groupId, DeviceKeys.generate(), lastSeq = 0)
+        val othersCatalog = other.create { it.copy(app_catalog = AppCatalog(package_name = "com.game", label = "Not this one")) }
+        assertEquals(listOf(null), UsageReadModel.events(listOf(overridden), catalog = listOf(othersCatalog)).map { it.appLabel }, "another phone's word")
+        val own = kid.create { it.copy(app_catalog = AppCatalog(package_name = "com.game", label = "Space Game")) }
+        val events = UsageReadModel.events(listOf(overridden), catalog = listOf(othersCatalog, own))
+        assertEquals(listOf("Space Game"), events.map { it.appLabel })
+        assertEquals(listOf("com.game"), events.map { it.packageName })
+        val blank = kid.create { it.copy(app_catalog = AppCatalog(package_name = "com.game", label = " ")) }
+        assertEquals(listOf(null), UsageReadModel.events(listOf(overridden), catalog = listOf(blank)).map { it.appLabel }, "a blank label: the package")
+    }
+
     @Test
     fun sharingFollowsTheLastSignedEvent() {
         assertEquals(Sharing.Never, UsageReadModel.sharing(emptyList(), departed = false))

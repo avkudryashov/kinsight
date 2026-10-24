@@ -14,7 +14,8 @@ sealed interface Alert {
      * [id]: the child's device, so tapping the alert can open its detail screen; null when unknown. [durationMs]: an
      * interval event's length (to_ms after from_ms), null when it has none; a short Bluetooth break is quiet (U4).
      * [zoneName]: ZONE_ENTER / ZONE_EXIT, the zone's name, null when unknown (shown, never logged: not in toString).
-     * [packageName]: BLOCK_OVERRIDDEN, the app unblocked by PIN (app blocking spec §5.3; not in toString either).
+     * [packageName]: BLOCK_OVERRIDDEN, the app unblocked by PIN (app blocking spec §5.3; not in toString either), and
+     * [appLabel] its name in the child's catalog (null when the child never described it: the package is shown).
      */
     data class Integrity(
         val device: String,
@@ -24,6 +25,7 @@ sealed interface Alert {
         val durationMs: Long? = null,
         val zoneName: String? = null,
         val packageName: String? = null,
+        val appLabel: String? = null,
     ) : Alert {
         override fun toString() = "Integrity($device, $kind, $atMs, $id, $durationMs)"
     }
@@ -222,7 +224,7 @@ object AlertPlanner {
             self = members.first { it.isSelf },
             members = members,
             departed = departed,
-            events = UsageReadModel.events(ready.events, SafeZones.names(ready.safeZones, ready.membership)),
+            events = UsageReadModel.events(ready.events, SafeZones.names(ready.safeZones, ready.membership), ready.catalog),
             children = SnapshotViews.dashboard(ready, today, nowMs).children,
             nowMs = nowMs,
             zone = zone,
@@ -260,7 +262,7 @@ object AlertPlanner {
                     }
                 }
                 if (e.kind in ANNOUNCED) {
-                    alerts += Alert.Integrity(child.name, e.kind, e.atMs, child.id, durationOf(e), e.zoneName, e.packageName)
+                    alerts += Alert.Integrity(child.name, e.kind, e.atMs, child.id, durationOf(e), e.zoneName, e.packageName, e.appLabel)
                 }
                 val open = OPENERS[e.kind] ?: continue
                 // Resolved only when the pair's latest earlier event is the open one: a repeated resume says nothing.

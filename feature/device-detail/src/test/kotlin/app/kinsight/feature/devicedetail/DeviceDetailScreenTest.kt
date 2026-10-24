@@ -146,6 +146,26 @@ class DeviceDetailScreenTest {
         rule.onNodeWithText("Clock moved back by 5 min").assertExists()
     }
 
+    /** Review I4: a PIN unblock names the app by the child's catalog label, the package only without one. */
+    @Test
+    fun aPinUnblockNamesItsApp() {
+        val pin = event.copy(kind = StateEvent.Kind.BLOCK_OVERRIDDEN, packageName = "com.game")
+        val texts = mutableListOf<String>()
+        rule.setContent {
+            KinsightTheme() {
+                Column {
+                    Text(eventText(pin.copy(appLabel = "Space Game")).also { texts += it })
+                    Text(eventText(pin).also { texts += it })
+                }
+            }
+        }
+        rule.waitForIdle()
+        assertEquals(
+            listOf("Space Game unblocked by PIN until the end of the day", "com.game unblocked by PIN until the end of the day"),
+            texts.takeLast(2),
+        )
+    }
+
     @Test
     @Config(qualifiers = "ru")
     fun everyEventKindHasItsOwnTextInRussian() {

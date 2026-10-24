@@ -118,6 +118,8 @@ data class EventView(
     val zoneName: String? = null,
     /** BLOCK_OVERRIDDEN: the package unblocked by PIN (null for other kinds). */
     val packageName: String? = null,
+    /** BLOCK_OVERRIDDEN: [packageName]'s label in the author's own catalog; null when it never described the app. */
+    val appLabel: String? = null,
 ) {
     /** When it happened, the same for the event list and the alert: an interval's start, else the signing time. */
     val atMs: Long get() = if (fromMs > 0) fromMs else createdMs

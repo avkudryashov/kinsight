@@ -55,8 +55,8 @@ object AlertText {
             ?: context.getString(R.string.alert_zone_exit_unnamed, a.device)
         StateEvent.Kind.ZONE_ENTER -> a.zoneName?.let { context.getString(R.string.alert_zone_enter, a.device, it) }
             ?: context.getString(R.string.alert_zone_enter_unnamed, a.device)
-        // App blocking spec §5.3: the package, as the event list names it.
-        StateEvent.Kind.BLOCK_OVERRIDDEN -> context.getString(R.string.alert_block_overridden, a.device, a.packageName.orEmpty())
+        // App blocking spec §5.3: the app's name from the child's catalog, as the event list names it; else the package.
+        StateEvent.Kind.BLOCK_OVERRIDDEN -> context.getString(R.string.alert_block_overridden, a.device, a.appLabel ?: a.packageName.orEmpty())
         else -> context.getString(titleOf(a.kind), a.device)
     }
 

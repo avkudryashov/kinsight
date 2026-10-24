@@ -19,7 +19,7 @@
     <string name="alert_bluetooth_off_for">%1$s: Bluetooth desactivado durante %2$s</string>
     <string name="alert_location_off_for">%1$s: acceso a la ubicación desactivado durante %2$s</string>
     <string name="alert_location_disabled_for">%1$s: ubicación desactivada en el teléfono durante %2$s</string>
-    <string name="alert_blocking_off">%1$s: bloqueo de apps desactivado en el teléfono</string>
+    <string name="alert_blocking_off">%1$s: el bloqueo de apps no está activo en el teléfono</string>
     <string name="alert_blocking_off_for">%1$s: bloqueo de apps desactivado en el teléfono durante %2$s</string>
     <string name="alert_block_overridden">%1$s: %2$s desbloqueada con PIN hasta el final del día</string>
     <string name="alert_event">%1$s: algo ha cambiado</string>
@@ -65,7 +65,7 @@
     <string name="alert_advice_clock_changed">No hay que hacer nada: Kinsight mantiene las horas correctas tras un cambio de hora.</string>
     <string name="alert_advice_location_off">Sin él, Kinsight no sabe dónde está el teléfono. Pide que se elija «Permitir siempre» en los ajustes de Kinsight.</string>
     <string name="alert_advice_location_disabled">Sin ella, Kinsight no sabe dónde está el teléfono. Pide que se vuelva a activar la ubicación en los ajustes rápidos.</string>
-    <string name="alert_advice_blocking_off">El servicio de accesibilidad de Kinsight está desactivado, así que las apps bloqueadas se abren. Pide que se vuelva a activar en Ajustes → Accesibilidad.</string>
+    <string name="alert_advice_blocking_off">El servicio de accesibilidad de Kinsight no está activo, así que las apps bloqueadas se abren. Pide que se active en Ajustes → Accesibilidad.</string>
     <string name="alert_advice_block_overridden">Un padre introdujo el PIN en el teléfono. Mañana la app vuelve a estar bloqueada.</string>
     <string name="alert_advice_event">Abre Kinsight para ver qué ha cambiado.</string>
     <string name="alert_zone_exit">%1$s salió de «%2$s»</string>

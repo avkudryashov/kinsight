@@ -50,7 +50,7 @@ fun eventText(e: EventView): String {
         StateEvent.Kind.LOCATION_DISABLED -> noticed(R.string.det_ev_location_disabled, R.string.det_ev_location_disabled_open)
         // Open: still off when noticed; closed: the service is back (the interval's length is on the alert).
         StateEvent.Kind.BLOCKING_OFF -> stringResource(if (e.toMs > e.fromMs) R.string.det_ev_blocking_on else R.string.det_ev_blocking_off)
-        StateEvent.Kind.BLOCK_OVERRIDDEN -> stringResource(R.string.det_ev_block_overridden, e.packageName.orEmpty())
+        StateEvent.Kind.BLOCK_OVERRIDDEN -> stringResource(R.string.det_ev_block_overridden, e.appLabel ?: e.packageName.orEmpty())
         StateEvent.Kind.KIND_UNSPECIFIED -> stringResource(R.string.det_ev_unknown)
     }
 }
