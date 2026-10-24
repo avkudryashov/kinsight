@@ -8,6 +8,7 @@ android {
 }
 
 dependencies {
+    api(project(":core:model"))
     implementation(libs.zxing.core)
     implementation(libs.compose.material.icons.core)
 }
