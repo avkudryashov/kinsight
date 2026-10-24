@@ -8,7 +8,7 @@
     <string name="blk_title_limit_total">Время за экраном на сегодня исчерпано</string>
     <string name="blk_home">Домой</string>
     <string name="blk_parent">Родитель: ввести PIN</string>
-    <string name="blk_until_tomorrow">Разрешено до конца дня</string>
+    <string name="blk_until_tomorrow">PIN родителя откроет его до конца дня</string>
     <string name="blk_pin_title">PIN родителя</string>
     <string name="blk_pin_ok">Открыть</string>
     <string name="blk_cancel">Отмена</string>

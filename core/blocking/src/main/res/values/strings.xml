@@ -8,7 +8,7 @@
     <string name="blk_title_limit_total">Screen time for today is used up</string>
     <string name="blk_home">Home</string>
     <string name="blk_parent">Parent: enter PIN</string>
-    <string name="blk_until_tomorrow">Allowed until the end of the day</string>
+    <string name="blk_until_tomorrow">A parent\'s PIN opens it until the end of the day</string>
     <string name="blk_pin_title">Parent PIN</string>
     <string name="blk_pin_ok">Open</string>
     <string name="blk_cancel">Cancel</string>
