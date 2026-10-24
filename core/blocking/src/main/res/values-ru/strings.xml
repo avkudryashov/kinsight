@@ -5,7 +5,7 @@
     <string name="blk_title_blocked">Заблокировано родителем</string>
     <string name="blk_title_category">Заблокировано: %1$s</string>
     <string name="blk_title_limit">Лимит на «%1$s» исчерпан</string>
-    <string name="blk_title_limit_total">Время за экраном на сегодня исчерпано</string>
+    <string name="blk_title_limit_total">Экранное время на сегодня исчерпано</string>
     <string name="blk_home">Домой</string>
     <string name="blk_parent">Родитель: ввести PIN</string>
     <string name="blk_until_tomorrow">PIN родителя откроет его до конца дня</string>
