@@ -1,5 +1,6 @@
 package app.kinsight.core.data
 
+import app.kinsight.core.model.Animal
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.GroupId
@@ -69,7 +70,7 @@ object SnapshotViews {
         !(s.self.isAdmin && s.members.count { it.isAdmin } == 1 && s.members.size > 1)
 
     fun members(s: GroupSnapshot.Ready, nowMs: Long = System.currentTimeMillis()): List<MemberView> =
-        s.membership.active.values.map { view(s, it, nowMs) }
+        Mascots.assign(s.groupId, s.membership).let { animals -> s.membership.active.values.map { view(s, it, nowMs, animals) } }
             .sortedWith(compareBy<MemberView>({ !it.isSelf }, { it.role != Role.PARENT }, { it.name }, { it.id }))
 
     /** [noContactMs]: the group's «no contact» window (Prefs.noContactHours), the floor of «collection off» (U1). */
@@ -183,13 +184,13 @@ object SnapshotViews {
         )
     }
 
-    private fun view(s: GroupSnapshot.Ready, m: Member, nowMs: Long): MemberView {
+    private fun view(s: GroupSnapshot.Ready, m: Member, nowMs: Long, animals: Map<DeviceId, Animal> = Mascots.assign(s.groupId, s.membership)): MemberView {
         val isSelf = m.id == s.self
         val fresh = (s.summaries.asSequence() + s.heartbeats.asSequence() + s.events.asSequence())
             .filter { it.author == m.id }
             .maxOfOrNull { it.body.created_at_ms.coerceAtMost(nowMs + UsageReadModel.MAX_CLOCK_SKEW_MS) }
         val seen = listOfNotNull(s.peerSeen[m.id], fresh).maxOrNull()
         val ownLocal = isSelf && s.ownLocal != null && m.role.toRole() == Role.PARENT
-        return MemberView(m.id, m.displayName, m.role.toRole(), m.isAdmin, isSelf, if (isSelf) null else seen, ownLocal = ownLocal)
+        return MemberView(m.id, m.displayName, m.role.toRole(), m.isAdmin, isSelf, if (isSelf) null else seen, ownLocal = ownLocal, animal = animals[m.id])
     }
 }

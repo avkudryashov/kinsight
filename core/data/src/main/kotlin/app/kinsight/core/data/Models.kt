@@ -1,5 +1,6 @@
 package app.kinsight.core.data
 
+import app.kinsight.core.model.Animal
 import app.kinsight.core.model.DeviceId
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.StateEvent
@@ -26,6 +27,8 @@ data class MemberView(
      * leave out what only a child has (rules, events, sharing pills) and say it is seen on this phone only.
      */
     val ownLocal: Boolean = false,
+    /** The member's mascot (Mascots.assign); null where a view is built without a snapshot. */
+    val animal: Animal? = null,
 )
 
 /**

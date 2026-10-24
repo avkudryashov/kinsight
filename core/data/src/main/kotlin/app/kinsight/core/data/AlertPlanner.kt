@@ -198,8 +198,9 @@ object AlertPlanner {
         overrides: Map<String, AppCategory> = emptyMap(),
     ): AlertInput {
         val members = SnapshotViews.members(ready, nowMs)
+        val animals = Mascots.assign(ready.groupId, ready.membership)
         val departed = ready.membership.departed.values.map {
-            MemberView(it.member.id, it.member.displayName, it.member.role.toRole(), it.member.isAdmin, isSelf = false, lastSeenMs = null)
+            MemberView(it.member.id, it.member.displayName, it.member.role.toRole(), it.member.isAdmin, isSelf = false, lastSeenMs = null, animal = animals[it.member.id])
         }
         val adds = ready.membership.effectiveEntries.mapNotNull { e ->
             val add = e.body.membership_op?.add ?: return@mapNotNull null
