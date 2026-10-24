@@ -53,6 +53,7 @@ import app.kinsight.core.data.ThresholdTarget
 import app.kinsight.core.designsystem.theme.KinsightTheme
 import app.kinsight.core.model.blockOverriddenEntry
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -103,25 +104,25 @@ class BlockedActivity : ComponentActivity() {
         finish()
     }
 
-    /** [PinCheck.OK]: the override is saved before the screen closes; signing and the sync nudge go on in the app scope. */
+    /**
+     * [PinCheck.OK]: the override is saved before the screen closes ([PinUnblock]); signing and the sync nudge go on in
+     * the app scope. A failed save keeps the screen open: the dialog shows it ([PinUnblock.NotSaved]).
+     */
     private suspend fun unlock(pin: String): PinCheck {
         val graph = AppGraph.get(this)
-        val check = graph.childLock.unlock(pin)
-        if (check != PinCheck.OK) return check
-        val pkg = target.value?.packageName ?: return check
-        graph.scope.launch {
-            graph.prefs.addPinOverride(pkg, LocalDate.now())
-            try {
+        val pkg = target.value?.packageName ?: return graph.childLock.unlock(pin)
+        val check = PinUnblock.unlock(
+            graph.scope,
+            check = { graph.childLock.unlock(pin) },
+            save = { graph.prefs.addPinOverride(pkg, LocalDate.now()) },
+            sign = {
                 val now = System.currentTimeMillis()
                 graph.pipeline.appendOwn { a -> listOf(a.blockOverriddenEntry(pkg, now)) }
                 graph.sync.start(fast = true)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "BLOCK_OVERRIDDEN not signed: ${e.javaClass.simpleName}")
-            }
-        }.join()
-        finish()
+            },
+            log = { Log.w(TAG, it) },
+        )
+        if (check == PinCheck.OK) finish()
         return check
     }
 
@@ -170,6 +171,50 @@ class BlockedActivity : ComponentActivity() {
             d.draw(Canvas(bitmap))
             return bitmap.asImageBitmap()
         }
+    }
+}
+
+/**
+ * The right-PIN path of [BlockedActivity] (review M4): the override is saved first, inside the error handling; a failed
+ * save throws [NotSaved] (the screen stays, the dialog says so) and signs nothing. BLOCK_OVERRIDDEN is signed only after
+ * the override is saved; a failed signature is logged (the app is open anyway). Runs in [scope] (the app's), so leaving
+ * the screen never cuts it short; the caller waits for it.
+ */
+internal object PinUnblock {
+    class NotSaved(cause: Exception) : Exception(cause)
+
+    suspend fun unlock(
+        scope: CoroutineScope,
+        check: suspend () -> PinCheck,
+        save: suspend () -> Unit,
+        sign: suspend () -> Unit,
+        log: (String) -> Unit = {},
+    ): PinCheck {
+        val result = check()
+        if (result != PinCheck.OK) return result
+        var failure: Exception? = null
+        scope.launch {
+            try {
+                save()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failure = e
+                return@launch
+            }
+            try {
+                sign()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log("BLOCK_OVERRIDDEN not signed: ${e.javaClass.simpleName}")
+            }
+        }.join()
+        failure?.let {
+            log("PIN override not saved: ${it.javaClass.simpleName}")
+            throw NotSaved(it)
+        }
+        return result
     }
 }
 
@@ -227,6 +272,7 @@ private fun PinDialog(status: ChildLockStatus, onUnlock: suspend (String) -> Pin
     var pin by remember { mutableStateOf("") }
     var last by remember { mutableStateOf<PinCheck?>(null) }
     var failed by remember { mutableStateOf(false) }
+    var notSaved by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -246,6 +292,7 @@ private fun PinDialog(status: ChildLockStatus, onUnlock: suspend (String) -> Pin
                 )
                 val note = when {
                     waitUntil != null -> stringResource(R.string.blk_pin_wait, DateUtils.formatDateTime(context, waitUntil, DateUtils.FORMAT_SHOW_TIME))
+                    notSaved -> stringResource(R.string.blk_pin_not_saved)
                     failed || last == PinCheck.NO_PIN -> stringResource(R.string.blk_pin_failed)
                     last == PinCheck.WRONG -> stringResource(R.string.blk_pin_wrong)
                     else -> null
@@ -263,10 +310,15 @@ private fun PinDialog(status: ChildLockStatus, onUnlock: suspend (String) -> Pin
                         try {
                             last = onUnlock(typed)
                             failed = false
+                            notSaved = false
                         } catch (e: CancellationException) {
                             throw e
+                        } catch (e: PinUnblock.NotSaved) {
+                            notSaved = true
+                            failed = false
                         } catch (e: Exception) {
                             failed = true
+                            notSaved = false
                         } finally {
                             busy = false
                         }

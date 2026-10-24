@@ -15,6 +15,7 @@
     <string name="blk_pin_wrong">Wrong PIN</string>
     <string name="blk_pin_wait">Too many tries. Try again after %1$s.</string>
     <string name="blk_pin_failed">Could not check the PIN. Try again.</string>
+    <string name="blk_pin_not_saved">The PIN is right, but the app could not be opened. Try again.</string>
     <string name="blk_cat_games">Games</string>
     <string name="blk_cat_social">Social and messaging</string>
     <string name="blk_cat_video">Video</string>

@@ -15,6 +15,7 @@
     <string name="blk_pin_wrong">Неверный PIN</string>
     <string name="blk_pin_wait">Слишком много попыток. Попробуйте после %1$s.</string>
     <string name="blk_pin_failed">Не удалось проверить PIN. Попробуйте ещё раз.</string>
+    <string name="blk_pin_not_saved">PIN верный, но приложение не удалось открыть. Попробуйте ещё раз.</string>
     <string name="blk_cat_games">Игры</string>
     <string name="blk_cat_social">Соцсети и общение</string>
     <string name="blk_cat_video">Видео</string>

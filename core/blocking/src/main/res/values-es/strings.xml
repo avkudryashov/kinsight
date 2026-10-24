@@ -15,6 +15,7 @@
     <string name="blk_pin_wrong">PIN incorrecto</string>
     <string name="blk_pin_wait">Demasiados intentos. Vuelve a intentarlo después de las %1$s.</string>
     <string name="blk_pin_failed">No se pudo comprobar el PIN. Vuelve a intentarlo.</string>
+    <string name="blk_pin_not_saved">El PIN es correcto, pero no se pudo abrir la app. Vuelve a intentarlo.</string>
     <string name="blk_cat_games">Juegos</string>
     <string name="blk_cat_social">Redes sociales y mensajería</string>
     <string name="blk_cat_video">Vídeo</string>
