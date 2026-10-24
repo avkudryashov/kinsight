@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -81,13 +82,19 @@ class BlockingAccessibilityService : AccessibilityService() {
         // yesterday cleared current; the stale value counts as unknown until this read replaces it).
         fun wantsUsage() = inputs.value.needsUsage && (e.current != null || e.usageStale()) && awake()
         // Main thread only: a window change starts a read when the last one is older than USAGE_REFRESH_MS.
-        var readAtMs = Long.MIN_VALUE
+        // 0, not Long.MIN_VALUE: now - MIN_VALUE overflows to a negative age and the first read would never start.
+        var readAtMs = 0L
         var reading: Job? = null
         refresh = {
             val now = System.currentTimeMillis()
             if (wantsUsage() && reading?.isActive != true && now - readAtMs >= Enforcer.USAGE_REFRESH_MS) {
                 readAtMs = now
-                reading = s.launch { today.value = readToday(now) }
+                // The app that triggered this read was decided on the cached usage (empty after a service start, up to
+                // USAGE_REFRESH_MS old otherwise): decide it again on the fresh value instead of waiting for the tick.
+                reading = s.launch {
+                    today.value = readToday(now)
+                    act(e.onTick())
+                }
             }
         }
         // The tick reads today's usage first, so a limit closes the app on screen within a minute of running out.
@@ -101,6 +108,14 @@ class BlockingAccessibilityService : AccessibilityService() {
                     readAtMs = now
                     today.value = readToday(now)
                 }
+                act(e.onTick())
+            }
+        }
+        // New inputs (the rules loaded after a service start, a rule a parent just added, a consent): the app on screen was
+        // decided without them, so decide it again now, and read today's usage if a limit now needs it.
+        s.launch {
+            inputs.drop(1).collect {
+                refresh?.invoke()
                 act(e.onTick())
             }
         }
