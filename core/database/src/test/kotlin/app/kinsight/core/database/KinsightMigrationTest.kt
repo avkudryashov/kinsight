@@ -7,7 +7,9 @@ import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.DeviceKeys
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.GroupGenesis
+import app.kinsight.core.model.appRuleEntry
 import app.kinsight.core.model.proto.AppCatalog
+import app.kinsight.core.model.proto.AppRule
 import app.kinsight.core.model.proto.CloudAccess
 import app.kinsight.core.model.proto.Heartbeat
 import app.kinsight.core.model.proto.Location
@@ -319,6 +321,26 @@ class KinsightMigrationTest {
         assertNull(db.entryDao().get(momKeys.deviceId.hex, momOld.seq), "Mom's older PIN is superseded")
         assertEquals("${dadKeys.deviceId.hex}/pin", db.entryDao().get(dadKeys.deviceId.hex, dadPin.seq)!!.supersedeKey)
         assertEquals(setOf(momNew, dadPin), RoomEntryStore(db, genesis.groupId).parentPins().toSet())
+        db.close()
+    }
+
+    @Test
+    fun migratesV5GivingAStoredUnknownAppRuleItsKind() = runTest {
+        val keys = DeviceKeys.generate()
+        val genesis = GroupGenesis.create(keys, "Mom")
+        val author = EntryAuthor(genesis.groupId, keys, lastSeq = 1)
+        val kid = ByteArray(16) { 7 }
+        val old = author.appRuleEntry(kid, AppRule.Target.APP, packageName = "com.example.game", mode = AppRule.Mode.ALLOW, rank = 1)
+        val newer = author.appRuleEntry(kid, AppRule.Target.APP, packageName = "com.example.game", mode = AppRule.Mode.BLOCK, rank = 2)
+        val v5 = File(dir, "v5r.db").absolutePath
+        // A released build (schema 5) could not decode the payload: kind 0, no supersede key.
+        ExportedSchema.create(v5, 5) { c -> for (e in listOf(old, newer)) insertV3(c, e, kind = EntryKinds.UNKNOWN, key = null) }
+        val db = KinsightDatabaseFactory.open(HostContext(), v5)
+        val a = keys.deviceId.hex
+        assertNull(db.entryDao().get(a, old.seq), "the older rule is superseded")
+        assertEquals(EntryKinds.APP_RULE, db.entryDao().get(a, newer.seq)!!.kind)
+        assertEquals("$a/rule/${"07".repeat(16)}/app:com.example.game", db.entryDao().get(a, newer.seq)!!.supersedeKey)
+        assertEquals(listOf(newer), RoomEntryStore(db, genesis.groupId).appRules())
         db.close()
     }
 

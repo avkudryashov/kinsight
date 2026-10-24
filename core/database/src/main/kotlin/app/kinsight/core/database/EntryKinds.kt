@@ -4,7 +4,7 @@ import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.EntryKind
 
 /**
- * Stored codes of entries.kind (schema 3). Persisted in every database: never renumber, only add.
+ * Stored codes of entries.kind (schema 3; APP_RULE added with schema 6). Persisted in every database: never renumber, only add.
  *
  * Entries from newer peers whose payload this build does not know are stored with [UNKNOWN] (0) and keep it: insert
  * never revisits a row. Adding a code therefore needs a migration that re-decodes the rows with kind 0 and sets
