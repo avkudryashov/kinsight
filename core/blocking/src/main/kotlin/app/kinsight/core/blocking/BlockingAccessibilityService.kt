@@ -129,9 +129,13 @@ class BlockingAccessibilityService : AccessibilityService() {
         getSystemService(PowerManager::class.java)?.isInteractive == true &&
             getSystemService(KeyguardManager::class.java)?.isKeyguardLocked != true
 
+    /**
+     * The block screen goes over the blocked app; its Home and Back lead home, a PIN unblock finishes it back into the app.
+     * No GLOBAL_ACTION_HOME first: the launcher's transition lands after the start and covers the block screen (emulator,
+     * Android 15).
+     */
     private fun act(action: Enforcer.Action) {
         if (action !is Enforcer.Action.Block) return
-        performGlobalAction(GLOBAL_ACTION_HOME)
         startActivity(BlockedActivity.intent(this, action.packageName, action.reason))
     }
 
