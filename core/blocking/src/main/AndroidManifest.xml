@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Spec §5.1 step 1: in-call screens (AndroidSystemAllowList.inCallUiPackages) are never closed. -->
+    <queries>
+        <intent>
+            <action android:name="android.telecom.InCallService" />
+        </intent>
+    </queries>
+
     <application>
         <!-- App blocking spec §5.2: sees only which app's window comes up (no window content) and closes blocked apps.
              Exported for the system, which alone holds BIND_ACCESSIBILITY_SERVICE. -->

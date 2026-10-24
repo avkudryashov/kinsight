@@ -29,9 +29,10 @@ class EnforcerTest {
         enabled: () -> Boolean = { true },
         system: SystemAllowList = SystemAllowList { it in setOf(OWN, HOME, SYSTEM_UI, KEYBOARD, DIALER) },
         ownPackage: String = OWN,
+        inCall: () -> Boolean = { false },
     ) = Enforcer(
         rules = { rules }, categoryOf = { AppCategory.GAMES }, today = today, date = { day }, pinAllowed = { emptySet() },
-        system = system, isHome = { it == HOME }, isOverlay = { it == SYSTEM_UI || it == KEYBOARD }, ownPackage = ownPackage, enabled = enabled, clock = { now },
+        system = system, isHome = { it == HOME }, isOverlay = { it == SYSTEM_UI || it == KEYBOARD }, ownPackage = ownPackage, enabled = enabled, clock = { now }, inCall = inCall,
     )
 
     private fun limitedGame(): Pair<Enforcer, (Long) -> Unit> {
@@ -152,6 +153,20 @@ class EnforcerTest {
         assertEquals(Enforcer.Action.None, e.onTick())
         cached = usage(HOUR)
         assertEquals(totalPassed, e.onTick())
+    }
+
+    /** Review I1: nothing closes during a phone call; the app on screen is re-checked once it is over. */
+    @Test
+    fun aPhoneCallPausesBlockingAndTheTickResumesAfterIt() {
+        var call = true
+        val e = enforcer(listOf(ThresholdRule.block(child, ThresholdTarget.App(GAME))!!), inCall = { call })
+        assertEquals(Enforcer.Action.None, e.onForeground(GAME))
+        assertEquals(GAME, e.current)
+        now += Enforcer.TICK_MS
+        assertEquals(Enforcer.Action.None, e.onTick())
+        call = false
+        now += Enforcer.TICK_MS
+        assertEquals(Enforcer.Action.Block(GAME, BlockReason.Blocked), e.onTick())
     }
 
     @Test

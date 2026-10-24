@@ -24,7 +24,7 @@ import java.time.LocalDate
  * full app in front (Kinsight itself, a launcher, the dialer during a call, Settings) and clears it: nothing behind a
  * call is closed by the tick. One Block per package within [DEBOUNCE_MS]: the
  * burst of window events an app raises while it opens closes it once, and a late event of the closed app does not make
- * it [current] again.
+ * it [current] again. While [inCall] nothing is closed at all.
  *
  * [today] is cached by the service and dated: a value of another day than [date] (read before midnight) counts as
  * unknown, so a day total passed yesterday never blocks this morning's first app, and [usageStale] tells the service to
@@ -42,6 +42,7 @@ class Enforcer(
     private val ownPackage: String,
     private val enabled: () -> Boolean,
     private val clock: () -> Long,
+    private val inCall: () -> Boolean = { false },
 ) {
     sealed interface Action {
         data object None : Action
@@ -80,7 +81,9 @@ class Enforcer(
     private fun debounced(packageName: String) = packageName == lastBlock && clock() - lastBlockAtMs in 0 until DEBOUNCE_MS
 
     private fun decide(packageName: String): Action {
-        if (!enabled()) return Action.None
+        // A phone call is on: nothing closes (an in-call screen of an unknown package, a map during the call), but the
+        // app stays current, so the tick re-checks it once the call is over.
+        if (!enabled() || inCall()) return Action.None
         val verdict = BlockDecision.decide(packageName, categoryOf(packageName), rules(), todayUsage(), pinAllowed(), system)
         val reason = verdict.reason ?: return Action.None
         if (debounced(packageName)) return Action.None

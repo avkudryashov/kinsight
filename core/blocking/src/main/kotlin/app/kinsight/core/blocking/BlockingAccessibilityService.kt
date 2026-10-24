@@ -74,6 +74,7 @@ class BlockingAccessibilityService : AccessibilityService() {
             ownPackage = packageName,
             enabled = { inputs.value.enabled },
             clock = System::currentTimeMillis,
+            inCall = allowList::inCall,
         ).also { enforcer = it }
         // Usage is read only when it can change a decision: a blocking LIMIT exists, the phone is awake and either an app
         // that is not allow-listed is on screen (Enforcer.current) or the cached usage is of another day (C1: a Block of
