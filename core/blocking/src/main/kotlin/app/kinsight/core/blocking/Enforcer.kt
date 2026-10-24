@@ -56,7 +56,17 @@ class Enforcer(
     private var lastBlock: String? = null
     private var lastBlockAtMs = 0L
 
+    /**
+     * A window of the app just blocked, inside [DEBOUNCE_MS]: either a late event of the closed app (the block screen's
+     * own window follows and clears this) or the app opening something new over the block screen (nothing follows).
+     * [onDebounceElapsed] tells them apart: any later [onForeground] clears it.
+     */
+    private var pendingRecheck: String? = null
+
+    val hasPendingRecheck: Boolean get() = pendingRecheck != null
+
     fun onForeground(packageName: String): Action {
+        pendingRecheck = null
         if (packageName == ownPackage || isHome(packageName)) {
             current = null
             return Action.None
@@ -66,9 +76,20 @@ class Enforcer(
             current = null
             return Action.None
         }
-        if (debounced(packageName)) return Action.None
+        if (debounced(packageName)) {
+            pendingRecheck = packageName
+            return Action.None
+        }
         current = packageName
         return decide(packageName)
+    }
+
+    /** [DEBOUNCE_MS] after a debounced window with no newer window since: the app is in front again, decide it now. */
+    fun onDebounceElapsed(): Action {
+        val pkg = pendingRecheck ?: return Action.None
+        pendingRecheck = null
+        current = pkg
+        return decide(pkg)
     }
 
     fun onTick(): Action = current?.let(::decide) ?: Action.None

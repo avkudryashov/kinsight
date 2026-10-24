@@ -105,6 +105,35 @@ class EnforcerTest {
         assertEquals(Enforcer.Action.None, e.onTick())
     }
 
+    @Test
+    fun anAppReopeningRightAfterItsBlockIsBlockedAgain() {
+        val e = enforcer(listOf(ThresholdRule.block(child, ThresholdTarget.App(GAME))!!))
+        assertEquals(Enforcer.Action.Block(GAME, BlockReason.Blocked), e.onForeground(GAME))
+        now += 20
+        assertEquals(Enforcer.Action.None, e.onForeground(OWN))
+        now += 20
+        assertEquals(Enforcer.Action.None, e.onForeground(GAME))
+        assertEquals(true, e.hasPendingRecheck)
+        now += Enforcer.DEBOUNCE_MS + 50
+        assertEquals(Enforcer.Action.Block(GAME, BlockReason.Blocked), e.onDebounceElapsed())
+        assertEquals(false, e.hasPendingRecheck)
+    }
+
+    @Test
+    fun aLateEventOfTheClosedAppFollowedByTheBlockScreenDoesNothing() {
+        val e = enforcer(listOf(ThresholdRule.block(child, ThresholdTarget.App(GAME))!!))
+        assertEquals(Enforcer.Action.Block(GAME, BlockReason.Blocked), e.onForeground(GAME))
+        now += 20
+        assertEquals(Enforcer.Action.None, e.onForeground(GAME))
+        assertEquals(true, e.hasPendingRecheck)
+        now += 20
+        assertEquals(Enforcer.Action.None, e.onForeground(OWN))
+        assertEquals(false, e.hasPendingRecheck)
+        now += Enforcer.DEBOUNCE_MS + 50
+        assertEquals(Enforcer.Action.None, e.onDebounceElapsed())
+        assertEquals(null, e.current)
+    }
+
     private fun usage(appMs: Long, totalMs: Long = appMs) = DatedUsage(day, TodayUsage(totalMs, mapOf(AppCategory.GAMES to appMs), mapOf(GAME to appMs)))
 
     @Test

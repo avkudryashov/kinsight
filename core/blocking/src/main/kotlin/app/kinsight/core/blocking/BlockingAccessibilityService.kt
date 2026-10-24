@@ -39,6 +39,7 @@ class BlockingAccessibilityService : AccessibilityService() {
     private var scope: CoroutineScope? = null
     private var enforcer: Enforcer? = null
     private var refresh: (() -> Unit)? = null
+    private var recheck: Job? = null
 
     override fun onServiceConnected() {
         scope?.cancel() // a reconnect starts over
@@ -126,7 +127,20 @@ class BlockingAccessibilityService : AccessibilityService() {
         if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val pkg = event.packageName?.toString() ?: return
         // Kinsight's own windows, the block screen included, go through too: the Enforcer clears the app behind them.
-        enforcer?.let { act(it.onForeground(pkg)) }
+        enforcer?.let { e ->
+            act(e.onForeground(pkg))
+            recheck?.cancel()
+            recheck = if (e.hasPendingRecheck) {
+                // A window of the app just blocked: if no newer window follows (the block screen's own would), the app
+                // opened something over the block screen and is in front again.
+                scope?.launch {
+                    delay(Enforcer.DEBOUNCE_MS + 50)
+                    act(e.onDebounceElapsed())
+                }
+            } else {
+                null
+            }
+        }
         refresh?.invoke()
     }
 
@@ -137,6 +151,7 @@ class BlockingAccessibilityService : AccessibilityService() {
         scope = null
         enforcer = null
         refresh = null
+        recheck = null
         super.onDestroy()
     }
 
