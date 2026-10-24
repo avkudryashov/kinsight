@@ -160,4 +160,33 @@ class ThresholdsTest {
         assertFalse(ThresholdEval.limited(rules, kidA, "com.example.chat", AppCategory.SOCIAL), "the day total alone is no pill")
         assertFalse(ThresholdEval.limited(rules, kidB, "com.example.game", AppCategory.GAMES))
     }
+
+    @Test
+    fun blockHasNoLimitAndNeverTotal() {
+        assertNull(ThresholdRule.block(kidA, ThresholdTarget.Total))
+        assertEquals(0L, ThresholdRule.block(kidA, ThresholdTarget.App("com.x"))!!.limitMs)
+        assertNull(ThresholdRule.allow(kidA, Categories.REMAINDER_PACKAGE))
+        assertNull(ThresholdRule.allow(kidA, "~other"))
+        assertEquals(RuleMode.ALLOW, ThresholdRule.allow(kidA, "com.x")!!.mode)
+    }
+
+    @Test
+    fun markPrefersAllowThenBlockThenLimit() {
+        val rules = listOfNotNull(
+            ThresholdRule.allow(kidA, "com.x"),
+            ThresholdRule.block(kidA, ThresholdTarget.Category(AppCategory.GAMES)),
+            ThresholdRule.of(kidA, ThresholdTarget.App("com.y"), 60 * min),
+        )
+        assertEquals(RuleMark.ALLOWED, ThresholdEval.markOf(rules, kidA, "com.x", AppCategory.GAMES))
+        assertEquals(RuleMark.BLOCKED, ThresholdEval.markOf(rules, kidA, "com.z", AppCategory.GAMES))
+        assertEquals(RuleMark.LIMIT, ThresholdEval.markOf(rules, kidA, "com.y", AppCategory.VIDEO))
+        assertEquals(RuleMark.NONE, ThresholdEval.markOf(rules, kidA, "com.w", AppCategory.VIDEO))
+        assertEquals(RuleMark.NONE, ThresholdEval.markOf(rules, kidB, "com.x", AppCategory.GAMES))
+    }
+
+    @Test
+    fun blockOnLimitOnlyForLimits() {
+        assertTrue(ThresholdRule.of(kidA, ThresholdTarget.Total, 60 * min, blockOnLimit = true)!!.blockOnLimit)
+        assertFalse(ThresholdEval.limited(listOfNotNull(ThresholdRule.block(kidA, ThresholdTarget.App("com.x"))), kidA, "com.x", AppCategory.GAMES))
+    }
 }

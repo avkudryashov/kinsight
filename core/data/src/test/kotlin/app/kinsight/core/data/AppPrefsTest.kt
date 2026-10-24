@@ -149,9 +149,9 @@ class AppPrefsTest {
     @Test
     fun anInvalidThresholdIsRefused() = runBlocking<Unit> {
         // Built around ThresholdRule.of: an off-step limit or an id not derived from child and target.
-        assertFailsWith<IllegalArgumentException> { prefs.setThreshold(ThresholdRule("x", kidA, ThresholdTarget.Total, hour)) }
+        assertFailsWith<IllegalArgumentException> { prefs.setThreshold(ThresholdRule("x", kidA, ThresholdTarget.Total, limitMs = hour)) }
         assertFailsWith<IllegalArgumentException> {
-            prefs.setThreshold(ThresholdRule(ThresholdRule.idOf(kidA, ThresholdTarget.Total), kidA, ThresholdTarget.Total, hour + 1))
+            prefs.setThreshold(ThresholdRule(ThresholdRule.idOf(kidA, ThresholdTarget.Total), kidA, ThresholdTarget.Total, limitMs = hour + 1))
         }
         assertEquals(emptyList(), prefs.thresholds.first())
     }
