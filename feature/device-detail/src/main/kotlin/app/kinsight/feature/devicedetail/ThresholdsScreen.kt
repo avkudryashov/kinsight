@@ -255,7 +255,12 @@ private fun RuleRow(r: ThresholdRule, state: ThresholdsState, onEdit: () -> Unit
                         container = MaterialTheme.colorScheme.errorContainer,
                         content = MaterialTheme.colorScheme.onErrorContainer,
                     )
-                    RuleMode.ALLOW -> Pill(stringResource(R.string.thr_pill_allowed), Modifier.testTag("thr_pill_allowed"))
+                    RuleMode.ALLOW -> Pill(
+                        stringResource(R.string.thr_pill_allowed),
+                        Modifier.testTag("thr_pill_allowed"),
+                        container = MaterialTheme.colorScheme.secondaryContainer,
+                        content = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
                 }
                 if (state.canEdit) {
                     IconButton(
