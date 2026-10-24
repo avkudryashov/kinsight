@@ -67,7 +67,7 @@ import kotlinx.coroutines.sync.withLock
 @Composable
 fun ThresholdsRoute(id: DeviceId, onBack: () -> Unit) {
     val graph = AppGraph.get(LocalContext.current)
-    val vm: ThresholdsViewModel = viewModel(key = "thresholds-${id.hex}") { ThresholdsViewModel(graph.usage, id, graph.scope, createSavedStateHandle(), graph.settingsRepository.usageSettings.map { it.consentOutdated }.catch { emit(false) }) }
+    val vm: ThresholdsViewModel = viewModel(key = "thresholds-${id.hex}") { ThresholdsViewModel(graph.usage, id, graph.scope, createSavedStateHandle(), graph.settingsRepository.usageSettings.map { !it.blockingConsented }.catch { emit(false) }) }
     val state by vm.state.collectAsStateWithLifecycle()
     val pending by vm.pendingDeletes.collectAsStateWithLifecycle()
     state?.let {

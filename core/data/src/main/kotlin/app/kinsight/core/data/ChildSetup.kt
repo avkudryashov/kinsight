@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.PowerManager
 import app.kinsight.core.location.LocationPermissions
 import app.kinsight.core.usage.AppOpsUsageAccess
+import app.kinsight.core.usage.UsageSettings
 
 /**
  * A step of the child's phone setup (UI refresh §6), in the order the wizard asks. ACCESSIBILITY: the service that closes
@@ -61,8 +62,10 @@ object ChildSetup {
         enforcing = enforcing,
     )
 
-    /** Whether this phone's own effective rules need the enforcement service; false outside a group or once removed. */
-    fun enforcing(snapshot: GroupSnapshot): Boolean = (snapshot as? GroupSnapshot.Ready)?.let { r ->
-        BlockDecision.enforcing(AppRules.effective(r).filter { it.child == r.self })
-    } == true
+    /**
+     * Whether this phone's own effective rules need the enforcement service and the service would act on them
+     * ([BlockDecision.enforcedRules]: a member child whose consent names blocking): a child that has not agreed to that
+     * text is not asked to turn on a service that does nothing yet. False outside a group or once removed.
+     */
+    fun enforcing(snapshot: GroupSnapshot, settings: UsageSettings): Boolean = BlockDecision.enforcedRules(snapshot, settings).isNotEmpty()
 }

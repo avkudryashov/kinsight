@@ -8,6 +8,7 @@ import app.kinsight.core.usage.LauncherSource
 import app.kinsight.core.usage.StreamState
 import app.kinsight.core.usage.UsageAccess
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 
 /**
@@ -15,7 +16,8 @@ import java.time.ZoneId
  * [Aggregator] the collector uses (launchers excluded): the screen time, each app's time and their stack by the effective
  * [categoryOf]. The day is the phone's local date. The read starts [LOOKBACK_MS] before midnight, so an app open across
  * midnight counts from 00:00; only today's hours are kept. Null without usage access: nothing is known, so limits do not
- * block (explicit blocks still do).
+ * block (explicit blocks still do). The result carries the day it was read for ([DatedUsage]), so a value cached before
+ * midnight is never taken for the next day's.
  */
 class TodayUsageReader(
     private val source: EventSource,
@@ -24,7 +26,7 @@ class TodayUsageReader(
     private val zone: () -> ZoneId,
     private val categoryOf: (String) -> AppCategory,
 ) {
-    fun read(nowMs: Long): TodayUsage? {
+    fun read(nowMs: Long): DatedUsage? {
         if (!access.granted()) return null
         val z = zone()
         val day = Instant.ofEpochMilli(nowMs).atZone(z).toLocalDate()
@@ -37,10 +39,13 @@ class TodayUsageReader(
             .groupingBy { it.key.packageName }.fold(0L) { sum, e -> sum + e.value }
         val totalMs = agg.screenMs.filterKeys { it.date == day }.values.sum()
         val byCategory = byApp.entries.groupingBy { categoryOf(it.key) }.fold(0L) { sum, e -> sum + e.value }
-        return TodayUsage(totalMs, byCategory, byApp)
+        return DatedUsage(day, TodayUsage(totalMs, byCategory, byApp))
     }
 
     companion object {
         const val LOOKBACK_MS = 3_600_000L
     }
 }
+
+/** [usage] of the phone's local [date]: today's usage as long as [date] is today, unknown after midnight. */
+data class DatedUsage(val date: LocalDate, val usage: TodayUsage)

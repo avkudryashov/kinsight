@@ -53,8 +53,8 @@ internal interface ThresholdSource {
     fun blockingOff(): Flow<Boolean> = flowOf(false)
 
     /**
-     * Blocks wait for this child to agree to the updated consent (UsageSettings.consentOutdated): true only on the
-     * child's own phone, never shown to a parent (app blocking spec §8).
+     * Blocks wait for this child to agree to a consent text that names them (not UsageSettings.blockingConsented):
+     * true only on the child's own phone, never shown to a parent (app blocking spec §8).
      */
     fun awaitingConsent(): Flow<Boolean> = flowOf(false)
 
@@ -63,14 +63,17 @@ internal interface ThresholdSource {
     suspend fun remove(id: String)
 }
 
-/** [ThresholdSource.awaitingConsent] of a repository source: the viewer is not a parent (the child itself) and its consent is outdated. */
-internal fun awaitingConsentOnChildPhone(viewerIsParent: Flow<Boolean>, consentOutdated: Flow<Boolean>): Flow<Boolean> =
-    combine(viewerIsParent, consentOutdated) { parent, outdated -> !parent && outdated }.distinctUntilChanged()
+/**
+ * [ThresholdSource.awaitingConsent] of a repository source: the viewer is not a parent (the child itself) and its consent
+ * does not cover blocking yet ([blockingNotConsented]: not UsageSettings.blockingConsented, the gate EnforcerInputs uses).
+ */
+internal fun awaitingConsentOnChildPhone(viewerIsParent: Flow<Boolean>, blockingNotConsented: Flow<Boolean>): Flow<Boolean> =
+    combine(viewerIsParent, blockingNotConsented) { parent, waiting -> !parent && waiting }.distinctUntilChanged()
 
 private class RepositoryThresholdSource(
     private val usage: UsageRepository,
     private val id: DeviceId,
-    private val consentOutdated: Flow<Boolean>,
+    private val blockingNotConsented: Flow<Boolean>,
 ) : ThresholdSource {
     override fun rules(): Flow<List<ThresholdRule>> = usage.thresholds
 
@@ -90,7 +93,7 @@ private class RepositoryThresholdSource(
         d?.children?.firstOrNull { it.member.id == id }?.setupWarnings?.contains(SetupWarning.BLOCKING_OFF) == true
     }.distinctUntilChanged()
 
-    override fun awaitingConsent(): Flow<Boolean> = awaitingConsentOnChildPhone(usage.viewerIsParent, consentOutdated)
+    override fun awaitingConsent(): Flow<Boolean> = awaitingConsentOnChildPhone(usage.viewerIsParent, blockingNotConsented)
 
     override suspend fun set(rule: ThresholdRule) = usage.setThreshold(rule)
 
@@ -142,8 +145,8 @@ class ThresholdsViewModel internal constructor(
     private val clock: () -> Long = System::currentTimeMillis,
     private val writes: CoroutineContext = EmptyCoroutineContext,
 ) : ViewModel() {
-    constructor(usage: UsageRepository, child: DeviceId, commitScope: CoroutineScope, saved: SavedStateHandle, consentOutdated: Flow<Boolean>) :
-        this(RepositoryThresholdSource(usage, child, consentOutdated), child, commitScope, saved, writes = ThresholdWrites.lane)
+    constructor(usage: UsageRepository, child: DeviceId, commitScope: CoroutineScope, saved: SavedStateHandle, blockingNotConsented: Flow<Boolean>) :
+        this(RepositoryThresholdSource(usage, child, blockingNotConsented), child, commitScope, saved, writes = ThresholdWrites.lane)
 
     /** Deleted on screen, «Undo» still offered: id to the end of its window (wall clock ms). */
     private val pending: MutableStateFlow<Map<String, Long>>

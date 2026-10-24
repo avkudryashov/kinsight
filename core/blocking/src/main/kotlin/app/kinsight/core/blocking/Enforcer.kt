@@ -1,7 +1,6 @@
 package app.kinsight.core.blocking
 
 import app.kinsight.core.data.AppCategory
-import app.kinsight.core.data.AppRules
 import app.kinsight.core.data.BlockDecision
 import app.kinsight.core.data.BlockReason
 import app.kinsight.core.data.Categories
@@ -13,6 +12,7 @@ import app.kinsight.core.data.ThresholdRule
 import app.kinsight.core.data.TodayUsage
 import app.kinsight.core.data.UsageReadModel
 import app.kinsight.core.usage.UsageSettings
+import java.time.LocalDate
 
 /**
  * The pure part of the enforcement service (app blocking spec §5.2): what to do when a window comes up, and on the
@@ -25,11 +25,16 @@ import app.kinsight.core.usage.UsageSettings
  * call is closed by the tick. One Block per package within [DEBOUNCE_MS]: the
  * burst of window events an app raises while it opens closes it once, and a late event of the closed app does not make
  * it [current] again.
+ *
+ * [today] is cached by the service and dated: a value of another day than [date] (read before midnight) counts as
+ * unknown, so a day total passed yesterday never blocks this morning's first app, and [usageStale] tells the service to
+ * read usage again whether or not an app is [current] (a Block clears it, so `current` alone would never re-arm the read).
  */
 class Enforcer(
     private val rules: () -> List<ThresholdRule>,
     private val categoryOf: (String) -> AppCategory,
-    private val today: () -> TodayUsage?,
+    private val today: () -> DatedUsage?,
+    private val date: () -> LocalDate,
     private val pinAllowed: () -> Set<String>,
     private val system: SystemAllowList,
     private val isHome: (String) -> Boolean,
@@ -67,11 +72,16 @@ class Enforcer(
 
     fun onTick(): Action = current?.let(::decide) ?: Action.None
 
+    /** The cached usage is of another day than today: read it again before trusting it (it counts as unknown meanwhile). */
+    fun usageStale(): Boolean = today()?.let { it.date != date() } ?: false
+
+    private fun todayUsage(): TodayUsage? = today()?.takeIf { it.date == date() }?.usage
+
     private fun debounced(packageName: String) = packageName == lastBlock && clock() - lastBlockAtMs in 0 until DEBOUNCE_MS
 
     private fun decide(packageName: String): Action {
         if (!enabled()) return Action.None
-        val verdict = BlockDecision.decide(packageName, categoryOf(packageName), rules(), today(), pinAllowed(), system)
+        val verdict = BlockDecision.decide(packageName, categoryOf(packageName), rules(), todayUsage(), pinAllowed(), system)
         val reason = verdict.reason ?: return Action.None
         if (debounced(packageName)) return Action.None
         lastBlock = packageName
@@ -90,7 +100,8 @@ class Enforcer(
 /**
  * What the service caches from the snapshot and the consent (spec §5.2): this child's own effective rules, its effective
  * category per package (family overrides over its own catalog, the same function for [TodayUsageReader]'s stack), and
- * whether to enforce at all: a member child with an up-to-date consent and at least one blocking rule. [needsUsage]:
+ * whether to enforce at all ([BlockDecision.enforcedRules]: a member child whose consent names blocking, with at least
+ * one blocking rule). [needsUsage]:
  * a LIMIT with `blockOnLimit` is among them, so today's usage is worth reading (a BLOCK-only set never needs it).
  */
 class EnforcerInputs(val enabled: Boolean, val rules: List<ThresholdRule>, val categoryOf: (String) -> AppCategory) {
@@ -100,10 +111,9 @@ class EnforcerInputs(val enabled: Boolean, val rules: List<ThresholdRule>, val c
         val OFF = EnforcerInputs(false, emptyList()) { AppCategory.OTHER }
 
         fun of(snapshot: GroupSnapshot, settings: UsageSettings): EnforcerInputs {
-            val ready = (snapshot as? GroupSnapshot.Ready)?.takeUnless { it.removed } ?: return OFF
-            if (ready.membership.active[ready.self]?.isChild != true || settings.consentOutdated) return OFF
-            val rules = AppRules.effective(ready).filter { it.child == ready.self }
-            if (!BlockDecision.enforcing(rules)) return OFF
+            val rules = BlockDecision.enforcedRules(snapshot, settings)
+            if (rules.isEmpty()) return OFF
+            val ready = snapshot as GroupSnapshot.Ready
             val overrides = CategoryOverrides.effective(ready)
             val catalog = UsageReadModel.catalogOf(ready.catalog, ready.self)
             return EnforcerInputs(true, rules) { Categories.of(it, catalog[it]?.category, overrides) }

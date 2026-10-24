@@ -42,7 +42,13 @@ class TodayUsageReaderTest {
             UsageEvent(midnight + 30 * min, EventType.RESUMED, CHAT, "C"),
         )
         val today = reader(events).read(midnight + 35 * min)
-        assertEquals(TodayUsage(25 * min, mapOf(AppCategory.GAMES to 20 * min, AppCategory.OTHER to 5 * min), mapOf(GAME to 20 * min, CHAT to 5 * min)), today)
+        assertEquals(
+            DatedUsage(
+                LocalDate.of(2026, 10, 24),
+                TodayUsage(25 * min, mapOf(AppCategory.GAMES to 20 * min, AppCategory.OTHER to 5 * min), mapOf(GAME to 20 * min, CHAT to 5 * min)),
+            ),
+            today,
+        )
     }
 
     @Test

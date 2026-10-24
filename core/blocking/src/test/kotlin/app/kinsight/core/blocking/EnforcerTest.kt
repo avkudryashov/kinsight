@@ -14,21 +14,23 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import java.time.LocalDate
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35])
 class EnforcerTest {
     private val child = DeviceId("00112233445566778899aabbccddeeff")
     private var now = 1_000_000L
+    private var day = LocalDate.of(2026, 10, 24)
 
     private fun enforcer(
         rules: List<ThresholdRule>,
-        today: () -> TodayUsage? = { null },
+        today: () -> DatedUsage? = { null },
         enabled: () -> Boolean = { true },
         system: SystemAllowList = SystemAllowList { it in setOf(OWN, HOME, SYSTEM_UI, KEYBOARD, DIALER) },
         ownPackage: String = OWN,
     ) = Enforcer(
-        rules = { rules }, categoryOf = { AppCategory.GAMES }, today = today, pinAllowed = { emptySet() },
+        rules = { rules }, categoryOf = { AppCategory.GAMES }, today = today, date = { day }, pinAllowed = { emptySet() },
         system = system, isHome = { it == HOME }, isOverlay = { it == SYSTEM_UI || it == KEYBOARD }, ownPackage = ownPackage, enabled = enabled, clock = { now },
     )
 
@@ -102,7 +104,7 @@ class EnforcerTest {
         assertEquals(Enforcer.Action.None, e.onTick())
     }
 
-    private fun usage(appMs: Long) = TodayUsage(appMs, mapOf(AppCategory.GAMES to appMs), mapOf(GAME to appMs))
+    private fun usage(appMs: Long, totalMs: Long = appMs) = DatedUsage(day, TodayUsage(totalMs, mapOf(AppCategory.GAMES to appMs), mapOf(GAME to appMs)))
 
     @Test
     fun aBlockedPackageGetsOneBlockActionPerSecond() {
@@ -127,6 +129,29 @@ class EnforcerTest {
         // The app is closed: the next tick has nothing to re-check until a new window comes up.
         now += Enforcer.TICK_MS
         assertEquals(Enforcer.Action.None, e.onTick())
+    }
+
+    @Test
+    fun aDayTotalPassedYesterdayDoesNotBlockTheNextMorning() {
+        val total = ThresholdRule.of(child, ThresholdTarget.Total, HOUR, blockOnLimit = true)!!
+        var cached: DatedUsage? = usage(HOUR, totalMs = 2 * HOUR)
+        val e = enforcer(listOf(total), today = { cached })
+        val totalPassed = Enforcer.Action.Block(GAME, BlockReason.LimitPassed(ThresholdTarget.Total, HOUR))
+        assertEquals(totalPassed, e.onForeground(GAME))
+        assertEquals(null, e.current)
+        assertEquals(false, e.usageStale())
+        // Midnight passes; nothing re-read the usage since the Block (current is null, the service's old read gate).
+        day = day.plusDays(1)
+        now += 12 * HOUR
+        assertEquals(true, e.usageStale())
+        assertEquals(Enforcer.Action.None, e.onForeground(GAME))
+        assertEquals(GAME, e.current)
+        // The fresh read of the new day is trusted again: under the limit nothing happens, over it the tick blocks.
+        cached = usage(10 * 60_000L)
+        assertEquals(false, e.usageStale())
+        assertEquals(Enforcer.Action.None, e.onTick())
+        cached = usage(HOUR)
+        assertEquals(totalPassed, e.onTick())
     }
 
     @Test

@@ -44,8 +44,8 @@ import app.kinsight.core.data.PinSave
 import app.kinsight.core.data.Role
 import app.kinsight.core.data.SetupItem
 import app.kinsight.core.data.UsageReadModel
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 
 /** The settings view model, one per destination of «Ещё» (each reads the same repositories). */
 @Composable
@@ -72,7 +72,7 @@ fun MoreRoute(
     val ui by vm.ui.collectAsStateWithLifecycle()
     // App blocking spec §5.4: the accessibility step counts only while a parent's rule needs it.
     val enforcing by remember {
-        AppGraph.get(context).snapshots.snapshots.map(ChildSetup::enforcing).distinctUntilChanged()
+        AppGraph.get(context).let { combine(it.snapshots.snapshots, it.settingsRepository.usageSettings, ChildSetup::enforcing) }.distinctUntilChanged()
     }.collectAsStateWithLifecycle(initialValue = false)
     fun read() = ChildSetup.read(context, BlockingState.serviceEnabled(context), enforcing)
     var pending by remember { mutableStateOf(read()) }

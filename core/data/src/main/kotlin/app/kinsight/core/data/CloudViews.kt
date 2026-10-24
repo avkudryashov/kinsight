@@ -134,13 +134,13 @@ object CloudViews {
 
     /**
      * The cloud for the sync service and the one sync status (Task 13): on while this phone is an active member of a
-     * group with a storage owner, and, for a child, agreed to the current consent text (CloudRunner skips a child
-     * otherwise, so the Disk carries nothing for it), with the last successful run of [state].
+     * group with a storage owner, and, for a child, agreed to a consent text that names the Disk (version 2 or later,
+     * UsageSettings.cloudAndLocationConsented; CloudRunner skips a child otherwise, so the Disk carries nothing for it), with the last successful run of [state].
      */
     fun sync(membership: MembershipState?, self: DeviceId, settings: UsageSettings, state: CloudState): CloudSync {
         val me = membership?.active?.get(self) ?: return CloudSync()
         if (membership.storageOwner == null) return CloudSync()
-        if (me.isChild && (settings.consentAtMs == null || settings.consentOutdated)) return CloudSync()
+        if (me.isChild && !settings.cloudAndLocationConsented) return CloudSync()
         return CloudSync(on = true, lastSyncMs = state.lastSyncMs)
     }
 

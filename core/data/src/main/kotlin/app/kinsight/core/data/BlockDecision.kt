@@ -1,5 +1,7 @@
 package app.kinsight.core.data
 
+import app.kinsight.core.usage.UsageSettings
+
 /** Why an app is blocked (spec §5.1 steps 4-6). */
 sealed interface BlockReason {
     /** A parent's BLOCK rule on the app itself. */
@@ -60,6 +62,17 @@ object BlockDecision {
     /** Whether the enforcement service has anything to do: a BLOCK rule or a LIMIT with `blockOnLimit`. */
     fun enforcing(rules: List<ThresholdRule>): Boolean =
         rules.any { it.mode == RuleMode.BLOCK || (it.mode == RuleMode.LIMIT && it.blockOnLimit) }
+
+    /**
+     * This phone's own effective rules while it enforces them (spec §5.2, §8): a member child of a Ready group, not
+     * removed, whose consent names blocking ([UsageSettings.blockingConsented]), with at least one [enforcing] rule; empty
+     * otherwise. The one gate of the service's inputs, the setup's accessibility step and the BLOCKING_OFF watch.
+     */
+    fun enforcedRules(snapshot: GroupSnapshot, settings: UsageSettings): List<ThresholdRule> {
+        val ready = (snapshot as? GroupSnapshot.Ready)?.takeUnless { it.removed } ?: return emptyList()
+        if (ready.membership.active[ready.self]?.isChild != true || !settings.blockingConsented) return emptyList()
+        return AppRules.effective(ready).filter { it.child == ready.self }.takeIf(::enforcing).orEmpty()
+    }
 
     private val ALLOWED = BlockVerdict(false)
 }

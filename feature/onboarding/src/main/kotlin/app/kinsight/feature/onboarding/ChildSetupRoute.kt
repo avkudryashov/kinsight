@@ -26,8 +26,8 @@ import app.kinsight.core.data.SetupItem
 import app.kinsight.core.location.LocationGraph
 import app.kinsight.core.location.LocationPermissions
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 
 /**
  * «Ещё → Настройка не завершена» on a child's phone (UI refresh §6): the steps still missing, one per page with a
@@ -104,6 +104,7 @@ internal fun ChildSetupStep(item: SetupItem, onAllow: () -> Unit, onLater: () ->
     }
 }
 
-/** Whether this phone's own rules need the enforcement service (ChildSetup.enforcing), per snapshot. */
+/** Whether this phone's own rules need the enforcement service and it would act (ChildSetup.enforcing), per snapshot and consent. */
 private fun enforcingRules(context: Context): Flow<Boolean?> =
-    AppGraph.get(context).snapshots.snapshots.map<_, Boolean?>(ChildSetup::enforcing).distinctUntilChanged()
+    AppGraph.get(context).let { g -> combine(g.snapshots.snapshots, g.settingsRepository.usageSettings) { s, u -> ChildSetup.enforcing(s, u) } }
+        .distinctUntilChanged()

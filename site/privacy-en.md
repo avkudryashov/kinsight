@@ -80,7 +80,7 @@ Never blocked: the dialer, SMS, the home screen, the keyboard, Android Settings,
 
 A parent can unblock an app on the child's phone until the end of the day by entering the family PIN. Both parents see this event (which app and when); it is recorded like the other sharing-status events.
 
-The service is turned on by the child in Android settings and works only after the child has agreed, on that phone, to the current version of the consent text. If the child turns the service off, the parents see it in Kinsight (a warning on the card and a notification), and apps stop being closed.
+The service is turned on by the child in Android settings and works only after the child has agreed, on that phone, to a version of the consent text that names limits and blocks. If the child turns the service off, the parents see it in Kinsight (a warning on the card and a notification), and apps stop being closed.
 
 ## 7. Permissions and why they are needed
 
@@ -123,7 +123,7 @@ Older records are deleted automatically and are no longer accepted from other ph
 
 ## 10. Your choices and control
 
-- **Consent first.** A child's phone does not send anything until the child taps Agree on the consent screen, which explains what is sent and to whom. If the child chooses Not now, the phone joins the group without sharing, and the family sees that it does not share. The consent screen names the sync through a parent's Yandex Disk and the location; a phone that agreed to an earlier text sends nothing through the Disk and shares no location until it agrees again.
+- **Consent first.** A child's phone does not send anything until the child taps Agree on the consent screen, which explains what is sent and to whom. If the child chooses Not now, the phone joins the group without sharing, and the family sees that it does not share. The consent screen names the sync through a parent's Yandex Disk and the location; a phone that agreed to an earlier text that did not name them yet sends nothing through the Disk and shares no location until it agrees again. In the same way, limits and blocks act on a child's phone only once the child has agreed to a text that names them; agreeing to a newer text does not switch off what an earlier one already covered.
 - **Only a parent changes sharing.** On a child's phone, sharing cannot be paused or stopped, and the phone cannot be disconnected from the family in Kinsight (unless the phone's storage is broken), without the parent PIN, which an admin parent sets on their own phone. An admin parent can also remove the child's phone from the group on their own phone. A pause made with the PIN is signed and shown to all parents; the time counted during it is sent after it ends.
 - **Anything turned off is seen.** Usage access, Kinsight's notification and the Nearby devices permission can always be turned off in Android settings; the parents then see that. While a child shares its location through the Disk, the parents also see when location access or the phone's location is turned off. If Kinsight is stopped or removed, or the phone loses its connection, the parents are told after the number of hours they chose ("no contact").
 - **Transparency.** The screen "Who sees my data" shows who receives the data, what is sent and how long it is kept.

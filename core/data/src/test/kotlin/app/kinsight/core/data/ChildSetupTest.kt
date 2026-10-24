@@ -6,11 +6,42 @@ import app.kinsight.core.data.SetupItem.LOCATION
 import app.kinsight.core.data.SetupItem.LOCATION_BACKGROUND
 import app.kinsight.core.data.SetupItem.USAGE_ACCESS
 import app.kinsight.core.location.LocationPermissions.State
+import app.kinsight.core.model.DeviceKeys
+import app.kinsight.core.model.EntryAuthor
+import app.kinsight.core.model.GroupGenesis
+import app.kinsight.core.model.Membership
+import app.kinsight.core.model.addMember
+import app.kinsight.core.model.appRuleEntry
+import app.kinsight.core.model.proto.AppRule
+import app.kinsight.core.model.proto.DeviceRole
+import app.kinsight.core.usage.UsageSettings
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class ChildSetupTest {
+    private val momKeys = DeviceKeys.generate()
+    private val kidKeys = DeviceKeys.generate()
+    private val genesis = GroupGenesis.create(momKeys, "Mom")
+    private val mom = EntryAuthor(genesis.groupId, momKeys, lastSeq = 1, lastLamport = 1)
+
+    /** Review M3: the accessibility step is asked only when the service would act, so the blocking consent counts too. */
+    @Test
+    fun enforcingNeedsTheBlockingConsent() {
+        val ops = listOf(genesis.entry, mom.addMember(kidKeys.sign.publicKey, kidKeys.dh.publicKey, "Kid", DeviceRole.CHILD))
+        val block = mom.appRuleEntry(kidKeys.deviceId.bytes(), AppRule.Target.APP, packageName = "com.example.game", mode = AppRule.Mode.BLOCK, rank = 1)
+        val ready = GroupSnapshot.Ready(
+            genesis.groupId, kidKeys.deviceId, Membership.compute(genesis.groupId, ops)!!,
+            emptyList(), emptyList(), emptyList(), emptyList(), emptyMap(), appRules = listOf(block),
+        )
+        assertTrue(ChildSetup.enforcing(ready, UsageSettings(consentAtMs = 1, consentVersion = 3)))
+        assertFalse(ChildSetup.enforcing(ready, UsageSettings(consentAtMs = 1, consentVersion = 2)), "not re-agreed: the service would do nothing")
+        assertFalse(ChildSetup.enforcing(ready, UsageSettings()), "never agreed")
+        assertFalse(ChildSetup.enforcing(GroupSnapshot.NoGroup, UsageSettings(consentAtMs = 1)))
+    }
+
     @Test
     fun nothingGrantedAsksEverythingInOrder() {
         assertEquals(listOf(USAGE_ACCESS, LOCATION, LOCATION_BACKGROUND, BATTERY), ChildSetup.pending(false, State.NONE, false, accessibility = true, enforcing = false))

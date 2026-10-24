@@ -165,7 +165,7 @@ class CloudRunner(
         if (CloudOff.inForce(membership)) CloudOff.settle(group.groupId, membership, secrets, state, clock())
         val owner = membership.storageOwner ?: return CloudRun.OFF
         val consent = settings.current()
-        if (me.isChild && (consent.consentAtMs == null || consent.consentOutdated)) {
+        if (me.isChild && !consent.cloudAndLocationConsented) {
             // Roadmap Y5, privacy policy §13: a child that never agreed, or agreed only to the Bluetooth-only text, sends
             // nothing through the Disk (no Heartbeat, no membership pack either) until it agreed to the text that names
             // it; Bluetooth goes on as before. SKIPPED keeps the schedule for the run after its «Принимаю».

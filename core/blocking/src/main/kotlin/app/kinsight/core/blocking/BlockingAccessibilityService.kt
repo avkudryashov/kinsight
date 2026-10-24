@@ -7,7 +7,6 @@ import android.os.PowerManager
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import app.kinsight.core.data.AppGraph
-import app.kinsight.core.data.TodayUsage
 import app.kinsight.core.usage.AppOpsUsageAccess
 import app.kinsight.core.usage.HomeLauncherSource
 import app.kinsight.core.usage.UsageStatsEventSource
@@ -47,12 +46,12 @@ class BlockingAccessibilityService : AccessibilityService() {
         val inputs: StateFlow<EnforcerInputs> = combine(graph.snapshots.snapshots, graph.settings.settings, EnforcerInputs::of)
             .stateIn(s, SharingStarted.Eagerly, EnforcerInputs.OFF)
         val pins = graph.prefs.pinOverrides.stateIn(s, SharingStarted.Eagerly, emptyMap())
-        val today = MutableStateFlow<TodayUsage?>(null)
+        val today = MutableStateFlow<DatedUsage?>(null)
         val reader = TodayUsageReader(
             UsageStatsEventSource(getSystemService(UsageStatsManager::class.java)), AppOpsUsageAccess(this),
             HomeLauncherSource(packageManager), ZoneId::systemDefault, categoryOf = { inputs.value.categoryOf(it) },
         )
-        suspend fun readToday(nowMs: Long): TodayUsage? = withContext(Dispatchers.Default) {
+        suspend fun readToday(nowMs: Long): DatedUsage? = withContext(Dispatchers.Default) {
             try {
                 reader.read(nowMs)
             } catch (e: CancellationException) {
@@ -67,6 +66,7 @@ class BlockingAccessibilityService : AccessibilityService() {
             rules = { inputs.value.rules },
             categoryOf = { inputs.value.categoryOf(it) },
             today = { today.value },
+            date = LocalDate::now,
             pinAllowed = { LocalDate.now().let { d -> pins.value.filterValues { it == d }.keys } },
             system = allowList,
             isHome = allowList::isHome,
@@ -75,9 +75,10 @@ class BlockingAccessibilityService : AccessibilityService() {
             enabled = { inputs.value.enabled },
             clock = System::currentTimeMillis,
         ).also { enforcer = it }
-        // Usage is read only when it can change a decision: a blocking LIMIT exists, an app that is not allow-listed is
-        // on screen (Enforcer.current) and the phone is awake.
-        fun wantsUsage() = inputs.value.needsUsage && e.current != null && awake()
+        // Usage is read only when it can change a decision: a blocking LIMIT exists, the phone is awake and either an app
+        // that is not allow-listed is on screen (Enforcer.current) or the cached usage is of another day (C1: a Block of
+        // yesterday cleared current; the stale value counts as unknown until this read replaces it).
+        fun wantsUsage() = inputs.value.needsUsage && (e.current != null || e.usageStale()) && awake()
         // Main thread only: a window change starts a read when the last one is older than USAGE_REFRESH_MS.
         var readAtMs = Long.MIN_VALUE
         var reading: Job? = null
