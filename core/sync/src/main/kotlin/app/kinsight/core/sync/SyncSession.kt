@@ -38,9 +38,10 @@ import kotlin.time.Duration.Companion.seconds
 /**
  * 2: CategoryOverride entries (stage 5c).
  * 3: cloud storage, location and safe zones; one CloudHandoff each way after the vectors.
+ * 4: AppRule entries; a child takes the parents' app rules and category overrides.
  * The highest version this build speaks.
  */
-const val PROTOCOL_VERSION = 3
+const val PROTOCOL_VERSION = 4
 
 /**
  * The lowest version this build speaks (A-1). Raise it only when the oldest phones in the field no longer matter: a

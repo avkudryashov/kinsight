@@ -98,7 +98,7 @@ class ConvergenceTest {
     }
 
     @Test
-    fun categoryOverridesReachTheOtherParentNeverTheChild(): Unit = runBlocking {
+    fun categoryOverridesReachTheOtherParentAndTheChild(): Unit = runBlocking {
         checkAll(PropTestConfig(iterations = 10), Arb.long()) { seed ->
             val rnd = Random(seed)
             // node0 and node1 are parents, node2 a child (showOthers off, as the app sets it for children).
@@ -137,8 +137,9 @@ class ConvergenceTest {
                 val own = p.store.liveEntries().filter { it.author == p.keys.deviceId && it.kind == EntryKind.CATEGORY_OVERRIDE }
                 assertTrue(own.all { it in shared }, "seed=$seed: ${p.name}'s overrides missing")
             }
-            assertTrue(overrides(kid).isEmpty(), "seed=$seed: the child got overrides")
-            assertEquals(kidLive, kid.store.liveEntries().toSet(), "seed=$seed: the child's entries changed")
+            // A child takes the parents' overrides (spec §4: its category rules need the same categories), nothing else.
+            assertEquals(shared, overrides(kid), "seed=$seed: the child's overrides differ from the parents'")
+            assertEquals(kidLive + shared, kid.store.liveEntries().toSet(), "seed=$seed: the child's entries are its own plus the overrides")
             assertEquals(kidVector[kid.keys.deviceId], kid.store.versionVector()[kid.keys.deviceId], "seed=$seed: the child's own position changed")
             // Each parent completes its own log on the child (nothing of it the child takes is missing), so the child's
             // position for it follows the parent's own: no resend of the same entries next session.

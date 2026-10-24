@@ -222,8 +222,8 @@ class EntryValidatorTest {
     }
 
     @Test
-    fun categoryOverrideUnwantedOnAChild() {
-        assertEquals(Verdict.Unwanted, validator(showOthers = false).check(overrideOf(bob), alreadyAccounted = false))
+    fun categoryOverrideAcceptedOnAChild() {
+        assertEquals(Verdict.Accept, validator(showOthers = false).check(overrideOf(bob), alreadyAccounted = false))
     }
 
     @Test

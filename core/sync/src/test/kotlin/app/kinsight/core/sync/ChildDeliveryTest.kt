@@ -3,8 +3,10 @@ package app.kinsight.core.sync
 import app.kinsight.core.model.DecodedEntry
 import app.kinsight.core.model.EntryAuthor
 import app.kinsight.core.model.EntryKind
+import app.kinsight.core.model.appRuleEntry
 import app.kinsight.core.model.locationEntry
 import app.kinsight.core.model.parentPinEntry
+import app.kinsight.core.model.proto.AppRule
 import app.kinsight.core.model.proto.CloudAccess
 import app.kinsight.core.model.proto.DeviceRole
 import app.kinsight.core.model.proto.Location
@@ -58,6 +60,19 @@ class ChildDeliveryTest {
         assertTrue(rm.peerAckUnchanged)
         assertEquals(1, assertIs<SessionResult.Completed>(rk).received)
         assertTrue(kid.holds(pin), "the child must hold the parent's PIN after a Bluetooth session")
+    }
+
+    @Test
+    fun childTakesAppRulesAndCategoryOverrides() = runBlocking<Unit> {
+        val (mom, _, kid) = family()
+        val rule = mom.author.appRuleEntry(kid.keys.deviceId.bytes(), AppRule.Target.APP, "com.example.game", mode = AppRule.Mode.BLOCK, rank = 1)
+        val override = mom.author.categoryOverride("com.example.game", 1)
+        val usage = mom.author.summary(TODAY.toString(), 1)
+        mom.publish(usage, rule, override)
+        syncPair(mom, kid)
+        assertTrue(kid.holds(rule), "the child enforces the parent's rule")
+        assertTrue(kid.holds(override), "and computes the same category for a category rule")
+        assertTrue(!kid.holds(usage), "never the parent's usage")
     }
 
     @Test

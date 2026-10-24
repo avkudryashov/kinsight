@@ -219,7 +219,7 @@ class SyncSessionTest {
 
     @Test
     fun protocolOneMeetsCurrentCleanlyRejectedWithoutTransfer() = runBlocking {
-        assertEquals(3, PROTOCOL_VERSION)
+        assertEquals(4, PROTOCOL_VERSION)
         val (old, new) = buildGroup(2)
         new.publish(new.author.categoryOverride("com.example.game", 1))
         val before = old.store.liveEntries().toSet()
