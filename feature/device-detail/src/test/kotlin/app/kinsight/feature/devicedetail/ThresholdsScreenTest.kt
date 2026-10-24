@@ -225,7 +225,7 @@ class ThresholdsScreenTest {
     @Test
     fun aChildsPhoneOnlyReadsThatParentsSetLimits() {
         show(listOf(total), canEdit = false)
-        rule.onNodeWithText("Only a parent can set limits.").assertExists()
+        rule.onNodeWithText("Only a parent can set rules.").assertExists()
         rule.onNodeWithTag("thr_add").assertDoesNotExist()
         rule.onNodeWithTag("thr_total_set").assertDoesNotExist()
         rule.onNodeWithTag("thr_delete_${total.id}").assertDoesNotExist()

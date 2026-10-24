@@ -97,7 +97,7 @@
     <string name="app_days_title">Por día</string>
     <string name="det_limit_line">Límite %1$s</string>
     <string name="thr_title">Límites y bloqueos: %1$s</string>
-    <string name="thr_parent_only">Solo un adulto puede fijar límites.</string>
+    <string name="thr_parent_only">Solo un adulto puede fijar reglas.</string>
     <string name="thr_empty">Todavía no hay reglas</string>
     <string name="thr_add">Añadir regla</string>
     <string name="thr_new">Nueva regla</string>

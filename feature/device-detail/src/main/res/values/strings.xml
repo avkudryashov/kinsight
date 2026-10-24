@@ -95,7 +95,7 @@
     <string name="app_days_title">By day</string>
     <string name="det_limit_line">Limit %1$s</string>
     <string name="thr_title">Limits and blocks: %1$s</string>
-    <string name="thr_parent_only">Only a parent can set limits.</string>
+    <string name="thr_parent_only">Only a parent can set rules.</string>
     <string name="thr_empty">No rules yet</string>
     <string name="thr_add">Add rule</string>
     <string name="thr_new">New rule</string>

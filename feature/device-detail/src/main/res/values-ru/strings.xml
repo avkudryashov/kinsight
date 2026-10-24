@@ -99,7 +99,7 @@
     <string name="app_days_title">По дням</string>
     <string name="det_limit_line">Лимит %1$s</string>
     <string name="thr_title">Лимиты и блокировки: %1$s</string>
-    <string name="thr_parent_only">Лимиты задаёт только родитель.</string>
+    <string name="thr_parent_only">Правила задаёт только родитель.</string>
     <string name="thr_empty">Правил пока нет</string>
     <string name="thr_add">Добавить правило</string>
     <string name="thr_new">Новое правило</string>
@@ -204,11 +204,11 @@
     <string name="map_reason_waiting">Ждём первую точку с телефона.</string>
     <string name="map_no_children_title">Детей пока нет</string>
     <string name="map_no_children_body">Пригласите телефон ребёнка: Ещё → Семья.</string>
-    <string name="thr_subtitle">Лимиты уведомляют один раз в день. Блокировки работают на телефоне ребёнка, пока там включена служба доступности Kinsight.</string>
+    <string name="thr_subtitle">Лимиты уведомляют один раз в день. Блокировки работают на телефоне ребёнка, пока там включена служба специальных возможностей Kinsight.</string>
     <string name="thr_total_today">Сегодня %1$s</string>
     <string name="thr_total_none">Лимит на весь день не задан</string>
     <string name="thr_total_set">Задать лимит</string>
-    <string name="thr_blocking_off">Блокировки не действуют: на телефоне ребёнка выключена служба доступности.</string>
+    <string name="thr_blocking_off">Блокировки не действуют: на телефоне ребёнка выключена служба специальных возможностей.</string>
     <string name="thr_awaiting_consent">Блокировки начнут действовать, когда ребёнок согласится с обновлённым согласием на своём телефоне.</string>
     <string name="thr_section_blocked">Заблокировано</string>
     <string name="thr_section_limits">Лимиты</string>
