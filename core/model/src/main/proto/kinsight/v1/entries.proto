@@ -35,6 +35,7 @@ message EntryBody {
     SafeZone safe_zone = 19;          // protocol 3: a parent's safe zone
     StorageHandover storage_handover = 20;  // protocol 3: the storage owner asks a parent to take the storage (spec §7.1)
     ParentPin parent_pin = 21;              // protocol 3: the parents' PIN for a child's phone, as a slow hash (spec §10)
+    AppRule app_rule = 22;                  // protocol 4: a parent's rule for a child's apps: limit, block or allow (spec §4)
   }
 }
 
@@ -101,12 +102,15 @@ message StateEvent {
     LOCATION_DISABLED = 15;        // location is off in the system settings: from = noticed, to = on again
     ZONE_ENTER = 16;               // the child entered safe zone zone_id at from
     ZONE_EXIT = 17;                // the child left safe zone zone_id at from
+    BLOCKING_OFF = 18;             // the accessibility service that enforces the parents' rules is off: from = noticed, to = on again
+    BLOCK_OVERRIDDEN = 19;         // a parent unblocked package_name on the child's phone by PIN until the end of the day
   }
   Kind kind = 1;
   int64 from_ms = 2;
   int64 to_ms = 3;
   int64 clock_shift_ms = 4;
   bytes zone_id = 5;  // ZONE_ENTER / ZONE_EXIT: SafeZone.zone_id
+  string package_name = 6;  // BLOCK_OVERRIDDEN: the package that was unblocked
 }
 
 // Superseded by the author's next Heartbeat. The live set (audit A-2) is the author's signed statement: of its own seqs
@@ -250,4 +254,30 @@ message ParentPin {
   uint32 memory_kib = 3;   // Argon2 memory cost
   uint32 iterations = 4;   // Argon2 passes
   int64 rank = 5;          // as CategoryOverride.rank: a new PIN outranks the one it replaces
+}
+
+// A parent's rule for one child's apps (spec §4), one live entry per author, child and target (supersede key
+// <author>/rule/<child hex>/<total | cat:N | app:package>). Parents only.
+message AppRule {
+  enum Target {
+    TARGET_UNSPECIFIED = 0;
+    TOTAL = 1;     // all of the child's screen time
+    CATEGORY = 2;  // every app of [category]
+    APP = 3;       // the one app [package_name]
+  }
+  enum Mode {
+    MODE_UNSPECIFIED = 0;
+    LIMIT = 1;  // at most limit_ms a day
+    BLOCK = 2;  // never
+    ALLOW = 3;  // exempt from the broader rule
+  }
+  bytes child_id = 1;         // the child's device id (16 bytes)
+  Target target = 2;
+  string package_name = 3;    // APP only
+  uint32 category = 4;        // CATEGORY only: the wire value of the app category
+  Mode mode = 5;
+  int64 limit_ms = 6;         // LIMIT only: the daily allowance
+  bool block_on_limit = 7;    // LIMIT only: block the app when the allowance is spent, not just remind
+  bool deleted = 8;
+  int64 rank = 9;             // as CategoryOverride.rank: orders an edit after the version it replaces
 }

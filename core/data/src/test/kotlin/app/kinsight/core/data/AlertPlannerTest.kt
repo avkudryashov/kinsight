@@ -165,10 +165,11 @@ class AlertPlannerTest {
     @Test
     fun everyNonRecoveryKindAlerts() {
         val back = listOf("_RESTORED", "_RESUMED", "_SHOWN")
-        // The location kinds (protocol 3) have no alert behaviour yet.
+        // The location kinds (protocol 3) and the blocking kinds (protocol 4) have no alert behaviour yet.
         val locationKinds = setOf(
             StateEvent.Kind.LOCATION_PERMISSION_OFF, StateEvent.Kind.LOCATION_DISABLED,
             StateEvent.Kind.ZONE_ENTER, StateEvent.Kind.ZONE_EXIT,
+            StateEvent.Kind.BLOCKING_OFF, StateEvent.Kind.BLOCK_OVERRIDDEN,
         )
         for (kind in StateEvent.Kind.entries - locationKinds) {
             val expected = kind != StateEvent.Kind.KIND_UNSPECIFIED && back.none { kind.name.endsWith(it) }

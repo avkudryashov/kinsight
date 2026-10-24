@@ -1,6 +1,7 @@
 package app.kinsight.core.model
 
 import app.kinsight.core.crypto.Ed25519
+import app.kinsight.core.model.proto.AppRule
 import app.kinsight.core.model.proto.EntryBody
 import app.kinsight.core.model.proto.SignedEntry
 import app.kinsight.core.model.proto.StateEvent
@@ -9,7 +10,14 @@ import java.time.format.DateTimeParseException
 
 enum class EntryKind {
     USAGE_SUMMARY, USAGE_DETAIL, APP_CATALOG, STATE_EVENT, HEARTBEAT, MEMBERSHIP_OP, CATEGORY_OVERRIDE,
-    CLOUD_ACCESS, LOCATION, SAFE_ZONE, STORAGE_HANDOVER, PARENT_PIN, UNKNOWN,
+    CLOUD_ACCESS, LOCATION, SAFE_ZONE, STORAGE_HANDOVER, PARENT_PIN, APP_RULE, UNKNOWN,
+}
+
+private fun ruleTargetKey(rule: AppRule): String = when (rule.target) {
+    AppRule.Target.TOTAL -> "total"
+    AppRule.Target.CATEGORY -> "cat:${rule.category}"
+    AppRule.Target.APP -> "app:${rule.package_name}"
+    else -> "unknown"
 }
 
 class EntryFormatException(message: String, cause: Throwable? = null) : Exception(message, cause)
@@ -41,6 +49,7 @@ class DecodedEntry private constructor(
         body.safe_zone != null -> EntryKind.SAFE_ZONE
         body.storage_handover != null -> EntryKind.STORAGE_HANDOVER
         body.parent_pin != null -> EntryKind.PARENT_PIN
+        body.app_rule != null -> EntryKind.APP_RULE
         else -> EntryKind.UNKNOWN
     }
 
@@ -54,6 +63,7 @@ class DecodedEntry private constructor(
         EntryKind.SAFE_ZONE -> "${author.hex}/zone/${body.safe_zone!!.zone_id.hex()}"
         EntryKind.STORAGE_HANDOVER -> "${author.hex}/handover"
         EntryKind.PARENT_PIN -> "${author.hex}/pin"
+        EntryKind.APP_RULE -> body.app_rule!!.let { "${author.hex}/rule/${it.child_id.hex()}/${ruleTargetKey(it)}" }
         else -> null
     }
 

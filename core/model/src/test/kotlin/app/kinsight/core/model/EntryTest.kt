@@ -3,6 +3,7 @@ package app.kinsight.core.model
 import app.kinsight.core.crypto.Ed25519
 import app.kinsight.core.crypto.Signer
 import app.kinsight.core.crypto.X25519
+import app.kinsight.core.model.proto.AppRule
 import app.kinsight.core.model.proto.CategoryOverride
 import app.kinsight.core.model.proto.Heartbeat
 import app.kinsight.core.model.proto.MembershipOp
@@ -21,6 +22,18 @@ class EntryTest {
     private val keys = DeviceKeys.generate()
     private val genesis = GroupGenesis.create(keys, "Mom", clock = { 1_000L })
     private val author = EntryAuthor(genesis.groupId, keys, lastSeq = 1, clock = { 2_000L })
+
+    @Test
+    fun appRuleHasItsKindAndSupersedeKey() {
+        val kid = ByteArray(16) { 7 }
+        val e = author.appRuleEntry(kid, AppRule.Target.APP, packageName = "com.example.game", mode = AppRule.Mode.BLOCK, rank = 1)
+        assertEquals(EntryKind.APP_RULE, e.kind)
+        assertEquals("${keys.deviceId.hex}/rule/${"07".repeat(16)}/app:com.example.game", e.supersedeKey)
+        val total = author.appRuleEntry(kid, AppRule.Target.TOTAL, mode = AppRule.Mode.LIMIT, limitMs = 3_600_000, rank = 1)
+        assertEquals("${keys.deviceId.hex}/rule/${"07".repeat(16)}/total", total.supersedeKey)
+        val cat = author.appRuleEntry(kid, AppRule.Target.CATEGORY, category = 1, mode = AppRule.Mode.BLOCK, rank = 1)
+        assertEquals("${keys.deviceId.hex}/rule/${"07".repeat(16)}/cat:1", cat.supersedeKey)
+    }
 
     @Test
     fun entriesSignedThroughOpaqueSignerVerify() {

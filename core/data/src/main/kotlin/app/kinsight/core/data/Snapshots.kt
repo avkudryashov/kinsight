@@ -64,6 +64,8 @@ sealed interface GroupSnapshot {
         val safeZones: List<DecodedEntry> = emptyList(),
         /** Live ParentPin entries (spec §10); read through [ParentPins]. */
         val parentPins: List<DecodedEntry> = emptyList(),
+        /** Live AppRule entries (spec §4), every author's latest per child and target. */
+        val appRules: List<DecodedEntry> = emptyList(),
     ) : GroupSnapshot {
         val removed: Boolean get() = self !in membership.active
     }
@@ -204,6 +206,7 @@ class Snapshots(
             locations = store.locations(),
             safeZones = store.safeZones(),
             parentPins = store.parentPins(),
+            appRules = store.appRules(),
         )
     }
 

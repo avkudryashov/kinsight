@@ -24,6 +24,7 @@ object EntryKinds {
     const val SAFE_ZONE = 10
     const val STORAGE_HANDOVER = 11
     const val PARENT_PIN = 12
+    const val APP_RULE = 13
 
     fun code(kind: EntryKind): Int = when (kind) {
         EntryKind.USAGE_SUMMARY -> USAGE_SUMMARY
@@ -38,6 +39,7 @@ object EntryKinds {
         EntryKind.SAFE_ZONE -> SAFE_ZONE
         EntryKind.STORAGE_HANDOVER -> STORAGE_HANDOVER
         EntryKind.PARENT_PIN -> PARENT_PIN
+        EntryKind.APP_RULE -> APP_RULE
         EntryKind.UNKNOWN -> UNKNOWN
     }
 }
