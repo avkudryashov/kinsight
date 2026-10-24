@@ -6,6 +6,7 @@ import com.google.zxing.DecodeHintType
 import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.ReaderException
 import com.google.zxing.common.HybridBinarizer
+import com.google.zxing.multi.qrcode.QRCodeMultiReader
 import com.google.zxing.qrcode.QRCodeReader
 
 /**
@@ -38,7 +39,18 @@ internal object QrDecode {
                     // next scale
                 }
             }
-            null
+            // QRCodeReader keeps only the three most alike finder candidates, so a run of data modules that happens to
+            // look like a finder pattern can displace a real one: the grid is then sampled at the wrong size and nothing
+            // decodes, at any scale. Whether that happens depends on the symbol's content and on the row scan direction,
+            // i.e. on how the code is turned in the frame (measured: 1 of 6000 clean frames, a 90-degree turn of an
+            // otherwise readable code, which is how a portrait QR lands on a landscape camera sensor). The multi reader
+            // tries the other candidate triples, and it runs only after everything else missed.
+            val source = PlanarYUVLuminanceSource(data, rowStride, height, 0, 0, width, height, false)
+            try {
+                QRCodeMultiReader().decodeMultiple(BinaryBitmap(HybridBinarizer(source)), hints).firstOrNull()?.text
+            } catch (e: ReaderException) {
+                null
+            }
         } catch (e: IllegalArgumentException) {
             null
         }
