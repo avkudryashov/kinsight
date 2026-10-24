@@ -19,8 +19,11 @@ class UsageWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
             Log.w(TAG, "before-run check failed: ${e.javaClass.simpleName}")
         }
         return try {
-            val report = UsageGraph.pipeline(applicationContext).collectAndPublish(force)
-            Log.i(TAG, "usage run force=$force rollover=$rollover: $report")
+            val pipeline = UsageGraph.pipeline(applicationContext)
+            val report = pipeline.collectAndPublish(force)
+            // A parent's own time, on this phone only (it checks its own switch and role).
+            val local = if (report.collect == CollectResult.NOT_ALLOWED) pipeline.collectLocal() else null
+            Log.i(TAG, "usage run force=$force rollover=$rollover: $report local=$local")
             // A failed rollover run chains nothing (an appended child would fail with it); the next hourly run re-arms.
             UsageWork.scheduleRollover(applicationContext, UsageWork.rolloverPolicyAfterRun(rollover))
             Result.success()

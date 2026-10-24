@@ -294,6 +294,92 @@ class UsagePipelineTest {
         assertTrue(own().isEmpty())
     }
 
+    private fun local(target: PublishTarget?, child: Boolean = false, parent: Boolean = true, access: FakeAccess = FakeAccess()) = UsagePipeline(
+        db = db,
+        collector = Collector(RoomUsageQueue(db), source, access, clock, FakeLaunchers()),
+        settings = settings,
+        apps = FakeApps(),
+        target = { target },
+        clock = { clock.wallMs },
+        today = { LocalDate.ofInstant(Instant.ofEpochMilli(clock.wallMs), zone) },
+        ownUsage = { child },
+        ownTimeLocal = { parent },
+    )
+
+    @Test
+    fun aParentWithOwnTimeOnCollectsLocallyAndNeverSigns() = runTest {
+        store.applyBatch(listOf(genesis.entry))
+        val access = FakeAccess()
+        val p = local(PublishTarget(genesis.groupId, keys), access = access)
+        p.setOwnTimeLocal(true)
+        assertTrue(settings.current().ownTimeLocal)
+        val entriesBefore = store.liveEntries().size
+        source.events += listOf(s.resumed("09:00", MAPS), s.paused("09:30", MAPS))
+        assertEquals(CollectResult.COLLECTED, p.collectLocal())
+        assertEquals(listOf("2026-10-09"), RoomUsageQueue(db).changedDays().map { it.date })
+        assertEquals(30 * MIN, RoomUsageQueue(db).dayUsage("2026-10-09").apps.sumOf { it.foregroundMs })
+        // Access revoked: the collector queues USAGE_ACCESS_REVOKED, the local run drops it at once.
+        access.granted = false
+        clock.advance(HOUR_MS)
+        assertEquals(CollectResult.NO_ACCESS, p.collectLocal())
+        assertTrue(RoomUsageQueue(db).pendingEvents().isEmpty())
+        access.granted = true
+        clock.advance(HOUR_MS)
+        p.collectLocal() // USAGE_ACCESS_RESTORED, dropped too
+        assertTrue(RoomUsageQueue(db).pendingEvents().isEmpty())
+        // The publishing path stays closed and nothing reaches the log.
+        assertEquals(RunReport(CollectResult.NOT_ALLOWED, null), p.collectAndPublish(force = true))
+        assertFailsWith<IllegalStateException> { p.setSharing(true) }
+        assertEquals(entriesBefore, store.liveEntries().size)
+        assertTrue(own().isEmpty())
+    }
+
+    @Test
+    fun ownTimeOffOrNotAParentCollectsNothing() = runTest {
+        store.applyBatch(listOf(genesis.entry))
+        val t = PublishTarget(genesis.groupId, keys)
+        source.events += listOf(s.resumed("09:00", MAPS), s.paused("09:30", MAPS))
+        assertEquals(CollectResult.NOT_ALLOWED, local(t).collectLocal()) // off by default
+        settings.setOwnTimeLocal(true)
+        assertEquals(CollectResult.NOT_ALLOWED, local(t, parent = false).collectLocal()) // role-less or departed
+        assertEquals(CollectResult.NOT_ALLOWED, local(null).collectLocal()) // no group
+        assertNull(RoomUsageQueue(db).state())
+    }
+
+    @Test
+    fun turningOwnTimeOffStopsCollectionAndClearsTheLocalQueue() = runTest {
+        store.applyBatch(listOf(genesis.entry))
+        val p = local(PublishTarget(genesis.groupId, keys))
+        p.setOwnTimeLocal(true)
+        source.events += listOf(s.resumed("09:00", MAPS), s.paused("09:30", MAPS))
+        p.collectLocal()
+        p.setOwnTimeLocal(false)
+        assertFalse(settings.current().ownTimeLocal)
+        assertTrue(RoomUsageQueue(db).changedDays().isEmpty())
+        assertTrue(RoomUsageQueue(db).dayUsage("2026-10-09").apps.isEmpty())
+        assertNull(RoomUsageQueue(db).state())
+        clock.advance(HOUR_MS)
+        assertEquals(CollectResult.NOT_ALLOWED, p.collectLocal())
+        assertNull(RoomUsageQueue(db).state())
+    }
+
+    @Test
+    fun aChildIsUntouchedByTheLocalMode() = runTest {
+        store.applyBatch(listOf(genesis.entry))
+        val p = local(PublishTarget(genesis.groupId, keys), child = true, parent = false)
+        settings.setOwnTimeLocal(true) // even switched on by mistake
+        source.events += listOf(s.resumed("09:00", MAPS), s.paused("09:30", MAPS))
+        assertTrue(p.queueEvent(StateEvent.Kind.BLUETOOTH_OFF, fromMs = clock.wallMs, toMs = clock.wallMs))
+        assertEquals(CollectResult.NOT_ALLOWED, p.collectLocal())
+        assertEquals(1, RoomUsageQueue(db).pendingEvents().size) // the child's event waits to be signed
+        p.setOwnTimeLocal(false)
+        assertEquals(1, RoomUsageQueue(db).pendingEvents().size)
+        assertEquals(CollectResult.COLLECTED, p.collectAndPublish().collect)
+        p.setSharing(true)
+        assertEquals(30 * MIN, own().single { it.kind == EntryKind.USAGE_SUMMARY }.body.usage_summary!!.total_ms)
+        assertTrue(own().any { it.stateKind() == StateEvent.Kind.BLUETOOTH_OFF })
+    }
+
     @Test
     fun reconcileTurnsSettingOffAfterSignedPause() = runTest {
         store.applyBatch(listOf(genesis.entry))

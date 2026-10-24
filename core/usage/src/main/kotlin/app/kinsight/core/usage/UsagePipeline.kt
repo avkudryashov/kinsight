@@ -36,6 +36,8 @@ class UsagePipeline(
     private val clock: () -> Long = System::currentTimeMillis,
     private val today: () -> LocalDate = LocalDate::now,
     private val ownUsage: suspend (PublishTarget?) -> Boolean = { true },
+    /** Whether this device is an active PARENT ([ownTimeLocalAllowed]); the local mode needs it and [UsageSettings.ownTimeLocal]. */
+    private val ownTimeLocal: suspend (PublishTarget?) -> Boolean = { false },
     private val onOwnStateEvent: (StateEvent.Kind) -> Unit = {},
 ) {
     private val mutex = Mutex()
@@ -47,6 +49,35 @@ class UsagePipeline(
         val collected = collector.collect()
         pruneQueue()
         RunReport(collected, publisher(t)?.publish(settings.current(), force))
+    }
+
+    /**
+     * A parent's own screen time, on this phone only (own time spec 2026-10-24): collects into the local queue and
+     * prunes it, but only for a device that may not publish ([ownUsage] false), is an active PARENT ([ownTimeLocal])
+     * and has [UsageSettings.ownTimeLocal] on; NOT_ALLOWED otherwise, with nothing read. It never publishes, and it drops
+     * every queued integrity event: a parent's phone never signs one (and could not: publishing needs [ownUsage]).
+     * Callers run it after [collectAndPublish] answered NOT_ALLOWED.
+     */
+    suspend fun collectLocal(): CollectResult = mutex.withLock {
+        val t = target() ?: return@withLock CollectResult.NOT_ALLOWED
+        if (ownUsage(t) || !settings.current().ownTimeLocal || !ownTimeLocal(t)) return@withLock CollectResult.NOT_ALLOWED
+        try {
+            collector.collect().also { pruneQueue() }
+        } finally {
+            queue.clearEvents()
+        }
+    }
+
+    /**
+     * The parent's «show my screen time» switch. Turning it off stops [collectLocal] and, on a device that may not
+     * publish and is an active PARENT, empties the local queue and the collector cursor (nothing there was ever going
+     * anywhere). On any other device only the setting is written: a child's queue is never touched.
+     */
+    suspend fun setOwnTimeLocal(on: Boolean): Unit = mutex.withLock {
+        settings.setOwnTimeLocal(on)
+        if (on) return@withLock
+        val t = target() ?: return@withLock
+        if (!ownUsage(t) && ownTimeLocal(t)) queue.clearCollected()
     }
 
     /**

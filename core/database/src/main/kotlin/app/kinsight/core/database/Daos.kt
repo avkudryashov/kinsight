@@ -144,6 +144,12 @@ interface UsageDao {
     @Query("SELECT * FROM pending_days WHERE version > published_version ORDER BY date")
     suspend fun changedDays(): List<PendingDayRow>
 
+    @Query("SELECT * FROM pending_days WHERE date >= :from AND date <= :to ORDER BY date")
+    suspend fun days(from: String, to: String): List<PendingDayRow>
+
+    @Query("SELECT MIN(date) FROM pending_days")
+    suspend fun firstDay(): String?
+
     @Query("SELECT * FROM pending_usage WHERE date = :date ORDER BY hour, package_name")
     suspend fun usage(date: String): List<PendingUsageRow>
 

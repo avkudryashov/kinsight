@@ -53,6 +53,18 @@ class SettingsStoreTest {
     }
 
     @Test
+    fun ownTimeLocalIsOffByDefaultPersistsAndResetClearsIt() = runTest {
+        val first = store()
+        assertFalse(first.current().ownTimeLocal)
+        first.setOwnTimeLocal(true)
+        scopes.removeLast().coroutineContext.job.cancelAndJoin()
+        val second = store()
+        assertTrue(second.current().ownTimeLocal)
+        second.reset()
+        assertFalse(second.current().ownTimeLocal)
+    }
+
+    @Test
     fun rejectsInvalidRetention() = runTest {
         val s = store()
         assertFailsWith<IllegalArgumentException> { s.setRetention(0, 10) }

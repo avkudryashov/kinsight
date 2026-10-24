@@ -23,6 +23,7 @@ class SettingsStore(private val store: DataStore<Preferences>) {
             consentAtMs = p[CONSENT_AT],
             consentVersion = p[CONSENT_VERSION]
                 ?: if (p[CONSENT_AT] != null) UsageSettings.LEGACY_CONSENT_VERSION else UsageSettings.CONSENT_VERSION,
+            ownTimeLocal = p[OWN_TIME_LOCAL] ?: DEFAULTS.ownTimeLocal,
         )
     }
 
@@ -31,6 +32,11 @@ class SettingsStore(private val store: DataStore<Preferences>) {
     /** Only [UsagePipeline] flips sharing: it records the SHARING_* event under its lock first. */
     internal suspend fun setSharing(on: Boolean) {
         store.edit { it[SHARING] = on }
+    }
+
+    /** Only [UsagePipeline.setOwnTimeLocal] flips it: turning off clears the local queue under its lock. */
+    internal suspend fun setOwnTimeLocal(on: Boolean) {
+        store.edit { it[OWN_TIME_LOCAL] = on }
     }
 
     suspend fun setRetention(detailDays: Int, summaryDays: Int) {
@@ -72,6 +78,7 @@ class SettingsStore(private val store: DataStore<Preferences>) {
         private val SUMMARY_DAYS = intPreferencesKey("summary_retention_days")
         private val CONSENT_AT = longPreferencesKey("consent_at_ms")
         private val CONSENT_VERSION = intPreferencesKey("consent_version")
+        private val OWN_TIME_LOCAL = booleanPreferencesKey("own_time_local")
 
         /** [file] must end with ".preferences_pb"; one active instance per file in a process. */
         fun create(file: File, scope: CoroutineScope): SettingsStore =

@@ -16,8 +16,10 @@ import app.kinsight.core.model.MembershipState
 import app.kinsight.core.model.proto.StateEvent
 import app.kinsight.core.sync.EntryStore
 import app.kinsight.core.sync.SessionHandoff
+import app.kinsight.core.usage.CollectResult
 import app.kinsight.core.usage.PublishTarget
 import app.kinsight.core.usage.UsageGraph
+import app.kinsight.core.usage.ownTimeLocalAllowed
 import app.kinsight.core.usage.ownUsageAllowed
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -114,6 +116,7 @@ object SyncGraph {
         val app = context.applicationContext
         UsageGraph.targetProvider = { target(app) }
         UsageGraph.ownUsageGate = { t -> t != null && allowsOwnUsage(t, app) }
+        UsageGraph.ownTimeLocalGate = { t -> t != null && ownTimeLocalAllowed(membership(app, t), t.keys.deviceId) }
     }
 
     /**
@@ -215,7 +218,8 @@ object SyncGraph {
      */
     suspend fun prepare(context: Context) {
         onNotificationVisibility(context, notificationVisibleNow(context))
-        UsageGraph.pipeline(context).collectAndPublish(force = true)
+        val pipeline = UsageGraph.pipeline(context)
+        if (pipeline.collectAndPublish(force = true).collect == CollectResult.NOT_ALLOWED) pipeline.collectLocal()
         emitHeartbeatIfDue(context)
         retryStopInterval(context)
     }

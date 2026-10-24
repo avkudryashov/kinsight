@@ -78,4 +78,27 @@ class RoomUsageQueue(private val db: KinsightDatabase) {
     }
 
     suspend fun packagesWithoutCatalog(): List<String> = dao.packagesWithoutCatalog()
+
+    /** Queue days of [from]..[to] (ISO local dates), oldest first, published or not. */
+    suspend fun days(from: String, to: String): List<PendingDayRow> = dao.days(from, to)
+
+    /** The oldest queue day, or null for an empty queue. */
+    suspend fun firstDay(): String? = dao.firstDay()
+
+    /** Drops every queued integrity event (a parent's phone: it never signs one). */
+    suspend fun clearEvents() = db.wipeDao().pendingEvents()
+
+    /**
+     * Empties the counts, the days, the events and the collector cursor in one transaction (a parent turning its own
+     * time off); the next collection starts over like a first run. Catalog and publish state stay.
+     */
+    suspend fun clearCollected(): Unit = db.write {
+        with(db.wipeDao()) {
+            pendingUsage()
+            pendingHours()
+            pendingDays()
+            pendingEvents()
+            collectorState()
+        }
+    }
 }

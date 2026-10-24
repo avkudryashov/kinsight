@@ -13,6 +13,11 @@ data class UsageSettings(
     val consentAtMs: Long? = null,
     /** Which consent text this device agreed to; meaningless without [consentAtMs]. */
     val consentVersion: Int = CONSENT_VERSION,
+    /**
+     * A parent's «show my screen time» (own time spec 2026-10-24): its own usage is collected into the local queue and
+     * shown on this phone only, never signed or sent ([UsagePipeline.collectLocal]). Off until the parent turns it on.
+     */
+    val ownTimeLocal: Boolean = false,
 ) {
     /**
      * Agreed, but to an older text than the current one: the re-consent card asks the child to look. It does not switch

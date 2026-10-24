@@ -23,6 +23,10 @@ object UsageGraph {
     @Volatile
     var ownUsageGate: suspend (PublishTarget?) -> Boolean = { false }
 
+    /** Whether this device is an active PARENT ([ownTimeLocalAllowed], installed by SyncGraph.install); closed until then. */
+    @Volatile
+    var ownTimeLocalGate: suspend (PublishTarget?) -> Boolean = { false }
+
     /**
      * Hears the pipeline's own StateEvents (UsagePipeline.onOwnStateEvent), set by the app at process start
      * (IntegrityFastSync.install, core/data). Runs inside the pipeline lock: it must only hand the kind off.
@@ -79,6 +83,7 @@ object UsageGraph {
             apps = PackageAppInfoSource(pm),
             target = { targetProvider() },
             ownUsage = { ownUsageGate(it) },
+            ownTimeLocal = { ownTimeLocalGate(it) },
             onOwnStateEvent = { ownStateEventListener(it) },
         )
     }
