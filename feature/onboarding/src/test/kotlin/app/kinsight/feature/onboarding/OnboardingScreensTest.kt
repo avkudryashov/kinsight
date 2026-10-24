@@ -16,6 +16,7 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -51,6 +52,16 @@ class OnboardingScreensTest {
         rule.onNodeWithTag("onb_agree").performClick()
         rule.waitForIdle()
         assertTrue(agreed)
+    }
+
+    @Test
+    fun consentNamesTheRulesPointBetweenWhereAndWhoChanges() {
+        rule.setContent { KinsightTheme() { ConsentScreen("Mom", onAgree = {}, onNotNow = {}) } }
+        rule.onNodeWithText("Rules: your parents can limit time and block apps on this phone", substring = true)
+            .performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("reads nothing inside it", substring = true).assertExists()
+        rule.onNodeWithTag("onb_consent_more").performScrollTo().performClick()
+        rule.onAllNodesWithText("limit time and block apps", substring = true).assertCountEquals(2)
     }
 
     @Test

@@ -19,6 +19,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
@@ -168,6 +169,7 @@ fun ConsentScreen(recipients: String, onAgree: () -> Unit, onNotNow: () -> Unit,
             if (recipients.isBlank()) stringResource(R.string.onb_consent_point_who_group) else stringResource(R.string.onb_consent_point_who, recipients),
         )
         ConsentPoint(Icons.Filled.LocationOn, stringResource(R.string.onb_consent_point_where))
+        ConsentPoint(Icons.Filled.Lock, stringResource(R.string.onb_consent_point_rules))
         ConsentPoint(Icons.Filled.Notifications, stringResource(R.string.onb_consent_point_pause))
         TextButton(onPrivacyPolicy, Modifier.testTag("onb_privacy")) { Text(stringResource(R.string.onb_privacy_policy)) }
         val moreState = stringResource(if (more) R.string.onb_consent_expanded else R.string.onb_consent_collapsed)

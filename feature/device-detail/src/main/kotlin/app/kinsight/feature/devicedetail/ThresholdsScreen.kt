@@ -58,6 +58,8 @@ import app.kinsight.core.designsystem.component.LimitBar
 import app.kinsight.core.designsystem.component.Pill
 import app.kinsight.core.designsystem.component.durationText
 import app.kinsight.core.model.DeviceId
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -65,7 +67,7 @@ import kotlinx.coroutines.sync.withLock
 @Composable
 fun ThresholdsRoute(id: DeviceId, onBack: () -> Unit) {
     val graph = AppGraph.get(LocalContext.current)
-    val vm: ThresholdsViewModel = viewModel(key = "thresholds-${id.hex}") { ThresholdsViewModel(graph.usage, id, graph.scope, createSavedStateHandle()) }
+    val vm: ThresholdsViewModel = viewModel(key = "thresholds-${id.hex}") { ThresholdsViewModel(graph.usage, id, graph.scope, createSavedStateHandle(), graph.settingsRepository.usageSettings.map { it.consentOutdated }.catch { emit(false) }) }
     val state by vm.state.collectAsStateWithLifecycle()
     val pending by vm.pendingDeletes.collectAsStateWithLifecycle()
     state?.let {

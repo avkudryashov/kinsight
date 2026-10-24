@@ -21,8 +21,12 @@ data class UsageSettings(
     val consentOutdated: Boolean get() = consentAtMs != null && consentVersion < CONSENT_VERSION
 
     companion object {
-        /** 2 (cloud Y5): screen time over Bluetooth and through a parent's Yandex Disk, and the location. */
-        const val CONSENT_VERSION = 2
+        /**
+         * 3 (blocking): parents' limits and blocks enforced on this phone through an accessibility service (app blocking
+         * spec §8); blocking waits for it ([consentOutdated]). 2 (cloud Y5) was screen time over Bluetooth and through a
+         * parent's Yandex Disk, and the location.
+         */
+        const val CONSENT_VERSION = 3
 
         /** 1: screen time over Bluetooth only; every consent stored before versions existed. */
         const val LEGACY_CONSENT_VERSION = 1

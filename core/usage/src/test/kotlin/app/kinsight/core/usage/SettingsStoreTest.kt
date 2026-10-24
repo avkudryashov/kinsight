@@ -88,6 +88,20 @@ class SettingsStoreTest {
     }
 
     @Test
+    fun aStoredVersion2ConsentIsOutdatedSinceBlockingWasNotNamedInIt() = runTest {
+        val scope = CoroutineScope(Dispatchers.IO + SupervisorJob()).also { scopes += it }
+        val raw = PreferenceDataStoreFactory.create(scope = scope, produceFile = { file })
+        raw.edit {
+            it[longPreferencesKey("consent_at_ms")] = 1_000L
+            it[androidx.datastore.preferences.core.intPreferencesKey("consent_version")] = 2
+        }
+        val s = SettingsStore(raw).current()
+        assertEquals(2, s.consentVersion)
+        assertTrue(s.consentOutdated)
+        assertEquals(3, UsageSettings.CONSENT_VERSION)
+    }
+
+    @Test
     fun aNewConsentIsTheCurrentTextAndNoConsentIsNeverOutdated() = runTest {
         val s = store()
         s.upgradeConsent()

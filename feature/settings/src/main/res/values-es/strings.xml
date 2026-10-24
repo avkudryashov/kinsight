@@ -74,6 +74,8 @@
     <string name="tr_child_sharing_off">El intercambio está desactivado: no se envía nada nuevo, y tu familia lo ve.</string>
     <string name="tr_child_how">Solo un adulto de la familia puede cambiar el intercambio: desde su teléfono o con el PIN de los adultos en Más → Sincronización de este teléfono. Si se desactiva algo en los ajustes de Android, tu familia lo ve.</string>
     <string name="tr_child_keep">Los teléfonos de los adultos conservan los datos el tiempo que indiquen sus ajustes (por defecto, 90 días en detalle y un año de totales diarios).</string>
+    <string name="tr_child_rules">Los adultos de tu familia pueden limitar el tiempo y bloquear aplicaciones aquí. La lista está en la tarjeta de este teléfono.</string>
+    <string name="tr_child_rules_open">Ver las reglas</string>
     <string name="tr_parent_own">Este teléfono no comparte su propio tiempo de pantalla con nadie.</string>
     <string name="tr_parent_sync">Guarda los datos de los menores y los sincroniza con los demás adultos: %1$s.</string>
     <string name="tr_parent_keep">En este teléfono: historial detallado %1$s, totales diarios %2$s.</string>

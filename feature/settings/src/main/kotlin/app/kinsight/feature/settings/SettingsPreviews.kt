@@ -42,7 +42,7 @@ internal fun SettingsParentPreview() {
 @ThemePreviews
 @Composable
 internal fun TransparencyPreview() = PreviewTheme {
-    TransparencyScreen(GroupState.Ready(GROUP, KID, listOf(KID, MOM)), UsageSettings(sharing = true), NOW, onBack = {})
+    TransparencyScreen(GroupState.Ready(GROUP, KID, listOf(KID, MOM)), UsageSettings(sharing = true), NOW, onBack = {}, onRules = {})
 }
 
 @ThemePreviews

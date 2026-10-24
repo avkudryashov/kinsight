@@ -272,7 +272,7 @@ class SettingsScreenTest {
     @Test
     fun transparencyListsTheParentsForAChild() {
         rule.setContent {
-            KinsightTheme() { TransparencyScreen(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), 2L, onBack = {}) }
+            KinsightTheme() { TransparencyScreen(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), 2L, onBack = {}, onRules = {}) }
         }
         rule.onNodeWithText("all parents in your family group", substring = true).assertExists()
         rule.onNodeWithText("Mom", substring = true).assertExists()
@@ -280,9 +280,28 @@ class SettingsScreenTest {
     }
 
     @Test
+    fun transparencyTellsAChildAboutTheRulesAndOpensThem() {
+        var opened = 0
+        rule.setContent {
+            KinsightTheme() { TransparencyScreen(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), 2L, onBack = {}, onRules = { opened++ }) }
+        }
+        rule.onNodeWithText("Your parents can limit time and block apps here.", substring = true).performScrollTo().assertExists()
+        rule.onNodeWithTag("tr_child_rules_open").performScrollTo().performClick()
+        assertEquals(1, opened)
+    }
+
+    @Test
+    fun transparencyForAParentHasNoRulesRow() {
+        rule.setContent {
+            KinsightTheme() { TransparencyScreen(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), 2L, onBack = {}, onRules = {}) }
+        }
+        rule.onNodeWithTag("tr_child_rules_open").assertDoesNotExist()
+    }
+
+    @Test
     fun transparencyForAParentSaysNothingOfItsOwnIsShared() {
         rule.setContent {
-            KinsightTheme() { TransparencyScreen(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), 2L, onBack = {}) }
+            KinsightTheme() { TransparencyScreen(GroupState.Ready(group, parent, listOf(parent)), UsageSettings(), 2L, onBack = {}, onRules = {}) }
         }
         rule.onNodeWithText("does not share its own screen time", substring = true).assertExists()
         rule.onNodeWithText("detailed history 90 d, daily totals 365 d", substring = true).assertExists()
@@ -638,7 +657,7 @@ class SettingsScreenTest {
     fun theTransparencyScreenHasATopBarWithBack() {
         var back = 0
         rule.setContent {
-            KinsightTheme() { TransparencyScreen(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), 2L, onBack = { back++ }) }
+            KinsightTheme() { TransparencyScreen(GroupState.Ready(group, kid, listOf(kid, mom)), UsageSettings(), 2L, onBack = { back++ }, onRules = {}) }
         }
         rule.onNodeWithText("Who sees my data").assertExists()
         rule.onNodeWithTag("tr_back").performClick()

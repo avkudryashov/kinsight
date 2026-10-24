@@ -14,6 +14,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -31,10 +32,11 @@ import app.kinsight.core.data.AppGraph
 import app.kinsight.core.data.GroupState
 import app.kinsight.core.data.Role
 import app.kinsight.core.designsystem.component.relativeTime
+import app.kinsight.core.model.DeviceId
 import app.kinsight.core.usage.UsageSettings
 
 @Composable
-fun TransparencyRoute(onBack: () -> Unit) {
+fun TransparencyRoute(onBack: () -> Unit, onRules: (DeviceId) -> Unit) {
     val context = LocalContext.current
     val graph = remember { AppGraph.get(context) }
     val group by graph.group.state.collectAsStateWithLifecycle(initialValue = GroupState.Loading)
@@ -43,18 +45,19 @@ fun TransparencyRoute(onBack: () -> Unit) {
     if (ready == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
     } else {
-        TransparencyScreen(ready, usage, System.currentTimeMillis(), onBack)
+        TransparencyScreen(ready, usage, System.currentTimeMillis(), onBack, onRules = { onRules(ready.self.id) })
     }
 }
 
 /**
  * Spec §9.6 «прозрачность» in full: who receives this phone's data, what exactly, how to pause or stop, how long it
  * is kept. The list of parents is a snapshot, not the rule: every parent in the group receives a child's data,
- * including parents who join later, and the text says so. U21: a top app bar with Back, as every other screen.
+ * including parents who join later, and the text says so. A child also learns that parents may limit and block apps
+ * here ([onRules] opens the rules card; blocking spec §8). U21: a top app bar with Back, as every other screen.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TransparencyScreen(state: GroupState.Ready, usage: UsageSettings, nowMs: Long, onBack: () -> Unit) = Scaffold(
+fun TransparencyScreen(state: GroupState.Ready, usage: UsageSettings, nowMs: Long, onBack: () -> Unit, onRules: () -> Unit) = Scaffold(
     topBar = {
         TopAppBar(
             title = { Text(stringResource(R.string.tr_title)) },
@@ -83,6 +86,8 @@ fun TransparencyScreen(state: GroupState.Ready, usage: UsageSettings, nowMs: Lon
             Text(stringResource(if (usage.sharing) R.string.tr_child_sharing_on else R.string.tr_child_sharing_off))
             Text(stringResource(R.string.tr_child_how))
             Text(stringResource(R.string.tr_child_keep))
+            Text(stringResource(R.string.tr_child_rules))
+            OutlinedButton(onRules, Modifier.testTag("tr_child_rules_open")) { Text(stringResource(R.string.tr_child_rules_open)) }
         } else {
             Text(stringResource(R.string.tr_parent_own))
             Text(stringResource(R.string.tr_parent_sync, parents.joinToString(", ") { it.name }.ifEmpty { stringResource(R.string.tr_nobody) }))

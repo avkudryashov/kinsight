@@ -144,6 +144,20 @@ class ThresholdsViewModelTest {
     }
 
     @Test
+    fun awaitingConsentIsOnlyForTheChildsOwnPhoneWithAnOutdatedConsent() = runTest(dispatcher) {
+        val parent = MutableStateFlow(false)
+        val outdated = MutableStateFlow(false)
+        val flow = awaitingConsentOnChildPhone(parent, outdated)
+        val seen = mutableListOf<Boolean>()
+        backgroundScope.launch { flow.collect { seen += it } }
+        assertEquals(false, seen.last(), "child, current consent")
+        outdated.value = true
+        assertEquals(true, seen.last(), "child, outdated consent")
+        parent.value = true
+        assertEquals(false, seen.last(), "a parent never sees it, even with an outdated consent of its own")
+    }
+
+    @Test
     fun todaysTotalComesWithTheState() = runTest(dispatcher) {
         val source = FakeSource()
         val vm = vm(source)

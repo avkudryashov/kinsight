@@ -292,7 +292,9 @@ private fun MainScaffold(appVersion: String, role: Role?, openDevice: StateFlow<
                     val d = e.toRoute<InviteDest>()
                     InviteRoute(Role.valueOf(d.role), transfer = d.transfer, onClose = { nav.popBackStack() })
                 }
-                composable<TransparencyDest> { TransparencyRoute(onBack = { nav.popBackStack() }) }
+                composable<TransparencyDest> { // onRules: the child's own rules card, read-only
+                    TransparencyRoute(onBack = { nav.popBackStack() }, onRules = { self -> nav.navigate(ThresholdsDest(self.hex)) })
+                }
                 // UI refresh §6: a consent given later goes straight on to the setup steps still missing.
                 composable<ConsentDest> {
                     ConsentRoute(

@@ -52,7 +52,10 @@ internal interface ThresholdSource {
      */
     fun blockingOff(): Flow<Boolean> = flowOf(false)
 
-    /** Blocks wait for the child to agree to the updated consent (fed from Task 10; false until then). */
+    /**
+     * Blocks wait for this child to agree to the updated consent (UsageSettings.consentOutdated): true only on the
+     * child's own phone, never shown to a parent (app blocking spec §8).
+     */
     fun awaitingConsent(): Flow<Boolean> = flowOf(false)
 
     suspend fun set(rule: ThresholdRule)
@@ -60,7 +63,15 @@ internal interface ThresholdSource {
     suspend fun remove(id: String)
 }
 
-private class RepositoryThresholdSource(private val usage: UsageRepository, private val id: DeviceId) : ThresholdSource {
+/** [ThresholdSource.awaitingConsent] of a repository source: the viewer is not a parent (the child itself) and its consent is outdated. */
+internal fun awaitingConsentOnChildPhone(viewerIsParent: Flow<Boolean>, consentOutdated: Flow<Boolean>): Flow<Boolean> =
+    combine(viewerIsParent, consentOutdated) { parent, outdated -> !parent && outdated }.distinctUntilChanged()
+
+private class RepositoryThresholdSource(
+    private val usage: UsageRepository,
+    private val id: DeviceId,
+    private val consentOutdated: Flow<Boolean>,
+) : ThresholdSource {
     override fun rules(): Flow<List<ThresholdRule>> = usage.thresholds
 
     override fun viewerIsParent(): Flow<Boolean> = usage.viewerIsParent
@@ -78,6 +89,8 @@ private class RepositoryThresholdSource(private val usage: UsageRepository, priv
     override fun blockingOff(): Flow<Boolean> = usage.dashboard.map { d ->
         d?.children?.firstOrNull { it.member.id == id }?.setupWarnings?.contains(SetupWarning.BLOCKING_OFF) == true
     }.distinctUntilChanged()
+
+    override fun awaitingConsent(): Flow<Boolean> = awaitingConsentOnChildPhone(usage.viewerIsParent, consentOutdated)
 
     override suspend fun set(rule: ThresholdRule) = usage.setThreshold(rule)
 
@@ -129,8 +142,8 @@ class ThresholdsViewModel internal constructor(
     private val clock: () -> Long = System::currentTimeMillis,
     private val writes: CoroutineContext = EmptyCoroutineContext,
 ) : ViewModel() {
-    constructor(usage: UsageRepository, child: DeviceId, commitScope: CoroutineScope, saved: SavedStateHandle) :
-        this(RepositoryThresholdSource(usage, child), child, commitScope, saved, writes = ThresholdWrites.lane)
+    constructor(usage: UsageRepository, child: DeviceId, commitScope: CoroutineScope, saved: SavedStateHandle, consentOutdated: Flow<Boolean>) :
+        this(RepositoryThresholdSource(usage, child, consentOutdated), child, commitScope, saved, writes = ThresholdWrites.lane)
 
     /** Deleted on screen, «Undo» still offered: id to the end of its window (wall clock ms). */
     private val pending: MutableStateFlow<Map<String, Long>>
