@@ -15,5 +15,12 @@
             android:exported="true"
             android:permission="android.permission.DUMP"
             tools:replace="android:exported" />
+
+        <!-- The mascots in every mood, for looking at the art: adb shell am start -n app.kinsight/.debug.MascotGalleryActivity.
+             Exported only to holders of DUMP (the adb shell), like the receiver: a non-exported activity refuses am start. -->
+        <activity
+            android:name="app.kinsight.debug.MascotGalleryActivity"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
     </application>
 </manifest>
