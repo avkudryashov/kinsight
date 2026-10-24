@@ -422,9 +422,11 @@ object UsageReadModel {
         @Suppress("NAME_SHADOWING")
         val today = childToday(own, today, nowMs)
         val known = days(own, range.dates(), today).filter { it.known }
+        val apps = apps(own, known.map { it.date }, catalog)
         return AppList(
-            member, range, apps(own, known.map { it.date }, catalog), today,
+            member, range, apps, today,
             categories = categoryTotals(known.map { dayCategories(own, it, catalog, overrides) }),
+            appCategories = apps.associate { it.packageName to Categories.of(it.packageName, catalog[it.packageName]?.category, overrides) },
         )
     }
 

@@ -212,6 +212,8 @@ data class AppList(
     val today: LocalDate?,
     /** The range's time per category, largest first (the list the report gave up for its strip, UI refresh §4). */
     val categories: List<CategoryTotal> = emptyList(),
+    /** The category each app of [apps] counts in for a rule (Categories.of with the family overrides), as [DeviceDetail.appCategories]. */
+    val appCategories: Map<String, AppCategory> = emptyMap(),
 )
 
 /**

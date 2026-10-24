@@ -49,6 +49,9 @@ internal interface AppSource {
     /** The name of the other parent whose shared entry sets this app's category (spec §4.4, stage 5c); null otherwise. */
     fun categoryChangedBy(): Flow<String?> = flowOf(null)
 
+    /** The name of the other parent whose shared entry is this app's effective rule; null for the viewer's own or none. */
+    fun ruleChangedBy(): Flow<String?> = flowOf(null)
+
     suspend fun setThreshold(rule: ThresholdRule) {}
 
     suspend fun removeThreshold(id: String) {}
@@ -66,6 +69,8 @@ private class RepositoryAppSource(private val usage: UsageRepository, private va
     private val ruleId = ThresholdRule.idOf(id, ThresholdTarget.App(packageName))
 
     override fun categoryChangedBy(): Flow<String?> = usage.categoryChangedBy(packageName)
+
+    override fun ruleChangedBy(): Flow<String?> = usage.ruleChangedBy(ruleId)
 
     override fun rule(): Flow<ThresholdRule?> = usage.thresholds.map { rules -> rules.firstOrNull { it.id == ruleId } }
 
@@ -119,6 +124,9 @@ class AppDetailViewModel internal constructor(
 
     /** «Changed by <name>»: the other parent behind the effective category, null for the viewer's own or none. */
     val categoryChangedBy: StateFlow<String?> = source.categoryChangedBy().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** «Changed by <name>» for the rule: the other parent behind it, null for the viewer's own or none. */
+    val ruleChangedBy: StateFlow<String?> = source.ruleChangedBy().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     fun select(p: Period) = nav.select(p)
 

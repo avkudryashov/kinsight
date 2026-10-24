@@ -157,7 +157,8 @@ fun AllAppsRoute(id: DeviceId, range: DetailRange, onBack: () -> Unit, onOpenApp
     val graph = AppGraph.get(LocalContext.current)
     val vm: AllAppsViewModel = viewModel(key = "all-apps-${id.hex}-${range.period}-${range.start}") { AllAppsViewModel(graph.usage, id, range) }
     val list by vm.list.collectAsStateWithLifecycle()
-    list?.let { AllAppsScreen(it, onBack, onOpenApp) } ?: Loading()
+    val thresholds by vm.thresholds.collectAsStateWithLifecycle()
+    list?.let { AllAppsScreen(it, onBack, onOpenApp, thresholds) } ?: Loading()
 }
 
 @Composable
@@ -418,9 +419,9 @@ private fun Modifier.swipeSteps(canBack: Boolean, canForward: Boolean, onBack: (
     }
 }
 
-/** [onOpenApp] (a package name) makes the rows open one app, as on the detail screen. */
+/** [onOpenApp] (a package name) makes the rows open one app, as on the detail screen; [thresholds] (a parent's phone) draw the marks. */
 @Composable
-fun AllAppsScreen(list: AppList, onBack: () -> Unit, onOpenApp: ((String) -> Unit)? = null) =
+fun AllAppsScreen(list: AppList, onBack: () -> Unit, onOpenApp: ((String) -> Unit)? = null, thresholds: List<ThresholdRule>? = null) =
     Screen(stringResource(R.string.det_all_apps_title, list.member.name, rangeTitle(list.range, list.today ?: LocalDate.now())), onBack) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("det_apps"), contentPadding = PaddingValues(16.dp)) {
             if (list.categories.isNotEmpty()) {
@@ -437,7 +438,10 @@ fun AllAppsScreen(list: AppList, onBack: () -> Unit, onOpenApp: ((String) -> Uni
                 }
             }
             if (list.apps.isEmpty()) item { Text(stringResource(R.string.det_no_apps)) }
-            items(list.apps, key = { it.packageName }) { AppRow(it, onOpenApp) }
+            items(list.apps, key = { it.packageName }) { app ->
+                val category = list.appCategories[app.packageName] ?: AppCategory.OTHER
+                AppRow(app, onOpenApp, mark = thresholds?.let { ThresholdEval.markOf(it, list.member.id, app.packageName, category) } ?: RuleMark.NONE)
+            }
         }
     }
 

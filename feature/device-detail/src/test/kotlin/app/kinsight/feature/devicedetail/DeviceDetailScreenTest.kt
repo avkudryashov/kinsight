@@ -413,6 +413,17 @@ class DeviceDetailScreenTest {
     }
 
     @Test
+    fun allAppsRowsCarryPills() {
+        val rules = listOf(ThresholdRule.block(kid.id, ThresholdTarget.App("pkg.1"))!!, ThresholdRule.allow(kid.id, "pkg.2")!!)
+        val list = AppList(detail.member, detail.range, detail.apps, today, appCategories = emptyMap())
+        rule.setContent { KinsightTheme { AllAppsScreen(list, onBack = {}, thresholds = rules) } }
+        fun pillIn(tag: String, pkg: String) = rule.onNode(hasTestTag(tag) and hasAnyAncestor(hasTestTag("det_app_$pkg")), useUnmergedTree = true)
+        pillIn("det_blocked_pill", "pkg.1").assertTextEquals("blocked")
+        pillIn("det_allowed_pill", "pkg.2").assertTextEquals("always")
+        pillIn("det_blocked_pill", "pkg.3").assertDoesNotExist()
+    }
+
+    @Test
     fun rulesCardWithoutRulesSaysSo() {
         rule.setContent { KinsightTheme { DeviceDetailScreen(detail, onPeriod = {}, onAllApps = {}, onBack = {}, onRules = {}) } }
         list.performScrollToNode(hasTestTag("det_rules"))

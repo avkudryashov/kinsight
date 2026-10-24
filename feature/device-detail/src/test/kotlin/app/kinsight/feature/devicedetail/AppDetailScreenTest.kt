@@ -256,6 +256,16 @@ class AppDetailScreenTest {
     }
 
     @Test
+    fun anotherParentsRuleNamesItsAuthor() {
+        rule.setContent {
+            KinsightTheme() {
+                AppDetailScreen(app(), onPeriod = {}, onBack = {}, rule = ThresholdRule.block(kid.id, gameTarget), ruleChangedBy = "Dad")
+            }
+        }
+        rule.onNodeWithTag("app_rule_author").assertTextEquals("Changed by Dad")
+    }
+
+    @Test
     fun theLimitSaysBlockingRemovesIt() {
         showLimit(app(), ThresholdRule.of(kid.id, gameTarget, 3_600_000L)!!)
         rule.onNodeWithTag("app_rule_conflict").assertTextEquals("Blocking removes the time limit of this app.")

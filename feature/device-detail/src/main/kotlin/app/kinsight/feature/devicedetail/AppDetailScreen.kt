@@ -80,6 +80,7 @@ fun AppDetailRoute(id: DeviceId, packageName: String, range: DetailRange, onBack
     val settings by graph.settingsRepository.usageSettings.collectAsStateWithLifecycle(initialValue = UsageSettings())
     val appRule by vm.rule.collectAsStateWithLifecycle()
     val changedBy by vm.categoryChangedBy.collectAsStateWithLifecycle()
+    val ruleBy by vm.ruleChangedBy.collectAsStateWithLifecycle()
     val loaded by vm.loaded.collectAsStateWithLifecycle()
     val a = app
     when {
@@ -88,6 +89,7 @@ fun AppDetailRoute(id: DeviceId, packageName: String, range: DetailRange, onBack
             onPrevious = vm::back, onNext = vm::forward, onOpenDay = vm::openDay, onCategory = vm::setCategory,
             detailRetentionDays = settings.detailRetentionDays,
             categoryChangedBy = changedBy,
+            ruleChangedBy = ruleBy,
             rule = appRule, onRule = vm::setRule, onRemoveThreshold = vm::removeThreshold, onBlocked = vm::setBlocked, onAllowed = vm::setAllowed,
         )
         loaded -> MissingDevice(onBack)
@@ -120,6 +122,7 @@ fun AppDetailScreen(
     onBlocked: (Boolean) -> Unit = {},
     onAllowed: (Boolean) -> Unit = {},
     categoryChangedBy: String? = null,
+    ruleChangedBy: String? = null,
 ) = Screen(appLabel(app.packageName, app.label), onBack) { padding ->
     val today = app.today ?: LocalDate.now()
     val known = app.days.any { it.known }
@@ -146,6 +149,10 @@ fun AppDetailScreen(
                 Column {
                     RuleSwitch(stringResource(R.string.app_block), rule?.mode == RuleMode.BLOCK, "app_block", onBlocked)
                     RuleSwitch(stringResource(R.string.app_allow), rule?.mode == RuleMode.ALLOW, "app_allow", onAllowed)
+                    if (rule != null && ruleChangedBy != null) {
+                        val who = ruleChangedBy.ifBlank { stringResource(R.string.app_category_another_parent) }
+                        Text(stringResource(R.string.app_category_changed_by, who), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("app_rule_author"))
+                    }
                     if (threshold != null) {
                         Text(stringResource(R.string.app_rule_conflict), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("app_rule_conflict"))
                     }
